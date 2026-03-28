@@ -1,0 +1,44 @@
+[package]
+name = "calendar"
+version = "0.1.0"
+description = "Calendar Desktop App"
+authors = []
+edition = "2021"
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["full"] }
+webbrowser = "0.8"
+urlencoding = "2.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "NSArray", "NSDate", "NSError", "NSLocale", "NSPredicate", "NSString", "NSTimeZone", "NSURL",
+] }
+objc2-event-kit = { version = "0.3", default-features = false, features = [
+  "EKCalendar", "EKCalendarItem", "EKEvent", "EKEventStore", "EKObject",
+  "EKParticipant", "EKSource", "EKTypes",
+  "block2", "objc2-app-kit",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSColor"] }
+block2 = "0.6"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"

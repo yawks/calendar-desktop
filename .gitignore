@@ -1,0 +1,20 @@
+.claude/
+.DS_Store
+.DS_Store?
+Thumbs.db
+.vscode/
+.idea/
+*.log
+
+# Frontend build / dependencies
+frontend/dist/
+frontend/node_modules/
+frontend/.env*
+
+# Tauri / Rust build artifacts
+frontend/src-tauri/target/
+frontend/src-tauri/bundle/
+
+# Legacy web proxy artifacts
+proxy/node_modules/
+proxy/.env*

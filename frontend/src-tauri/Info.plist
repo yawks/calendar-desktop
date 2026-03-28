@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Calendar Desktop accède à vos calendriers macOS pour afficher et créer des événements.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Calendar Desktop accède à vos calendriers macOS pour afficher et créer des événements.</string>
+</dict>
+</plist>
