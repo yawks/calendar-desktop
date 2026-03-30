@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   X, Pencil, Trash2, Clock, MapPin, CalendarDays, FileText,
-  HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Loader2, Video,
+  HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Loader2, Video, ChevronDown,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { CalendarConfig, CalendarEvent, Attendee, AttendeeStatus } from '../types';
 import i18n from '../i18n';
+import { useTags } from '../store/TagStore';
 
 function openExternal(url: string) {
   invoke('open_url', { url }).catch(console.error);
@@ -151,8 +152,11 @@ function AttendeeRow({ attendee }: { readonly attendee: Attendee }) {
 
 export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onRsvp }: Props) {
   const { t } = useTranslation();
+  const { tags, eventTags, setEventTag, removeEventTag } = useTags();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -188,6 +192,21 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     };
   }, [onClose]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!showTagDropdown) return;
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowTagDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showTagDropdown]);
+
+  const tagKey = event ? event.seriesId ?? event.sourceId ?? event.id : undefined;
+  const selectedTagId = tagKey ? eventTags[tagKey] : undefined;
+  const selectedTag = selectedTagId ? tags.find((tag) => tag.id === selectedTagId) : undefined;
   const isPast = event ? new Date(event.end) < new Date() : false;
 
   // Sort: organizer first, then by status
@@ -208,6 +227,91 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
         <div className="modal">
           <div className="modal-header" style={{ background: calendar?.color || '#888' }}>
             <span className="modal-title">{event.title}</span>
+            {tags.length > 0 && event && (
+              <div ref={dropdownRef} style={{ position: 'relative', marginLeft: 12 }}>
+                <button
+                  type="button"
+                  className="event-modal-tag-button"
+                  onClick={() => setShowTagDropdown((prev) => !prev)}
+                  aria-label={t('eventModal.selectTag', 'Select tag')}
+                  style={{ minWidth: 100 }}
+                >
+                  <span style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    backgroundColor: selectedTag?.color ?? 'transparent',
+                    border: selectedTag ? 'none' : '1px solid var(--border)',
+                    flexShrink: 0,
+                  }} />
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>
+                    {selectedTag ? selectedTag.name : t('eventModal.noTag', 'No tag')}
+                  </span>
+                  <ChevronDown size={14} />
+                </button>
+                {showTagDropdown && (
+                  <div className="event-modal-tag-dropdown">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (tagKey) removeEventTag(tagKey);
+                        setShowTagDropdown(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: 'transparent',
+                        border: 'none',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        border: '1px solid var(--border)',
+                        display: 'inline-block',
+                      }} />
+                      <span>{t('eventModal.noTag', 'No tag')}</span>
+                    </button>
+                    {tags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        onClick={() => {
+                          if (tagKey) setEventTag(tagKey, tag.id);
+                          setShowTagDropdown(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          background: 'transparent',
+                          border: 'none',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <span style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          backgroundColor: tag.color,
+                          display: 'inline-block',
+                        }} />
+                        <span>{tag.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {onEdit && (
               <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
                 <Pencil size={16} />

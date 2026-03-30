@@ -13,6 +13,7 @@ import { createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } fro
 import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
 import { useCalendars } from '../store/CalendarStore';
 import { useCalendarGroups } from '../store/CalendarGroupStore';
+import { useTags } from '../store/TagStore';
 import { useGoogleAuth } from '../store/GoogleAuthStore';
 import { useGoogleEvents } from '../hooks/useGoogleEvents';
 import { useICSEvents } from '../hooks/useICSEvents';
@@ -160,12 +161,15 @@ function formatTime(date: unknown): string {
 }
 
 // ── Map our events to TUI format with styling ─────────────────────────────────
-function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[], isDark: boolean) {
+function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[], isDark: boolean, tags: import('../types').Tag[], eventTags: import('../types').EventTagMapping) {
   const now = new Date();
   const unacceptedBg = isDark ? '#1e1e2e' : '#ffffff';
   return events.map((ev) => {
     const cal = calendars.find((c) => c.id === ev.calendarId);
     const color = cal?.color || '#888';
+    const eventKey = ev.seriesId ?? ev.sourceId;
+    const tagId = eventKey ? eventTags[eventKey] : undefined;
+    const tag = tagId ? tags.find((t) => t.id === tagId) : undefined;
     const isPast = new Date(ev.end) < now;
     const isUnaccepted = ev.isUnaccepted;
     const isDeclined = ev.isDeclined;
@@ -207,6 +211,8 @@ function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[], isDar
       customStyle.textDecoration = 'line-through';
     }
 
+    const tagColor = tag && !isDeclined ? tag.color : undefined;
+
     // Google Calendar all-day events have an exclusive end date (the day after).
     // TUI Calendar expects an inclusive end date, so we subtract 1 day.
     let tuiEnd = ev.end;
@@ -231,6 +237,7 @@ function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[], isDar
       backgroundColor,
       borderColor,
       ...(Object.keys(customStyle).length ? { customStyle } : {}),
+      raw: { tagColor },
     };
   });
 }
@@ -286,6 +293,7 @@ export default function CalendarPage() {
 
   const { calendars: realCalendars, toggleCalendar, updateCalendar, reorderCalendars } = useCalendars();
   const { groups, addGroup, removeGroup, updateGroup } = useCalendarGroups();
+  const { tags, eventTags, addTag, removeTag, updateTag, setEventTag, removeEventTag } = useTags();
   const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = useICSEvents(DEMO_MODE ? [] : realCalendars);
   const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = useGoogleEvents(DEMO_MODE ? [] : realCalendars);
   const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = useNextcloudEvents(DEMO_MODE ? [] : realCalendars);
@@ -316,15 +324,16 @@ export default function CalendarPage() {
     (c) => c.type === 'google' || c.type === 'eventkit' || c.type === 'nextcloud'
   );
 
-  const saveNextcloudEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent) => {
+  const saveNextcloudEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
     if (sourceEvent?.sourceId) {
       await updateNextcloudEvent(cal, sourceEvent.sourceId, payload);
+      return sourceEvent.seriesId;
     } else {
-      await createNextcloudEvent(cal, payload);
+      return await createNextcloudEvent(cal, payload);
     }
   }, []);
 
-  const saveEventKitEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent) => {
+  const saveEventKitEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
     const { invoke } = await import('@tauri-apps/api/core');
     const attendees = payload.attendees?.map((a) => ({ email: a.email, name: a.name ?? null })) ?? null;
     if (sourceEvent?.sourceId) {
@@ -336,26 +345,29 @@ export default function CalendarPage() {
           notes: payload.description ?? null, attendees,
         },
       });
+      return sourceEvent.seriesId;
     } else {
-      await invoke('create_eventkit_event', {
+      const res = await invoke<string | undefined>('create_eventkit_event', {
         payload: {
           calendar_id: cal.eventKitCalendarId,
           title: payload.title, start: payload.start, end: payload.end,
           is_all_day: payload.isAllday, location: payload.location ?? null,
           notes: payload.description ?? null, attendees,
         },
-      });
+      }).catch(() => undefined);
+      return res; // Might be a string ID if we update rust, otherwise undefined.
     }
   }, []);
 
-  const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent) => {
+  const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
     if (!cal.googleAccountId) throw new Error('Compte Google introuvable');
     const token = await getValidToken(cal.googleAccountId);
     if (!token) throw new Error('Token invalide. Reconnectez votre compte Google.');
     if (sourceEvent?.sourceId) {
       await updateEvent(token, cal, sourceEvent.sourceId, payload);
+      return sourceEvent.seriesId;
     } else {
-      await createEvent(token, cal, payload);
+      return await createEvent(token, cal, payload);
     }
   }, [getValidToken]);
 
@@ -454,6 +466,18 @@ export default function CalendarPage() {
     };
 
     if (sourceEvent) {
+      const normalize = (s?: string) => (s || '').trim();
+      const getEmails = (arr?: { email: string }[]) => (arr || []).map(a => a.email.toLowerCase()).sort().join(',');
+
+      const hasEventChanges =
+        normalize(payload.title) !== normalize(sourceEvent.title) ||
+        payload.start !== sourceEvent.start ||
+        payload.end !== sourceEvent.end ||
+        payload.isAllday !== sourceEvent.isAllday ||
+        normalize(payload.location) !== normalize(sourceEvent.location) ||
+        normalize(payload.description) !== normalize(sourceEvent.description) ||
+        getEmails(payload.attendees) !== getEmails(sourceEvent.attendees);
+
       const optimistic: CalendarEvent = {
         ...sourceEvent,
         title: payload.title,
@@ -463,11 +487,27 @@ export default function CalendarPage() {
         category: payload.isAllday ? 'allday' : 'time',
         location: payload.location,
         description: payload.description,
+        tagId: payload.tagId ?? undefined,
       };
       setOptimisticUpdated((prev) => new Map(prev).set(sourceEvent.id, optimistic));
       try {
-        await doSave();
-        await doRefresh();
+        let sid: string | undefined = undefined;
+        if (hasEventChanges) {
+          sid = await doSave();
+        }
+        
+        const finalSeriesId = sid ?? sourceEvent.seriesId ?? sourceEvent.sourceId;
+        if (finalSeriesId) {
+          if (payload.tagId) {
+            setEventTag(finalSeriesId, payload.tagId);
+          } else if (payload.tagId === null) {
+            removeEventTag(finalSeriesId);
+          }
+        }
+        
+        if (hasEventChanges) {
+          await doRefresh();
+        }
       } catch (e) {
         setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(sourceEvent.id); return n; });
         throw e;
@@ -485,11 +525,17 @@ export default function CalendarPage() {
         category: payload.isAllday ? 'allday' : 'time',
         location: payload.location,
         description: payload.description,
+        tagId: payload.tagId ?? undefined,
       };
       setOptimisticCreated((prev) => [...prev, optimistic]);
       try {
-        await doSave();
+        const sid = await doSave();
+        if (payload.tagId && sid) {
+          setEventTag(sid, payload.tagId);
+        }
         await doRefresh();
+        // Since refreshing fetches real events, wait for `handleSaveEvent` to complete and return sid
+        return sid; // Pass sid so caller can map it
       } catch (e) {
         setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
         throw e;
@@ -522,23 +568,21 @@ export default function CalendarPage() {
     [events]
   );
 
+  const isEventEditable = useCallback((event: CalendarEvent) => {
+    const cal = calendars.find((c) => c.id === event.calendarId);
+    if (!cal) return false;
+    if (cal.type !== 'google' && cal.type !== 'eventkit' && cal.type !== 'nextcloud') return false;
+    const attendees = event.attendees;
+    return !attendees?.length || attendees.some((a) => a.isOrganizer && a.email === cal.ownerEmail);
+  }, [calendars]);
+
   const handleBeforeUpdateEvent = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ({ event, changes }: { event: any; changes: any }) => {
       const originalEvent = events.find((e) => e.id === event.id);
       if (!originalEvent) return;
 
-      const cal = calendars.find((c) => c.id === originalEvent.calendarId);
-      if (!cal) return;
-
-      // Only writable calendars
-      if (cal.type !== 'google' && cal.type !== 'eventkit' && cal.type !== 'nextcloud') return;
-
-      // Only if current user is organizer (no attendees = personal event, or explicitly organizer)
-      const { attendees } = originalEvent;
-      const isOrganizer = !attendees?.length ||
-        attendees.some((a) => a.isOrganizer && a.email === cal.ownerEmail);
-      if (!isOrganizer) return;
+      if (!isEventEditable(originalEvent)) return;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const toISO = (d: unknown): string => {
@@ -618,7 +662,9 @@ export default function CalendarPage() {
   const tuiEvents = toTUIEvents(
     events.filter((e) => calendars.find((c) => c.id === e.calendarId)?.visible),
     calendars,
-    theme === 'dark'
+    theme === 'dark',
+    tags,
+    eventTags
   );
 
   const isWorkweek = view === 'workweek';
@@ -642,12 +688,16 @@ export default function CalendarPage() {
           <Sidebar
             calendars={calendars}
             groups={groups}
+            tags={tags}
             onToggle={toggleCalendar}
             onUpdate={updateCalendar}
             onReorderCalendars={reorderCalendars}
             onAddGroup={addGroup}
             onUpdateGroup={updateGroup}
             onRemoveGroup={removeGroup}
+            onAddTag={addTag}
+            onUpdateTag={updateTag}
+            onRemoveTag={removeTag}
             loading={loading}
             errors={errors}
             width={sidebarWidth}
@@ -683,10 +733,23 @@ export default function CalendarPage() {
                 const start = formatTime(event.start);
                 const end = formatTime(event.end);
                 const timeLabel = start && end ? `de ${start} à ${end}` : '';
-                return `<div style="overflow:hidden;height:100%;line-height:1.3">
+                const tagColor = event.raw?.tagColor;
+                const dot = tagColor
+                  ? `<span style="position:absolute;bottom:3px;right:4px;width:7px;height:7px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);flex-shrink:0;display:inline-block"></span>`
+                  : '';
+                return `<div style="position:relative;overflow:hidden;height:100%;line-height:1.3">
                   <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${event.title}</div>
                   ${timeLabel ? `<div style="opacity:0.85;white-space:nowrap">${timeLabel}</div>` : ''}
+                  ${dot}
                 </div>`;
+              },
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              allday: (event: any) => {
+                const tagColor = event.raw?.tagColor;
+                const dot = tagColor
+                  ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);margin-left:4px;vertical-align:middle;flex-shrink:0"></span>`
+                  : '';
+                return `<span style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${event.title}</span>${dot}`;
               },
             }}
             week={{
@@ -707,12 +770,12 @@ export default function CalendarPage() {
         calendar={selectedCalendar}
         onClose={() => setSelectedEvent(null)}
         onEdit={
-          selectedEvent && (selectedCalendar?.type === 'google' || selectedCalendar?.type === 'eventkit' || selectedCalendar?.type === 'nextcloud')
+          selectedEvent && isEventEditable(selectedEvent)
             ? () => { setEditEvent(selectedEvent); setSelectedEvent(null); }
             : undefined
         }
         onDelete={
-          selectedEvent && (selectedCalendar?.type === 'google' || selectedCalendar?.type === 'eventkit' || selectedCalendar?.type === 'nextcloud')
+          selectedEvent && isEventEditable(selectedEvent)
             ? () => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null))
             : undefined
         }
@@ -729,7 +792,7 @@ export default function CalendarPage() {
           initialEnd={createModalState.end}
           writableCalendars={writableCalendars}
           allEvents={events}
-          onSubmit={(payload) => handleSaveEvent(payload)}
+          onSubmit={async (payload) => { await handleSaveEvent(payload); }}
           onClose={() => {
             setCreateModalState(null);
             calendarRef.current?.getInstance()?.clearGridSelections();
@@ -745,7 +808,7 @@ export default function CalendarPage() {
           writableCalendars={writableCalendars}
           allEvents={events}
           editEvent={editEvent}
-          onSubmit={(payload) => handleSaveEvent(payload, editEvent)}
+          onSubmit={async (payload) => { await handleSaveEvent(payload, editEvent); }}
           onClose={() => setEditEvent(null)}
           getValidToken={getValidToken}
         />

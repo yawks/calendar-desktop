@@ -131,6 +131,7 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
     selfRsvpStatus,
     attendees,
     meetUrl,
+    seriesId: gEvent.recurringEventId ?? gEvent.id.split('_')[0],
   };
 }
 
@@ -222,12 +223,13 @@ export async function createEvent(
   token: string,
   cal: CalendarConfig,
   payload: CreateEventPayload
-): Promise<void> {
+): Promise<string> {
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
-  await gFetch(token, `/calendars/${calendarId}/events`, {
+  const res = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events`, {
     method: 'POST',
     body: JSON.stringify(buildEventBody(payload)),
   });
+  return res.recurringEventId ?? res.id.split('_')[0];
 }
 
 export async function updateEvent(

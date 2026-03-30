@@ -25,7 +25,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-import { CalendarConfig, CalendarGroup } from '../types';
+import { CalendarConfig, CalendarGroup, Tag } from '../types';
 import MiniCalendar from './MiniCalendar';
 
 const COLORS = [
@@ -44,6 +44,10 @@ interface Props {
   readonly onAddGroup: (name: string) => void;
   readonly onUpdateGroup: (id: string, data: Partial<CalendarGroup>) => void;
   readonly onRemoveGroup: (id: string) => void;
+  readonly tags?: Tag[];
+  readonly onAddTag?: (name: string, color: string) => void;
+  readonly onUpdateTag?: (id: string, data: Partial<Tag>) => void;
+  readonly onRemoveTag?: (id: string) => void;
   readonly loading: boolean;
   readonly errors: Record<string, string>;
   readonly width: number;
@@ -338,9 +342,10 @@ function GroupSection({
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 export default function Sidebar({
-  calendars, groups,
+  calendars, groups, tags,
   onToggle, onUpdate, onReorderCalendars,
   onAddGroup, onUpdateGroup, onRemoveGroup,
+  onAddTag, onUpdateTag, onRemoveTag,
   loading, errors, width, currentDate, onNavigateToDate,
 }: Props) {
   const { t } = useTranslation();
@@ -353,6 +358,14 @@ export default function Sidebar({
   // New group form state
   const [addingGroup, setAddingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
+
+  // Tag state
+  const [addingTag, setAddingTag] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#1a73e8');
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  const [editTagName, setEditTagName] = useState('');
+  const [editTagColor, setEditTagColor] = useState('');
 
   // DnD state
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -382,6 +395,26 @@ export default function Sidebar({
     if (name) onAddGroup(name);
     setNewGroupName('');
     setAddingGroup(false);
+  };
+
+  const startEditTag = (tag: Tag) => {
+    setEditingTagId(tag.id);
+    setEditTagName(tag.name);
+    setEditTagColor(tag.color);
+  };
+
+  const saveEditTag = (id: string) => {
+    if (editTagName.trim() && onUpdateTag) {
+      onUpdateTag(id, { name: editTagName.trim(), color: editTagColor });
+    }
+    setEditingTagId(null);
+  };
+
+  const handleAddTag = () => {
+    const name = newTagName.trim();
+    if (name && onAddTag) onAddTag(name, newTagColor);
+    setNewTagName('');
+    setAddingTag(false);
   };
 
   const handleDragStart = ({ active }: DragStartEvent) => {
@@ -499,6 +532,139 @@ export default function Sidebar({
           <Plus size={12} />
           {t('sidebar.newGroup')}
         </button>
+      )}
+
+      {tags !== undefined && (
+        <div className="group-section" style={{ marginTop: '16px' }}>
+          <div className="group-header">
+            <span className="group-name">Tags / Insights</span>
+          </div>
+          <div className="group-calendars">
+            {tags.map((tag) => (
+              <div key={tag.id}>
+                {editingTagId === tag.id ? (
+                  <div className="calendar-edit-panel">
+                    <input
+                      type="text"
+                      className="calendar-edit-input"
+                      value={editTagName}
+                      onChange={(e) => setEditTagName(e.target.value)}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveEditTag(tag.id);
+                        if (e.key === 'Escape') setEditingTagId(null);
+                      }}
+                    />
+                    <div className="calendar-edit-colors">
+                      {COLORS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          className={`calendar-color-swatch${editTagColor === c ? ' selected' : ''}`}
+                          style={{ backgroundColor: c }}
+                          onClick={() => setEditTagColor(c)}
+                        />
+                      ))}
+                      <input
+                        type="color"
+                        value={editTagColor}
+                        onChange={(e) => setEditTagColor(e.target.value)}
+                        className="calendar-color-picker"
+                        title={t('sidebar.customColor')}
+                      />
+                    </div>
+                    <div className="calendar-edit-actions">
+                      <button type="button" className="calendar-edit-save" onClick={() => saveEditTag(tag.id)}>
+                        <Check size={13} />
+                      </button>
+                      <button type="button" className="calendar-edit-cancel" onClick={() => setEditingTagId(null)}>
+                        <X size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="calendar-item-wrapper">
+                    <span style={{ width: 12, display: 'inline-block' }}></span>
+                    <label className="calendar-item">
+                      <span
+                        className="calendar-checkbox checked"
+                        style={{ color: tag.color, borderRadius: '50%' }}
+                      />
+                      <span className="calendar-name">{tag.name}</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="calendar-edit-btn"
+                      onClick={() => startEditTag(tag)}
+                      title={t('sidebar.rename')}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="calendar-edit-btn group-delete-btn"
+                      onClick={() => onRemoveTag && onRemoveTag(tag.id)}
+                      title={t('sidebar.deleteGroup')}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+            
+            {addingTag ? (
+              <div className="calendar-edit-panel" style={{ padding: '8px' }}>
+                <input
+                  type="text"
+                  className="calendar-edit-input"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  placeholder="Nom du tag"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddTag();
+                    if (e.key === 'Escape') { setNewTagName(''); setAddingTag(false); }
+                  }}
+                />
+                <div className="calendar-edit-colors">
+                  {COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`calendar-color-swatch${newTagColor === c ? ' selected' : ''}`}
+                      style={{ backgroundColor: c }}
+                      onClick={() => setNewTagColor(c)}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={newTagColor}
+                    onChange={(e) => setNewTagColor(e.target.value)}
+                    className="calendar-color-picker"
+                  />
+                </div>
+                <div className="calendar-edit-actions">
+                  <button type="button" className="calendar-edit-save" onClick={handleAddTag}>
+                    <Check size={13} />
+                  </button>
+                  <button type="button" className="calendar-edit-cancel" onClick={() => { setNewTagName(''); setAddingTag(false); }}>
+                    <X size={13} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="add-group-btn"
+                onClick={() => setAddingTag(true)}
+              >
+                <Plus size={12} />
+                Nouveau tag
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
       {loading && (

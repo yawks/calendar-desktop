@@ -79,7 +79,7 @@ function eventResourceUrl(cal: CalendarConfig, uid: string): string {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function createNextcloudEvent(cal: CalendarConfig, payload: CreateEventPayload): Promise<void> {
+export async function createNextcloudEvent(cal: CalendarConfig, payload: CreateEventPayload): Promise<string> {
   const uid = crypto.randomUUID();
   const icsContent = buildVCalendar(uid, payload);
   const url = eventResourceUrl(cal, uid);
@@ -91,6 +91,7 @@ export async function createNextcloudEvent(cal: CalendarConfig, payload: CreateE
     password: cal.nextcloudPassword ?? '',
     icsContent,
   });
+  return uid;
 }
 
 export async function updateNextcloudEvent(

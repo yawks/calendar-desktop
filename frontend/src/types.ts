@@ -4,6 +4,14 @@ export interface CalendarGroup {
   collapsed?: boolean;
 }
 
+export interface Tag {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export type EventTagMapping = Record<string, string>;
+
 export interface CalendarConfig {
   id: string;
   name: string;
@@ -50,6 +58,7 @@ export interface CreateEventPayload {
   /** CalendarConfig.id of the target calendar (Google or EventKit) */
   calendarId: string;
   attendees?: Array<{ email: string; name?: string }>;
+  tagId?: string | null;
 }
 
 export type ViewType = 'day' | 'workweek' | 'week' | 'month';
@@ -87,4 +96,8 @@ export interface CalendarEvent {
   attendees?: Attendee[];
   /** Google Meet or other video conference URL */
   meetUrl?: string;
+  /** Series ID used to identify recurring events or events that share the same root identifier */
+  seriesId?: string;
+  /** Tag assigned to this event locally */
+  tagId?: string;
 }

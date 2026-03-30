@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { CalendarProvider } from './store/CalendarStore';
 import { CalendarGroupProvider } from './store/CalendarGroupStore';
+import { TagProvider } from './store/TagStore';
 import { ThemeProvider } from './store/ThemeStore';
 import { LanguageProvider } from './store/LanguageStore';
 import { GoogleAuthProvider } from './store/GoogleAuthStore';
@@ -14,12 +15,14 @@ export default function App() {
       <GoogleAuthProvider>
         <CalendarProvider>
         <CalendarGroupProvider>
+        <TagProvider>
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <Routes>
               <Route path="/" element={<CalendarPage />} />
               <Route path="/config" element={<ConfigPage />} />
             </Routes>
           </BrowserRouter>
+        </TagProvider>
         </CalendarGroupProvider>
         </CalendarProvider>
       </GoogleAuthProvider>

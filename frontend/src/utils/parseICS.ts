@@ -101,6 +101,7 @@ function buildEvent(
     isDeclined: partstat === 'DECLINED',
     selfRsvpStatus: partstat ?? undefined,
     attendees: attendees.length > 0 ? attendees : undefined,
+    seriesId: icalEvent.uid as string | undefined,
   };
 }
 

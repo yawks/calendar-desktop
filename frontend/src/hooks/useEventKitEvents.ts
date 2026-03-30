@@ -84,6 +84,7 @@ async function fetchEKEvents(cal: CalendarConfig): Promise<CalendarEvent[]> {
       isDeclined,
       selfRsvpStatus,
       attendees,
+      seriesId: ev.id,
     };
   });
 }
