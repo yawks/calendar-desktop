@@ -495,7 +495,7 @@ export default function CalendarPage() {
         if (hasEventChanges) {
           sid = await doSave();
         }
-        
+
         const finalSeriesId = sid ?? sourceEvent.seriesId ?? sourceEvent.sourceId;
         if (finalSeriesId) {
           if (payload.tagId) {
@@ -504,7 +504,7 @@ export default function CalendarPage() {
             removeEventTag(finalSeriesId);
           }
         }
-        
+
         if (hasEventChanges) {
           await doRefresh();
         }
