@@ -1,9 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  X, Pencil, Clock, MapPin, CalendarDays, FileText,
-  HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Loader2,
+  X, Pencil, Trash2, Clock, MapPin, CalendarDays, FileText,
+  HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Loader2, Video,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { invoke } from '@tauri-apps/api/core';
 import { CalendarConfig, CalendarEvent, Attendee, AttendeeStatus } from '../types';
+import i18n from '../i18n';
+
+function openExternal(url: string) {
+  invoke('open_url', { url }).catch(console.error);
+}
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 
@@ -13,7 +20,16 @@ function linkify(text: string) {
   for (const match of text.matchAll(URL_RE)) {
     if (match.index > last) parts.push(text.slice(last, match.index));
     const url = match[0];
-    parts.push(<a key={match.index} href={url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', wordBreak: 'break-all' }}>{url}</a>);
+    parts.push(
+      <a
+        key={match.index}
+        href={url}
+        onClick={(e) => { e.preventDefault(); openExternal(url); }}
+        style={{ color: 'var(--primary)', wordBreak: 'break-all', cursor: 'pointer' }}
+      >
+        {url}
+      </a>
+    );
     last = match.index + url.length;
   }
   if (last < text.length) parts.push(text.slice(last));
@@ -27,21 +43,23 @@ interface Props {
   readonly calendar: CalendarConfig | null;
   readonly onClose: () => void;
   readonly onEdit?: () => void;
+  readonly onDelete?: () => Promise<void>;
   readonly onRsvp?: (status: RsvpStatus) => Promise<void>;
 }
-
-const RSVP_OPTIONS: { status: RsvpStatus; label: string; icon: React.ReactNode }[] = [
-  { status: 'ACCEPTED',  label: 'Accepté',   icon: <Check size={13} /> },
-  { status: 'TENTATIVE', label: 'Peut-être',  icon: <HelpCircle size={13} /> },
-  { status: 'DECLINED',  label: 'Refusé',     icon: <Ban size={13} /> },
-];
 
 function RsvpRow({ current, onRsvp }: {
   readonly current: AttendeeStatus;
   readonly onRsvp: (status: RsvpStatus) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState<RsvpStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const RSVP_OPTIONS: { status: RsvpStatus; label: string; icon: React.ReactNode }[] = [
+    { status: 'ACCEPTED',  label: t('eventModal.rsvp.ACCEPTED'),  icon: <Check size={13} /> },
+    { status: 'TENTATIVE', label: t('eventModal.rsvp.TENTATIVE'), icon: <HelpCircle size={13} /> },
+    { status: 'DECLINED',  label: t('eventModal.rsvp.DECLINED'),  icon: <Ban size={13} /> },
+  ];
 
   const handleClick = async (status: RsvpStatus) => {
     if (loading) return;
@@ -50,7 +68,7 @@ function RsvpRow({ current, onRsvp }: {
     try {
       await onRsvp(status);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erreur lors de la mise à jour');
+      setError(e instanceof Error ? e.message : t('eventModal.rsvp.updateError'));
     } finally {
       setLoading(null);
     }
@@ -83,7 +101,7 @@ function RsvpRow({ current, onRsvp }: {
 }
 
 function formatEventDate(event: CalendarEvent): string {
-  const locale = 'fr-FR';
+  const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-US';
   const start = new Date(event.start);
   const end = new Date(event.end);
 
@@ -117,34 +135,33 @@ function AttendeeStatusIcon({ status }: { readonly status: AttendeeStatus }) {
   }
 }
 
-const STATUS_LABELS: Record<AttendeeStatus, string> = {
-  'ACCEPTED':     'Accepté',
-  'DECLINED':     'Refusé',
-  'TENTATIVE':    'Peut-être',
-  'NEEDS-ACTION': 'En attente',
-  'DELEGATED':    'Délégué',
-};
-
 function AttendeeRow({ attendee }: { readonly attendee: Attendee }) {
+  const { t } = useTranslation();
+  const statusLabel = t(`eventModal.attendeeStatus.${attendee.status}`);
   return (
-    <div className="attendee-row" title={`${attendee.email} — ${STATUS_LABELS[attendee.status]}`}>
+    <div className="attendee-row" title={`${attendee.email} — ${statusLabel}`}>
       <AttendeeStatusIcon status={attendee.status} />
       <span className="attendee-name">
         {attendee.name}
-        {attendee.isOrganizer && <span className="attendee-organizer">organisateur</span>}
+        {attendee.isOrganizer && <span className="attendee-organizer">{t('eventModal.organizer')}</span>}
       </span>
     </div>
   );
 }
 
-export default function EventModal({ event, calendar, onClose, onEdit, onRsvp }: Props) {
+export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onRsvp }: Props) {
+  const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (event) {
       dialog.showModal();
+      setShowDeleteConfirm(false);
+      setDeleteError(null);
     } else if (dialog.open) {
       dialog.close();
     }
@@ -192,14 +209,46 @@ export default function EventModal({ event, calendar, onClose, onEdit, onRsvp }:
           <div className="modal-header" style={{ background: calendar?.color || '#888' }}>
             <span className="modal-title">{event.title}</span>
             {onEdit && (
-              <button className="btn-icon modal-close" onClick={onEdit} aria-label="Modifier">
+              <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
                 <Pencil size={16} />
               </button>
             )}
-            <button className="btn-icon modal-close" onClick={onClose} aria-label="Fermer">
+            {onDelete && (
+              <button
+                className="btn-icon modal-close"
+                onClick={() => { setShowDeleteConfirm(true); setDeleteError(null); }}
+                aria-label={t('eventModal.delete')}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+            <button className="btn-icon modal-close" onClick={onClose} aria-label={t('eventModal.close')}>
               <X size={18} />
             </button>
           </div>
+
+          {showDeleteConfirm && (
+            <div className="modal-delete-bar">
+              <span>{t('eventModal.deleteConfirm')}</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn-delete-confirm"
+                  onClick={() => { onDelete!(); onClose(); }}
+                >
+                  {t('eventModal.deleteConfirmYes')}
+                </button>
+                <button
+                  type="button"
+                  className="btn-delete-cancel"
+                  onClick={() => setShowDeleteConfirm(false)}
+                >
+                  {t('eventModal.deleteConfirmNo')}
+                </button>
+              </div>
+              {deleteError && <span className="rsvp-error">{deleteError}</span>}
+            </div>
+          )}
 
           <div className="modal-body">
             <div className="modal-row">
@@ -211,6 +260,19 @@ export default function EventModal({ event, calendar, onClose, onEdit, onRsvp }:
               <div className="modal-row">
                 <MapPin size={16} className="modal-icon" />
                 <span>{event.location}</span>
+              </div>
+            )}
+
+            {event.meetUrl && (
+              <div className="modal-row">
+                <Video size={16} className="modal-icon" />
+                <a
+                  href={event.meetUrl}
+                  onClick={(e) => { e.preventDefault(); openExternal(event.meetUrl!); }}
+                  style={{ color: 'var(--primary)', cursor: 'pointer' }}
+                >
+                  {t('eventModal.joinMeet')}
+                </a>
               </div>
             )}
 
@@ -227,30 +289,34 @@ export default function EventModal({ event, calendar, onClose, onEdit, onRsvp }:
               </div>
             )}
 
-            {(() => {
-              if (event.selfRsvpStatus && onRsvp) {
-                return (
-                  <div className="modal-row">
-                    <UserCheck size={16} className="modal-icon" style={{ marginTop: 3 }} />
-                    <RsvpRow current={event.selfRsvpStatus} onRsvp={onRsvp} />
-                  </div>
-                );
-              }
-              if (event.isUnaccepted) {
-                return (
-                  <div className="modal-row modal-tentative">
-                    <HelpCircle size={16} className="modal-icon" />
-                    <span>Invitation en attente de réponse</span>
-                  </div>
-                );
-              }
-              return null;
-            })()}
+            {event.selfRsvpStatus && onRsvp && (
+              <div className="modal-row">
+                <UserCheck size={16} className="modal-icon" style={{ marginTop: 3 }} />
+                <RsvpRow current={event.selfRsvpStatus} onRsvp={onRsvp} />
+              </div>
+            )}
 
-            {isPast && !event.isUnaccepted && !(event.selfRsvpStatus && onRsvp) && (
+            {event.selfRsvpStatus && !onRsvp && (
+              <div className={`modal-row${event.selfRsvpStatus === 'DECLINED' ? ' modal-declined' : event.selfRsvpStatus !== 'ACCEPTED' ? ' modal-tentative' : ''}`}>
+                <UserCheck size={16} className="modal-icon" />
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AttendeeStatusIcon status={event.selfRsvpStatus} />
+                  {t(`eventModal.attendeeStatus.${event.selfRsvpStatus}`)}
+                </span>
+              </div>
+            )}
+
+            {!event.selfRsvpStatus && event.isUnaccepted && (
+              <div className="modal-row modal-tentative">
+                <HelpCircle size={16} className="modal-icon" />
+                <span>{t('eventModal.pendingInvitation')}</span>
+              </div>
+            )}
+
+            {isPast && !event.isUnaccepted && !event.selfRsvpStatus && (
               <div className="modal-row modal-past">
                 <History size={16} className="modal-icon" />
-                <span>Événement passé</span>
+                <span>{t('eventModal.pastEvent')}</span>
               </div>
             )}
 
@@ -258,7 +324,9 @@ export default function EventModal({ event, calendar, onClose, onEdit, onRsvp }:
               <div className="modal-row modal-attendees-row">
                 <Users size={16} className="modal-icon" style={{ marginTop: 3 }} />
                 <div className="attendee-list">
-                  <span className="attendee-count">{sortedAttendees.length} invité{sortedAttendees.length > 1 ? 's' : ''}</span>
+                  <span className="attendee-count">
+                    {t('eventModal.attendees', { count: sortedAttendees.length })}
+                  </span>
                   {sortedAttendees.map((a) => (
                     <AttendeeRow key={a.email} attendee={a} />
                   ))}
@@ -272,6 +340,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onRsvp }:
                 <span className="modal-description">{linkify(event.description)}</span>
               </div>
             )}
+
           </div>
         </div>
       )}

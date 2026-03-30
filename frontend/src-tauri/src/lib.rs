@@ -87,6 +87,35 @@ async fn put_caldav_event(url: String, username: String, password: String, ics_c
     Ok(())
 }
 
+/// HTTP DELETE with Basic Auth — used to delete a CalDAV event resource.
+#[tauri::command]
+async fn delete_caldav_event(url: String, username: String, password: String) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .user_agent("CalendarApp/1.0")
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .delete(&url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .map_err(|e| format!("Erreur réseau : {}", e))?;
+
+    let status = response.status();
+    // 204 No Content and 404 Not Found are both acceptable outcomes
+    if !status.is_success() && status.as_u16() != 404 {
+        return Err(format!(
+            "HTTP {} — {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("erreur")
+        ));
+    }
+
+    Ok(())
+}
+
 // ── CalDAV connectivity test ───────────────────────────────────────────────────
 
 /// Sends a GET request with HTTP Basic Auth and returns the HTTP status code.
@@ -281,6 +310,7 @@ mod eventkit {
         pub email: String,
         pub status: String,
         pub is_organizer: bool,
+        pub is_self: bool,
     }
 
     #[derive(Debug, Serialize, Clone)]
@@ -470,7 +500,9 @@ mod eventkit {
                 let is_organizer =
                     unsafe { p.participantRole() } == EKParticipantRole::Chair;
 
-                Some(EKAttendeeInfo { name, email, status, is_organizer })
+                let is_self = unsafe { p.isCurrentUser() };
+
+                Some(EKAttendeeInfo { name, email, status, is_organizer, is_self })
             })
             .collect()
     }
@@ -817,6 +849,23 @@ mod eventkit {
         Ok(())
     }
 
+    /// Deletes an existing EventKit event identified by its eventIdentifier.
+    #[tauri::command]
+    pub async fn delete_eventkit_event(
+        state: tauri::State<'_, EventKitState>,
+        event_id: String,
+    ) -> Result<(), String> {
+        let store_arc = state.store.clone();
+        let ns_id = NSString::from_str(&event_id);
+        let event = unsafe { store_arc.0.eventWithIdentifier(&ns_id) }
+            .ok_or_else(|| format!("Événement introuvable : {}", event_id))?;
+
+        unsafe { store_arc.0.removeEvent_span_commit_error(&event, EKSpan::ThisEvent, true) }
+            .map_err(|e| e.localizedDescription().to_string())?;
+
+        Ok(())
+    }
+
     fn uuid_like(seed: &str) -> String {
         let h: u64 = seed
             .bytes()
@@ -846,7 +895,7 @@ pub fn run() {
         .invoke_handler({
             #[cfg(not(target_os = "macos"))]
             {
-                tauri::generate_handler![fetch_ics, fetch_url_with_auth, put_caldav_event, fetch_caldav_status, open_url, start_oauth_listener, wait_oauth_code]
+                tauri::generate_handler![fetch_ics, fetch_url_with_auth, put_caldav_event, delete_caldav_event, fetch_caldav_status, open_url, start_oauth_listener, wait_oauth_code]
             }
             #[cfg(target_os = "macos")]
             {
@@ -854,6 +903,7 @@ pub fn run() {
                     fetch_ics,
                     fetch_url_with_auth,
                     put_caldav_event,
+                    delete_caldav_event,
                     fetch_caldav_status,
                     open_url,
                     start_oauth_listener,
@@ -864,6 +914,7 @@ pub fn run() {
                     eventkit::fetch_eventkit_events,
                     eventkit::create_eventkit_event,
                     eventkit::update_eventkit_event,
+                    eventkit::delete_eventkit_event,
                 ]
             }
         })

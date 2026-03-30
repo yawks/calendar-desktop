@@ -291,13 +291,164 @@ body {
 
 .mini-cal-day.selected:hover { background: var(--primary-hover); }
 
-.sidebar-section-title {
+/* ── Calendar groups ─────────────────────────────── */
+.group-section {
+  margin-bottom: 4px;
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px 4px;
+  border-radius: 4px;
+}
+
+.group-header:hover { background: var(--bg-hover); }
+.group-header:hover .group-header-actions { opacity: 1; }
+
+.group-collapse-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.group-collapse-btn:hover { background: var(--border); }
+
+.group-collapse-btn svg { transition: transform 0.15s; }
+.group-collapse-btn svg.rotated { transform: rotate(90deg); }
+
+.group-name {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  padding: 8px 8px 4px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.group-name-input {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border: 1px solid var(--primary);
+  border-radius: 3px;
+  background: var(--bg);
+  padding: 1px 4px;
+  outline: none;
+  min-width: 0;
+}
+
+.group-header-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.group-action-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 3px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.group-action-btn:hover { background: var(--bg-hover); color: var(--text); }
+.group-delete-btn:hover { background: var(--danger); color: #fff; }
+
+.group-calendars {
+  min-height: 4px;
+}
+
+/* ── Drag handle ─────────────────────────────────── */
+.calendar-drag-handle {
+  border: none;
+  background: none;
+  cursor: grab;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+.calendar-item-wrapper:hover .calendar-drag-handle { opacity: 1; }
+.calendar-drag-handle:active { cursor: grabbing; }
+
+/* ── Drag overlay preview ────────────────────────── */
+.calendar-drag-preview {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px var(--shadow);
+  cursor: grabbing;
+}
+
+/* ── Add group button ────────────────────────────── */
+.add-group-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  margin-top: 4px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  width: 100%;
+  text-align: left;
+}
+
+.sidebar:hover .add-group-btn { opacity: 1; }
+.add-group-btn:hover { background: var(--bg-hover); color: var(--text); }
+
+.add-group-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  margin-top: 4px;
+}
+
+.add-group-input {
+  flex: 1;
+  padding: 3px 6px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  min-width: 0;
 }
 
 .calendar-item-wrapper {
@@ -588,6 +739,12 @@ body {
   font-style: italic;
 }
 
+.modal-declined {
+  color: var(--text-muted);
+  font-style: italic;
+  text-decoration: line-through;
+}
+
 .rsvp-buttons {
   display: flex;
   gap: 6px;
@@ -665,6 +822,54 @@ body {
 .rsvp-error {
   font-size: 11px;
   color: var(--danger);
+}
+
+.modal-delete-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #fce8e6;
+  border-bottom: 1px solid #f5c6c3;
+  font-size: 13px;
+  color: #7a1a14;
+}
+
+[data-theme="dark"] .modal-delete-bar {
+  background: rgba(234, 67, 53, 0.15);
+  border-bottom-color: rgba(234, 67, 53, 0.3);
+  color: #f09090;
+}
+
+.btn-delete-confirm {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid #d93025;
+  background: #d93025;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-delete-confirm:hover {
+  background: #b31412;
+  border-color: #b31412;
+}
+
+.btn-delete-cancel {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-delete-cancel:hover {
+  background: var(--bg-hover);
 }
 
 .modal-past {
@@ -833,6 +1038,180 @@ body {
 }
 
 /* ── Config page ─────────────────────────────────── */
+.config-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  height: 100%;
+}
+
+.config-sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  padding: 20px 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.config-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-muted);
+  text-align: left;
+  width: 100%;
+  transition: background 0.1s, color 0.1s;
+  border-radius: 0;
+}
+
+.config-sidebar-item:hover {
+  background: var(--hover, rgba(0,0,0,0.04));
+  color: var(--text);
+}
+
+.config-sidebar-item--active {
+  background: var(--color-primary-bg, #e8f0fe);
+  color: var(--color-primary, #1a73e8);
+  font-weight: 600;
+}
+
+.config-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 40px;
+  max-width: 720px;
+}
+
+.config-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+}
+
+.config-section-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.config-subsection {
+  margin-bottom: 40px;
+}
+
+.config-subsection-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Calendar group (new unified style) ──────────────────────────────────── */
+
+.config-group {
+  margin-bottom: 28px;
+}
+
+.config-group-header {
+  display: flex;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-group-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+
+.config-group-edit-btn {
+  opacity: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.config-group-header:hover .config-group-edit-btn {
+  opacity: 1;
+}
+
+.config-group-edit-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.config-group-body {
+  padding: 2px 0;
+}
+
+/* ── Unified calendar item ────────────────────────────────────────────────── */
+
+.cal-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 5px 2px;
+}
+
+.cal-item-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.cal-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.cal-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.cal-item-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* keep old .config-page for potential other usages */
 .config-page {
   flex: 1;
   overflow-y: auto;
@@ -1061,6 +1440,176 @@ body {
 }
 
 .btn-cancel:hover { background: var(--bg-hover); }
+
+/* ── Free/Busy grid ──────────────────────────────────────────────────────── */
+.form-row--freebusy {
+  flex-direction: column;
+  gap: 0;
+}
+
+.freebusy-grid {
+  width: 100%;
+  user-select: none;
+  transition: opacity 0.2s;
+}
+
+.freebusy-grid--loading {
+  opacity: 0.6;
+}
+
+.freebusy-section-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.freebusy-loading-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: freebusy-pulse 1s ease-in-out infinite;
+}
+
+@keyframes freebusy-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.freebusy-axis,
+.freebusy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.freebusy-axis { margin-bottom: 2px; }
+.freebusy-row  { margin-bottom: 3px; }
+
+.freebusy-label-col {
+  width: 72px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.freebusy-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.freebusy-label--self {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.freebusy-timeline-col {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Axis track */
+.freebusy-axis-track {
+  position: relative;
+  height: 16px;
+}
+
+.freebusy-axis-label {
+  position: absolute;
+  font-size: 10px;
+  color: var(--text-muted);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+/* Timeline bar */
+.freebusy-timeline {
+  position: relative;
+  height: 22px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.freebusy-timeline--clickable {
+  cursor: pointer;
+}
+
+.freebusy-timeline--clickable:hover {
+  background: color-mix(in srgb, var(--bg-hover) 70%, var(--primary) 30%);
+}
+
+.freebusy-busy {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(217, 48, 37, 0.45);
+  border-radius: 2px;
+}
+
+[data-theme="dark"] .freebusy-busy {
+  background: rgba(200, 96, 122, 0.5);
+}
+
+.freebusy-tentative {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(217, 48, 37, 0.35),
+    rgba(217, 48, 37, 0.35) 3px,
+    transparent 3px,
+    transparent 7px
+  );
+  border-radius: 2px;
+}
+
+[data-theme="dark"] .freebusy-tentative {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(200, 96, 122, 0.4),
+    rgba(200, 96, 122, 0.4) 3px,
+    transparent 3px,
+    transparent 7px
+  );
+}
+
+.freebusy-unavailable {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(128, 128, 128, 0.2) 4px,
+    rgba(128, 128, 128, 0.2) 8px
+  );
+}
+
+.freebusy-selected {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(26, 115, 232, 0.25);
+  border-left: 2px solid var(--primary);
+  border-right: 2px solid var(--primary);
+  pointer-events: none;
+}
+
+[data-theme="dark"] .freebusy-selected {
+  background: rgba(109, 158, 232, 0.25);
+}
 
 /* ── Attendee autocomplete dropdown ─────────────────────────────────────── */
 .attendee-dropdown {

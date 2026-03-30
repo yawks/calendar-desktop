@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 
 interface Props {
   currentDate: Date;
   onSelectDate: (date: Date) => void;
 }
 
-const DAY_NAMES = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-
 export default function MiniCalendar({ currentDate, onSelectDate }: Props) {
+  const { t } = useTranslation();
   const [displayMonth, setDisplayMonth] = useState(
     () => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
   );
@@ -33,7 +34,9 @@ export default function MiniCalendar({ currentDate, onSelectDate }: Props) {
   const cells: (number | null)[] = Array(firstWeekday).fill(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
-  const label = displayMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-US';
+  const label = displayMonth.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+  const dayNames = t('miniCalendar.dayNames', { returnObjects: true }) as string[];
 
   return (
     <div className="mini-cal">
@@ -42,7 +45,7 @@ export default function MiniCalendar({ currentDate, onSelectDate }: Props) {
           type="button"
           className="mini-cal-nav"
           onClick={() => setDisplayMonth(new Date(year, mo - 1, 1))}
-          aria-label="Mois précédent"
+          aria-label={t('miniCalendar.prevMonth')}
         >
           <ChevronLeft size={14} />
         </button>
@@ -51,13 +54,13 @@ export default function MiniCalendar({ currentDate, onSelectDate }: Props) {
           type="button"
           className="mini-cal-nav"
           onClick={() => setDisplayMonth(new Date(year, mo + 1, 1))}
-          aria-label="Mois suivant"
+          aria-label={t('miniCalendar.nextMonth')}
         >
           <ChevronRight size={14} />
         </button>
       </div>
       <div className="mini-cal-grid">
-        {DAY_NAMES.map((n, i) => (
+        {dayNames.map((n, i) => (
           <div key={i} className="mini-cal-dn">{n}</div>
         ))}
         {cells.map((day, i) => {

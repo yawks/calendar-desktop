@@ -1,7 +1,10 @@
-import { useState, FormEvent, useEffect, useRef } from 'react';
+import { useState, FormEvent, useEffect, useRef, useMemo } from 'react';
 import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../types';
 import AttendeeInput from './AttendeeInput';
+import FreeBusyGrid, { FreeBusyRow } from './FreeBusyGrid';
+import { queryFreeBusy, FreeBusyResult } from '../utils/googleCalendarApi';
 
 interface Props {
   readonly initialStart: string;
@@ -12,6 +15,8 @@ interface Props {
   readonly editEvent?: CalendarEvent;
   readonly onSubmit: (payload: CreateEventPayload) => Promise<void>;
   readonly onClose: () => void;
+  /** Required to query freebusy for Google calendars */
+  readonly getValidToken?: (accountId: string) => Promise<string | null>;
 }
 
 function toDatetimeLocal(iso: string): string {
@@ -28,7 +33,8 @@ function toDateLocal(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose }: Props) {
+export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose, getValidToken }: Props) {
+  const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const isEditing = editEvent != null;
 
@@ -49,8 +55,152 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // FreeBusy state
+  const [freeBusyData, setFreeBusyData] = useState<Record<string, FreeBusyResult>>({});
+  const [freeBusyLoading, setFreeBusyLoading] = useState(false);
+
   const selectedCalendar = writableCalendars.find((c) => c.id === calendarId);
   const headerColor = selectedCalendar?.color ?? '#888';
+
+  // Show freebusy only for Google calendars with at least one attendee and a specific time
+  const isGoogleCalendar = selectedCalendar?.type === 'google';
+  const showFreeBusy = isGoogleCalendar && !isAllday && attendees.length > 0;
+
+  // "Me" busy slots — computed locally from allEvents so ALL synced calendars are included
+  // (Google, EventKit, ICS, Nextcloud, etc.)
+  const selfBusySlots = useMemo((): { busy: Array<{ start: Date; end: Date }>; tentative: Array<{ start: Date; end: Date }> } => {
+    const eventDate = new Date(start);
+    if (Number.isNaN(eventDate.getTime())) return { busy: [], tentative: [] };
+
+    const dayStart = new Date(eventDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(eventDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const busy: Array<{ start: Date; end: Date }> = [];
+    const tentative: Array<{ start: Date; end: Date }> = [];
+
+    for (const ev of allEvents) {
+      if (ev.isAllday) continue;
+      if (ev.isDeclined) continue;
+
+      const evStart = new Date(ev.start);
+      const evEnd = new Date(ev.end);
+      if (Number.isNaN(evStart.getTime()) || Number.isNaN(evEnd.getTime())) continue;
+      if (evStart >= dayEnd || evEnd <= dayStart) continue;
+
+      const slot = { start: evStart, end: evEnd };
+      if (ev.isUnaccepted) {
+        tentative.push(slot);
+      } else {
+        busy.push(slot);
+      }
+    }
+
+    return { busy, tentative };
+  }, [allEvents, start]);
+
+  // Query freebusy for attendees only (self is covered by allEvents above)
+  useEffect(() => {
+    if (!showFreeBusy || !selectedCalendar?.googleAccountId || !getValidToken || attendees.length === 0) return;
+
+    const timer = setTimeout(async () => {
+      const startDate = new Date(start);
+      if (Number.isNaN(startDate.getTime())) return;
+
+      const dayStart = new Date(startDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(startDate);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      // Only query attendees — never the owner (self uses allEvents)
+      const ownerEmail = selectedCalendar.ownerEmail;
+      const emails = attendees
+        .map((a) => a.email)
+        .filter((e) => e !== ownerEmail);
+
+      if (emails.length === 0) return;
+
+      setFreeBusyLoading(true);
+      try {
+        const token = await getValidToken(selectedCalendar.googleAccountId!);
+        if (!token) return;
+        const data = await queryFreeBusy(token, emails, dayStart, dayEnd);
+        setFreeBusyData(data);
+      } catch {
+        // Silently fail — freebusy is optional
+      } finally {
+        setFreeBusyLoading(false);
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [showFreeBusy, attendees, start, selectedCalendar?.googleAccountId, selectedCalendar?.ownerEmail, getValidToken]);
+
+  // Reset freebusy data when calendar changes to non-Google
+  useEffect(() => {
+    if (!isGoogleCalendar) setFreeBusyData({});
+  }, [isGoogleCalendar]);
+
+  // Compute display window (07:00–21:00 on the event day, clamped to include the event)
+  const freeBusyWindow = useMemo(() => {
+    const d = new Date(start);
+    if (Number.isNaN(d.getTime())) return null;
+    const ws = new Date(d);
+    ws.setHours(7, 0, 0, 0);
+    const we = new Date(d);
+    we.setHours(21, 0, 0, 0);
+    // Expand window if event falls outside
+    const eventStart = new Date(start);
+    const eventEnd = new Date(end);
+    if (!Number.isNaN(eventStart.getTime()) && eventStart < ws) ws.setTime(eventStart.getTime());
+    if (!Number.isNaN(eventEnd.getTime()) && eventEnd > we) we.setTime(eventEnd.getTime());
+    return { windowStart: ws, windowEnd: we };
+  }, [start, end]);
+
+  const freeBusyRows = useMemo((): FreeBusyRow[] => {
+    const ownerEmail = selectedCalendar?.ownerEmail;
+    const rows: FreeBusyRow[] = [];
+
+    // Self row — always shown, computed from allEvents (all synced calendars)
+    rows.push({
+      email: ownerEmail ?? 'self',
+      label: t('freeBusy.me'),
+      busy: selfBusySlots.busy,
+      tentative: selfBusySlots.tentative,
+      unavailable: false,
+      isSelf: true,
+    });
+
+    // Attendee rows — from Google freebusy API
+    for (const attendee of attendees) {
+      if (attendee.email === ownerEmail) continue;
+      const data = freeBusyData[attendee.email];
+      if (data) {
+        rows.push({
+          email: attendee.email,
+          label: attendee.name ?? attendee.email,
+          busy: data.busy,
+          tentative: [],
+          unavailable: data.unavailable,
+          isSelf: false,
+        });
+      }
+    }
+
+    return rows;
+  }, [selfBusySlots.busy, selfBusySlots.tentative, freeBusyData, attendees, selectedCalendar?.ownerEmail, t]);
+
+  function handleSelectTime(newStart: Date) {
+    const currentStart = new Date(start);
+    const currentEnd = new Date(end);
+    const duration = Number.isNaN(currentEnd.getTime()) || Number.isNaN(currentStart.getTime())
+      ? 60 * 60 * 1000
+      : currentEnd.getTime() - currentStart.getTime();
+    const newEnd = new Date(newStart.getTime() + duration);
+    setStart(toDatetimeLocal(newStart.toISOString()));
+    setEnd(toDatetimeLocal(newEnd.toISOString()));
+  }
 
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -97,7 +247,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde');
+      setError(err instanceof Error ? err.message : t('createEvent.saveError'));
       setSaving(false);
     }
   };
@@ -107,30 +257,30 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
   let submitLabel: string;
   if (saving) {
-    submitLabel = isEditing ? 'Sauvegarde…' : 'Création…';
+    submitLabel = isEditing ? t('createEvent.savingEdit') : t('createEvent.savingNew');
   } else {
-    submitLabel = isEditing ? 'Enregistrer' : 'Créer';
+    submitLabel = isEditing ? t('createEvent.save') : t('createEvent.create');
   }
 
   return (
     <dialog ref={dialogRef} className="modal-dialog modal-dialog--form">
       <div className="modal">
         <div className="modal-header" style={{ background: headerColor }}>
-          <span className="modal-title">{isEditing ? "Modifier l'événement" : 'Nouvel événement'}</span>
-          <button className="btn-icon modal-close" onClick={onClose} aria-label="Fermer">
+          <span className="modal-title">{isEditing ? t('createEvent.titleEdit') : t('createEvent.titleNew')}</span>
+          <button className="btn-icon modal-close" onClick={onClose} aria-label={t('createEvent.close')}>
             <X size={18} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="modal-body modal-form">
           <div className="form-row">
-            <label htmlFor="ev-title">Titre</label>
+            <label htmlFor="ev-title">{t('createEvent.titleLabel')}</label>
             <input
               id="ev-title"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Titre de l'événement"
+              placeholder={t('createEvent.titlePlaceholder')}
               autoFocus
               required
             />
@@ -144,36 +294,36 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
                 checked={isAllday}
                 onChange={(e) => setIsAllday(e.target.checked)}
               />
-              <span>Toute la journée</span>
+              <span>{t('createEvent.allDay')}</span>
             </label>
           </div>
 
           {isAllday ? (
             <>
               <div className="form-row">
-                <label htmlFor="ev-start-date">Début</label>
+                <label htmlFor="ev-start-date">{t('createEvent.start')}</label>
                 <input id="ev-start-date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
               </div>
               <div className="form-row">
-                <label htmlFor="ev-end-date">Fin</label>
+                <label htmlFor="ev-end-date">{t('createEvent.end')}</label>
                 <input id="ev-end-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
               </div>
             </>
           ) : (
             <>
               <div className="form-row">
-                <label htmlFor="ev-start">Début</label>
+                <label htmlFor="ev-start">{t('createEvent.start')}</label>
                 <input id="ev-start" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required />
               </div>
               <div className="form-row">
-                <label htmlFor="ev-end">Fin</label>
+                <label htmlFor="ev-end">{t('createEvent.end')}</label>
                 <input id="ev-end" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required />
               </div>
             </>
           )}
 
           <div className="form-row">
-            <label htmlFor="ev-calendar">Calendrier</label>
+            <label htmlFor="ev-calendar">{t('createEvent.calendar')}</label>
             <select
               id="ev-calendar"
               value={calendarId}
@@ -204,27 +354,42 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
           <div className="form-row">
             <label htmlFor="ev-attendees">
-              Participants <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optionnel)</span>
+              {t('createEvent.attendees')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
             </label>
             <AttendeeInput value={attendees} onChange={setAttendees} allEvents={allEvents} />
           </div>
 
+          {/* Free/busy grid — only for Google calendars with attendees */}
+          {showFreeBusy && freeBusyWindow && (
+            <div className="form-row form-row--freebusy">
+              <FreeBusyGrid
+                rows={freeBusyRows}
+                windowStart={freeBusyWindow.windowStart}
+                windowEnd={freeBusyWindow.windowEnd}
+                selectedStart={new Date(start)}
+                selectedEnd={new Date(end)}
+                loading={freeBusyLoading}
+                onSelectTime={handleSelectTime}
+              />
+            </div>
+          )}
+
           <div className="form-row">
             <label htmlFor="ev-location">
-              Lieu <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optionnel)</span>
+              {t('createEvent.location')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
             </label>
             <input
               id="ev-location"
               type="text"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              placeholder="Salle, adresse…"
+              placeholder={t('createEvent.locationPlaceholder')}
             />
           </div>
 
           <div className="form-row">
             <label htmlFor="ev-desc">
-              Description <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optionnel)</span>
+              {t('createEvent.description')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
             </label>
             <textarea
               id="ev-desc"
@@ -242,7 +407,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
             <button type="submit" className="btn-primary" disabled={saving || !title.trim()}>
               {submitLabel}
             </button>
-            <button type="button" className="btn-cancel" onClick={onClose}>Annuler</button>
+            <button type="button" className="btn-cancel" onClick={onClose}>{t('createEvent.cancel')}</button>
           </div>
         </form>
       </div>

@@ -7,7 +7,8 @@ type Action =
   | { type: 'ADD'; payload: CalendarConfig }
   | { type: 'REMOVE'; payload: string }
   | { type: 'TOGGLE'; payload: string }
-  | { type: 'UPDATE'; payload: { id: string; data: Partial<CalendarConfig> } };
+  | { type: 'UPDATE'; payload: { id: string; data: Partial<CalendarConfig> } }
+  | { type: 'REORDER'; payload: CalendarConfig[] };
 
 function reducer(state: CalendarConfig[], action: Action): CalendarConfig[] {
   switch (action.type) {
@@ -23,6 +24,8 @@ function reducer(state: CalendarConfig[], action: Action): CalendarConfig[] {
       return state.map((c) =>
         c.id === action.payload.id ? { ...c, ...action.payload.data } : c
       );
+    case 'REORDER':
+      return action.payload;
   }
 }
 
@@ -32,6 +35,7 @@ interface CalendarContextValue {
   removeCalendar: (id: string) => void;
   toggleCalendar: (id: string) => void;
   updateCalendar: (id: string, data: Partial<CalendarConfig>) => void;
+  reorderCalendars: (calendars: CalendarConfig[]) => void;
 }
 
 const CalendarContext = createContext<CalendarContextValue | null>(null);
@@ -56,9 +60,12 @@ export function CalendarProvider({ children }: { children: ReactNode }) {
   const updateCalendar = (id: string, data: Partial<CalendarConfig>) =>
     dispatch({ type: 'UPDATE', payload: { id, data } });
 
+  const reorderCalendars = (newCalendars: CalendarConfig[]) =>
+    dispatch({ type: 'REORDER', payload: newCalendars });
+
   return (
     <CalendarContext.Provider
-      value={{ calendars, addCalendar, removeCalendar, toggleCalendar, updateCalendar }}
+      value={{ calendars, addCalendar, removeCalendar, toggleCalendar, updateCalendar, reorderCalendars }}
     >
       {children}
     </CalendarContext.Provider>

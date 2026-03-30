@@ -1,3 +1,9 @@
+export interface CalendarGroup {
+  id: string;
+  name: string;
+  collapsed?: boolean;
+}
+
 export interface CalendarConfig {
   id: string;
   name: string;
@@ -5,6 +11,8 @@ export interface CalendarConfig {
   color: string;
   visible: boolean;
   ownerEmail?: string;
+  /** Group this calendar belongs to (default: 'default') */
+  groupId?: string;
   /** 'ics' (default) | 'google' | 'eventkit' | 'nextcloud' */
   type?: 'ics' | 'google' | 'eventkit' | 'nextcloud';
   /** Google Calendar ID (e.g. "primary" or "user@group.calendar.google.com") */
@@ -77,4 +85,6 @@ export interface CalendarEvent {
   /** RSVP status of the current user (undefined if not an attendee or organizer) */
   selfRsvpStatus?: AttendeeStatus;
   attendees?: Attendee[];
+  /** Google Meet or other video conference URL */
+  meetUrl?: string;
 }

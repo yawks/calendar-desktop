@@ -28,6 +28,11 @@ interface GoogleAttendee {
   self?: boolean;
 }
 
+interface GoogleConferenceEntryPoint {
+  entryPointType: string;
+  uri: string;
+}
+
 interface GoogleEvent {
   id: string;
   summary?: string;
@@ -39,6 +44,9 @@ interface GoogleEvent {
   attendees?: GoogleAttendee[];
   organizer?: { email: string; displayName?: string };
   recurringEventId?: string;
+  conferenceData?: {
+    entryPoints?: GoogleConferenceEntryPoint[];
+  };
 }
 
 interface GoogleEventList {
@@ -103,6 +111,10 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
     }
   }
 
+  const meetUrl = gEvent.conferenceData?.entryPoints?.find(
+    (ep) => ep.entryPointType === 'video'
+  )?.uri;
+
   return {
     id: `${cal.id}-${gEvent.id}`,
     sourceId: gEvent.id,
@@ -118,7 +130,28 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
     isDeclined,
     selfRsvpStatus,
     attendees,
+    meetUrl,
   };
+}
+
+// ── FreeBusy types ────────────────────────────────────────────────────────────
+
+interface FreeBusyApiResponse {
+  calendars: Record<string, {
+    busy: Array<{ start: string; end: string }>;
+    errors?: Array<{ domain: string; reason: string }>;
+  }>;
+}
+
+export interface FreeBusySlot {
+  start: Date;
+  end: Date;
+}
+
+export interface FreeBusyResult {
+  busy: FreeBusySlot[];
+  /** true if the calendar could not be queried (private or not found) */
+  unavailable: boolean;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -209,6 +242,55 @@ export async function updateEvent(
     method: 'PUT',
     body: JSON.stringify(buildEventBody(payload)),
   });
+}
+
+export async function deleteGoogleEvent(
+  token: string,
+  cal: CalendarConfig,
+  sourceId: string,
+): Promise<void> {
+  const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
+  const eventId = encodeURIComponent(sourceId);
+  const res = await fetch(`${BASE}/calendars/${calendarId}/events/${eventId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    const body = await res.text();
+    throw new Error(`Google API ${res.status}: ${body}`);
+  }
+}
+
+export async function queryFreeBusy(
+  token: string,
+  emails: string[],
+  timeMin: Date,
+  timeMax: Date,
+): Promise<Record<string, FreeBusyResult>> {
+  const body = {
+    timeMin: timeMin.toISOString(),
+    timeMax: timeMax.toISOString(),
+    items: emails.map((email) => ({ id: email })),
+  };
+
+  const data = await gFetch<FreeBusyApiResponse>(token, '/freeBusy', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+  const result: Record<string, FreeBusyResult> = {};
+  for (const email of emails) {
+    const cal = data.calendars[email];
+    if (!cal) {
+      result[email] = { busy: [], unavailable: true };
+      continue;
+    }
+    result[email] = {
+      busy: (cal.busy ?? []).map((s) => ({ start: new Date(s.start), end: new Date(s.end) })),
+      unavailable: (cal.errors?.length ?? 0) > 0,
+    };
+  }
+  return result;
 }
 
 export async function respondToGoogleEvent(

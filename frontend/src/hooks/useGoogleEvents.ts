@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
 import { CalendarConfig, CalendarEvent } from '../types';
-import { useGoogleAuth } from '../store/GoogleAuthStore';
+import { cacheGetStale, cacheIsFresh, cacheSet } from '../utils/eventCache';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { listEvents } from '../utils/googleCalendarApi';
+import { useGoogleAuth } from '../store/GoogleAuthStore';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const CACHE_VERSION = 'g1';
@@ -10,40 +12,7 @@ function cacheKey(calId: string) {
   return `google-events:${CACHE_VERSION}:${calId}`;
 }
 
-function getCachedEvents(calId: string): CalendarEvent[] | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(calId));
-    if (!raw) return null;
-    const { events, at } = JSON.parse(raw) as { events: CalendarEvent[]; at: number };
-    if (Date.now() - at > CACHE_TTL) return null;
-    return events;
-  } catch {
-    return null;
-  }
-}
-
-function getCachedEventsStale(calId: string): CalendarEvent[] | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(calId));
-    if (!raw) return null;
-    const { events } = JSON.parse(raw) as { events: CalendarEvent[]; at: number };
-    return events;
-  } catch {
-    return null;
-  }
-}
-
-function setCachedEvents(calId: string, events: CalendarEvent[]) {
-  try {
-    localStorage.setItem(cacheKey(calId), JSON.stringify({ events, at: Date.now() }));
-  } catch {
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('google-events:')) localStorage.removeItem(key);
-    }
-  }
-}
-
-// Date window: 52 weeks past, 104 weeks future (same as ICS)
+// Date window: 52 weeks past, 104 weeks future
 function getDateRange() {
   const now = new Date();
   const timeMin = new Date(now);
@@ -69,18 +38,14 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
       return;
     }
 
-    // Phase 1: show stale cache immediately
-    const stale: CalendarEvent[] = [];
-    for (const cal of googleCals) {
-      const s = getCachedEventsStale(cal.id);
-      if (s) stale.push(...s);
-    }
+    // Phase 1: show stale cache immediately (IDB read — very fast, no network)
+    const stale = (await Promise.all(googleCals.map((cal) => cacheGetStale<CalendarEvent[]>(cacheKey(cal.id))))).flat().filter(Boolean) as CalendarEvent[];
     if (stale.length > 0) setEvents(stale);
 
     // Phase 2: refresh expired / forced caches
     const toRefresh = force
       ? googleCals
-      : googleCals.filter((c) => !getCachedEvents(c.id));
+      : (await Promise.all(googleCals.map(async (cal) => ((await cacheIsFresh(cacheKey(cal.id), CACHE_TTL)) ? null : cal)))).filter(Boolean) as CalendarConfig[];
 
     if (!toRefresh.length) return;
 
@@ -93,7 +58,7 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
         const token = await getValidToken(cal.googleAccountId!);
         if (!token) throw new Error('Token invalide ou expiré. Reconnectez votre compte Google.');
         const fetched = await listEvents(token, cal, timeMin, timeMax);
-        setCachedEvents(cal.id, fetched);
+        await cacheSet(cacheKey(cal.id), fetched);
         return fetched;
       })
     );
@@ -111,7 +76,7 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
 
     for (const cal of googleCals) {
       if (!refreshedIds.has(cal.id)) {
-        const cached = getCachedEvents(cal.id);
+        const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id));
         if (cached) results.push(...cached);
       }
     }

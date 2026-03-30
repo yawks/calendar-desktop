@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { CalendarConfig, CalendarEvent } from '../types';
 import { parseICS } from '../utils/parseICS';
+import { cacheGetStale, cacheSet, cacheIsFresh } from '../utils/eventCache';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const CACHE_VERSION = 'v1';
@@ -9,38 +10,6 @@ function cacheKey(calId: string) {
   return `nextcloud-events:${CACHE_VERSION}:${calId}`;
 }
 
-function getCachedEvents(calId: string): CalendarEvent[] | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(calId));
-    if (!raw) return null;
-    const { events, at } = JSON.parse(raw) as { events: CalendarEvent[]; at: number };
-    if (Date.now() - at > CACHE_TTL) return null;
-    return events;
-  } catch {
-    return null;
-  }
-}
-
-function getCachedEventsStale(calId: string): CalendarEvent[] | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(calId));
-    if (!raw) return null;
-    const { events } = JSON.parse(raw) as { events: CalendarEvent[]; at: number };
-    return events;
-  } catch {
-    return null;
-  }
-}
-
-function setCachedEvents(calId: string, events: CalendarEvent[]) {
-  try {
-    localStorage.setItem(cacheKey(calId), JSON.stringify({ events, at: Date.now() }));
-  } catch {
-    localStorage.removeItem(cacheKey(calId));
-  }
-}
-
-/** Nextcloud exposes a plain ICS dump at {caldav-url}?export */
 function buildExportUrl(calUrl: string): string {
   const base = calUrl.endsWith('/') ? calUrl : `${calUrl}/`;
   return `${base}?export`;
@@ -71,17 +40,14 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
       return;
     }
 
-    // Show stale cache immediately
-    const stale: CalendarEvent[] = [];
-    for (const cal of toFetch) {
-      const s = getCachedEventsStale(cal.id);
-      if (s) stale.push(...s);
-    }
+    // Phase 1: show stale cache immediately (IDB read — very fast, no network)
+    const stale = (await Promise.all(toFetch.map((cal) => cacheGetStale<CalendarEvent[]>(cacheKey(cal.id))))).flat().filter(Boolean) as CalendarEvent[];
     if (stale.length > 0) setEvents(stale);
 
+    // Phase 2: refresh expired / forced caches
     const toRefresh = force
       ? toFetch
-      : toFetch.filter((cal) => !getCachedEvents(cal.id));
+      : (await Promise.all(toFetch.map(async (cal) => ((await cacheIsFresh(cacheKey(cal.id), CACHE_TTL)) ? null : cal)))).filter(Boolean) as CalendarConfig[];
 
     if (!toRefresh.length) return;
 
@@ -91,7 +57,7 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
     const settled = await Promise.allSettled(
       toRefresh.map(async (cal) => {
         const parsed = await fetchAndParse(cal);
-        setCachedEvents(cal.id, parsed);
+        await cacheSet(cacheKey(cal.id), parsed);
         return parsed;
       })
     );
@@ -109,7 +75,7 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
 
     for (const cal of toFetch) {
       if (!refreshedIds.has(cal.id)) {
-        const cached = getCachedEvents(cal.id);
+        const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id));
         if (cached) results.push(...cached);
       }
     }

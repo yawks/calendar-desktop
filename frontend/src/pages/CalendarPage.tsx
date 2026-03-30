@@ -2,21 +2,26 @@ import '@toast-ui/calendar/dist/toastui-calendar.min.css';
 
 import { CalendarConfig, CalendarEvent, CreateEventPayload, ViewType } from '../types';
 import { useCallback, useRef, useState } from 'react';
+import i18n from '../i18n';
 
 import AppHeader from '../components/AppHeader';
 import Calendar from '@toast-ui/react-calendar';
 import CreateEventModal from '../components/CreateEventModal';
 import EventModal from '../components/EventModal';
 import Sidebar from '../components/Sidebar';
-import { createEvent, updateEvent, respondToGoogleEvent } from '../utils/googleCalendarApi';
-import { createNextcloudEvent, updateNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
+import { createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } from '../utils/googleCalendarApi';
+import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
 import { useCalendars } from '../store/CalendarStore';
+import { useCalendarGroups } from '../store/CalendarGroupStore';
 import { useGoogleAuth } from '../store/GoogleAuthStore';
 import { useGoogleEvents } from '../hooks/useGoogleEvents';
 import { useICSEvents } from '../hooks/useICSEvents';
 import { useNextcloudEvents } from '../hooks/useNextcloudEvents';
 import { useEventKitEvents } from '../hooks/useEventKitEvents';
 import { useTheme } from '../store/ThemeStore';
+import { DEMO_CALENDARS, DEMO_EVENTS } from '../demo/demoData';
+
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
 // ── Minimal TUI Calendar instance type ───────────────────────────────────────
 interface TUICalendarInstance {
@@ -279,17 +284,31 @@ export default function CalendarPage() {
     document.addEventListener('mouseup', onMouseUp);
   }, []);
 
-  const { calendars, toggleCalendar, updateCalendar } = useCalendars();
-  const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = useICSEvents(calendars);
-  const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = useGoogleEvents(calendars);
-  const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = useNextcloudEvents(calendars);
-  const { events: ekEvents, loading: ekLoading, errors: ekErrors, refresh: ekRefresh } = useEventKitEvents(calendars);
+  const { calendars: realCalendars, toggleCalendar, updateCalendar, reorderCalendars } = useCalendars();
+  const { groups, addGroup, removeGroup, updateGroup } = useCalendarGroups();
+  const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = useICSEvents(DEMO_MODE ? [] : realCalendars);
+  const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = useGoogleEvents(DEMO_MODE ? [] : realCalendars);
+  const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = useNextcloudEvents(DEMO_MODE ? [] : realCalendars);
+  const { events: ekEvents, loading: ekLoading, errors: ekErrors, refresh: ekRefresh } = useEventKitEvents(DEMO_MODE ? [] : realCalendars);
   const { getValidToken } = useGoogleAuth();
   const { resolved: theme } = useTheme();
 
-  const events = [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents];
-  const loading = icsLoading || googleLoading || ncLoading || ekLoading;
-  const errors = { ...icsErrors, ...googleErrors, ...ncErrors, ...ekErrors };
+  const [createModalState, setCreateModalState] = useState<{ start: string; end: string } | null>(null);
+  const [editEvent, setEditEvent] = useState<CalendarEvent | null>(null);
+  const [deletedEventIds, setDeletedEventIds] = useState<Set<string>>(new Set());
+  const [optimisticCreated, setOptimisticCreated] = useState<CalendarEvent[]>([]);
+  const [optimisticUpdated, setOptimisticUpdated] = useState<Map<string, CalendarEvent>>(new Map());
+
+  const calendars = DEMO_MODE ? DEMO_CALENDARS : realCalendars;
+  const allEvents = DEMO_MODE ? DEMO_EVENTS : [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents];
+  const events = [
+    ...allEvents
+      .filter((e) => !deletedEventIds.has(e.id))
+      .map((e) => optimisticUpdated.get(e.id) ?? e),
+    ...optimisticCreated,
+  ];
+  const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ekLoading);
+  const errors = DEMO_MODE ? {} : { ...icsErrors, ...googleErrors, ...ncErrors, ...ekErrors };
   const refresh = useCallback(() => { icsRefresh(); googleRefresh(); ncRefresh(); ekRefresh(); }, [icsRefresh, googleRefresh, ncRefresh, ekRefresh]);
 
   // Calendars available for event creation: writable Google + writable EventKit + Nextcloud
@@ -297,17 +316,13 @@ export default function CalendarPage() {
     (c) => c.type === 'google' || c.type === 'eventkit' || c.type === 'nextcloud'
   );
 
-  const [createModalState, setCreateModalState] = useState<{ start: string; end: string } | null>(null);
-  const [editEvent, setEditEvent] = useState<CalendarEvent | null>(null);
-
   const saveNextcloudEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent) => {
     if (sourceEvent?.sourceId) {
       await updateNextcloudEvent(cal, sourceEvent.sourceId, payload);
     } else {
       await createNextcloudEvent(cal, payload);
     }
-    ncRefresh();
-  }, [ncRefresh]);
+  }, []);
 
   const saveEventKitEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent) => {
     const { invoke } = await import('@tauri-apps/api/core');
@@ -331,8 +346,7 @@ export default function CalendarPage() {
         },
       });
     }
-    ekRefresh();
-  }, [ekRefresh]);
+  }, []);
 
   const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent) => {
     if (!cal.googleAccountId) throw new Error('Compte Google introuvable');
@@ -343,42 +357,146 @@ export default function CalendarPage() {
     } else {
       await createEvent(token, cal, payload);
     }
-    googleRefresh();
-  }, [getValidToken, googleRefresh]);
+  }, [getValidToken]);
 
   const handleRsvp = useCallback(async (
     event: CalendarEvent,
     status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
   ) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
-    if (!cal) throw new Error('Calendrier introuvable');
+    if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
+    if (cal.type === 'eventkit') throw new Error(i18n.t('calendarPage.eventKitRsvpNote'));
 
-    if (cal.type === 'google') {
-      if (!cal.googleAccountId || !event.sourceId || !cal.ownerEmail) {
-        throw new Error('Informations manquantes pour répondre à cette invitation');
+    const optimistic: CalendarEvent = {
+      ...event,
+      selfRsvpStatus: status,
+      isDeclined: status === 'DECLINED',
+      isUnaccepted: status !== 'ACCEPTED',
+    };
+    setOptimisticUpdated((prev) => new Map(prev).set(event.id, optimistic));
+    setSelectedEvent(optimistic);
+
+    try {
+      if (cal.type === 'google') {
+        if (!cal.googleAccountId || !event.sourceId || !cal.ownerEmail)
+          throw new Error(i18n.t('calendarPage.missingInfo'));
+        const token = await getValidToken(cal.googleAccountId);
+        if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+        await respondToGoogleEvent(token, cal, event.sourceId, cal.ownerEmail, status);
+        await googleRefresh();
+      } else if (cal.type === 'nextcloud') {
+        if (!event.sourceId || !cal.ownerEmail)
+          throw new Error(i18n.t('calendarPage.missingInfo'));
+        await respondToNextcloudEvent(cal, event.sourceId, cal.ownerEmail, status);
+        await ncRefresh();
       }
-      const token = await getValidToken(cal.googleAccountId);
-      if (!token) throw new Error('Token invalide. Reconnectez votre compte Google.');
-      await respondToGoogleEvent(token, cal, event.sourceId, cal.ownerEmail, status);
-      googleRefresh();
-    } else if (cal.type === 'nextcloud') {
-      if (!event.sourceId || !cal.ownerEmail) {
-        throw new Error('Informations manquantes pour répondre à cette invitation');
-      }
-      await respondToNextcloudEvent(cal, event.sourceId, cal.ownerEmail, status);
-      ncRefresh();
-    } else if (cal.type === 'eventkit') {
-      throw new Error('Pour les calendriers EventKit, répondez via l\'application Calendrier macOS.');
+    } catch (e) {
+      setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(event.id); return n; });
+      setSelectedEvent(event);
+      throw e;
     }
+    setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(event.id); return n; });
   }, [calendars, getValidToken, googleRefresh, ncRefresh]);
+
+  const deleteGoogleCalEvent = useCallback(async (cal: CalendarConfig, event: CalendarEvent) => {
+    if (!cal.googleAccountId || !event.sourceId) throw new Error(i18n.t('calendarPage.missingInfo'));
+    const token = await getValidToken(cal.googleAccountId);
+    if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+    await deleteGoogleEvent(token, cal, event.sourceId);
+    googleRefresh();
+  }, [getValidToken, googleRefresh]);
+
+  const deleteNextcloudCalEvent = useCallback(async (cal: CalendarConfig, event: CalendarEvent) => {
+    if (!event.sourceId) throw new Error(i18n.t('calendarPage.missingInfo'));
+    await deleteNextcloudEvent(cal, event.sourceId);
+    ncRefresh();
+  }, [ncRefresh]);
+
+  const deleteEventKitCalEvent = useCallback(async (_cal: CalendarConfig, event: CalendarEvent) => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('delete_eventkit_event', { eventId: event.sourceId ?? event.id });
+    ekRefresh();
+  }, [ekRefresh]);
+
+  const handleDeleteEvent = useCallback(async (event: CalendarEvent) => {
+    const cal = calendars.find((c) => c.id === event.calendarId);
+    if (!cal) return;
+
+    setDeletedEventIds((prev) => new Set([...prev, event.id]));
+
+    try {
+      if (cal.type === 'google') await deleteGoogleCalEvent(cal, event);
+      else if (cal.type === 'nextcloud') await deleteNextcloudCalEvent(cal, event);
+      else if (cal.type === 'eventkit') await deleteEventKitCalEvent(cal, event);
+    } catch {
+      setDeletedEventIds((prev) => {
+        const next = new Set(prev);
+        next.delete(event.id);
+        return next;
+      });
+      throw new Error(i18n.t('eventModal.deleteError'));
+    }
+  }, [calendars, deleteGoogleCalEvent, deleteNextcloudCalEvent, deleteEventKitCalEvent]);
 
   const handleSaveEvent = useCallback(async (payload: CreateEventPayload, sourceEvent?: CalendarEvent) => {
     const cal = calendars.find((c) => c.id === payload.calendarId);
-    if (!cal) throw new Error('Calendrier introuvable');
-    if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, sourceEvent);
-    if (cal.type === 'eventkit') return saveEventKitEvent(cal, payload, sourceEvent);
-    return saveGoogleEvent(cal, payload, sourceEvent);
-  }, [calendars, saveNextcloudEvent, saveEventKitEvent, saveGoogleEvent]);
+    if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
+
+    const doSave = () => {
+      if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, sourceEvent);
+      if (cal.type === 'eventkit') return saveEventKitEvent(cal, payload, sourceEvent);
+      return saveGoogleEvent(cal, payload, sourceEvent);
+    };
+    const doRefresh = async () => {
+      if (cal.type === 'nextcloud') await ncRefresh();
+      else if (cal.type === 'eventkit') await ekRefresh();
+      else await googleRefresh();
+    };
+
+    if (sourceEvent) {
+      const optimistic: CalendarEvent = {
+        ...sourceEvent,
+        title: payload.title,
+        start: payload.start,
+        end: payload.end,
+        isAllday: payload.isAllday,
+        category: payload.isAllday ? 'allday' : 'time',
+        location: payload.location,
+        description: payload.description,
+      };
+      setOptimisticUpdated((prev) => new Map(prev).set(sourceEvent.id, optimistic));
+      try {
+        await doSave();
+        await doRefresh();
+      } catch (e) {
+        setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(sourceEvent.id); return n; });
+        throw e;
+      }
+      setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(sourceEvent.id); return n; });
+    } else {
+      const tempId = `temp-${Date.now()}`;
+      const optimistic: CalendarEvent = {
+        id: tempId,
+        calendarId: payload.calendarId,
+        title: payload.title,
+        start: payload.start,
+        end: payload.end,
+        isAllday: payload.isAllday,
+        category: payload.isAllday ? 'allday' : 'time',
+        location: payload.location,
+        description: payload.description,
+      };
+      setOptimisticCreated((prev) => [...prev, optimistic]);
+      try {
+        await doSave();
+        await doRefresh();
+      } catch (e) {
+        setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
+        throw e;
+      }
+      setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
+    }
+  }, [calendars, saveNextcloudEvent, saveEventKitEvent, saveGoogleEvent, ncRefresh, ekRefresh, googleRefresh]);
 
   const syncDate = useCallback(() => {
     const d = calendarRef.current?.getInstance()?.getDate().toDate();
@@ -402,6 +520,68 @@ export default function CalendarPage() {
       setSelectedEvent(found ?? null);
     },
     [events]
+  );
+
+  const handleBeforeUpdateEvent = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ({ event, changes }: { event: any; changes: any }) => {
+      const originalEvent = events.find((e) => e.id === event.id);
+      if (!originalEvent) return;
+
+      const cal = calendars.find((c) => c.id === originalEvent.calendarId);
+      if (!cal) return;
+
+      // Only writable calendars
+      if (cal.type !== 'google' && cal.type !== 'eventkit' && cal.type !== 'nextcloud') return;
+
+      // Only if current user is organizer (no attendees = personal event, or explicitly organizer)
+      const { attendees } = originalEvent;
+      const isOrganizer = !attendees?.length ||
+        attendees.some((a) => a.isOrganizer && a.email === cal.ownerEmail);
+      if (!isOrganizer) return;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toISO = (d: unknown): string => {
+        if (d instanceof Date) return d.toISOString();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (d && typeof (d as any).toDate === 'function') return (d as any).toDate().toISOString();
+        return String(d);
+      };
+
+      const newStart = changes.start ? toISO(changes.start) : originalEvent.start;
+      let newEnd: string;
+      if (changes.end) {
+        newEnd = toISO(changes.end);
+      } else if (changes.start) {
+        // TUI only provides start on move — preserve original duration
+        const duration = new Date(originalEvent.end).getTime() - new Date(originalEvent.start).getTime();
+        newEnd = new Date(new Date(newStart).getTime() + duration).toISOString();
+      } else {
+        newEnd = originalEvent.end;
+      }
+
+      // TUI uses inclusive all-day end; our model/APIs use exclusive end (day after)
+      if (originalEvent.isAllday && changes.end) {
+        const d = new Date(newEnd);
+        d.setDate(d.getDate() + 1);
+        newEnd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+
+      const payload: CreateEventPayload = {
+        title: originalEvent.title,
+        start: newStart,
+        end: newEnd,
+        isAllday: originalEvent.isAllday,
+        calendarId: originalEvent.calendarId,
+        location: originalEvent.location,
+        description: originalEvent.description,
+        attendees: originalEvent.attendees?.map((a) => ({ email: a.email, name: a.name })),
+      };
+
+      // Optimistic update + async save + revert on failure
+      void handleSaveEvent(payload, originalEvent);
+    },
+    [events, calendars, handleSaveEvent]
   );
 
   // Open creation modal when the user clicks/drags on an empty slot (only if Google calendars exist)
@@ -461,8 +641,13 @@ export default function CalendarPage() {
         {!sidebarCollapsed && (
           <Sidebar
             calendars={calendars}
+            groups={groups}
             onToggle={toggleCalendar}
             onUpdate={updateCalendar}
+            onReorderCalendars={reorderCalendars}
+            onAddGroup={addGroup}
+            onUpdateGroup={updateGroup}
+            onRemoveGroup={removeGroup}
             loading={loading}
             errors={errors}
             width={sidebarWidth}
@@ -490,6 +675,7 @@ export default function CalendarPage() {
             events={tuiEvents}
             theme={theme === 'dark' ? DARK_THEME : LIGHT_THEME}
             onClickEvent={handleClickEvent}
+            onBeforeUpdateEvent={handleBeforeUpdateEvent}
             onSelectDateTime={handleSelectDateTime}
             template={{
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -525,8 +711,13 @@ export default function CalendarPage() {
             ? () => { setEditEvent(selectedEvent); setSelectedEvent(null); }
             : undefined
         }
+        onDelete={
+          selectedEvent && (selectedCalendar?.type === 'google' || selectedCalendar?.type === 'eventkit' || selectedCalendar?.type === 'nextcloud')
+            ? () => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null))
+            : undefined
+        }
         onRsvp={
-          selectedEvent?.selfRsvpStatus
+          selectedEvent?.selfRsvpStatus && selectedCalendar?.type !== 'eventkit'
             ? (status) => handleRsvp(selectedEvent, status)
             : undefined
         }
@@ -543,6 +734,7 @@ export default function CalendarPage() {
             setCreateModalState(null);
             calendarRef.current?.getInstance()?.clearGridSelections();
           }}
+          getValidToken={getValidToken}
         />
       )}
 
@@ -555,6 +747,7 @@ export default function CalendarPage() {
           editEvent={editEvent}
           onSubmit={(payload) => handleSaveEvent(payload, editEvent)}
           onClose={() => setEditEvent(null)}
+          getValidToken={getValidToken}
         />
       )}
     </div>

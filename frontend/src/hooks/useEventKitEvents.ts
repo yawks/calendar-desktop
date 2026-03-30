@@ -1,44 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { CalendarConfig, CalendarEvent } from '../types';
+import { cacheGetStale, cacheSet, cacheIsFresh } from '../utils/eventCache';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const CACHE_VERSION = 'ek1';
 
 function cacheKey(calId: string) {
   return `ek-events:${CACHE_VERSION}:${calId}`;
-}
-
-function getCachedEvents(calId: string): CalendarEvent[] | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(calId));
-    if (!raw) return null;
-    const { events, at } = JSON.parse(raw) as { events: CalendarEvent[]; at: number };
-    if (Date.now() - at > CACHE_TTL) return null;
-    return events;
-  } catch {
-    return null;
-  }
-}
-
-function getCachedEventsStale(calId: string): CalendarEvent[] | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(calId));
-    if (!raw) return null;
-    const { events } = JSON.parse(raw) as { events: CalendarEvent[]; at: number };
-    return events;
-  } catch {
-    return null;
-  }
-}
-
-function setCachedEvents(calId: string, events: CalendarEvent[]) {
-  try {
-    localStorage.setItem(cacheKey(calId), JSON.stringify({ events, at: Date.now() }));
-  } catch {
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('ek-events:')) localStorage.removeItem(key);
-    }
-  }
 }
 
 // Date window: 52 weeks past, 104 weeks future
@@ -56,6 +24,7 @@ interface EKAttendeeInfo {
   email: string;
   status: string;
   is_organizer: boolean;
+  is_self: boolean;
 }
 
 interface EKEventInfo {
@@ -80,8 +49,6 @@ async function fetchEKEvents(cal: CalendarConfig): Promise<CalendarEvent[]> {
     timeMax: timeMax.toISOString(),
   });
 
-  const ownerEmail = cal.ownerEmail?.toLowerCase();
-
   return raw.map((ev): CalendarEvent => {
     const attendees = ev.attendees.map((a) => ({
       name: a.name,
@@ -94,13 +61,12 @@ async function fetchEKEvents(cal: CalendarConfig): Promise<CalendarEvent[]> {
     let isDeclined = false;
     let selfRsvpStatus: import('../types').AttendeeStatus | undefined;
 
-    if (ownerEmail) {
-      const self = attendees.find((a) => a.email.toLowerCase() === ownerEmail && !a.isOrganizer);
-      if (self) {
-        isDeclined = self.status === 'DECLINED';
-        isUnaccepted = self.status !== 'ACCEPTED';
-        selfRsvpStatus = self.status;
-      }
+    const self = ev.attendees.find((a) => a.is_self && !a.is_organizer);
+    if (self) {
+      const status = self.status as import('../types').AttendeeStatus;
+      isDeclined = status === 'DECLINED';
+      isUnaccepted = status !== 'ACCEPTED';
+      selfRsvpStatus = status;
     }
 
     return {
@@ -139,16 +105,15 @@ export function useEventKitEvents(calendars: CalendarConfig[]) {
       return;
     }
 
-    // Phase 1: show stale cache immediately
-    const stale: CalendarEvent[] = [];
-    for (const cal of ekCals) {
-      const s = getCachedEventsStale(cal.id);
-      if (s) stale.push(...s);
-    }
+    // Phase 1: show stale cache immediately (IDB read — very fast, no network)
+    const stale = (await Promise.all(ekCals.map((cal) => cacheGetStale<CalendarEvent[]>(cacheKey(cal.id))))).flat().filter(Boolean) as CalendarEvent[];
     if (stale.length > 0) setEvents(stale);
 
     // Phase 2: refresh expired / forced caches
-    const toRefresh = force ? ekCals : ekCals.filter((c) => !getCachedEvents(c.id));
+    const toRefresh = force
+      ? ekCals
+      : (await Promise.all(ekCals.map(async (cal) => ((await cacheIsFresh(cacheKey(cal.id), CACHE_TTL)) ? null : cal)))).filter(Boolean) as CalendarConfig[];
+
     if (!toRefresh.length) return;
 
     setLoading(true);
@@ -157,7 +122,7 @@ export function useEventKitEvents(calendars: CalendarConfig[]) {
     const settled = await Promise.allSettled(
       toRefresh.map(async (cal) => {
         const fetched = await fetchEKEvents(cal);
-        setCachedEvents(cal.id, fetched);
+        await cacheSet(cacheKey(cal.id), fetched);
         return fetched;
       })
     );
@@ -175,7 +140,7 @@ export function useEventKitEvents(calendars: CalendarConfig[]) {
 
     for (const cal of ekCals) {
       if (!refreshedIds.has(cal.id)) {
-        const cached = getCachedEvents(cal.id);
+        const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id));
         if (cached) results.push(...cached);
       }
     }

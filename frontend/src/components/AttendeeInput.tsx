@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { CalendarEvent } from '../types';
 
 interface AttendeeEntry {
@@ -35,6 +36,7 @@ function buildSuggestions(allEvents: CalendarEvent[]): AttendeeEntry[] {
 }
 
 export default function AttendeeInput({ value, onChange, allEvents }: Props) {
+  const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -103,7 +105,7 @@ export default function AttendeeInput({ value, onChange, allEvents }: Props) {
         onChange={(e) => { setInputValue(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        placeholder="Nom ou adresse e-mail…"
+        placeholder={t('attendeeInput.placeholder')}
         autoComplete="off"
       />
       {open && filtered.length > 0 && (
@@ -138,7 +140,7 @@ export default function AttendeeInput({ value, onChange, allEvents }: Props) {
                 type="button"
                 className="attendee-chip-remove"
                 onClick={() => removeAttendee(a.email)}
-                aria-label={`Supprimer ${a.name ?? a.email}`}
+                aria-label={t('attendeeInput.remove', { name: a.name ?? a.email })}
               >
                 <X size={12} />
               </button>

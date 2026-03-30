@@ -110,6 +110,16 @@ export async function updateNextcloudEvent(
   });
 }
 
+export async function deleteNextcloudEvent(cal: CalendarConfig, uid: string): Promise<void> {
+  const url = eventResourceUrl(cal, uid);
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('delete_caldav_event', {
+    url,
+    username: cal.nextcloudUsername ?? '',
+    password: cal.nextcloudPassword ?? '',
+  });
+}
+
 export async function respondToNextcloudEvent(
   cal: CalendarConfig,
   uid: string,

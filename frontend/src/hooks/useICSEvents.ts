@@ -1,52 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { CalendarConfig, CalendarEvent } from '../types';
 import { parseICS } from '../utils/parseICS';
+import { cacheGetStale, cacheSet, cacheIsFresh } from '../utils/eventCache';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const CACHE_VERSION = 'v3';
 
-// Store parsed events (JSON, ~10x smaller than raw ICS)
 function cacheKey(calId: string, ownerEmail?: string) {
   return `ics-events:${CACHE_VERSION}:${calId}:${ownerEmail ?? ''}`;
-}
-
-function getCachedEvents(calId: string, ownerEmail?: string): CalendarEvent[] | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(calId, ownerEmail));
-    if (!raw) return null;
-    const { events, at } = JSON.parse(raw) as { events: CalendarEvent[]; at: number };
-    if (Date.now() - at > CACHE_TTL) return null;
-    return events;
-  } catch {
-    return null;
-  }
-}
-
-// Returns cached events regardless of TTL (for background refresh: show stale while fetching)
-function getCachedEventsStale(calId: string, ownerEmail?: string): CalendarEvent[] | null {
-  try {
-    const raw = localStorage.getItem(cacheKey(calId, ownerEmail));
-    if (!raw) return null;
-    const { events } = JSON.parse(raw) as { events: CalendarEvent[]; at: number };
-    return events;
-  } catch {
-    return null;
-  }
-}
-
-function setCachedEvents(calId: string, events: CalendarEvent[], ownerEmail?: string) {
-  const value = JSON.stringify({ events, at: Date.now() });
-  try {
-    localStorage.setItem(cacheKey(calId, ownerEmail), value);
-  } catch {
-    // Quota exceeded: evict all ics-events entries then retry
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('ics-events:')) localStorage.removeItem(key);
-    }
-    try {
-      localStorage.setItem(`ics-events:${CACHE_VERSION}:${calId}`, value);
-    } catch { /* give up */ }
-  }
 }
 
 async function fetchAndParse(cal: CalendarConfig): Promise<CalendarEvent[]> {
@@ -63,8 +24,6 @@ export function useICSEvents(calendars: CalendarConfig[]) {
   calendarsRef.current = calendars;
 
   const run = useCallback(async (force: boolean) => {
-    // Fetch all calendars with a URL, regardless of visibility.
-    // Visibility filtering happens at render time so toggling doesn't trigger a reload.
     const toFetch = calendarsRef.current.filter((c) => c.url && (!c.type || c.type === 'ics'));
     if (!toFetch.length) {
       setEvents([]);
@@ -72,20 +31,16 @@ export function useICSEvents(calendars: CalendarConfig[]) {
       return;
     }
 
-    // Phase 1: immediately show any cached data (even stale) so the UI stays usable.
-    const staleEvents: CalendarEvent[] = [];
-    for (const cal of toFetch) {
-      const stale = getCachedEventsStale(cal.id, cal.ownerEmail);
-      if (stale) staleEvents.push(...stale);
-    }
-    if (staleEvents.length > 0) setEvents(staleEvents);
+    // Phase 1: show stale cache immediately (IDB read — very fast, no network)
+    const stale = (await Promise.all(toFetch.map((cal) => cacheGetStale<CalendarEvent[]>(cacheKey(cal.id, cal.ownerEmail))))).flat().filter(Boolean) as CalendarEvent[];
+    if (stale.length > 0) setEvents(stale);
 
-    // Phase 2: determine which calendars actually need a network fetch.
+    // Phase 2: determine which calendars need a network fetch
     const toRefresh = force
       ? toFetch
-      : toFetch.filter((cal) => !getCachedEvents(cal.id, cal.ownerEmail));
+      : (await Promise.all(toFetch.map(async (cal) => ((await cacheIsFresh(cacheKey(cal.id, cal.ownerEmail), CACHE_TTL)) ? null : cal)))).filter(Boolean) as CalendarConfig[];
 
-    if (toRefresh.length === 0) return; // all caches are fresh — nothing to do
+    if (!toRefresh.length) return;
 
     setLoading(true);
     const newErrors: Record<string, string> = {};
@@ -93,12 +48,11 @@ export function useICSEvents(calendars: CalendarConfig[]) {
     const settled = await Promise.allSettled(
       toRefresh.map(async (cal) => {
         const parsed = await fetchAndParse(cal);
-        setCachedEvents(cal.id, parsed, cal.ownerEmail);
+        await cacheSet(cacheKey(cal.id, cal.ownerEmail), parsed);
         return parsed;
       })
     );
 
-    // Assemble final result: freshly fetched + still-valid cached for the others.
     const results: CalendarEvent[] = [];
     const refreshedIds = new Set(toRefresh.map((c) => c.id));
 
@@ -112,7 +66,7 @@ export function useICSEvents(calendars: CalendarConfig[]) {
 
     for (const cal of toFetch) {
       if (!refreshedIds.has(cal.id)) {
-        const cached = getCachedEvents(cal.id, cal.ownerEmail);
+        const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id, cal.ownerEmail));
         if (cached) results.push(...cached);
       }
     }
@@ -122,7 +76,6 @@ export function useICSEvents(calendars: CalendarConfig[]) {
     setLoading(false);
   }, []);
 
-  // Key depends only on URL/email changes, not on visibility — avoids reloads on toggle.
   const calKey = calendars
     .filter((c) => c.url)
     .map((c) => `${c.id}:${c.url}:${c.ownerEmail ?? ''}`)
