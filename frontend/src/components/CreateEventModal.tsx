@@ -394,7 +394,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
                   style={{
                     display: 'flex', alignItems: 'center', gap: '8px',
                     padding: '8px 12px', border: '1px solid var(--border)',
-                    borderRadius: '4px', cursor: 'pointer', background: 'var(--bg-input)'
+                    borderRadius: '4px', cursor: 'pointer'
                   }}
                 >
                   <div style={{
@@ -410,7 +410,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
                 {showTagDropdown && (
                   <div className="custom-select-dropdown" style={{
                     position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
-                    background: 'var(--bg-panel)', border: '1px solid var(--border)',
+                    background: 'var(--bg)', border: '1px solid var(--border)',
                     borderRadius: '4px', marginTop: '4px', maxHeight: '200px',
                     overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
                   }}>

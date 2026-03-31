@@ -71,6 +71,31 @@ function formatDateLabel(date: Date, view: ViewType): string {
   });
 }
 
+function getViewRange(date: Date, view: ViewType): { start: Date; end: Date } {
+  if (view === 'month') {
+    const start = new Date(date.getFullYear(), date.getMonth(), 1);
+    const end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { start, end };
+  }
+  if (view === 'week' || view === 'workweek') {
+    const start = new Date(date);
+    const day = start.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    start.setDate(start.getDate() + diff);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + (view === 'workweek' ? 4 : 6));
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+  // day
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
 // ── TUI Calendar light theme (Google Calendar inspired) ──────────────────────
 const LIGHT_THEME = {
   common: {
@@ -211,7 +236,7 @@ function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[], isDar
       customStyle.textDecoration = 'line-through';
     }
 
-    const tagColor = tag && !isDeclined ? tag.color : undefined;
+    const tagColor = tag ? tag.color : undefined;
 
     // Google Calendar all-day events have an exclusive end date (the day after).
     // TUI Calendar expects an inclusive end date, so we subtract 1 day.
@@ -237,7 +262,7 @@ function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[], isDar
       backgroundColor,
       borderColor,
       ...(Object.keys(customStyle).length ? { customStyle } : {}),
-      raw: { tagColor },
+      raw: { tagColor, isDeclined },
     };
   });
 }
@@ -695,6 +720,9 @@ export default function CalendarPage() {
             onAddTag={addTag}
             onUpdateTag={updateTag}
             onRemoveTag={removeTag}
+            events={events}
+            eventTags={eventTags}
+            viewRange={getViewRange(currentDate, view)}
             loading={loading}
             errors={errors}
             width={sidebarWidth}
@@ -731,11 +759,13 @@ export default function CalendarPage() {
                 const end = formatTime(event.end);
                 const timeLabel = start && end ? `de ${start} à ${end}` : '';
                 const tagColor = event.raw?.tagColor;
+                const declined = event.raw?.isDeclined;
                 const dot = tagColor
                   ? `<span style="position:absolute;bottom:3px;right:3px;width:7px;height:7px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);display:block;pointer-events:none"></span>`
                   : '';
+                const strikeStyle = declined ? 'text-decoration:line-through;' : '';
                 return `<div style="position:absolute;inset:0;padding:1px 0 0 3px;line-height:1.3;overflow:hidden">
-                  <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${event.title}</div>
+                  <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${strikeStyle}">${event.title}</div>
                   ${timeLabel ? `<div style="opacity:0.85;white-space:nowrap">${timeLabel}</div>` : ''}
                   ${dot}
                 </div>`;
@@ -743,10 +773,12 @@ export default function CalendarPage() {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               allday: (event: any) => {
                 const tagColor = event.raw?.tagColor;
+                const declined = event.raw?.isDeclined;
                 const dot = tagColor
                   ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);margin-left:4px;vertical-align:middle;flex-shrink:0"></span>`
                   : '';
-                return `<span style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${event.title}</span>${dot}`;
+                const strikeStyle = declined ? 'text-decoration:line-through;' : '';
+                return `<span style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${strikeStyle}">${event.title}</span>${dot}`;
               },
             }}
             week={{

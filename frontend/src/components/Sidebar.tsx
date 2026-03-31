@@ -25,8 +25,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-import { CalendarConfig, CalendarGroup, Tag } from '../types';
+import { CalendarConfig, CalendarGroup, Tag, CalendarEvent, EventTagMapping } from '../types';
 import MiniCalendar from './MiniCalendar';
+import TagInsightsView from './TagInsightsView';
 
 const COLORS = [
   '#1a73e8', '#34a853', '#ea4335', '#fbbc04',
@@ -48,6 +49,9 @@ interface Props {
   readonly onAddTag?: (name: string, color: string) => void;
   readonly onUpdateTag?: (id: string, data: Partial<Tag>) => void;
   readonly onRemoveTag?: (id: string) => void;
+  readonly events?: CalendarEvent[];
+  readonly eventTags?: EventTagMapping;
+  readonly viewRange?: { start: Date; end: Date };
   readonly loading: boolean;
   readonly errors: Record<string, string>;
   readonly width: number;
@@ -346,6 +350,7 @@ export default function Sidebar({
   onToggle, onUpdate, onReorderCalendars,
   onAddGroup, onUpdateGroup, onRemoveGroup,
   onAddTag, onUpdateTag, onRemoveTag,
+  events, eventTags, viewRange,
   loading, errors, width, currentDate, onNavigateToDate,
 }: Props) {
   const { t } = useTranslation();
@@ -358,6 +363,9 @@ export default function Sidebar({
   // New group form state
   const [addingGroup, setAddingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
+
+  // Tags/Insights toggle
+  const [tagsView, setTagsView] = useState<'tags' | 'insights'>('tags');
 
   // Tag state
   const [addingTag, setAddingTag] = useState(false);
@@ -538,7 +546,58 @@ export default function Sidebar({
         <div className="group-section" style={{ marginTop: '16px' }}>
           <div className="group-header">
             <span className="group-name">Tags / Insights</span>
+            <div style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
+              <button
+                type="button"
+                onClick={() => setTagsView('tags')}
+                title="Gérer les tags"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  fontSize: 10,
+                  fontWeight: tagsView === 'tags' ? 600 : 400,
+                  color: tagsView === 'tags' ? 'var(--accent-color, #1a73e8)' : 'var(--text-secondary, #888)',
+                  backgroundColor: tagsView === 'tags' ? 'var(--accent-bg, rgba(26,115,232,0.1))' : 'transparent',
+                }}
+              >
+                Tags
+              </button>
+              <button
+                type="button"
+                onClick={() => setTagsView('insights')}
+                title="Statistiques"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  fontSize: 10,
+                  fontWeight: tagsView === 'insights' ? 600 : 400,
+                  color: tagsView === 'insights' ? 'var(--accent-color, #1a73e8)' : 'var(--text-secondary, #888)',
+                  backgroundColor: tagsView === 'insights' ? 'var(--accent-bg, rgba(26,115,232,0.1))' : 'transparent',
+                }}
+              >
+                Insights
+              </button>
+            </div>
           </div>
+
+          {tagsView === 'insights' && (
+            <TagInsightsView
+              events={events ?? []}
+              eventTags={eventTags ?? {}}
+              tags={tags}
+              calendars={calendars}
+              groups={groups}
+              viewRange={viewRange}
+            />
+          )}
+
+          {tagsView === 'tags' && (
           <div className="group-calendars">
             {tags.map((tag) => (
               <div key={tag.id}>
@@ -664,6 +723,7 @@ export default function Sidebar({
               </button>
             )}
           </div>
+          )}
         </div>
       )}
 

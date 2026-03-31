@@ -600,6 +600,19 @@ body {
 .calendar-edit-cancel { background: var(--bg-hover); color: var(--text); }
 .calendar-edit-cancel:hover { background: var(--border); }
 
+.insights-select {
+  width: 100%;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary, var(--bg));
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+}
+.insights-select:focus { border-color: var(--primary, #1a73e8); }
+
 .sidebar-loading {
   font-size: 12px;
   color: var(--text-muted);
@@ -1440,6 +1453,26 @@ body {
 .form-row input[type='datetime-local']:focus,
 .form-row select:focus,
 .form-row textarea:focus { border-color: var(--primary); }
+
+.custom-select-trigger {
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.custom-select-trigger:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.custom-select-option {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.custom-select-option:hover {
+  background: var(--bg-hover);
+}
 
 .form-row input[type='color'] {
   width: 48px;

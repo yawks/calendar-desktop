@@ -106,6 +106,20 @@ export function useEventKitEvents(calendars: CalendarConfig[]) {
       return;
     }
 
+    // Ensure EventKit store is initialized for this process lifetime.
+    // requestFullAccessToEventsWithCompletion must be called each launch even if
+    // TCC already shows the app as authorized — without it the store won't return data.
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const status = await invoke<string>('check_eventkit_status');
+      if (status === 'denied' || status === 'restricted' || status === 'unavailable') return;
+      // Calling request_eventkit_access when already authorized completes immediately
+      // (no dialog shown) and initializes the EKEventStore for the current process.
+      await invoke('request_eventkit_access');
+    } catch {
+      return;
+    }
+
     // Phase 1: show stale cache immediately (IDB read — very fast, no network)
     const stale = (await Promise.all(ekCals.map((cal) => cacheGetStale<CalendarEvent[]>(cacheKey(cal.id))))).flat().filter(Boolean) as CalendarEvent[];
     if (stale.length > 0) setEvents(stale);

@@ -99,16 +99,16 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
   }));
 
   // Determine RSVP status from the owner's perspective
+  // Prefer a.self === true (Google marks your own entry) over email matching which can fail with aliases
   let isUnaccepted = false;
   let isDeclined = false;
   let selfRsvpStatus: import('../types').AttendeeStatus | undefined;
-  if (ownerEmail && attendees) {
-    const self = attendees.find((a) => a.email.toLowerCase() === ownerEmail.toLowerCase());
-    if (self && !self.isOrganizer) {
-      isDeclined = self.status === 'DECLINED';
-      isUnaccepted = self.status !== 'ACCEPTED';
-      selfRsvpStatus = self.status;
-    }
+  const selfGoogleAttendee = gEvent.attendees?.find((a) => a.self === true)
+    ?? (ownerEmail ? gEvent.attendees?.find((a) => a.email.toLowerCase() === ownerEmail.toLowerCase()) : undefined);
+  if (selfGoogleAttendee && !selfGoogleAttendee.organizer) {
+    isDeclined = selfGoogleAttendee.responseStatus === 'declined';
+    isUnaccepted = selfGoogleAttendee.responseStatus !== 'accepted';
+    selfRsvpStatus = mapResponseStatus(selfGoogleAttendee.responseStatus);
   }
 
   const meetUrl = gEvent.conferenceData?.entryPoints?.find(

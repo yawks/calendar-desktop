@@ -14,6 +14,7 @@ function openExternal(url: string) {
 }
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
+const HTML_RE = /<[a-z][\s\S]*?>/i;
 
 function linkify(text: string) {
   const parts: React.ReactNode[] = [];
@@ -35,6 +36,27 @@ function linkify(text: string) {
   }
   if (last < text.length) parts.push(text.slice(last));
   return parts;
+}
+
+function HtmlDescription({ html }: { readonly html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const handler = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest('a');
+      if (anchor) {
+        e.preventDefault();
+        const href = anchor.getAttribute('href');
+        if (href) openExternal(href);
+      }
+    };
+    el.addEventListener('click', handler);
+    return () => el.removeEventListener('click', handler);
+  }, [html]);
+
+  return <div ref={ref} className="modal-description" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 type RsvpStatus = 'ACCEPTED' | 'DECLINED' | 'TENTATIVE';
@@ -177,6 +199,8 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
 
     const onCancel = () => onClose();
     const onBackdropClick = (e: MouseEvent) => {
+      // If the click target is still inside the dialog DOM (e.g. dropdown overflow), don't close
+      if (dialog.contains(e.target as Node)) return;
       const rect = dialog.getBoundingClientRect();
       const clickedOutside =
         e.clientX < rect.left || e.clientX > rect.right ||
@@ -441,7 +465,10 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             {event.description && (
               <div className="modal-row modal-description-row">
                 <FileText size={16} className="modal-icon" style={{ marginTop: 2 }} />
-                <span className="modal-description">{linkify(event.description)}</span>
+                {HTML_RE.test(event.description)
+                  ? <HtmlDescription html={event.description} />
+                  : <span className="modal-description">{linkify(event.description)}</span>
+                }
               </div>
             )}
 
