@@ -62,7 +62,9 @@ function buildVCalendar(uid: string, payload: CreateEventPayload): string {
   if (payload.attendees?.length) {
     for (const a of payload.attendees) {
       const cn = a.name ? `;CN=${escapeICS(a.name)}` : '';
-      lines.push(`ATTENDEE${cn};RSVP=TRUE:mailto:${a.email}`);
+      lines.push(
+        `ATTENDEE${cn};CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${a.email}`
+      );
     }
   }
 
@@ -85,6 +87,7 @@ export async function createNextcloudEvent(cal: CalendarConfig, payload: CreateE
   const url = eventResourceUrl(cal, uid);
 
   const { invoke } = await import('@tauri-apps/api/core');
+  console.debug('[nextcloud] createNextcloudEvent', { url, uid, payload, icsContent });
   await invoke('put_caldav_event', {
     url,
     username: cal.nextcloudUsername ?? '',
@@ -103,6 +106,7 @@ export async function updateNextcloudEvent(
   const url = eventResourceUrl(cal, uid);
 
   const { invoke } = await import('@tauri-apps/api/core');
+  console.debug('[nextcloud] updateNextcloudEvent', { url, uid, payload, icsContent });
   await invoke('put_caldav_event', {
     url,
     username: cal.nextcloudUsername ?? '',

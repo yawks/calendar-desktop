@@ -660,7 +660,7 @@ body {
   margin: 0;
   border-radius: 10px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.1), 0 8px 24px rgba(0,0,0,0.18), 0 20px 48px rgba(0,0,0,0.16);
-  overflow: hidden;
+  overflow: visible;
 }
 
 [data-theme="dark"] .modal-dialog {
@@ -1804,6 +1804,14 @@ body {
 .toastui-calendar-time-event {
   border-radius: 4px !important;
   overflow: visible !important;
+}
+
+/* Our template uses position:absolute inset:0 — let the content container be the reference */
+.toastui-calendar-event-time .toastui-calendar-event-time-content {
+  padding: 0 !important;
+  overflow: visible !important;
+  position: relative !important;
+  height: 100% !important;
 }
 
 /* Rounded corners on all-day events */

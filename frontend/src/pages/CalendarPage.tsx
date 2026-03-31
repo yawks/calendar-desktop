@@ -167,7 +167,7 @@ function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[], isDar
   return events.map((ev) => {
     const cal = calendars.find((c) => c.id === ev.calendarId);
     const color = cal?.color || '#888';
-    const eventKey = ev.seriesId ?? ev.sourceId;
+    const eventKey = ev.seriesId || ev.sourceId;
     const tagId = eventKey ? eventTags[eventKey] : undefined;
     const tag = tagId ? tags.find((t) => t.id === tagId) : undefined;
     const isPast = new Date(ev.end) < now;
@@ -534,13 +534,10 @@ export default function CalendarPage() {
           setEventTag(sid, payload.tagId);
         }
         await doRefresh();
-        // Since refreshing fetches real events, wait for `handleSaveEvent` to complete and return sid
         return sid; // Pass sid so caller can map it
-      } catch (e) {
+      } finally {
         setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
-        throw e;
       }
-      setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
     }
   }, [calendars, saveNextcloudEvent, saveEventKitEvent, saveGoogleEvent, ncRefresh, ekRefresh, googleRefresh]);
 
@@ -735,9 +732,9 @@ export default function CalendarPage() {
                 const timeLabel = start && end ? `de ${start} à ${end}` : '';
                 const tagColor = event.raw?.tagColor;
                 const dot = tagColor
-                  ? `<span style="position:absolute;bottom:3px;right:4px;width:7px;height:7px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);flex-shrink:0;display:inline-block"></span>`
+                  ? `<span style="position:absolute;bottom:3px;right:3px;width:7px;height:7px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);display:block;pointer-events:none"></span>`
                   : '';
-                return `<div style="position:relative;overflow:hidden;height:100%;line-height:1.3">
+                return `<div style="position:absolute;inset:0;padding:1px 0 0 3px;line-height:1.3;overflow:hidden">
                   <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${event.title}</div>
                   ${timeLabel ? `<div style="opacity:0.85;white-space:nowrap">${timeLabel}</div>` : ''}
                   ${dot}

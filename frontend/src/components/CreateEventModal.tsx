@@ -274,6 +274,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
   const googleCals = writableCalendars.filter((c) => c.type === 'google');
   const ekCals = writableCalendars.filter((c) => c.type === 'eventkit');
+  const nextcloudCals = writableCalendars.filter((c) => c.type === 'nextcloud');
 
   let submitLabel: string;
   if (saving) {
@@ -351,18 +352,29 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
               disabled={isEditing}
               required
             >
-              {ekCals.length > 0 && googleCals.length > 0 ? (
+              {ekCals.length > 0 || googleCals.length > 0 || nextcloudCals.length > 0 ? (
                 <>
-                  <optgroup label="macOS">
-                    {ekCals.map((cal) => (
-                      <option key={cal.id} value={cal.id}>{cal.name}</option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Google Agenda">
-                    {googleCals.map((cal) => (
-                      <option key={cal.id} value={cal.id}>{cal.name}</option>
-                    ))}
-                  </optgroup>
+                  {ekCals.length > 0 && (
+                    <optgroup label="macOS">
+                      {ekCals.map((cal) => (
+                        <option key={cal.id} value={cal.id}>{cal.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {googleCals.length > 0 && (
+                    <optgroup label="Google Agenda">
+                      {googleCals.map((cal) => (
+                        <option key={cal.id} value={cal.id}>{cal.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {nextcloudCals.length > 0 && (
+                    <optgroup label={t('config.nextcloudCalDAV')}>
+                      {nextcloudCals.map((cal) => (
+                        <option key={cal.id} value={cal.id}>{cal.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </>
               ) : (
                 writableCalendars.map((cal) => (

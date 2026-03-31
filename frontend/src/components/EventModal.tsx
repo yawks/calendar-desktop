@@ -204,7 +204,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showTagDropdown]);
 
-  const tagKey = event ? event.seriesId ?? event.sourceId ?? event.id : undefined;
+  const tagKey = event ? event.seriesId || event.sourceId || event.id || undefined : undefined;
   const selectedTagId = tagKey ? eventTags[tagKey] : undefined;
   const selectedTag = selectedTagId ? tags.find((tag) => tag.id === selectedTagId) : undefined;
   const isPast = event ? new Date(event.end) < new Date() : false;
