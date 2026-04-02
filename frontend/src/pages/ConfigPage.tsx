@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2 } from 'lucide-react';
+import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import { useLanguage } from '../store/LanguageStore';
@@ -30,9 +30,11 @@ async function testNextcloudConnection(url: string, username: string, password: 
 
 import { useCalendars } from '../store/CalendarStore';
 import { useGoogleAuth } from '../store/GoogleAuthStore';
+import { useExchangeAuth, parseExchangeToken } from '../store/ExchangeAuthStore';
 import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../store/googleClientConfig';
 import { listCalendars } from '../utils/googleCalendarApi';
-import { CalendarConfig, GoogleAccount } from '../types';
+import { CalendarConfig, GoogleAccount, ExchangeAccount } from '../types';
+import { useDefaultCalendar } from '../store/defaultCalendarStore';
 
 const DEFAULT_COLORS = [
   '#1a73e8', '#34a853', '#ea4335', '#fbbc04',
@@ -70,7 +72,13 @@ function ColorSwatches({ colors, selected, onSelect }: {
 
 // ── Unified calendar item ─────────────────────────────────────────────────────
 
-function CalendarItem({ cal }: { cal: CalendarConfig }) {
+function CalendarItem({ cal, isDefault, onSetDefault }: {
+  cal: CalendarConfig;
+  isDefault?: boolean;
+  onSetDefault?: () => void;
+}) {
+  const { t } = useTranslation();
+  const [hovered, setHovered] = useState(false);
   let meta = '';
   if (cal.type === 'google') {
     meta = cal.ownerEmail ?? '';
@@ -81,12 +89,26 @@ function CalendarItem({ cal }: { cal: CalendarConfig }) {
     meta = cal.nextcloudUsername ? `${cal.nextcloudUsername} · ${host}` : host;
   }
   return (
-    <div className="cal-item">
+    <div
+      className="cal-item"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div className="cal-item-dot" style={{ background: cal.color }} />
       <div className="cal-item-body">
         <div className="cal-item-name">{cal.name}</div>
         {meta && <div className="cal-item-meta">{meta}</div>}
       </div>
+      {onSetDefault && (hovered || isDefault) && (
+        <button
+          type="button"
+          className={`cal-item-default-btn${isDefault ? ' cal-item-default-btn--active' : ''}`}
+          onClick={onSetDefault}
+          title={isDefault ? t('config.defaultCalendar') : t('config.setAsDefault')}
+        >
+          <Star size={13} fill={isDefault ? 'currentColor' : 'none'} />
+        </button>
+      )}
     </div>
   );
 }
@@ -400,6 +422,7 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
               <img
                 src={account.picture} alt={account.name}
                 style={{ width: 28, height: 28, borderRadius: '50%' }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
               />
             )}
             <div>
@@ -810,6 +833,70 @@ function NextcloudManageModal({ calendars, onClose }: {
   );
 }
 
+// ── Exchange account manage modal ─────────────────────────────────────────────
+
+function ExchangeAccountManageModal({ account, existingCalendars, onClose }: {
+  account: ExchangeAccount;
+  existingCalendars: CalendarConfig[];
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const { removeAccount } = useExchangeAuth();
+  const { removeCalendar } = useCalendars();
+
+  const accountCals = existingCalendars.filter(
+    (c) => c.type === 'exchange' && c.exchangeAccountId === account.id
+  );
+
+  const handleDisconnect = () => {
+    accountCals.forEach((c) => removeCalendar(c.id));
+    removeAccount(account.id);
+    onClose();
+  };
+
+  return (
+    <div
+      className="nc-modal-overlay"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="nc-modal-box nc-modal-box--wide">
+        <div className="nc-modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{account.displayName || account.email}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{account.email}</div>
+            </div>
+          </div>
+          <button type="button" className="nc-modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+        <div className="nc-modal-body">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+              {t('config.exchangeConnectedCalendars')}
+            </div>
+            {accountCals.map((cal) => (
+              <div key={cal.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
+                <span style={{ width: 12, height: 12, borderRadius: '50%', background: cal.color, flexShrink: 0, display: 'inline-block' }} />
+                <span style={{ fontSize: 14 }}>{cal.name}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <button
+              type="button"
+              className="btn-remove"
+              onClick={handleDisconnect}
+              style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Trash2 size={14} /> {t('config.disconnectAccount')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── New calendar modal ────────────────────────────────────────────────────────
 
 function NewCalendarModal({
@@ -822,11 +909,21 @@ function NewCalendarModal({
   const { t } = useTranslation();
   const { addCalendar, calendars } = useCalendars();
   const { connectGoogle } = useGoogleAuth();
+  const { addAccount } = useExchangeAuth();
 
-  const [step, setStep] = useState<'pick' | 'configure' | 'google'>('pick');
+  const [step, setStep] = useState<'pick' | 'configure' | 'google' | 'exchange'>('pick');
   const [selectedType, setSelectedType] = useState<'ics' | 'nextcloud' | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
+
+  // Exchange device code flow state
+  const [exUserCode, setExUserCode] = useState('');
+  const [exVerifUri, setExVerifUri] = useState('');
+  const [exDeviceCode, setExDeviceCode] = useState('');
+  const [exInterval, setExInterval] = useState(5);
+  const [exPolling, setExPolling] = useState(false);
+  const [exCalName, setExCalName] = useState('Exchange Calendar');
+  const [exColor, setExColor] = useState('#0078d4');
 
   // Google OAuth credentials
   const [gcClientId, setGcClientId] = useState(() => getGoogleClientConfig()?.clientId ?? '');
@@ -882,18 +979,77 @@ function NewCalendarModal({
     }
   };
 
-  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit') => {
-    if (type === 'eventkit') {
-      onOpenEventKit();
-      return;
-    }
-    if (type === 'google') {
-      setStep('google');
-      return;
-    }
+  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange') => {
+    if (type === 'eventkit') { onOpenEventKit(); return; }
+    if (type === 'google') { setStep('google'); return; }
+    if (type === 'exchange') { setStep('exchange'); return; }
     setSelectedType(type);
     setStep('configure');
   };
+
+  const startExchangeAuth = async () => {
+    setConnecting(true);
+    setConnectError('');
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const res = await invoke<{ device_code: string; user_code: string; verification_uri: string; interval: number; message: string }>(
+        'ews_start_device_auth'
+      );
+      setExDeviceCode(res.device_code);
+      setExUserCode(res.user_code);
+      setExVerifUri(res.verification_uri);
+      setExInterval(res.interval);
+      setExPolling(true);
+      invoke('open_url', { url: res.verification_uri }).catch(() => {});
+    } catch (err) {
+      setConnectError(err instanceof Error ? err.message : t('config.exchangeAuthError'));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  // Poll for Exchange token once device code is obtained
+  useEffect(() => {
+    if (!exPolling || !exDeviceCode) return;
+    const timer = setInterval(async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const res = await invoke<{ access_token: string; refresh_token?: string; expires_in: number }>(
+          'ews_poll_device_token',
+          { deviceCode: exDeviceCode }
+        );
+        clearInterval(timer);
+        setExPolling(false);
+        const { email, displayName } = parseExchangeToken(res.access_token);
+        const account: ExchangeAccount = {
+          id: email,
+          email,
+          displayName,
+          accessToken: res.access_token,
+          refreshToken: res.refresh_token ?? '',
+          expiresAt: Date.now() + res.expires_in * 1000,
+        };
+        addAccount(account);
+        addCalendar({
+          name: exCalName.trim() || 'Exchange Calendar',
+          url: '',
+          color: exColor,
+          visible: true,
+          type: 'exchange',
+          ownerEmail: email,
+          exchangeAccountId: email,
+        });
+        onClose();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === 'authorization_pending' || msg.includes('authorization_pending')) return;
+        clearInterval(timer);
+        setExPolling(false);
+        setConnectError(msg);
+      }
+    }, exInterval * 1000);
+    return () => clearInterval(timer);
+  }, [exPolling, exDeviceCode, exInterval, exCalName, exColor, addAccount, addCalendar, onClose, t]);
 
   const handleAddICS = (e: FormEvent) => {
     e.preventDefault();
@@ -925,7 +1081,7 @@ function NewCalendarModal({
     onClose();
   };
 
-  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit'; icon: React.ReactNode; label: string; desc: string }[] = [
+  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange'; icon: React.ReactNode; label: string; desc: string }[] = [
     {
       type: 'eventkit',
       icon: <Laptop size={28} />,
@@ -957,15 +1113,28 @@ function NewCalendarModal({
       label: 'Nextcloud',
       desc: t('config.nextcloudCalDAV'),
     },
+    {
+      type: 'exchange',
+      icon: (
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect width="24" height="24" rx="4" fill="#0078d4"/>
+          <text x="12" y="17" textAnchor="middle" fontSize="13" fontWeight="bold" fill="white" fontFamily="sans-serif">Ex</text>
+        </svg>
+      ),
+      label: 'Exchange / Office 365',
+      desc: t('config.exchangeDesc'),
+    },
   ];
 
   const modalTitle = step === 'pick'
     ? t('config.newCalendar')
     : step === 'google'
       ? t('config.googleAgenda')
-      : selectedType === 'ics'
-        ? t('config.addICSCalendar')
-        : t('config.addNextcloudCalendar');
+      : step === 'exchange'
+        ? 'Exchange / Office 365'
+        : selectedType === 'ics'
+          ? t('config.addICSCalendar')
+          : t('config.addNextcloudCalendar');
 
   return (
     <div
@@ -975,11 +1144,11 @@ function NewCalendarModal({
       <div className={`nc-modal-box ${step === 'pick' ? 'nc-modal-box--narrow' : 'nc-modal-box--wide'}`}>
         <div className="nc-modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {step !== 'pick' && (
+            {step !== 'pick' && !exPolling && (
               <button
                 type="button"
                 className="nc-modal-back"
-                onClick={() => { setStep('pick'); setSelectedType(null); setConnectError(''); }}
+                onClick={() => { setStep('pick'); setSelectedType(null); setConnectError(''); setExUserCode(''); setExDeviceCode(''); setExPolling(false); }}
                 title={t('config.back')}
               >
                 ←
@@ -1070,6 +1239,69 @@ function NewCalendarModal({
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Step 2: Exchange device code flow */}
+          {step === 'exchange' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="form-row">
+                <label htmlFor="exchange-cal-name">{t('config.nameLabel')}</label>
+                <input
+                  id="exchange-cal-name"
+                  type="text"
+                  value={exCalName}
+                  onChange={(e) => setExCalName(e.target.value)}
+                  placeholder="Exchange Calendar"
+                />
+              </div>
+              <div className="form-row">
+                <label htmlFor="exchange-cal-color">{t('config.colorLabel')}</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <ColorSwatches colors={DEFAULT_COLORS} selected={exColor} onSelect={setExColor} />
+                  <input id="exchange-cal-color" type="color" value={exColor} onChange={(e) => setExColor(e.target.value)} />
+                </div>
+              </div>
+              {!exUserCode && !exPolling && (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={startExchangeAuth}
+                  disabled={connecting}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  {connecting ? t('config.connecting') : t('config.exchangeStartAuth')}
+                </button>
+              )}
+              {exUserCode && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <p style={{ margin: 0, fontSize: 14 }}>{t('config.exchangeEnterCode')}</p>
+                  <div style={{
+                    fontSize: 28, fontWeight: 700, letterSpacing: 4,
+                    textAlign: 'center', padding: '12px 20px',
+                    background: 'var(--bg-secondary, #f5f5f5)', borderRadius: 8,
+                    border: '1px solid var(--border)', fontFamily: 'monospace',
+                  }}>
+                    {exUserCode}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-edit"
+                    onClick={() => { import('@tauri-apps/api/core').then(({ invoke }) => invoke('open_url', { url: exVerifUri })); }}
+                    style={{ fontSize: 13 }}
+                  >
+                    {t('config.exchangeOpenBrowser')} ↗
+                  </button>
+                  {exPolling && (
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
+                      {t('config.exchangeWaiting')}
+                    </p>
+                  )}
+                </div>
+              )}
+              {connectError && (
+                <div style={{ fontSize: 13, color: 'var(--color-error, #d93025)' }}>{connectError}</div>
+              )}
             </div>
           )}
 
@@ -1275,6 +1507,7 @@ function SettingsSection() {
 type EditModalState =
   | { type: 'eventkit' }
   | { type: 'google'; accountId: string }
+  | { type: 'exchange'; accountId: string }
   | { type: 'ics' }
   | { type: 'nextcloud' }
   | null;
@@ -1285,6 +1518,8 @@ export default function ConfigPage() {
   const { t } = useTranslation();
   const { calendars } = useCalendars();
   const { accounts } = useGoogleAuth();
+  const { accounts: exchangeAccounts } = useExchangeAuth();
+  const { defaultCalendarId, setDefaultCalendar } = useDefaultCalendar();
 
   const [activeSection, setActiveSection] = useState<SectionType>('calendars');
   const [showNewCalModal, setShowNewCalModal] = useState(false);
@@ -1299,9 +1534,15 @@ export default function ConfigPage() {
     cals: calendars.filter((c) => c.type === 'google' && c.googleAccountId === account.id),
   }));
 
+  const exchangeGroups = exchangeAccounts.map((account) => ({
+    account,
+    cals: calendars.filter((c) => c.type === 'exchange' && c.exchangeAccountId === account.id),
+  }));
+
   const hasAnyCalendar =
     ekCals.length > 0 ||
     googleGroups.some((g) => g.cals.length > 0) ||
+    exchangeGroups.some((g) => g.cals.length > 0) ||
     icsCals.length > 0 ||
     nextcloudCals.length > 0;
 
@@ -1375,7 +1616,7 @@ export default function ConfigPage() {
                     icon={<Laptop size={13} />}
                     onEdit={() => setEditModal({ type: 'eventkit' })}
                   >
-                    {ekCals.map((cal) => <CalendarItem key={cal.id} cal={cal} />)}
+                    {ekCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
                 )}
 
@@ -1387,7 +1628,7 @@ export default function ConfigPage() {
                       title={account.email}
                       icon={
                         account.picture
-                          ? <img src={account.picture} alt="" style={{ width: 14, height: 14, borderRadius: '50%' }} />
+                          ? <img src={account.picture} alt="" style={{ width: 14, height: 14, borderRadius: '50%' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                           : (
                             <svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true">
                               <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
@@ -1399,7 +1640,26 @@ export default function ConfigPage() {
                       }
                       onEdit={() => setEditModal({ type: 'google', accountId: account.id })}
                     >
-                      {cals.map((cal) => <CalendarItem key={cal.id} cal={cal} />)}
+                      {cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
+                    </GroupSection>
+                  ) : null
+                )}
+
+                {/* Exchange — one group per account */}
+                {exchangeGroups.map(({ account, cals }) =>
+                  cals.length > 0 ? (
+                    <GroupSection
+                      key={account.id}
+                      title={account.email}
+                      icon={
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <rect width="24" height="24" rx="4" fill="#0078d4"/>
+                          <text x="12" y="17" textAnchor="middle" fontSize="13" fontWeight="bold" fill="white" fontFamily="sans-serif">Ex</text>
+                        </svg>
+                      }
+                      onEdit={() => setEditModal({ type: 'exchange', accountId: account.id })}
+                    >
+                      {cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                     </GroupSection>
                   ) : null
                 )}
@@ -1411,7 +1671,7 @@ export default function ConfigPage() {
                     icon={<Rss size={13} />}
                     onEdit={() => setEditModal({ type: 'ics' })}
                   >
-                    {icsCals.map((cal) => <CalendarItem key={cal.id} cal={cal} />)}
+                    {icsCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
                 )}
 
@@ -1422,7 +1682,7 @@ export default function ConfigPage() {
                     icon={<Cloud size={13} />}
                     onEdit={() => setEditModal({ type: 'nextcloud' })}
                   >
-                    {nextcloudCals.map((cal) => <CalendarItem key={cal.id} cal={cal} />)}
+                    {nextcloudCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
                 )}
               </>
@@ -1461,6 +1721,16 @@ export default function ConfigPage() {
           onClose={() => setEditModal(null)}
         />
       )}
+      {editModal?.type === 'exchange' && (() => {
+        const acc = exchangeAccounts.find((a) => a.id === (editModal as { type: 'exchange'; accountId: string }).accountId);
+        return acc ? (
+          <ExchangeAccountManageModal
+            account={acc}
+            existingCalendars={calendars}
+            onClose={() => setEditModal(null)}
+          />
+        ) : null;
+      })()}
       {editModal?.type === 'ics' && (
         <ICSManageModal
           calendars={icsCals}

@@ -5,6 +5,7 @@ import { TagProvider } from './store/TagStore';
 import { ThemeProvider } from './store/ThemeStore';
 import { LanguageProvider } from './store/LanguageStore';
 import { GoogleAuthProvider } from './store/GoogleAuthStore';
+import { ExchangeAuthProvider } from './store/ExchangeAuthStore';
 import CalendarPage from './pages/CalendarPage';
 import ConfigPage from './pages/ConfigPage';
 
@@ -13,6 +14,7 @@ export default function App() {
     <ThemeProvider>
       <LanguageProvider>
       <GoogleAuthProvider>
+      <ExchangeAuthProvider>
         <CalendarProvider>
         <CalendarGroupProvider>
         <TagProvider>
@@ -25,6 +27,7 @@ export default function App() {
         </TagProvider>
         </CalendarGroupProvider>
         </CalendarProvider>
+      </ExchangeAuthProvider>
       </GoogleAuthProvider>
       </LanguageProvider>
     </ThemeProvider>

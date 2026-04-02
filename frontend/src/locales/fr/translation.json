@@ -52,6 +52,8 @@
     "attendees_one": "{{count}} invité",
     "attendees_other": "{{count}} invités",
     "organizer": "organisateur",
+    "showMore": "+{{count}} autres",
+    "showLess": "Voir moins",
     "rsvp": {
       "ACCEPTED": "Accepté",
       "TENTATIVE": "Peut-être",
@@ -112,6 +114,8 @@
     "selectCalendarsToShow": "Sélectionnez les calendriers à afficher :",
     "primaryCalendar": " (principal)",
     "readOnly": "lecture seule",
+    "setAsDefault": "Définir comme calendrier par défaut",
+    "defaultCalendar": "Calendrier par défaut",
     "macosUnavailable": "Les calendriers macOS ne sont pas disponibles dans cet environnement.",
     "loading": "Chargement…",
     "macosDescription": "Affichez et créez des événements directement dans vos calendriers macOS (Calendrier, iCloud, Exchange…).",
@@ -164,7 +168,15 @@
     "macosCalendar": "Calendrier macOS",
     "macosCalendarDesc": "Affichez vos calendriers macOS (Calendrier, iCloud, Exchange…)",
     "connectGoogleAccount": "Connecter le compte Google",
-    "noCalendarsConfigured": "Aucun calendrier configuré. Cliquez sur « Nouveau calendrier » pour commencer."
+    "noCalendarsConfigured": "Aucun calendrier configuré. Cliquez sur « Nouveau calendrier » pour commencer.",
+    "exchangeDesc": "Exchange / Office 365 via EWS",
+    "exchangeStartAuth": "Connecter le compte Exchange",
+    "exchangeEnterCode": "Rendez-vous sur la page ci-dessous et entrez ce code :",
+    "exchangeOpenBrowser": "Ouvrir le navigateur",
+    "exchangeWaiting": "En attente de l'authentification…",
+    "exchangeAuthError": "Erreur d'authentification",
+    "exchangeConnectedCalendars": "Calendriers connectés",
+    "connecting": "Connexion…"
   },
   "freeBusy": {
     "title": "Disponibilités",

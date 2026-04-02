@@ -688,7 +688,10 @@ body {
   background: var(--bg);
   border-radius: 10px;
   width: 100%;
-  overflow: visible;
+  overflow: hidden;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   animation: modal-in 0.15s ease;
 }
 
@@ -770,6 +773,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .modal-row {
@@ -959,12 +964,67 @@ body {
   margin-bottom: 4px;
 }
 
+.attendee-scroll-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
 .attendee-row {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 13px;
   color: var(--text);
+  padding-right: 2px;
+}
+
+.attendee-row:hover .attendee-copy-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.attendee-copy-btn {
+  opacity: 0;
+  pointer-events: none;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 1px 3px;
+  border-radius: 4px;
+  vertical-align: middle;
+  transition: color 0.1s;
+}
+
+.attendee-copy-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.attendee-show-more {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--primary);
+  padding: 2px 0;
+  text-align: left;
+  margin-top: 2px;
+}
+
+.attendee-show-more:hover {
+  text-decoration: underline;
 }
 
 .attendee-name {
@@ -1230,7 +1290,7 @@ body {
 
 .cal-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   padding: 5px 2px;
 }
@@ -1240,7 +1300,6 @@ body {
   height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
-  margin-top: 2px;
 }
 
 .cal-item-body {
@@ -1262,6 +1321,35 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cal-item-default-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-radius: 4px;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.cal-item-default-btn:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
+.cal-item-default-btn--active {
+  color: #f5a623;
+  opacity: 1;
+}
+
+.cal-item-default-btn--active:hover {
+  color: #f5a623;
 }
 
 /* keep old .config-page for potential other usages */

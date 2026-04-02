@@ -15,10 +15,12 @@ import { useCalendars } from '../store/CalendarStore';
 import { useCalendarGroups } from '../store/CalendarGroupStore';
 import { useTags } from '../store/TagStore';
 import { useGoogleAuth } from '../store/GoogleAuthStore';
+import { useExchangeAuth } from '../store/ExchangeAuthStore';
 import { useGoogleEvents } from '../hooks/useGoogleEvents';
 import { useICSEvents } from '../hooks/useICSEvents';
 import { useNextcloudEvents } from '../hooks/useNextcloudEvents';
 import { useEventKitEvents } from '../hooks/useEventKitEvents';
+import { useEWSEvents } from '../hooks/useEWSEvents';
 import { useTheme } from '../store/ThemeStore';
 import { DEMO_CALENDARS, DEMO_EVENTS } from '../demo/demoData';
 
@@ -323,7 +325,9 @@ export default function CalendarPage() {
   const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = useGoogleEvents(DEMO_MODE ? [] : realCalendars);
   const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = useNextcloudEvents(DEMO_MODE ? [] : realCalendars);
   const { events: ekEvents, loading: ekLoading, errors: ekErrors, refresh: ekRefresh } = useEventKitEvents(DEMO_MODE ? [] : realCalendars);
+  const { events: ewsEvents, loading: ewsLoading, errors: ewsErrors, refresh: ewsRefresh } = useEWSEvents(DEMO_MODE ? [] : realCalendars);
   const { getValidToken } = useGoogleAuth();
+  const { accounts: exchangeAccounts, getValidToken: getExchangeToken, getRefreshToken: getExchangeRefreshToken } = useExchangeAuth();
   const { resolved: theme } = useTheme();
 
   const [createModalState, setCreateModalState] = useState<{ start: string; end: string } | null>(null);
@@ -333,20 +337,20 @@ export default function CalendarPage() {
   const [optimisticUpdated, setOptimisticUpdated] = useState<Map<string, CalendarEvent>>(new Map());
 
   const calendars = DEMO_MODE ? DEMO_CALENDARS : realCalendars;
-  const allEvents = DEMO_MODE ? DEMO_EVENTS : [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents];
+  const allEvents = DEMO_MODE ? DEMO_EVENTS : [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents];
   const events = [
     ...allEvents
       .filter((e) => !deletedEventIds.has(e.id))
       .map((e) => optimisticUpdated.get(e.id) ?? e),
     ...optimisticCreated,
   ];
-  const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ekLoading);
-  const errors = DEMO_MODE ? {} : { ...icsErrors, ...googleErrors, ...ncErrors, ...ekErrors };
-  const refresh = useCallback(() => { icsRefresh(); googleRefresh(); ncRefresh(); ekRefresh(); }, [icsRefresh, googleRefresh, ncRefresh, ekRefresh]);
+  const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ekLoading || ewsLoading);
+  const errors = DEMO_MODE ? {} : { ...icsErrors, ...googleErrors, ...ncErrors, ...ekErrors, ...ewsErrors };
+  const refresh = useCallback(() => { icsRefresh(); googleRefresh(); ncRefresh(); ekRefresh(); ewsRefresh(); }, [icsRefresh, googleRefresh, ncRefresh, ekRefresh, ewsRefresh]);
 
-  // Calendars available for event creation: writable Google + writable EventKit + Nextcloud
+  // Calendars available for event creation: writable Google + writable EventKit + Nextcloud + Exchange
   const writableCalendars = calendars.filter(
-    (c) => c.type === 'google' || c.type === 'eventkit' || c.type === 'nextcloud'
+    (c) => c.type === 'google' || c.type === 'eventkit' || c.type === 'nextcloud' || c.type === 'exchange'
   );
 
   const saveNextcloudEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
@@ -383,6 +387,42 @@ export default function CalendarPage() {
       return res; // Might be a string ID if we update rust, otherwise undefined.
     }
   }, []);
+
+  const saveExchangeEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
+    if (!cal.exchangeAccountId) throw new Error('Compte Exchange introuvable');
+    const token = await getExchangeToken(cal.exchangeAccountId);
+    if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+    const { invoke } = await import('@tauri-apps/api/core');
+    const attendeeEmails = payload.attendees?.map((a) => a.email) ?? [];
+    if (sourceEvent?.sourceId) {
+      const [itemId, changeKey] = sourceEvent.sourceId.split('|');
+      await invoke('ews_update_event', {
+        accessToken: token,
+        itemId,
+        changeKey,
+        title: payload.title,
+        start: payload.start,
+        end: payload.end,
+        isAllDay: payload.isAllday,
+        location: payload.location ?? null,
+        description: payload.description ?? null,
+      });
+      return sourceEvent.seriesId;
+    } else {
+      const result = await invoke<string>('ews_create_event', {
+        accessToken: token,
+        title: payload.title,
+        start: payload.start,
+        end: payload.end,
+        isAllDay: payload.isAllday,
+        location: payload.location ?? null,
+        description: payload.description ?? null,
+        attendees: attendeeEmails.length > 0 ? attendeeEmails : null,
+      });
+      // result is "itemId|changeKey" — return itemId as seriesId
+      return result.split('|')[0];
+    }
+  }, [getExchangeToken]);
 
   const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
     if (!cal.googleAccountId) throw new Error('Compte Google introuvable');
@@ -426,8 +466,32 @@ export default function CalendarPage() {
           throw new Error(i18n.t('calendarPage.missingInfo'));
         await respondToNextcloudEvent(cal, event.sourceId, cal.ownerEmail, status);
         await ncRefresh();
+      } else if (cal.type === 'exchange') {
+        if (!cal.exchangeAccountId || !event.sourceId)
+          throw new Error(i18n.t('calendarPage.missingInfo'));
+        const token = await getExchangeToken(cal.exchangeAccountId);
+        if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+        const [itemId, changeKey] = event.sourceId.split('|');
+        console.log('[EWS RSVP] sourceId:', event.sourceId);
+        console.log('[EWS RSVP] itemId:', itemId, 'changeKey:', changeKey);
+        console.log('[EWS RSVP] responseType:', status);
+        const { invoke } = await import('@tauri-apps/api/core');
+        try {
+          await invoke('ews_respond_to_invitation', {
+            accessToken: token,
+            itemId,
+            changeKey,
+            responseType: status === 'ACCEPTED' ? 'accept' : status === 'DECLINED' ? 'decline' : 'tentative',
+          });
+          console.log('[EWS RSVP] success');
+        } catch (invokeErr) {
+          console.error('[EWS RSVP] invoke error:', invokeErr);
+          throw invokeErr;
+        }
+        await ewsRefresh();
       }
     } catch (e) {
+      console.error('[RSVP] caught error:', e);
       setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(event.id); return n; });
       setSelectedEvent(event);
       throw e;
@@ -449,6 +513,16 @@ export default function CalendarPage() {
     ncRefresh();
   }, [ncRefresh]);
 
+  const deleteExchangeCalEvent = useCallback(async (cal: CalendarConfig, event: CalendarEvent) => {
+    if (!cal.exchangeAccountId || !event.sourceId) throw new Error(i18n.t('calendarPage.missingInfo'));
+    const token = await getExchangeToken(cal.exchangeAccountId);
+    if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+    const [itemId, changeKey] = event.sourceId.split('|');
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('ews_delete_event', { accessToken: token, itemId, changeKey });
+    ewsRefresh();
+  }, [getExchangeToken, ewsRefresh]);
+
   const deleteEventKitCalEvent = useCallback(async (_cal: CalendarConfig, event: CalendarEvent) => {
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('delete_eventkit_event', { eventId: event.sourceId ?? event.id });
@@ -465,6 +539,7 @@ export default function CalendarPage() {
       if (cal.type === 'google') await deleteGoogleCalEvent(cal, event);
       else if (cal.type === 'nextcloud') await deleteNextcloudCalEvent(cal, event);
       else if (cal.type === 'eventkit') await deleteEventKitCalEvent(cal, event);
+      else if (cal.type === 'exchange') await deleteExchangeCalEvent(cal, event);
     } catch {
       setDeletedEventIds((prev) => {
         const next = new Set(prev);
@@ -482,11 +557,13 @@ export default function CalendarPage() {
     const doSave = () => {
       if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, sourceEvent);
       if (cal.type === 'eventkit') return saveEventKitEvent(cal, payload, sourceEvent);
+      if (cal.type === 'exchange') return saveExchangeEvent(cal, payload, sourceEvent);
       return saveGoogleEvent(cal, payload, sourceEvent);
     };
     const doRefresh = async () => {
       if (cal.type === 'nextcloud') await ncRefresh();
       else if (cal.type === 'eventkit') await ekRefresh();
+      else if (cal.type === 'exchange') await ewsRefresh();
       else await googleRefresh();
     };
 
@@ -564,7 +641,7 @@ export default function CalendarPage() {
         setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
       }
     }
-  }, [calendars, saveNextcloudEvent, saveEventKitEvent, saveGoogleEvent, ncRefresh, ekRefresh, googleRefresh]);
+  }, [calendars, saveNextcloudEvent, saveEventKitEvent, saveExchangeEvent, saveGoogleEvent, ncRefresh, ekRefresh, ewsRefresh, googleRefresh]);
 
   const syncDate = useCallback(() => {
     const d = calendarRef.current?.getInstance()?.getDate().toDate();
@@ -597,6 +674,21 @@ export default function CalendarPage() {
     const attendees = event.attendees;
     return !attendees?.length || attendees.some((a) => a.isOrganizer && a.email === cal.ownerEmail);
   }, [calendars]);
+
+  const isExchangeOrganizer = useCallback((event: CalendarEvent) => {
+    const cal = calendars.find((c) => c.id === event.calendarId);
+    if (!cal || cal.type !== 'exchange' || !cal.exchangeAccountId) return false;
+    // No attendees = personal event, current user is the owner
+    if (!event.attendees?.length) return true;
+    const account = exchangeAccounts.find((a) => a.id === cal.exchangeAccountId);
+    if (!account) return false;
+    return event.attendees.some((a) => {
+      if (!a.isOrganizer) return false;
+      // Exchange stores organizer email as legacy DN (/O=...) — fall back to display name
+      if (a.email.toLowerCase() === account.email.toLowerCase()) return true;
+      return !!account.displayName && a.name.toLowerCase() === account.displayName.toLowerCase();
+    });
+  }, [calendars, exchangeAccounts]);
 
   const handleBeforeUpdateEvent = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -794,7 +886,7 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <EventModal
+<EventModal
         event={selectedEvent}
         calendar={selectedCalendar}
         onClose={() => setSelectedEvent(null)}
@@ -804,15 +896,18 @@ export default function CalendarPage() {
             : undefined
         }
         onDelete={
-          selectedEvent && isEventEditable(selectedEvent)
+          selectedEvent && (isEventEditable(selectedEvent) || isExchangeOrganizer(selectedEvent))
             ? () => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null))
             : undefined
         }
         onRsvp={
-          selectedEvent?.selfRsvpStatus && selectedCalendar?.type !== 'eventkit'
+          selectedEvent?.selfRsvpStatus &&
+          selectedCalendar?.type !== 'eventkit' &&
+          !isExchangeOrganizer(selectedEvent)
             ? (status) => handleRsvp(selectedEvent, status)
             : undefined
         }
+        isOrganizer={selectedEvent ? isExchangeOrganizer(selectedEvent) : false}
       />
 
       {createModalState && writableCalendars.length > 0 && (
@@ -827,6 +922,7 @@ export default function CalendarPage() {
             calendarRef.current?.getInstance()?.clearGridSelections();
           }}
           getValidToken={getValidToken}
+          getExchangeRefreshToken={getExchangeRefreshToken}
         />
       )}
 
@@ -840,6 +936,7 @@ export default function CalendarPage() {
           onSubmit={async (payload) => { await handleSaveEvent(payload, editEvent); }}
           onClose={() => setEditEvent(null)}
           getValidToken={getValidToken}
+          getExchangeRefreshToken={getExchangeRefreshToken}
         />
       )}
     </div>

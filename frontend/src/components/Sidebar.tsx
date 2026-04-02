@@ -365,7 +365,13 @@ export default function Sidebar({
   const [newGroupName, setNewGroupName] = useState('');
 
   // Tags/Insights toggle
-  const [tagsView, setTagsView] = useState<'tags' | 'insights'>('tags');
+  const [tagsView, setTagsView] = useState<'tags' | 'insights'>(
+    () => (localStorage.getItem('sidebar-tags-view') as 'tags' | 'insights') ?? 'tags'
+  );
+  const handleTagsViewChange = (v: 'tags' | 'insights') => {
+    setTagsView(v);
+    localStorage.setItem('sidebar-tags-view', v);
+  };
 
   // Tag state
   const [addingTag, setAddingTag] = useState(false);
@@ -549,7 +555,7 @@ export default function Sidebar({
             <div style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
               <button
                 type="button"
-                onClick={() => setTagsView('tags')}
+                onClick={() => handleTagsViewChange('tags')}
                 title="Gérer les tags"
                 style={{
                   background: 'none',
@@ -567,7 +573,7 @@ export default function Sidebar({
               </button>
               <button
                 type="button"
-                onClick={() => setTagsView('insights')}
+                onClick={() => handleTagsViewChange('insights')}
                 title="Statistiques"
                 style={{
                   background: 'none',

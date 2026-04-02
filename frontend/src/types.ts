@@ -21,8 +21,8 @@ export interface CalendarConfig {
   ownerEmail?: string;
   /** Group this calendar belongs to (default: 'default') */
   groupId?: string;
-  /** 'ics' (default) | 'google' | 'eventkit' | 'nextcloud' */
-  type?: 'ics' | 'google' | 'eventkit' | 'nextcloud';
+  /** 'ics' (default) | 'google' | 'eventkit' | 'nextcloud' | 'exchange' */
+  type?: 'ics' | 'google' | 'eventkit' | 'nextcloud' | 'exchange';
   /** Google Calendar ID (e.g. "primary" or "user@group.calendar.google.com") */
   googleCalendarId?: string;
   /** Reference to GoogleAccount.id */
@@ -35,6 +35,8 @@ export interface CalendarConfig {
   nextcloudUsername?: string;
   /** Nextcloud app password */
   nextcloudPassword?: string;
+  /** Reference to ExchangeAccount.id */
+  exchangeAccountId?: string;
 }
 
 export interface GoogleAccount {
@@ -42,6 +44,16 @@ export interface GoogleAccount {
   email: string;
   name: string;
   picture?: string;
+  accessToken: string;
+  refreshToken: string;
+  /** Unix timestamp (ms) when the access token expires */
+  expiresAt: number;
+}
+
+export interface ExchangeAccount {
+  id: string;
+  email: string;
+  displayName: string;
   accessToken: string;
   refreshToken: string;
   /** Unix timestamp (ms) when the access token expires */

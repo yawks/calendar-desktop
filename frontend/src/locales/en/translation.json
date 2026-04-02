@@ -52,6 +52,8 @@
     "attendees_one": "{{count}} attendee",
     "attendees_other": "{{count}} attendees",
     "organizer": "organizer",
+    "showMore": "+{{count}} more",
+    "showLess": "Show less",
     "rsvp": {
       "ACCEPTED": "Accepted",
       "TENTATIVE": "Maybe",
@@ -112,6 +114,8 @@
     "selectCalendarsToShow": "Select calendars to display:",
     "primaryCalendar": " (primary)",
     "readOnly": "read-only",
+    "setAsDefault": "Set as default calendar",
+    "defaultCalendar": "Default calendar",
     "macosUnavailable": "macOS calendars are not available in this environment.",
     "loading": "Loading…",
     "macosDescription": "View and create events directly in your macOS calendars (Calendar, iCloud, Exchange…).",
@@ -164,7 +168,15 @@
     "macosCalendar": "macOS Calendar",
     "macosCalendarDesc": "Display your macOS calendars (Calendar, iCloud, Exchange…)",
     "connectGoogleAccount": "Connect Google account",
-    "noCalendarsConfigured": "No calendars configured. Click \"New calendar\" to get started."
+    "noCalendarsConfigured": "No calendars configured. Click \"New calendar\" to get started.",
+    "exchangeDesc": "Exchange / Office 365 via EWS",
+    "exchangeStartAuth": "Connect Exchange account",
+    "exchangeEnterCode": "Go to the page below and enter this code:",
+    "exchangeOpenBrowser": "Open browser",
+    "exchangeWaiting": "Waiting for authentication…",
+    "exchangeAuthError": "Authentication error",
+    "exchangeConnectedCalendars": "Connected calendars",
+    "connecting": "Connecting…"
   },
   "freeBusy": {
     "title": "Availability",

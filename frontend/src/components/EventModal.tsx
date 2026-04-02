@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   X, Pencil, Trash2, Clock, MapPin, CalendarDays, FileText,
-  HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Loader2, Video, ChevronDown,
+  HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Loader2, Video, ChevronDown, Copy,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
@@ -68,6 +68,7 @@ interface Props {
   readonly onEdit?: () => void;
   readonly onDelete?: () => Promise<void>;
   readonly onRsvp?: (status: RsvpStatus) => Promise<void>;
+  readonly isOrganizer?: boolean;
 }
 
 function RsvpRow({ current, onRsvp }: {
@@ -160,19 +161,34 @@ function AttendeeStatusIcon({ status }: { readonly status: AttendeeStatus }) {
 
 function AttendeeRow({ attendee }: { readonly attendee: Attendee }) {
   const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
   const statusLabel = t(`eventModal.attendeeStatus.${attendee.status}`);
+
+  function handleCopy(e: React.MouseEvent) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(attendee.email).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
   return (
-    <div className="attendee-row" title={`${attendee.email} — ${statusLabel}`}>
+    <div className="attendee-row" title={attendee.email ? `${attendee.email} — ${statusLabel}` : statusLabel}>
       <AttendeeStatusIcon status={attendee.status} />
       <span className="attendee-name">
         {attendee.name}
+        {attendee.email && (
+          <button className="attendee-copy-btn" onClick={handleCopy} title={attendee.email}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
+        )}
         {attendee.isOrganizer && <span className="attendee-organizer">{t('eventModal.organizer')}</span>}
       </span>
     </div>
   );
 }
 
-export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onRsvp }: Props) {
+export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onRsvp, isOrganizer }: Props) {
   const { t } = useTranslation();
   const { tags, eventTags, setEventTag, removeEventTag } = useTags();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -180,6 +196,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showAllAttendees, setShowAllAttendees] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -229,6 +246,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   }, [showTagDropdown]);
 
   const tagKey = event ? event.seriesId || event.sourceId || event.id || undefined : undefined;
+  if (event) console.log('[TAG] tagKey:', tagKey, '| seriesId:', event.seriesId, '| sourceId:', event.sourceId);
   const selectedTagId = tagKey ? eventTags[tagKey] : undefined;
   const selectedTag = selectedTagId ? tags.find((tag) => tag.id === selectedTagId) : undefined;
   const isPast = event ? new Date(event.end) < new Date() : false;
@@ -417,14 +435,14 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
               </div>
             )}
 
-            {event.selfRsvpStatus && onRsvp && (
+            {!isOrganizer && event.selfRsvpStatus && onRsvp && (
               <div className="modal-row">
                 <UserCheck size={16} className="modal-icon" style={{ marginTop: 3 }} />
                 <RsvpRow current={event.selfRsvpStatus} onRsvp={onRsvp} />
               </div>
             )}
 
-            {event.selfRsvpStatus && !onRsvp && (
+            {!isOrganizer && event.selfRsvpStatus && !onRsvp && (
               <div className={`modal-row${event.selfRsvpStatus === 'DECLINED' ? ' modal-declined' : event.selfRsvpStatus !== 'ACCEPTED' ? ' modal-tentative' : ''}`}>
                 <UserCheck size={16} className="modal-icon" />
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -455,9 +473,18 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                   <span className="attendee-count">
                     {t('eventModal.attendees', { count: sortedAttendees.length })}
                   </span>
-                  {sortedAttendees.map((a) => (
-                    <AttendeeRow key={a.email} attendee={a} />
-                  ))}
+                  <div className="attendee-scroll-list">
+                    {(showAllAttendees ? sortedAttendees : sortedAttendees.slice(0, 5)).map((a) => (
+                      <AttendeeRow key={a.email} attendee={a} />
+                    ))}
+                  </div>
+                  {sortedAttendees.length > 5 && (
+                    <button className="attendee-show-more" onClick={() => setShowAllAttendees(v => !v)}>
+                      {showAllAttendees
+                        ? t('eventModal.showLess')
+                        : t('eventModal.showMore', { count: sortedAttendees.length - 5 })}
+                    </button>
+                  )}
                 </div>
               </div>
             )}

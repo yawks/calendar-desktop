@@ -58,7 +58,7 @@ export default function FreeBusyGrid({
   const selectedRight = toPercent(selectedEnd, windowStart, windowEnd);
   const selectedWidth = Math.max(0, selectedRight - selectedLeft);
 
-  function handleTimelineClick(e: React.MouseEvent<HTMLDivElement>) {
+  function handleTimelineClick(e: React.MouseEvent<HTMLElement>) {
     if (!onSelectTime) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = (e.clientX - rect.left) / rect.width;
@@ -100,7 +100,8 @@ export default function FreeBusyGrid({
               {row.label}
             </span>
           </div>
-          <div
+          <button
+            type="button"
             className={`freebusy-timeline-col freebusy-timeline${onSelectTime ? ' freebusy-timeline--clickable' : ''}`}
             onClick={handleTimelineClick}
             title={row.unavailable ? t('freeBusy.privateCalendar') : undefined}
@@ -109,27 +110,27 @@ export default function FreeBusyGrid({
               <div className="freebusy-unavailable" title={t('freeBusy.privateCalendar')} />
             ) : (
               <>
-                {row.busy.map((slot) => {
+                {row.busy.map((slot, idx) => {
                   const left = toPercent(slot.start, windowStart, windowEnd);
                   const right = toPercent(slot.end, windowStart, windowEnd);
                   const width = right - left;
                   if (width <= 0) return null;
                   return (
                     <div
-                      key={`busy-${slot.start.getTime()}`}
+                      key={`busy-${idx}-${slot.start.getTime()}`}
                       className="freebusy-busy"
                       style={{ left: `${left}%`, width: `${width}%` }}
                     />
                   );
                 })}
-                {row.tentative.map((slot) => {
+                {row.tentative.map((slot, idx) => {
                   const left = toPercent(slot.start, windowStart, windowEnd);
                   const right = toPercent(slot.end, windowStart, windowEnd);
                   const width = right - left;
                   if (width <= 0) return null;
                   return (
                     <div
-                      key={`tentative-${slot.start.getTime()}`}
+                      key={`tentative-${idx}-${slot.start.getTime()}`}
                       className="freebusy-tentative"
                       style={{ left: `${left}%`, width: `${width}%` }}
                     />
@@ -144,7 +145,7 @@ export default function FreeBusyGrid({
                 style={{ left: `${selectedLeft}%`, width: `${selectedWidth}%` }}
               />
             )}
-          </div>
+          </button>
         </div>
       ))}
     </div>

@@ -5,7 +5,9 @@ import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../types';
 import AttendeeInput from './AttendeeInput';
 import FreeBusyGrid, { FreeBusyRow } from './FreeBusyGrid';
 import { queryFreeBusy, FreeBusyResult } from '../utils/googleCalendarApi';
+import { queryEWSFreeBusy } from '../utils/ewsApi';
 import { useTags } from '../store/TagStore';
+import { getDefaultCalendarId } from '../store/defaultCalendarStore';
 
 interface Props {
   readonly initialStart: string;
@@ -18,6 +20,8 @@ interface Props {
   readonly onClose: () => void;
   /** Required to query freebusy for Google calendars */
   readonly getValidToken?: (accountId: string) => Promise<string | null>;
+  /** Required to query freebusy for Exchange calendars (synchronous refresh token getter) */
+  readonly getExchangeRefreshToken?: (accountId: string) => string | null;
 }
 
 function toDatetimeLocal(iso: string): string {
@@ -34,7 +38,7 @@ function toDateLocal(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose, getValidToken }: Props) {
+export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose, getValidToken, getExchangeRefreshToken }: Props) {
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const isEditing = editEvent != null;
@@ -52,9 +56,12 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const [endDate, setEndDate] = useState(() => toDateLocal(editEvent?.end ?? initialEnd));
   const [location, setLocation] = useState(editEvent?.location ?? '');
   const [description, setDescription] = useState(editEvent?.description ?? '');
-  const [calendarId, setCalendarId] = useState(
-    editEvent?.calendarId ?? writableCalendars[0]?.id ?? ''
-  );
+  const [calendarId, setCalendarId] = useState(() => {
+    if (editEvent?.calendarId) return editEvent.calendarId;
+    const defaultId = getDefaultCalendarId();
+    if (defaultId && writableCalendars.some((c) => c.id === defaultId)) return defaultId;
+    return writableCalendars[0]?.id ?? '';
+  });
   const [attendees, setAttendees] = useState<Array<{ email: string; name?: string }>>(
     editEvent?.attendees?.map((a) => ({ email: a.email, name: a.name })) ?? []
   );
@@ -80,9 +87,12 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const selectedCalendar = writableCalendars.find((c) => c.id === calendarId);
   const headerColor = selectedCalendar?.color ?? '#888';
 
-  // Show freebusy only for Google calendars with at least one attendee and a specific time
   const isGoogleCalendar = selectedCalendar?.type === 'google';
-  const showFreeBusy = isGoogleCalendar && !isAllday && attendees.length > 0;
+  const isExchangeCalendar = selectedCalendar?.type === 'exchange';
+  // Exchange free/busy requires a registered Azure app with Calendars.Read scope;
+  // with the public Office client ID (d3590ed6), Graph API access is blocked.
+  // But we can use EWS-based free/busy as fallback.
+  const showFreeBusy = (isGoogleCalendar || isExchangeCalendar) && !isAllday && attendees.length > 0;
 
   // "Me" busy slots — computed locally from allEvents so ALL synced calendars are included
   // (Google, EventKit, ICS, Nextcloud, etc.)
@@ -120,45 +130,75 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
   // Query freebusy for attendees only (self is covered by allEvents above)
   useEffect(() => {
-    if (!showFreeBusy || !selectedCalendar?.googleAccountId || !getValidToken || attendees.length === 0) return;
+    if (!showFreeBusy || attendees.length === 0) return;
 
     const timer = setTimeout(async () => {
       const startDate = new Date(start);
-      if (Number.isNaN(startDate.getTime())) return;
+      if (Number.isNaN(startDate.getTime())) {
+        console.log('[FreeBusy] invalid start date, skipping');
+        return;
+      }
 
       const dayStart = new Date(startDate);
       dayStart.setHours(0, 0, 0, 0);
       const dayEnd = new Date(startDate);
       dayEnd.setHours(23, 59, 59, 999);
 
-      // Only query attendees — never the owner (self uses allEvents)
-      const ownerEmail = selectedCalendar.ownerEmail;
-      const emails = attendees
-        .map((a) => a.email)
-        .filter((e) => e !== ownerEmail);
-
-      if (emails.length === 0) return;
+      const ownerEmail = selectedCalendar?.ownerEmail;
+      const emails = attendees.map((a) => a.email).filter((e) => e !== ownerEmail);
+      console.log('[FreeBusy] trigger', {
+        calendarType: selectedCalendar?.type,
+        isGoogleCalendar,
+        isExchangeCalendar,
+        googleAccountId: selectedCalendar?.googleAccountId,
+        exchangeAccountId: selectedCalendar?.exchangeAccountId,
+        hasGetValidToken: !!getValidToken,
+        hasGetExchangeRefreshToken: !!getExchangeRefreshToken,
+        ownerEmail,
+        attendees: attendees.map((a) => a.email),
+        emails,
+        dayStart,
+        dayEnd,
+      });
+      console.log('[FreeBusy] showFreeBusy=', showFreeBusy);
+      if (emails.length === 0) {
+        console.log('[FreeBusy] no emails to query (all filtered as owner)');
+        return;
+      }
 
       setFreeBusyLoading(true);
       try {
-        const token = await getValidToken(selectedCalendar.googleAccountId!);
-        if (!token) return;
-        const data = await queryFreeBusy(token, emails, dayStart, dayEnd);
-        setFreeBusyData(data);
-      } catch {
-        // Silently fail — freebusy is optional
+        if (isGoogleCalendar && selectedCalendar?.googleAccountId && getValidToken) {
+          const token = await getValidToken(selectedCalendar.googleAccountId);
+          console.log('[FreeBusy] Google token obtained:', !!token);
+          if (!token) return;
+          const data = await queryFreeBusy(token, emails, dayStart, dayEnd);
+          console.log('[FreeBusy] Google result:', data);
+          setFreeBusyData(data);
+        } else if (isExchangeCalendar && selectedCalendar?.exchangeAccountId && getExchangeRefreshToken) {
+          const refreshToken = getExchangeRefreshToken(selectedCalendar.exchangeAccountId);
+          console.log('[FreeBusy] Exchange refresh token obtained:', !!refreshToken);
+          if (!refreshToken) return;
+          const data = await queryEWSFreeBusy(refreshToken, emails, dayStart, dayEnd, selectedCalendar?.ownerEmail);
+          console.log('[FreeBusy] Exchange result:', data);
+          setFreeBusyData(data);
+        } else {
+          console.log('[FreeBusy] no branch matched — conditions not met');
+        }
+      } catch (err) {
+        console.error('[FreeBusy] error:', err);
       } finally {
         setFreeBusyLoading(false);
       }
     }, 600);
 
     return () => clearTimeout(timer);
-  }, [showFreeBusy, attendees, start, selectedCalendar?.googleAccountId, selectedCalendar?.ownerEmail, getValidToken]);
+  }, [showFreeBusy, attendees, start, isGoogleCalendar, isExchangeCalendar, selectedCalendar?.googleAccountId, selectedCalendar?.exchangeAccountId, selectedCalendar?.ownerEmail, getValidToken, getExchangeRefreshToken]);
 
-  // Reset freebusy data when calendar changes to non-Google
+  // Reset freebusy data when calendar changes away from a supported type
   useEffect(() => {
-    if (!isGoogleCalendar) setFreeBusyData({});
-  }, [isGoogleCalendar]);
+    if (!isGoogleCalendar && !isExchangeCalendar) setFreeBusyData({});
+  }, [isGoogleCalendar, isExchangeCalendar]);
 
   // Compute display window (07:00–21:00 on the event day, clamped to include the event)
   const freeBusyWindow = useMemo(() => {
@@ -190,20 +230,21 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
       isSelf: true,
     });
 
-    // Attendee rows — from Google freebusy API
+    // Attendee rows — from freebusy API (shown even while loading)
     for (const attendee of attendees) {
       if (attendee.email === ownerEmail) continue;
       const data = freeBusyData[attendee.email];
-      if (data) {
-        rows.push({
-          email: attendee.email,
-          label: attendee.name ?? attendee.email,
-          busy: data.busy,
-          tentative: [],
-          unavailable: data.unavailable,
-          isSelf: false,
-        });
-      }
+      const tentativeSlots = data
+        ? ((data as FreeBusyResult & { tentative?: Array<{ start: Date; end: Date }> }).tentative ?? [])
+        : [];
+      rows.push({
+        email: attendee.email,
+        label: attendee.name ?? attendee.email,
+        busy: data?.busy ?? [],
+        tentative: tentativeSlots,
+        unavailable: data?.unavailable ?? false,
+        isSelf: false,
+      });
     }
 
     return rows;
@@ -275,6 +316,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const googleCals = writableCalendars.filter((c) => c.type === 'google');
   const ekCals = writableCalendars.filter((c) => c.type === 'eventkit');
   const nextcloudCals = writableCalendars.filter((c) => c.type === 'nextcloud');
+  const exchangeCals = writableCalendars.filter((c) => c.type === 'exchange');
 
   let submitLabel: string;
   if (saving) {
@@ -352,7 +394,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
               disabled={isEditing}
               required
             >
-              {ekCals.length > 0 || googleCals.length > 0 || nextcloudCals.length > 0 ? (
+              {ekCals.length > 0 || googleCals.length > 0 || nextcloudCals.length > 0 || exchangeCals.length > 0 ? (
                 <>
                   {ekCals.length > 0 && (
                     <optgroup label="macOS">
@@ -371,6 +413,13 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
                   {nextcloudCals.length > 0 && (
                     <optgroup label={t('config.nextcloudCalDAV')}>
                       {nextcloudCals.map((cal) => (
+                        <option key={cal.id} value={cal.id}>{cal.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {exchangeCals.length > 0 && (
+                    <optgroup label="Exchange / Office 365">
+                      {exchangeCals.map((cal) => (
                         <option key={cal.id} value={cal.id}>{cal.name}</option>
                       ))}
                     </optgroup>

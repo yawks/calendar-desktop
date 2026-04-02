@@ -1,6 +1,8 @@
 use std::sync::Mutex;
 use tokio::sync::oneshot;
 
+mod ews;
+
 // ── ICS fetch ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -895,7 +897,26 @@ pub fn run() {
         .invoke_handler({
             #[cfg(not(target_os = "macos"))]
             {
-                tauri::generate_handler![fetch_ics, fetch_url_with_auth, put_caldav_event, delete_caldav_event, fetch_caldav_status, open_url, start_oauth_listener, wait_oauth_code]
+                tauri::generate_handler![
+                    fetch_ics,
+                    fetch_url_with_auth,
+                    put_caldav_event,
+                    delete_caldav_event,
+                    fetch_caldav_status,
+                    open_url,
+                    start_oauth_listener,
+                    wait_oauth_code,
+                    ews::ews_start_device_auth,
+                    ews::ews_poll_device_token,
+                    ews::ews_refresh_access_token,
+                    ews::ews_get_calendar_events,
+                    ews::ews_respond_to_invitation,
+                    ews::ews_create_event,
+                    ews::ews_update_event,
+                    ews::ews_delete_event,
+                    ews::ews_get_free_busy,
+                    ews::ews_get_free_busy_ews,
+                ]
             }
             #[cfg(target_os = "macos")]
             {
@@ -908,6 +929,16 @@ pub fn run() {
                     open_url,
                     start_oauth_listener,
                     wait_oauth_code,
+                    ews::ews_start_device_auth,
+                    ews::ews_poll_device_token,
+                    ews::ews_refresh_access_token,
+                    ews::ews_get_calendar_events,
+                    ews::ews_respond_to_invitation,
+                    ews::ews_create_event,
+                    ews::ews_update_event,
+                    ews::ews_delete_event,
+                    ews::ews_get_free_busy,
+                    ews::ews_get_free_busy_ews,
                     eventkit::check_eventkit_status,
                     eventkit::request_eventkit_access,
                     eventkit::list_eventkit_calendars,

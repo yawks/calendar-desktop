@@ -14,23 +14,59 @@ function getEventKey(event: CalendarEvent): string | undefined {
   return event.seriesId || event.sourceId || event.id;
 }
 
-export default function TagInsightsView({ events, eventTags, tags, calendars, groups, viewRange }: Props) {
-  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
-  const [selectedCalendarId, setSelectedCalendarId] = useState<string>('');
+/** Merge overlapping [start, end] intervals and return total duration in ms. */
+function mergedDurationMs(intervals: [number, number][]): number {
+  if (intervals.length === 0) return 0;
+  const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
+  let totalMs = 0;
+  let curStart = sorted[0][0];
+  let curEnd = sorted[0][1];
+  for (let i = 1; i < sorted.length; i++) {
+    const [s, e] = sorted[i];
+    if (s < curEnd) {
+      // overlapping: extend current window
+      curEnd = Math.max(curEnd, e);
+    } else {
+      totalMs += curEnd - curStart;
+      curStart = s;
+      curEnd = e;
+    }
+  }
+  totalMs += curEnd - curStart;
+  return totalMs;
+}
 
-  // Calendars available given selected group
+function formatDuration(ms: number): string {
+  const totalMin = Math.round(ms / 60_000);
+  if (totalMin < 1) return '< 1min';
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${m < 10 ? '0' : ''}${m}`;
+}
+
+export default function TagInsightsView({ events, eventTags, tags, calendars, groups, viewRange }: Props) {
+  const [selectedGroupId, setSelectedGroupId] = useState<string>(
+    () => localStorage.getItem('insights-group') ?? ''
+  );
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string>(
+    () => localStorage.getItem('insights-calendar') ?? ''
+  );
+
   const availableCalendars = useMemo(() => {
     if (!selectedGroupId) return calendars;
     return calendars.filter((c) => (c.groupId ?? 'default') === selectedGroupId);
   }, [calendars, selectedGroupId]);
 
-  // Reset calendar filter when group changes and current calendar no longer belongs
   const handleGroupChange = (groupId: string) => {
     setSelectedGroupId(groupId);
+    localStorage.setItem('insights-group', groupId);
     if (selectedCalendarId) {
       const cal = calendars.find((c) => c.id === selectedCalendarId);
       if (cal && groupId && (cal.groupId ?? 'default') !== groupId) {
         setSelectedCalendarId('');
+        localStorage.setItem('insights-calendar', '');
       }
     }
   };
@@ -38,6 +74,7 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
   const filtered = useMemo(() => {
     return events.filter((event) => {
       if (event.isDeclined) return false;
+      if (event.isAllday) return false;
       const cal = calendars.find((c) => c.id === event.calendarId);
       if (!cal) return false;
       if (selectedCalendarId && event.calendarId !== selectedCalendarId) return false;
@@ -52,30 +89,47 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
   }, [events, calendars, selectedGroupId, selectedCalendarId, viewRange]);
 
   const stats = useMemo(() => {
-    const counts: Record<string, number> = {};
-    let untagged = 0;
+    // Collect intervals per tag (tagId → list of [startMs, endMs])
+    const intervalsByTag: Record<string, [number, number][]> = {};
+    const untaggedIntervals: [number, number][] = [];
+    const allIntervals: [number, number][] = [];
 
     filtered.forEach((event) => {
       const key = getEventKey(event);
       const tagId = key ? eventTags[key] : undefined;
+      const startMs = new Date(event.start).getTime();
+      const endMs = new Date(event.end).getTime();
+      if (startMs >= endMs) return; // skip zero-duration events
+
+      allIntervals.push([startMs, endMs]);
+
       if (tagId) {
-        counts[tagId] = (counts[tagId] ?? 0) + 1;
+        if (!intervalsByTag[tagId]) intervalsByTag[tagId] = [];
+        intervalsByTag[tagId].push([startMs, endMs]);
       } else {
-        untagged++;
+        untaggedIntervals.push([startMs, endMs]);
       }
     });
 
-    const total = filtered.length;
+    // Total = globally merged duration (stable regardless of tagging)
+    const totalMs = mergedDurationMs(allIntervals);
 
+    // Compute merged duration per tag
     const rows = tags
-      .map((tag) => ({ tag, count: counts[tag.id] ?? 0 }))
-      .filter((r) => r.count > 0)
-      .sort((a, b) => b.count - a.count);
+      .map((tag) => ({
+        tag,
+        durationMs: mergedDurationMs(intervalsByTag[tag.id] ?? []),
+      }))
+      .filter((r) => r.durationMs > 0)
+      .sort((a, b) => b.durationMs - a.durationMs);
 
-    return { rows, untagged, total };
+    const untaggedMs = mergedDurationMs(untaggedIntervals);
+
+    return { rows, untaggedMs, totalMs, eventCount: filtered.length };
   }, [filtered, eventTags, tags]);
 
-  const { rows, untagged, total } = stats;
+  const { rows, untaggedMs, totalMs, eventCount } = stats;
+  const hasData = totalMs > 0;
 
   return (
     <div style={{ padding: '4px 8px 8px' }}>
@@ -93,7 +147,10 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
         </select>
         <select
           value={selectedCalendarId}
-          onChange={(e) => setSelectedCalendarId(e.target.value)}
+          onChange={(e) => {
+            setSelectedCalendarId(e.target.value);
+            localStorage.setItem('insights-calendar', e.target.value);
+          }}
           className="insights-select"
         >
           <option value="">Tous les calendriers</option>
@@ -103,32 +160,33 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
         </select>
       </div>
 
-      {/* Total */}
-      <div style={{ fontSize: 11, color: 'var(--text-secondary, #888)', marginBottom: 8 }}>
-        {total} événement{total !== 1 ? 's' : ''} dans la vue courante
+      {/* Summary */}
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+        {eventCount} événement{eventCount !== 1 ? 's' : ''}
+        {hasData && <> · {formatDuration(totalMs)} au total</>}
       </div>
 
-      {total === 0 ? (
-        <div style={{ fontSize: 12, color: 'var(--text-secondary, #888)', fontStyle: 'italic' }}>
+      {!hasData ? (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
           Aucun événement
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {rows.map(({ tag, count }) => (
+          {rows.map(({ tag, durationMs }) => (
             <StatRow
               key={tag.id}
               color={tag.color}
               label={tag.name}
-              count={count}
-              total={total}
+              durationMs={durationMs}
+              totalMs={totalMs}
             />
           ))}
-          {untagged > 0 && (
+          {untaggedMs > 0 && (
             <StatRow
-              color="var(--text-secondary, #888)"
+              color="var(--text-muted)"
               label="Sans tag"
-              count={untagged}
-              total={total}
+              durationMs={untaggedMs}
+              totalMs={totalMs}
               muted
             />
           )}
@@ -141,13 +199,13 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
 interface StatRowProps {
   color: string;
   label: string;
-  count: number;
-  total: number;
+  durationMs: number;
+  totalMs: number;
   muted?: boolean;
 }
 
-function StatRow({ color, label, count, total, muted }: StatRowProps) {
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+function StatRow({ color, label, durationMs, totalMs, muted }: StatRowProps) {
+  const pct = totalMs > 0 ? Math.round((durationMs / totalMs) * 100) : 0;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
@@ -168,20 +226,20 @@ function StatRow({ color, label, count, total, muted }: StatRowProps) {
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            color: muted ? 'var(--text-secondary, #888)' : undefined,
+            color: muted ? 'var(--text-muted)' : undefined,
           }}
         >
           {label}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--text-secondary, #888)', flexShrink: 0 }}>
-          {count} <span style={{ opacity: 0.6 }}>({pct}%)</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+          {formatDuration(durationMs)} <span style={{ opacity: 0.6 }}>({pct}%)</span>
         </span>
       </div>
       <div
         style={{
           height: 4,
           borderRadius: 2,
-          backgroundColor: 'var(--border-color, rgba(128,128,128,0.15))',
+          backgroundColor: 'var(--border)',
           overflow: 'hidden',
         }}
       >

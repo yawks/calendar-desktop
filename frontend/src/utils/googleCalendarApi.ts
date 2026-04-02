@@ -179,7 +179,7 @@ export async function listEvents(
       singleEvents: 'true',
       orderBy: 'startTime',
       maxResults: '2500',
-      ...(pageToken ? { pageToken } : {}),
+...(pageToken ? { pageToken } : {}),
     });
 
     const data = await gFetch<GoogleEventList>(token, `/calendars/${calendarId}/events?${params}`);
