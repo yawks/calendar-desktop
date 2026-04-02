@@ -1,13 +1,14 @@
-import { useState, FormEvent, useEffect, useRef, useMemo } from 'react';
-import { X, ChevronDown } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../types';
-import AttendeeInput from './AttendeeInput';
+import { ChevronDown, X } from 'lucide-react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import FreeBusyGrid, { FreeBusyRow } from './FreeBusyGrid';
-import { queryFreeBusy, FreeBusyResult } from '../utils/googleCalendarApi';
+import { FreeBusyResult, queryFreeBusy } from '../utils/googleCalendarApi';
+
+import AttendeeInput from './AttendeeInput';
+import { getDefaultCalendarId } from '../store/defaultCalendarStore';
 import { queryEWSFreeBusy } from '../utils/ewsApi';
 import { useTags } from '../store/TagStore';
-import { getDefaultCalendarId } from '../store/defaultCalendarStore';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   readonly initialStart: string;

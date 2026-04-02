@@ -1,5 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
 import type { FreeBusyResult } from './googleCalendarApi';
+import { invoke } from '@tauri-apps/api/core';
 
 interface EwsFreeBusySlot {
   start: string;

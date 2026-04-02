@@ -482,6 +482,7 @@ export default function CalendarPage() {
             itemId,
             changeKey,
             responseType: status === 'ACCEPTED' ? 'accept' : status === 'DECLINED' ? 'decline' : 'tentative',
+            ownerEmail: cal.ownerEmail,
           });
           console.log('[EWS RSVP] success');
         } catch (invokeErr) {

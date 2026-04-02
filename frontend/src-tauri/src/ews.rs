@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tauri::command;
+use chrono::Local;
 
 const CLIENT_ID: &str = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
 const EWS_SCOPE: &str = "https://outlook.office.com/EWS.AccessAsUser.All offline_access";
@@ -519,6 +520,11 @@ pub async fn ews_get_free_busy_ews(
     let token_response = ews_refresh_access_token(refresh_token).await?;
     let access_token = token_response.access_token;
 
+    // Déterminer le Bias du timezone local (en minutes)
+    let now = Local::now();
+    let offset_seconds = now.offset().local_minus_utc();
+    let bias = -(offset_seconds / 60); // EWS Bias en minutes (négatif de offset UTC)
+
     let normalized = |t: &str| {
         if t.ends_with('Z') || t.ends_with('z') || t.contains('+') {
             t.to_string()
@@ -548,7 +554,7 @@ pub async fn ews_get_free_busy_ews(
     let soap_body = format!(
         r#"<m:GetUserAvailabilityRequest>
   <t:TimeZone>
-    <t:Bias>0</t:Bias>
+    <t:Bias>{bias}</t:Bias>
   </t:TimeZone>
   <m:MailboxDataArray>
     {mailbox_data}
@@ -564,6 +570,7 @@ pub async fn ews_get_free_busy_ews(
         mailbox_data = mailbox_data,
         start_time = start_time,
         end_time = end_time,
+        bias = bias,
     );
 
     let anchor_mailbox = anchor_mailbox
@@ -660,6 +667,7 @@ pub async fn ews_respond_to_invitation(
     item_id: String,
     change_key: String,
     response_type: String,
+    owner_email: String,
 ) -> Result<(), String> {
     let element = match response_type.as_str() {
         "accept" => "AcceptItem",
@@ -681,7 +689,7 @@ pub async fn ews_respond_to_invitation(
         change_key = change_key
     );
 
-    let xml = send_ews_request(&access_token, &soap_body, None).await?;
+    let xml = send_ews_request(&access_token, &soap_body, Some(owner_email.as_str())).await?;
 
     if xml.contains("ResponseClass=\"Error\"") {
         let msg = xml_content(&xml, "m:MessageText")
@@ -849,8 +857,11 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         let my_response_type = xml_content(&item_xml, "t:MyResponseType")
             .unwrap_or_else(|| "Unknown".to_string());
 
-        // recurring_master_id is populated later via batch GetItem (CleanGlobalObjectId).
-        let recurring_master_id: Option<String> = None;
+        // RecurringMasterId is included for recurring exceptions; use it as a stable series identifier.
+        let recurring_master_id = xml_content(&item_xml, "t:RecurringMasterId").filter(|s| !s.is_empty());
+
+        // recurring_master_id may be enriched later via batch GetItem (CleanGlobalObjectId) if available.
+        let recurring_master_id = recurring_master_id;
 
         // Organizer is inside <t:Organizer><t:Mailbox>…</t:Mailbox></t:Organizer>
         let organizer_xml = xml_content(&item_xml, "t:Organizer");
@@ -961,7 +972,9 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
             .into_iter()
             .find(|ep| ep.contains("PropertyId=\"35\""))
             .and_then(|ep| xml_content(&ep, "t:Value"))
-            .filter(|s| !s.is_empty());
+            .filter(|s| !s.is_empty())
+            // Fallback: for recurring exceptions, RecurringMasterId is a stable series identifier.
+            .or_else(|| xml_content(&item_xml, "t:RecurringMasterId").filter(|s| !s.is_empty()));
 
         results.push(GetItemDetail { item_id, organizer_name, organizer_email, attendees, clean_global_object_id });
     }
