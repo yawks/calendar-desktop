@@ -1,7 +1,8 @@
+import { CalendarConfig, CreateEventPayload } from '../types';
+
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – ical.js has no bundled types for v1.x
 import ICAL from 'ical.js';
-import { CalendarConfig, CreateEventPayload } from '../types';
 
 // ── ICS text generation ───────────────────────────────────────────────────────
 
