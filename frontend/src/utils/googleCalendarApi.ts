@@ -301,6 +301,7 @@ export async function respondToGoogleEvent(
   sourceId: string,
   ownerEmail: string,
   newStatus: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
+  _comment?: string,
 ): Promise<void> {
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);

@@ -130,6 +130,7 @@ export async function respondToNextcloudEvent(
   uid: string,
   selfEmail: string,
   newStatus: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
+  comment?: string,
 ): Promise<void> {
   const url = eventResourceUrl(cal, uid);
   const { invoke } = await import('@tauri-apps/api/core');
@@ -155,6 +156,15 @@ export async function respondToNextcloudEvent(
     }
   }
   if (!found) throw new Error(`Participant ${selfEmail} introuvable dans l'événement`);
+
+  if (comment) {
+    const commentProp = vevent.getFirstProperty('comment');
+    if (commentProp) {
+      commentProp.setValue(comment);
+    } else {
+      vevent.addPropertyWithValue('comment', comment);
+    }
+  }
 
   await invoke('put_caldav_event', {
     url,

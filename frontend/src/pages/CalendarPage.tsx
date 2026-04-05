@@ -439,6 +439,7 @@ export default function CalendarPage() {
   const handleRsvp = useCallback(async (
     event: CalendarEvent,
     status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
+    comment?: string,
   ) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
@@ -459,12 +460,12 @@ export default function CalendarPage() {
           throw new Error(i18n.t('calendarPage.missingInfo'));
         const token = await getValidToken(cal.googleAccountId);
         if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
-        await respondToGoogleEvent(token, cal, event.sourceId, cal.ownerEmail, status);
+        await respondToGoogleEvent(token, cal, event.sourceId, cal.ownerEmail, status, comment);
         await googleRefresh();
       } else if (cal.type === 'nextcloud') {
         if (!event.sourceId || !cal.ownerEmail)
           throw new Error(i18n.t('calendarPage.missingInfo'));
-        await respondToNextcloudEvent(cal, event.sourceId, cal.ownerEmail, status);
+        await respondToNextcloudEvent(cal, event.sourceId, cal.ownerEmail, status, comment);
         await ncRefresh();
       } else if (cal.type === 'exchange') {
         if (!cal.exchangeAccountId || !event.sourceId)
@@ -483,6 +484,7 @@ export default function CalendarPage() {
             changeKey,
             responseType: status === 'ACCEPTED' ? 'accept' : status === 'DECLINED' ? 'decline' : 'tentative',
             ownerEmail: cal.ownerEmail,
+            body: comment ?? null,
           });
           console.log('[EWS RSVP] success');
         } catch (invokeErr) {
@@ -905,7 +907,7 @@ export default function CalendarPage() {
           selectedEvent?.selfRsvpStatus &&
           selectedCalendar?.type !== 'eventkit' &&
           !isExchangeOrganizer(selectedEvent)
-            ? (status) => handleRsvp(selectedEvent, status)
+            ? (status, comment) => handleRsvp(selectedEvent, status, comment)
             : undefined
         }
         isOrganizer={selectedEvent ? isExchangeOrganizer(selectedEvent) : false}

@@ -668,6 +668,7 @@ pub async fn ews_respond_to_invitation(
     change_key: String,
     response_type: String,
     owner_email: String,
+    body: Option<String>,
 ) -> Result<(), String> {
     let element = match response_type.as_str() {
         "accept" => "AcceptItem",
@@ -676,15 +677,24 @@ pub async fn ews_respond_to_invitation(
         other => return Err(format!("Invalid response_type: {}", other)),
     };
 
+    let body_element = match &body {
+        Some(text) if !text.is_empty() => format!(
+            "\n      <t:Body BodyType=\"Text\">{}</t:Body>",
+            text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+        ),
+        _ => String::new(),
+    };
+
     let soap_body = format!(
         r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
   <m:Items>
-    <t:{element}>
+    <t:{element}>{body_element}
       <t:ReferenceItemId Id="{item_id}" ChangeKey="{change_key}"/>
     </t:{element}>
   </m:Items>
 </m:CreateItem>"#,
         element = element,
+        body_element = body_element,
         item_id = item_id,
         change_key = change_key
     );

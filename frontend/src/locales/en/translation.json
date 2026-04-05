@@ -58,7 +58,10 @@
       "ACCEPTED": "Accepted",
       "TENTATIVE": "Maybe",
       "DECLINED": "Declined",
-      "updateError": "Error updating response"
+      "updateError": "Error updating response",
+      "respond": "Respond",
+      "commentPlaceholder": "Add a message (optional)",
+      "confirm": "Confirm"
     },
     "attendeeStatus": {
       "ACCEPTED": "Accepted",

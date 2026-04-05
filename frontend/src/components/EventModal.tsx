@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, Pencil, Trash2, Clock, MapPin, CalendarDays, FileText,
   HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Loader2, Video, ChevronDown, Copy,
@@ -67,16 +68,21 @@ interface Props {
   readonly onClose: () => void;
   readonly onEdit?: () => void;
   readonly onDelete?: () => Promise<void>;
-  readonly onRsvp?: (status: RsvpStatus) => Promise<void>;
+  readonly onRsvp?: (status: RsvpStatus, comment?: string) => Promise<void>;
   readonly isOrganizer?: boolean;
 }
 
 function RsvpRow({ current, onRsvp }: {
   readonly current: AttendeeStatus;
-  readonly onRsvp: (status: RsvpStatus) => Promise<void>;
+  readonly onRsvp: (status: RsvpStatus, comment?: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
-  const [loading, setLoading] = useState<RsvpStatus | null>(null);
+  const [open, setOpen] = useState(false);
+  const initialStatus: RsvpStatus | null =
+    current === 'ACCEPTED' || current === 'TENTATIVE' || current === 'DECLINED' ? current : null;
+  const [selected, setSelected] = useState<RsvpStatus | null>(initialStatus);
+  const [comment, setComment] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const RSVP_OPTIONS: { status: RsvpStatus; label: string; icon: React.ReactNode }[] = [
@@ -85,41 +91,70 @@ function RsvpRow({ current, onRsvp }: {
     { status: 'DECLINED',  label: t('eventModal.rsvp.DECLINED'),  icon: <Ban size={13} /> },
   ];
 
-  const handleClick = async (status: RsvpStatus) => {
-    if (loading) return;
+  const currentOption = RSVP_OPTIONS.find((o) => o.status === current);
+
+  const handleConfirm = async () => {
+    if (!selected || loading) return;
     setError(null);
-    setLoading(status);
+    setLoading(true);
     try {
-      await onRsvp(status);
+      await onRsvp(selected, comment.trim() || undefined);
+      setOpen(false);
+      setComment('');
     } catch (e) {
       setError(e instanceof Error ? e.message : t('eventModal.rsvp.updateError'));
     } finally {
-      setLoading(null);
+      setLoading(false);
     }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div className="rsvp-buttons">
-        {RSVP_OPTIONS.map(({ status, label, icon }) => {
-          const isActive = current === status;
-          const isLoading = loading === status;
-          return (
-            <button
-              key={status}
-              type="button"
-              className={`rsvp-btn rsvp-btn--${status.toLowerCase()}${isActive ? ' rsvp-btn--active' : ''}`}
-              onClick={() => handleClick(status)}
-              disabled={!!loading}
-              aria-pressed={isActive}
-            >
-              {isLoading ? <Loader2 size={13} className="rsvp-spinner" /> : icon}
-              {label}
-            </button>
-          );
-        })}
-      </div>
-      {error && <span className="rsvp-error">{error}</span>}
+      <button
+        type="button"
+        className={['rsvp-trigger-btn', currentOption ? `rsvp-btn--${current.toLowerCase()}` : ''].filter(Boolean).join(' ')}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {currentOption ? currentOption.icon : <UserCheck size={13} />}
+        <span>{currentOption ? currentOption.label : t('eventModal.rsvp.respond')}</span>
+        <ChevronDown size={13} style={{ marginLeft: 'auto', transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }} />
+      </button>
+      {open && (
+        <div className="rsvp-panel">
+          <div className="rsvp-buttons">
+            {RSVP_OPTIONS.map(({ status, label, icon }) => (
+              <button
+                key={status}
+                type="button"
+                className={`rsvp-btn rsvp-btn--${status.toLowerCase()}${selected === status ? ' rsvp-btn--active' : ''}`}
+                onClick={() => setSelected(status)}
+                disabled={loading}
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
+          </div>
+          <textarea
+            className="rsvp-comment"
+            placeholder={t('eventModal.rsvp.commentPlaceholder')}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={2}
+            disabled={loading}
+          />
+          <button
+            type="button"
+            className="rsvp-confirm-btn"
+            onClick={handleConfirm}
+            disabled={!selected || loading}
+          >
+            {loading ? <Loader2 size={13} className="rsvp-spinner" /> : null}
+            {t('eventModal.rsvp.confirm')}
+          </button>
+          {error && <span className="rsvp-error">{error}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -193,10 +228,16 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   const { tags, eventTags, setEventTag, removeEventTag } = useTags();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const tagBtnRef = useRef<HTMLButtonElement>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
+  const showTagDropdownRef = useRef(false);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showAllAttendees, setShowAllAttendees] = useState(false);
+
+  // Keep ref in sync with state so backdrop handler can read it without stale closure
+  useEffect(() => { showTagDropdownRef.current = showTagDropdown; }, [showTagDropdown]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -216,13 +257,13 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
 
     const onCancel = () => onClose();
     const onBackdropClick = (e: MouseEvent) => {
-      // If the click target is still inside the dialog DOM (e.g. dropdown overflow), don't close
-      if (dialog.contains(e.target as Node)) return;
-      const rect = dialog.getBoundingClientRect();
-      const clickedOutside =
-        e.clientX < rect.left || e.clientX > rect.right ||
-        e.clientY < rect.top  || e.clientY > rect.bottom;
-      if (clickedOutside) onClose();
+      // With showModal(), clicking the backdrop sets e.target to the dialog itself
+      if (e.target !== dialog) return;
+      if (showTagDropdownRef.current) {
+        setShowTagDropdown(false);
+      } else {
+        onClose();
+      }
     };
 
     dialog.addEventListener('cancel', onCancel);
@@ -234,11 +275,13 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   }, [onClose]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent) => {
       if (!showTagDropdown) return;
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowTagDropdown(false);
-      }
+      if (
+        dropdownRef.current?.contains(e.target as Node) ||
+        tagBtnRef.current?.contains(e.target as Node)
+      ) return;
+      setShowTagDropdown(false);
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -270,20 +313,26 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
           <div className="modal-header" style={{ background: calendar?.color || '#888' }}>
             <span className="modal-title">{event.title}</span>
             {tags.length > 0 && event && (
-              <div ref={dropdownRef} style={{ position: 'relative', marginLeft: 12 }}>
+              <div style={{ marginLeft: 12 }}>
                 <button
+                  ref={tagBtnRef}
                   type="button"
                   className="event-modal-tag-button"
-                  onClick={() => setShowTagDropdown((prev) => !prev)}
+                  onClick={() => {
+                    if (!showTagDropdown && tagBtnRef.current && dialogRef.current) {
+                      const btn = tagBtnRef.current.getBoundingClientRect();
+                      const dlg = dialogRef.current.getBoundingClientRect();
+                      setDropdownPos({ top: btn.bottom - dlg.top + 6, left: btn.left - dlg.left });
+                    }
+                    setShowTagDropdown((prev) => !prev);
+                  }}
                   aria-label={t('eventModal.selectTag', 'Select tag')}
                   style={{ minWidth: 100 }}
                 >
                   <span style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: '50%',
+                    width: 10, height: 10, borderRadius: '50%',
                     backgroundColor: selectedTag?.color ?? 'transparent',
-                    border: selectedTag ? 'none' : '1px solid var(--border)',
+                    border: selectedTag ? 'none' : '1px solid rgba(255,255,255,0.6)',
                     flexShrink: 0,
                   }} />
                   <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>
@@ -291,68 +340,35 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                   </span>
                   <ChevronDown size={14} />
                 </button>
-                {showTagDropdown && (
-                  <div className="event-modal-tag-dropdown">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (tagKey) removeEventTag(tagKey);
-                        setShowTagDropdown(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        background: 'transparent',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <span style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: '50%',
-                        border: '1px solid var(--border)',
-                        display: 'inline-block',
-                      }} />
-                      <span>{t('eventModal.noTag', 'No tag')}</span>
-                    </button>
-                    {tags.map((tag) => (
-                      <button
-                        key={tag.id}
-                        type="button"
-                        onClick={() => {
-                          if (tagKey) setEventTag(tagKey, tag.id);
-                          setShowTagDropdown(false);
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          background: 'transparent',
-                          border: 'none',
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <span style={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: '50%',
-                          backgroundColor: tag.color,
-                          display: 'inline-block',
-                        }} />
-                        <span>{tag.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
+            )}
+            {showTagDropdown && dropdownPos && createPortal(
+              <div
+                ref={dropdownRef}
+                className="event-modal-tag-dropdown"
+                style={{ position: 'absolute', top: dropdownPos.top, left: dropdownPos.left, zIndex: 99999 }}
+              >
+                <button
+                  type="button"
+                  onClick={() => { if (tagKey) removeEventTag(tagKey); setShowTagDropdown(false); }}
+                  style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', border: '1px solid var(--border)', display: 'inline-block' }} />
+                  <span>{t('eventModal.noTag', 'No tag')}</span>
+                </button>
+                {tags.map((tag) => (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => { if (tagKey) setEventTag(tagKey, tag.id); setShowTagDropdown(false); }}
+                    style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer' }}
+                  >
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: tag.color, display: 'inline-block' }} />
+                    <span>{tag.name}</span>
+                  </button>
+                ))}
+              </div>,
+              dialogRef.current ?? document.body
             )}
             {onEdit && (
               <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>

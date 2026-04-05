@@ -803,6 +803,112 @@ body {
   text-decoration: line-through;
 }
 
+.rsvp-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.rsvp-trigger-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.rsvp-trigger-btn.rsvp-btn--accepted {
+  background: #e6f4ea;
+  color: #0d5c26;
+  border-color: #34a853;
+}
+
+.rsvp-trigger-btn.rsvp-btn--tentative {
+  background: #fef9e7;
+  color: #7a4800;
+  border-color: #fbbc04;
+}
+
+.rsvp-trigger-btn.rsvp-btn--declined {
+  background: #fce8e6;
+  color: #9c1a14;
+  border-color: #ea4335;
+}
+
+[data-theme="dark"] .rsvp-trigger-btn.rsvp-btn--accepted {
+  background: rgba(52, 168, 83, 0.2);
+  color: #7dd89a;
+  border-color: #34a853;
+}
+
+[data-theme="dark"] .rsvp-trigger-btn.rsvp-btn--tentative {
+  background: rgba(251, 188, 4, 0.2);
+  color: #f5d060;
+  border-color: #fbbc04;
+}
+
+[data-theme="dark"] .rsvp-trigger-btn.rsvp-btn--declined {
+  background: rgba(234, 67, 53, 0.2);
+  color: #f09090;
+  border-color: #ea4335;
+}
+
+.rsvp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary, var(--bg));
+}
+
+.rsvp-comment {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.rsvp-comment:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.rsvp-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  align-self: flex-end;
+  transition: opacity 0.15s;
+}
+
+.rsvp-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .rsvp-buttons {
   display: flex;
   gap: 6px;
