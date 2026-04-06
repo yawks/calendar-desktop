@@ -1,11 +1,17 @@
-import { Link } from 'react-router-dom';
 import {
-  CalendarDays, ChevronLeft, ChevronRight,
-  RefreshCw, Settings, Sun, Moon, Monitor, Loader2, Menu,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Menu,
+  RefreshCw,
+  Search,
+  Settings,
 } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+
+import { Link } from 'react-router-dom';
 import { ViewType } from '../types';
-import { useTheme, ThemePreference } from '../store/ThemeStore';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   readonly view: ViewType;
@@ -17,28 +23,18 @@ interface Props {
   readonly dateLabel: string;
   readonly loading: boolean;
   readonly onToggleSidebar: () => void;
-}
-
-const THEME_CYCLE: ThemePreference[] = ['system', 'light', 'dark'];
-
-function ThemeIcon({ pref }: { readonly pref: ThemePreference }) {
-  if (pref === 'light') return <Sun size={18} />;
-  if (pref === 'dark') return <Moon size={18} />;
-  return <Monitor size={18} />;
+  readonly onSearch: () => void;
 }
 
 export default function AppHeader({
-  view, onViewChange, onPrev, onNext, onToday, onRefresh, dateLabel, loading, onToggleSidebar,
+  view, onViewChange, onPrev, onNext, onToday, onRefresh, dateLabel, loading, onToggleSidebar, onSearch,
 }: Props) {
   const { t } = useTranslation();
-  const { preference, setPreference } = useTheme();
-
-  const cycleTheme = () => {
-    const idx = THEME_CYCLE.indexOf(preference);
-    setPreference(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
-  };
 
   const VIEW_TYPES: ViewType[] = ['day', 'workweek', 'week', 'month'];
+
+  const isMac = navigator.userAgent.toUpperCase().includes('MAC');
+  const shortcutLabel = isMac ? '⌘K' : 'Ctrl+K';
 
   return (
     <header className="header">
@@ -68,6 +64,12 @@ export default function AppHeader({
 
       {loading && <Loader2 size={18} className="spin" />}
 
+      <button className="btn-search" onClick={onSearch} title={t('search.open')}>
+        <Search size={16} />
+        <span className="btn-search-label">{t('search.button')}</span>
+        <kbd className="btn-search-kbd">{shortcutLabel}</kbd>
+      </button>
+
       <button className="btn-icon" onClick={onRefresh} title={t('header.refresh')}>
         <RefreshCw size={17} />
       </button>
@@ -80,13 +82,8 @@ export default function AppHeader({
         ))}
       </div>
 
-      <button className="btn-icon" onClick={cycleTheme} title={t('header.theme', { preference })}>
-        <ThemeIcon pref={preference} />
-      </button>
-
       <Link to="/config" className="btn-config" title={t('header.configCalendars')}>
         <Settings size={17} />
-        {t('header.calendarsBtn')}
       </Link>
     </header>
   );

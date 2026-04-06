@@ -1,10 +1,12 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star } from 'lucide-react';
+import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star, LayoutPanelTop, Columns2, Sun, Moon, Monitor } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import { useLanguage } from '../store/LanguageStore';
 import { LanguagePreference } from '../i18n';
+import { useLayout, AppLayout } from '../store/LayoutStore';
+import { useTheme, ThemePreference } from '../store/ThemeStore';
 
 // ── CalDAV connection test ────────────────────────────────────────────────────
 
@@ -1449,55 +1451,103 @@ function NewCalendarModal({
 function SettingsSection() {
   const { t } = useTranslation();
   const { preference, setPreference } = useLanguage();
+  const { layout, setLayout } = useLayout();
+  const { preference: themePref, setPreference: setThemePref } = useTheme();
 
-  const options: { value: LanguagePreference; label: string; flag: string }[] = [
+  const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
     { value: 'system', label: t('settings.language.system'), flag: '🖥' },
     { value: 'fr', label: t('settings.language.fr'), flag: '🇫🇷' },
     { value: 'en', label: t('settings.language.en'), flag: '🇬🇧' },
   ];
 
+  const themeOptions: { value: ThemePreference; label: string; icon: React.ReactNode }[] = [
+    { value: 'system', label: t('settings.theme.system'), icon: <Monitor size={15} /> },
+    { value: 'light', label: t('settings.theme.light'), icon: <Sun size={15} /> },
+    { value: 'dark', label: t('settings.theme.dark'), icon: <Moon size={15} /> },
+  ];
+
+  const layoutOptions: { value: AppLayout; label: string; icon: React.ReactNode }[] = [
+    { value: 'tabbed', label: t('settings.layout.tabbed', 'Onglets'), icon: <LayoutPanelTop size={15} /> },
+    { value: 'windows', label: t('settings.layout.windows', 'Fenêtres séparées'), icon: <Columns2 size={15} /> },
+  ];
+
+  const segmentStyle = {
+    display: 'inline-flex' as const,
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    overflow: 'hidden' as const,
+    background: 'var(--bg-secondary, var(--bg))',
+  };
+
+  const btnStyle = (active: boolean, isFirst: boolean) => ({
+    display: 'flex' as const,
+    alignItems: 'center' as const,
+    gap: 7,
+    padding: '8px 16px',
+    border: 'none',
+    borderLeft: isFirst ? 'none' : '1px solid var(--border)',
+    background: active ? 'var(--color-primary, #1a73e8)' : 'transparent',
+    color: active ? '#fff' : 'var(--text)',
+    fontWeight: active ? 600 : 400,
+    cursor: 'pointer',
+    fontSize: 14,
+    transition: 'background 0.15s, color 0.15s',
+  });
+
   return (
     <div style={{ maxWidth: 480 }}>
+
+      {/* Langue */}
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Languages size={16} />
           {t('settings.language.sectionTitle')}
         </h3>
-        <div style={{
-          display: 'inline-flex',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          overflow: 'hidden',
-          background: 'var(--bg-secondary, var(--bg))',
-        }}>
-          {options.map((opt, i) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setPreference(opt.value)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '8px 16px',
-                border: 'none',
-                borderLeft: i > 0 ? '1px solid var(--border)' : 'none',
-                background: preference === opt.value
-                  ? 'var(--color-primary, #1a73e8)'
-                  : 'transparent',
-                color: preference === opt.value ? '#fff' : 'var(--text)',
-                fontWeight: preference === opt.value ? 600 : 400,
-                cursor: 'pointer',
-                fontSize: 14,
-                transition: 'background 0.15s, color 0.15s',
-              }}
-            >
+        <div style={segmentStyle}>
+          {langOptions.map((opt, i) => (
+            <button key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
               <span style={{ fontSize: 16, lineHeight: 1 }}>{opt.flag}</span>
               {opt.label}
             </button>
           ))}
         </div>
       </div>
+
+      {/* Thème */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Sun size={16} />
+          {t('settings.theme.sectionTitle')}
+        </h3>
+        <div style={segmentStyle}>
+          {themeOptions.map((opt, i) => (
+            <button key={opt.value} type="button" onClick={() => setThemePref(opt.value)} style={btnStyle(themePref === opt.value, i === 0)}>
+              {opt.icon}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Layout */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <LayoutPanelTop size={16} />
+          {t('settings.layout.sectionTitle', 'Interface')}
+        </h3>
+        <div style={segmentStyle}>
+          {layoutOptions.map((opt, i) => (
+            <button key={opt.value} type="button" onClick={() => setLayout(opt.value)} style={btnStyle(layout === opt.value, i === 0)}>
+              {opt.icon}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted, var(--text))', opacity: 0.6 }}>
+          {t('settings.layout.hint', 'Redémarrez l\'application pour appliquer le mode Fenêtres séparées.')}
+        </p>
+      </div>
+
     </div>
   );
 }

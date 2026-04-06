@@ -198,6 +198,12 @@
       "system": "Système",
       "fr": "Français",
       "en": "English"
+    },
+    "theme": {
+      "sectionTitle": "Thème",
+      "system": "Système",
+      "light": "Clair",
+      "dark": "Sombre"
     }
   }
 }
