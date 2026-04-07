@@ -3,10 +3,10 @@ import { Link } from 'react-router-dom';
 import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star, LayoutPanelTop, Columns2, Sun, Moon, Monitor } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
-import { useLanguage } from '../store/LanguageStore';
+import { useLanguage } from '../shared/store/LanguageStore';
 import { LanguagePreference } from '../i18n';
-import { useLayout, AppLayout } from '../store/LayoutStore';
-import { useTheme, ThemePreference } from '../store/ThemeStore';
+import { useLayout, AppLayout } from '../shared/store/LayoutStore';
+import { useTheme, ThemePreference } from '../shared/store/ThemeStore';
 
 // ── CalDAV connection test ────────────────────────────────────────────────────
 
@@ -30,13 +30,13 @@ async function testNextcloudConnection(url: string, username: string, password: 
   }
 }
 
-import { useCalendars } from '../store/CalendarStore';
-import { useGoogleAuth } from '../store/GoogleAuthStore';
-import { useExchangeAuth, parseExchangeToken } from '../store/ExchangeAuthStore';
-import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../store/googleClientConfig';
-import { listCalendars } from '../utils/googleCalendarApi';
-import { CalendarConfig, GoogleAccount, ExchangeAccount } from '../types';
-import { useDefaultCalendar } from '../store/defaultCalendarStore';
+import { useCalendars } from '../features/calendar/store/CalendarStore';
+import { useGoogleAuth } from '../shared/store/GoogleAuthStore';
+import { useExchangeAuth, parseExchangeToken } from '../shared/store/ExchangeAuthStore';
+import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../shared/store/googleClientConfig';
+import { listCalendars } from '../features/calendar/utils/googleCalendarApi';
+import { CalendarConfig, GoogleAccount, ExchangeAccount } from '../shared/types';
+import { useDefaultCalendar } from '../features/calendar/store/defaultCalendarStore';
 
 const DEFAULT_COLORS = [
   '#1a73e8', '#34a853', '#ea4335', '#fbbc04',

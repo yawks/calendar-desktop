@@ -1,16 +1,16 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { CalendarProvider } from './store/CalendarStore';
-import { CalendarGroupProvider } from './store/CalendarGroupStore';
-import { TagProvider } from './store/TagStore';
-import { ThemeProvider } from './store/ThemeStore';
-import { LanguageProvider } from './store/LanguageStore';
-import { GoogleAuthProvider } from './store/GoogleAuthStore';
-import { ExchangeAuthProvider } from './store/ExchangeAuthStore';
-import { LayoutProvider, useLayout } from './store/LayoutStore';
-import CalendarPage from './pages/CalendarPage';
+import { CalendarProvider } from './features/calendar/store/CalendarStore';
+import { CalendarGroupProvider } from './features/calendar/store/CalendarGroupStore';
+import { TagProvider } from './features/calendar/store/TagStore';
+import { ThemeProvider } from './shared/store/ThemeStore';
+import { LanguageProvider } from './shared/store/LanguageStore';
+import { GoogleAuthProvider } from './shared/store/GoogleAuthStore';
+import { ExchangeAuthProvider } from './shared/store/ExchangeAuthStore';
+import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
+import CalendarPage from './features/calendar/CalendarPage';
 import ConfigPage from './pages/ConfigPage';
-import MailApp from './apps/MailApp';
-import AppTabs from './components/AppTabs';
+import MailApp from './features/mail/MailPage';
+import AppTabs from './shared/components/AppTabs';
 
 function RootView() {
   const { layout, activeTab, setActiveTab } = useLayout();

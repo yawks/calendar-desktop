@@ -20,6 +20,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { version = "1", features = ["full"] }
 webbrowser = "0.8"
 urlencoding = "2.1"
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

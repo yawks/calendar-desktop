@@ -1,4 +1,4 @@
-import { CalendarConfig, CalendarEvent } from '../types';
+import { CalendarConfig, CalendarEvent } from '../shared/types';
 
 // Returns a date for the nth day of the current Mon–Sun week (n=1→Mon … n=7→Sun)
 function weekDay(n: number, hours: number, minutes = 0): string {
