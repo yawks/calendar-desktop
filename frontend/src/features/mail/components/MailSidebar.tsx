@@ -11,6 +11,7 @@ interface MailSidebarProps {
   readonly onCompose: () => void;
   readonly accountId: string | null;
   readonly getValidToken: (id: string) => Promise<string | null>;
+  readonly onFoldersLoaded?: (folders: MailFolder[]) => void;
 }
 
 export function MailSidebar({
@@ -19,6 +20,7 @@ export function MailSidebar({
   onCompose,
   accountId,
   getValidToken,
+  onFoldersLoaded,
 }: MailSidebarProps) {
   const { t } = useTranslation();
   const [dynamicFolders, setDynamicFolders] = useState<MailFolder[]>([]);
@@ -45,7 +47,10 @@ export function MailSidebar({
           f => !STATIC_IDS.has(f.folder_id) &&
                !WELL_KNOWN_NAMES.has(f.display_name.toLowerCase())
         );
-        if (!cancelled) setDynamicFolders(filtered);
+        if (!cancelled) {
+          setDynamicFolders(filtered);
+          onFoldersLoaded?.(folders);
+        }
       } catch (e) {
         console.error('[MailSidebar] list folders error:', e);
       }

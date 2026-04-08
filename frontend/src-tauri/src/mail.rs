@@ -1,10 +1,14 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use tauri::command;
+use urlencoding;
 
 use crate::ews::{xml_all_ns, xml_attr, xml_content, xml_content_ns};
 
 const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
+const CLIENT_ID: &str = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
+const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+const GRAPH_ENDPOINT: &str = "https://graph.microsoft.com/v1.0";
 
 /// Like `ews::send_ews_request` but wraps the body in an envelope that declares
 /// `RequestedServerVersion Exchange2013_SP1`.  FindConversation / GetConversationItems
@@ -250,6 +254,7 @@ pub async fn mail_list_threads(
         // GlobalPreview / Preview (Exchange 2013 SP1+)
         let snippet = xml_content_ns(&conv_xml, "t:GlobalPreview")
             .or_else(|| xml_content_ns(&conv_xml, "t:Preview"))
+            .map(|s| clean_snippet(&s))
             .unwrap_or_default();
 
         // UniqueSenders / UniqueUnreadSenders contain <String> children
@@ -698,6 +703,143 @@ fn parse_recipients(msg_xml: &str, tag: &str) -> Vec<MailRecipient> {
     recipients
 }
 
+/// Get the unread message count for the inbox (fast single-folder lookup).
+#[command]
+pub async fn mail_get_inbox_unread(access_token: String) -> Result<u32, String> {
+    let soap_body = r#"<m:GetFolder>
+  <m:FolderShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="folder:UnreadCount"/>
+    </t:AdditionalProperties>
+  </m:FolderShape>
+  <m:FolderIds>
+    <t:DistinguishedFolderId Id="inbox"/>
+  </m:FolderIds>
+</m:GetFolder>"#;
+
+    let xml = send(&access_token, soap_body).await?;
+
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS error getting inbox unread count"));
+    }
+
+    let count = xml_content_ns(&xml, "t:UnreadCount")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0u32);
+
+    Ok(count)
+}
+
+/// Find the "Snoozed" folder under msgfolderroot, creating it if absent.
+/// Returns the EWS FolderId string.
+#[command]
+pub async fn mail_find_or_create_snoozed_folder(
+    access_token: String,
+) -> Result<String, String> {
+    // Try to find an existing "Snoozed" folder.
+    let find_body = r#"<m:FindFolder Traversal="Shallow">
+  <m:FolderShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+  </m:FolderShape>
+  <m:Restriction>
+    <t:IsEqualTo>
+      <t:FieldURI FieldURI="folder:DisplayName"/>
+      <t:FieldURIOrConstant>
+        <t:Constant Value="Snoozed"/>
+      </t:FieldURIOrConstant>
+    </t:IsEqualTo>
+  </m:Restriction>
+  <m:ParentFolderIds>
+    <t:DistinguishedFolderId Id="msgfolderroot"/>
+  </m:ParentFolderIds>
+</m:FindFolder>"#;
+
+    let xml = send(&access_token, find_body).await?;
+
+    // Extract FolderId from the response if it exists.
+    let folder_id_elem = xml
+        .find("<t:FolderId ")
+        .or_else(|| xml.find("<FolderId "))
+        .and_then(|s| xml[s..].find("/>").map(|e| &xml[s..s + e]));
+
+    if let Some(id) = folder_id_elem.and_then(|e| xml_attr(e, "Id")) {
+        return Ok(id);
+    }
+
+    // Folder not found — create it.
+    let create_body = r#"<m:CreateFolder>
+  <m:ParentFolderId>
+    <t:DistinguishedFolderId Id="msgfolderroot"/>
+  </m:ParentFolderId>
+  <m:Folders>
+    <t:Folder>
+      <t:DisplayName>Snoozed</t:DisplayName>
+    </t:Folder>
+  </m:Folders>
+</m:CreateFolder>"#;
+
+    let xml = send(&access_token, create_body).await?;
+
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS create Snoozed folder error"));
+    }
+
+    let folder_id_elem = xml
+        .find("<t:FolderId ")
+        .or_else(|| xml.find("<FolderId "))
+        .and_then(|s| xml[s..].find("/>").map(|e| &xml[s..s + e]));
+
+    folder_id_elem
+        .and_then(|e| xml_attr(e, "Id"))
+        .ok_or_else(|| "Could not parse FolderId from CreateFolder response".to_string())
+}
+
+/// Move a mail item to any folder (distinguished name like "inbox", or an arbitrary EWS FolderId).
+#[command]
+pub async fn mail_move_to_folder(
+    access_token: String,
+    item_id: String,
+    folder_id: String,
+) -> Result<(), String> {
+    let to_folder = match folder_id.as_str() {
+        "inbox" | "sentitems" | "deleteditems" | "drafts" => {
+            format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder_id)
+        }
+        id => format!(r#"<t:FolderId Id="{}"/>"#, id),
+    };
+
+    let soap_body = format!(
+        r#"<m:MoveItem>
+  <m:ToFolderId>
+    {to_folder}
+  </m:ToFolderId>
+  <m:ItemIds>
+    <t:ItemId Id="{item_id}"/>
+  </m:ItemIds>
+</m:MoveItem>"#,
+    );
+
+    let xml = send(&access_token, &soap_body).await?;
+
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS move-to-folder error"));
+    }
+    Ok(())
+}
+
+/// Snooze a mail item: moves it to the "Snoozed" folder and returns that folder's ID.
+/// The frontend stores the snooze expiry and calls mail_move_to_folder("inbox") when it fires.
+#[command]
+pub async fn mail_snooze(
+    access_token: String,
+    item_id: String,
+) -> Result<String, String> {
+    let folder_id = mail_find_or_create_snoozed_folder(access_token.clone()).await?;
+    mail_move_to_folder(access_token, item_id, folder_id.clone()).await?;
+    Ok(folder_id)
+}
+
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -735,4 +877,34 @@ fn xml_unescape_body(raw: &str) -> String {
         .replace("&#xd;", "\r")
         .replace("&#x9;", "\t")
         .replace("&amp;", "&")   // ← last
+}
+
+/// Decode XML/HTML character entities in a plain-text snippet and remove
+/// control characters (CR, LF, tab, etc.) that would show as garbage in the UI.
+fn clean_snippet(raw: &str) -> String {
+    // Decode numeric hex entities (&#xD; &#xA; &#x9; …) and named XML entities.
+    let decoded = raw
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#xA;", " ")
+        .replace("&#xa;", " ")
+        .replace("&#xD;", " ")
+        .replace("&#xd;", " ")
+        .replace("&#x9;", " ")
+        .replace("&amp;", "&");  // ← last
+
+    // Replace any remaining ASCII control characters with a space, then
+    // collapse runs of whitespace and trim.
+    let cleaned: String = decoded
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+
+    // Collapse multiple spaces into one and trim edges.
+    cleaned
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }

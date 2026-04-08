@@ -33,7 +33,7 @@ objc2-event-kit = { version = "0.3", default-features = false, features = [
   "EKParticipant", "EKSource", "EKTypes",
   "block2", "objc2-app-kit",
 ] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSColor"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSColor", "NSApplication", "NSDockTile"] }
 block2 = "0.6"
 
 [profile.dev]

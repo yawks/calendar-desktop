@@ -1,17 +1,24 @@
 import {
+  AlarmClock,
+  Archive,
+  BellOff,
+  Clock,
   File,
   FileArchive,
   FileImage,
   FileText,
+  Forward,
   Inbox,
   Mail,
   MailOpen,
   Monitor,
   Moon,
+  MoreHorizontal,
   Paperclip,
   RefreshCw,
   Send,
   Settings,
+  ShieldAlert,
   Sun,
   Trash2,
   X,
@@ -27,16 +34,16 @@ import {
   useRef,
   useState,
 } from 'react';
+import { RecipientEntry, RecipientInput } from './components/RecipientInput';
 import { ThemePreference, useTheme } from '../../shared/store/ThemeStore';
 import { avatarColor, formatDate, formatSize, initials } from './utils';
 
-import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { MailSidebar } from './components/MailSidebar';
-import { RecipientEntry, RecipientInput } from './components/RecipientInput';
 import { MessageBlockHeader } from './components/MessageBlockHeader';
-import { useContactSuggestions } from './hooks/useContactSuggestions';
+import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
+import { useContactSuggestions } from './hooks/useContactSuggestions';
 import { useExchangeAuth } from '../../shared/store/ExchangeAuthStore';
 import { useTranslation } from 'react-i18next';
 
@@ -91,6 +98,26 @@ export default function MailApp() {
     timerId: ReturnType<typeof setTimeout>;
   } | null>(null);
 
+  const [sendToast, setSendToast] = useState<{ label: string } | null>(null);
+  const [composerRestoreData, setComposerRestoreData] = useState<{
+    isNewMessage: boolean;
+    recipients: RecipientEntry[];
+    subject: string;
+    bodyHtml: string;
+    replyingToMsg: MailMessage | null;
+  } | null>(null);
+  const pendingSendRef = useRef<{
+    execute: () => Promise<void>;
+    timerId: ReturnType<typeof setTimeout>;
+    restoreData: {
+      isNewMessage: boolean;
+      recipients: RecipientEntry[];
+      subject: string;
+      bodyHtml: string;
+      replyingToMsg: MailMessage | null;
+    };
+  } | null>(null);
+
   // Panel resizing
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('mail-sidebar-width');
@@ -103,9 +130,37 @@ export default function MailApp() {
   const mailBodyRef = useRef<HTMLDivElement>(null);
   const threadListRef = useRef<HTMLDivElement>(null);
 
-  // Cleanup pending deletion on unmount
+  // Map of conversationId → snoozeUntil (for thread list badge, new records only)
+  const [snoozedMap, setSnoozedMap] = useState<Record<string, string>>(() => {
+    const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string }[] =
+      JSON.parse(localStorage.getItem('mail-snoozed-items') ?? '[]');
+    const map: Record<string, string> = {};
+    for (const item of stored) {
+      if (item.conversationId) map[item.conversationId] = item.snoozeUntil;
+    }
+    return map;
+  });
+  // Map of itemId → snoozeUntil (works for both old and new records)
+  const [snoozedByItemId, setSnoozedByItemId] = useState<Record<string, string>>(() => {
+    const stored: { itemId: string; snoozeUntil: string }[] =
+      JSON.parse(localStorage.getItem('mail-snoozed-items') ?? '[]');
+    const map: Record<string, string> = {};
+    for (const item of stored) map[item.itemId] = item.snoozeUntil;
+    return map;
+  });
+
+  // All Exchange folders, populated by MailSidebar once loaded
+  const [allFolders, setAllFolders] = useState<import('./types').MailFolder[]>([]);
+  const snoozedFolderId = allFolders.find(f => f.display_name === 'Snoozed')?.folder_id;
+  const isInSnoozedFolder = snoozedFolderId !== undefined && selectedFolder === snoozedFolderId;
+
+  // Cleanup pending deletion and send on unmount
   useEffect(() => () => {
     if (pendingDeletionRef.current) clearTimeout(pendingDeletionRef.current.timerId);
+    if (pendingSendRef.current) {
+      clearTimeout(pendingSendRef.current.timerId);
+      pendingSendRef.current.execute().catch(() => {});
+    }
   }, []);
 
   const scheduleDeletion = useCallback((
@@ -213,6 +268,77 @@ export default function MailApp() {
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
   }, [loadMoreThreads]);
+
+  // Update the dock/taskbar badge with the inbox unread count.
+  const updateBadge = useCallback(async () => {
+    if (!selectedAccountId) return;
+    const token = await getValidToken(selectedAccountId);
+    if (!token) return;
+    try {
+      const count = await invoke<number>('mail_get_inbox_unread', { accessToken: token });
+      invoke('set_badge_count', { count }).catch(() => {});
+    } catch {
+      // Non-critical — ignore badge errors silently
+    }
+  }, [selectedAccountId, getValidToken]);
+
+  // Silent thread refresh (no loading spinner) used by the polling interval.
+  const silentRefresh = useCallback(async () => {
+    if (!selectedAccountId) return;
+    const token = await getValidToken(selectedAccountId);
+    if (!token) return;
+    try {
+      const result = await invoke<MailThread[]>('mail_list_threads', {
+        accessToken: token, folder: selectedFolder, maxCount: 50, offset: 0,
+      });
+      setThreads(result);
+      setHasMoreThreads(result.length >= 50);
+    } catch {
+      // Non-critical — ignore silent refresh errors
+    }
+  }, [selectedAccountId, selectedFolder, getValidToken]);
+
+  // Auto-refresh: poll every 60 s and update the badge on mount.
+  useEffect(() => {
+    updateBadge();
+    const id = setInterval(() => {
+      silentRefresh();
+      updateBadge();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [updateBadge, silentRefresh]);
+
+  // Snooze wakeup: check every 60 s whether any snoozed item has expired and move it back to inbox.
+  useEffect(() => {
+    const wakeupSnoozed = async () => {
+      const key = 'mail-snoozed-items';
+      const stored: { itemId: string; accountId: string; snoozeUntil: string }[] =
+        JSON.parse(localStorage.getItem(key) ?? '[]');
+      const now = new Date();
+      const expired = stored.filter(item => new Date(item.snoozeUntil) <= now);
+      if (expired.length === 0) return;
+
+      for (const item of expired) {
+        const token = await getValidToken(item.accountId);
+        if (!token) continue;
+        try {
+          await invoke('mail_move_to_folder', { accessToken: token, itemId: item.itemId, folderId: 'inbox' });
+        } catch { /* best-effort */ }
+      }
+
+      const remaining = stored.filter(item => new Date(item.snoozeUntil) > now);
+      localStorage.setItem(key, JSON.stringify(remaining));
+
+      // Refresh thread list if we're viewing the inbox of an affected account
+      if (selectedFolder === 'inbox' && expired.some(i => i.accountId === selectedAccountId)) {
+        silentRefresh();
+      }
+    };
+
+    wakeupSnoozed();
+    const id = setInterval(wakeupSnoozed, 60_000);
+    return () => clearInterval(id);
+  }, [getValidToken, selectedFolder, selectedAccountId, silentRefresh]);
 
   const openThread = useCallback(async (thread: MailThread) => {
     if (!selectedAccountId) return;
@@ -427,6 +553,62 @@ export default function MailApp() {
     );
   }, [selectedAccountId, getValidToken, selectedThread, messages, scheduleDeletion, t]);
 
+  const handleSnooze = useCallback(async (snoozeUntil: string) => {
+    if (!selectedAccountId || messages.length === 0 || !selectedThread) return;
+    const token = await getValidToken(selectedAccountId);
+    if (!token) return;
+    const lastMsg = messages[messages.length - 1];
+    try {
+      const folderId = await invoke<string>('mail_snooze', {
+        accessToken: token,
+        itemId: lastMsg.item_id,
+      });
+      // Store snooze expiry locally so the periodic check can restore it
+      const key = 'mail-snoozed-items';
+      const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string }[] =
+        JSON.parse(localStorage.getItem(key) ?? '[]');
+      stored.push({ itemId: lastMsg.item_id, accountId: selectedAccountId, snoozeUntil, conversationId: selectedThread.conversation_id });
+      localStorage.setItem(key, JSON.stringify(stored));
+      setSnoozedMap(prev => ({ ...prev, [selectedThread.conversation_id]: snoozeUntil }));
+      setSnoozedByItemId(prev => ({ ...prev, [lastMsg.item_id]: snoozeUntil }));
+      // Optimistic UI: hide the thread immediately
+      setThreads(prev => prev.filter(t => t.conversation_id !== selectedThread.conversation_id));
+      setSelectedThread(null);
+      setMessages([]);
+      void folderId; // folder stored server-side; only item_id needed for restore
+    } catch (e) { setError(String(e)); }
+  }, [selectedAccountId, getValidToken, messages, selectedThread]);
+
+  const handleUnsnooze = useCallback(async () => {
+    if (!selectedAccountId || messages.length === 0 || !selectedThread) return;
+    const token = await getValidToken(selectedAccountId);
+    if (!token) return;
+    const lastMsg = messages[messages.length - 1];
+    try {
+      await invoke('mail_move_to_folder', {
+        accessToken: token,
+        itemId: lastMsg.item_id,
+        folderId: 'inbox',
+      });
+      const key = 'mail-snoozed-items';
+      const stored: { itemId: string }[] = JSON.parse(localStorage.getItem(key) ?? '[]');
+      localStorage.setItem(key, JSON.stringify(stored.filter(i => i.itemId !== lastMsg.item_id)));
+      setSnoozedMap(prev => {
+        const next = { ...prev };
+        delete next[selectedThread.conversation_id];
+        return next;
+      });
+      setSnoozedByItemId(prev => {
+        const next = { ...prev };
+        delete next[lastMsg.item_id];
+        return next;
+      });
+      setThreads(prev => prev.filter(t => t.conversation_id !== selectedThread.conversation_id));
+      setSelectedThread(null);
+      setMessages([]);
+    } catch (e) { setError(String(e)); }
+  }, [selectedAccountId, getValidToken, messages, selectedThread]);
+
   const openAttachment = useCallback(async (att: MailAttachment) => {
     if (!selectedAccountId) return;
     const token = await getValidToken(selectedAccountId);
@@ -440,20 +622,63 @@ export default function MailApp() {
     } catch (e) { setError(String(e)); }
   }, [selectedAccountId, getValidToken]);
 
-  const handleSend = useCallback(async (to: string[], subject: string, bodyHtml: string) => {
+  const scheduleSend = useCallback(async (
+    to: string[],
+    subject: string,
+    bodyHtml: string,
+    restoreData: typeof composerRestoreData,
+  ) => {
     if (!selectedAccountId) return;
     const token = await getValidToken(selectedAccountId);
     if (!token) return;
-    try {
+
+    // Flush any already-pending send immediately
+    if (pendingSendRef.current) {
+      clearTimeout(pendingSendRef.current.timerId);
+      await pendingSendRef.current.execute().catch(e => setError(String(e)));
+    }
+
+    const replyToItemId = restoreData?.replyingToMsg?.item_id ?? null;
+    const replyToChangeKey = restoreData?.replyingToMsg?.change_key ?? null;
+
+    const execute = async () => {
+      const freshToken = await getValidToken(selectedAccountId);
+      if (!freshToken) return;
       await invoke('mail_send', {
-        accessToken: token, to, subject, bodyHtml,
-        replyToItemId: replyingTo?.item_id ?? null,
-        replyToChangeKey: replyingTo?.change_key ?? null,
+        accessToken: freshToken, to, subject, bodyHtml,
+        replyToItemId,
+        replyToChangeKey,
       });
-      setReplyingTo(null);
-      if (selectedThread) openThread(selectedThread);
-    } catch (e) { setError(String(e)); }
-  }, [selectedAccountId, getValidToken, replyingTo, selectedThread, openThread]);
+      if (!restoreData?.isNewMessage && selectedThread) openThread(selectedThread);
+    };
+
+    const timerId = setTimeout(async () => {
+      pendingSendRef.current = null;
+      setSendToast(null);
+      setComposerRestoreData(null);
+      execute().catch(e => setError(String(e)));
+    }, 5_000);
+
+    pendingSendRef.current = { execute, timerId, restoreData: restoreData! };
+    setComposerRestoreData(restoreData);
+    setSendToast({ label: t('mail.messageSent', 'Message envoyé') });
+    setReplyingTo(null);
+    setComposing(false);
+  }, [selectedAccountId, getValidToken, selectedThread, openThread, t]);
+
+  const cancelSend = useCallback(() => {
+    if (!pendingSendRef.current) return;
+    clearTimeout(pendingSendRef.current.timerId);
+    const { restoreData } = pendingSendRef.current;
+    pendingSendRef.current = null;
+    setSendToast(null);
+    setComposerRestoreData(restoreData);
+    if (restoreData.isNewMessage) {
+      setComposing(true);
+    } else {
+      setReplyingTo(restoreData.replyingToMsg);
+    }
+  }, []);
 
   // Panel resizing handlers
   const startResizingSidebar = useCallback((e: MouseEvent) => {
@@ -527,7 +752,7 @@ export default function MailApp() {
         <button className="btn-icon" onClick={cycleTheme}>
           <ThemeIcon pref={preference} />
         </button>
-        <Link to="/config" className="btn-config" title={t('header.configCalendars')}>
+        <Link to="/config" className="btn-config">
           <Settings size={17} />
           {t('header.calendarsBtn')}
         </Link>
@@ -557,6 +782,7 @@ export default function MailApp() {
               onCompose={() => { setComposing(true); setSelectedThread(null); }}
               accountId={selectedAccountId}
               getValidToken={getValidToken}
+              onFoldersLoaded={setAllFolders}
             />
           </div>
           <div
@@ -572,6 +798,8 @@ export default function MailApp() {
               loading={threadsLoading}
               loadingMore={threadsLoadingMore}
               selectedId={selectedThread?.conversation_id ?? null}
+              snoozedMap={snoozedMap}
+              isInSnoozedFolder={isInSnoozedFolder}
               onSelect={openThread}
               onToggleRead={handleToggleThreadRead}
               onDelete={handleDeleteThread}
@@ -587,10 +815,16 @@ export default function MailApp() {
             {composing ? (
               <NewMessageComposer
                 contacts={contacts}
-                onSend={async (to, subject, body) => {
-                  await handleSend(to, subject, body);
-                  setComposing(false);
-                }}
+                restoreData={composerRestoreData?.isNewMessage ? composerRestoreData : null}
+                onSend={(to, subject, body) =>
+                  scheduleSend(to, subject, body, {
+                    isNewMessage: true,
+                    recipients: to.map(email => ({ email })),
+                    subject,
+                    bodyHtml: body,
+                    replyingToMsg: null,
+                  })
+                }
                 onCancel={() => setComposing(false)}
               />
             ) : selectedThread === null ? (
@@ -616,7 +850,26 @@ export default function MailApp() {
                 onForward={msg => setReplyingTo(msg)}
                 onToggleRead={toggleRead}
                 onCancelReply={() => setReplyingTo(null)}
-                onSend={handleSend}
+                onDeleteThread={() => handleDeleteThread(selectedThread)}
+                onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
+                onSend={(to, subject, body) =>
+                  scheduleSend(to, subject, body, {
+                    isNewMessage: false,
+                    recipients: to.map(email => ({ email })),
+                    subject,
+                    bodyHtml: body,
+                    replyingToMsg: replyingTo,
+                  })
+                }
+                composerRestoreData={composerRestoreData?.isNewMessage === false ? composerRestoreData : null}
+                supportsSnooze={true}
+                onSnooze={handleSnooze}
+                snoozeUntil={
+                  (messages.length > 0 ? snoozedByItemId[messages[messages.length - 1].item_id] : undefined)
+                  ?? (isInSnoozedFolder ? Object.values(snoozedByItemId).find(d => new Date(d) > new Date()) : undefined)
+                  ?? (isInSnoozedFolder ? snoozedMap[selectedThread.conversation_id] : undefined)
+                }
+                onUnsnooze={handleUnsnooze}
               />
             )}
           </div>
@@ -627,6 +880,16 @@ export default function MailApp() {
         <div className="mail-delete-toast">
           <span>{deleteToast.label}</span>
           <button className="mail-delete-toast__undo" onClick={cancelDeletion}>
+            {t('mail.undo', 'Annuler')}
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {sendToast && createPortal(
+        <div className="mail-delete-toast">
+          <span>{sendToast.label}</span>
+          <button className="mail-delete-toast__undo" onClick={cancelSend}>
             {t('mail.undo', 'Annuler')}
           </button>
         </div>,
@@ -643,14 +906,66 @@ interface ThreadListProps {
   readonly loading: boolean;
   readonly loadingMore: boolean;
   readonly selectedId: string | null;
+  readonly snoozedMap: Record<string, string>;
+  readonly isInSnoozedFolder: boolean;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
 }
 
+type ThreadFilter = 'all' | 'unread';
+
 const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
-  ({ threads, loading, loadingMore, selectedId, onSelect, onToggleRead, onDelete }, ref) => {
+  ({ threads, loading, loadingMore, selectedId, snoozedMap, isInSnoozedFolder, onSelect, onToggleRead, onDelete }, ref) => {
     const { t } = useTranslation();
+    const [filter, setFilter] = useState<ThreadFilter>('all');
+    const [allChecked, setAllChecked] = useState(false);
+    const [filterOpen, setFilterOpen] = useState(false);
+
+    const visibleThreads = filter === 'unread' ? threads.filter(th => th.unread_count > 0) : threads;
+
+    const toolbar = (
+      <div className="mail-thread-toolbar">
+        <input
+          type="checkbox"
+          className="mail-thread-toolbar__checkbox"
+          checked={allChecked}
+          onChange={e => setAllChecked(e.target.checked)}
+          aria-label={t('mail.selectAll', 'Select all')}
+        />
+        <div className="mail-actions-dropdown">
+          <button
+            className="btn-icon--labeled mail-thread-toolbar__filter-btn"
+            onClick={() => setFilterOpen(o => !o)}
+          >
+            {filter === 'unread' ? t('mail.filterUnread', 'Unread') : t('mail.filterAll', 'All mail')}
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ opacity: 0.5 }}>
+              <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          {filterOpen && (
+            <>
+              <div className="mail-thread-toolbar__overlay" onClick={() => setFilterOpen(false)} />
+              <div className="mail-actions-menu">
+                <button
+                  className={`mail-actions-menu__item${filter === 'all' ? ' mail-actions-menu__item--active' : ''}`}
+                  onClick={() => { setFilter('all'); setFilterOpen(false); }}
+                >
+                  {t('mail.filterAll', 'All mail')}
+                </button>
+                <button
+                  className={`mail-actions-menu__item${filter === 'unread' ? ' mail-actions-menu__item--active' : ''}`}
+                  onClick={() => { setFilter('unread'); setFilterOpen(false); }}
+                >
+                  {t('mail.filterUnread', 'Unread')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+
     if (loading && threads.length === 0) {
       return (
         <div className="mail-thread-list mail-thread-list--empty">
@@ -660,18 +975,24 @@ const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     }
     if (!loading && threads.length === 0) {
       return (
-        <div className="mail-thread-list mail-thread-list--empty">
-          <p style={{ opacity: 0.4 }}>{t('mail.empty', 'No messages')}</p>
+        <div className="mail-thread-list" ref={ref} style={{ display: 'flex', flexDirection: 'column' }}>
+          {toolbar}
+          <div className="mail-thread-list--empty" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <p style={{ opacity: 0.4 }}>{t('mail.empty', 'No messages')}</p>
+          </div>
         </div>
       );
     }
     return (
       <div className="mail-thread-list" ref={ref}>
-        {threads.map(thread => (
+        {toolbar}
+        {visibleThreads.map(thread => (
           <ThreadItem
             key={thread.conversation_id}
             thread={thread}
             isSelected={thread.conversation_id === selectedId}
+            snoozeUntil={snoozedMap[thread.conversation_id]}
+            isInSnoozedFolder={isInSnoozedFolder}
             onSelect={onSelect}
             onToggleRead={onToggleRead}
             onDelete={onDelete}
@@ -691,12 +1012,14 @@ ThreadList.displayName = 'ThreadList';
 interface ThreadItemProps {
   readonly thread: MailThread;
   readonly isSelected: boolean;
+  readonly snoozeUntil?: string;
+  readonly isInSnoozedFolder: boolean;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
 }
 
-function ThreadItem({ thread, isSelected, onSelect, onToggleRead, onDelete }: ThreadItemProps) {
+function ThreadItem({ thread, isSelected, snoozeUntil, isInSnoozedFolder, onSelect, onToggleRead, onDelete }: ThreadItemProps) {
   const { t } = useTranslation();
   const isUnread = thread.unread_count > 0;
   const sender = thread.from_name ?? t('mail.unknown', 'Unknown');
@@ -732,6 +1055,12 @@ function ThreadItem({ thread, isSelected, onSelect, onToggleRead, onDelete }: Th
           </span>
           <div className="mail-thread-item__top-right">
             {thread.has_attachments && <Paperclip size={11} className="mail-thread-item__clip" />}
+            {(isInSnoozedFolder || snoozeUntil) && (
+              <span className="mail-thread-item__snooze-badge" title={snoozeUntil ? new Date(snoozeUntil).toLocaleString('fr-FR') : ''}>
+                <AlarmClock size={11} />
+                {snoozeUntil && new Date(snoozeUntil).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+              </span>
+            )}
             <span className="mail-thread-item__date">
               {formatDate(thread.last_delivery_time)}
             </span>
@@ -795,24 +1124,201 @@ interface ThreadDetailProps {
   readonly onToggleRead: (msg: MailMessage) => void;
   readonly onCancelReply: () => void;
   readonly onSend: (to: string[], subject: string, body: string) => Promise<void>;
+  readonly composerRestoreData?: ComposerRestoreData | null;
+  readonly onDeleteThread: () => void;
+  readonly onToggleThreadRead: () => void;
+  readonly supportsSnooze: boolean;
+  readonly onSnooze: (snoozeUntil: string) => void;
+  readonly snoozeUntil?: string;
+  readonly onUnsnooze: () => void;
+}
+
+const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+function computeSnoozeOptions() {
+  const now = new Date();
+
+  const laterToday = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+  if (laterToday.getMinutes() >= 30) laterToday.setHours(laterToday.getHours() + 1);
+  laterToday.setMinutes(0, 0, 0);
+
+  const tomorrowMorning = new Date(now);
+  tomorrowMorning.setDate(tomorrowMorning.getDate() + 1);
+  tomorrowMorning.setHours(9, 0, 0, 0);
+
+  const tomorrowAfternoon = new Date(now);
+  tomorrowAfternoon.setDate(tomorrowAfternoon.getDate() + 1);
+  tomorrowAfternoon.setHours(14, 0, 0, 0);
+
+  const nextWeek = new Date(now);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  nextWeek.setHours(9, 0, 0, 0);
+
+  return { laterToday, tomorrowMorning, tomorrowAfternoon, nextWeek };
 }
 
 function ThreadDetail({
   thread, messages, replyingTo, contacts,
   onMarkRead, onTrash, onOpenAttachment,
   onReply, onReplyAll, onForward, onToggleRead,
-  onCancelReply, onSend,
+  onCancelReply, onSend, composerRestoreData,
+  onDeleteThread, onToggleThreadRead,
+  supportsSnooze, onSnooze, snoozeUntil, onUnsnooze,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [customDate, setCustomDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10);
+  });
+  const [customTime, setCustomTime] = useState('09:00');
+
   // thread.topic can be empty if EWS didn't return it — fall back to any message subject
   const subject = thread.topic
     || messages.find(m => m.subject)?.subject
     || t('mail.noSubject', '(no subject)');
 
+  const isUnread = thread.unread_count > 0;
+  const lastMsg = messages[messages.length - 1];
+
+  function handleSnoozeOption(date: Date) {
+    onSnooze(date.toISOString());
+    setSnoozeOpen(false);
+    setShowCustomPicker(false);
+  }
+
+  function handleCustomSnooze() {
+    if (!customDate || !customTime) return;
+    const [year, month, day] = customDate.split('-').map(Number);
+    const [hour, minute] = customTime.split(':').map(Number);
+    const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+    onSnooze(date.toISOString());
+    setSnoozeOpen(false);
+    setShowCustomPicker(false);
+  }
+
+  const { laterToday, tomorrowMorning, tomorrowAfternoon, nextWeek } = computeSnoozeOptions();
+  const laterTodayLabel = laterToday.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const nextWeekDayName = FR_DAYS[nextWeek.getDay()];
+  const todayMin = new Date().toISOString().slice(0, 10);
+
   return (
     <div className="mail-thread-detail">
+      <div className="mail-thread-detail__toolbar">
+        <button className="mail-detail-action-btn" onClick={() => {}} title={t('mail.archive', 'Archive')}>
+          <Archive size={15} />
+          <span>{t('mail.archive', 'Archive')}</span>
+        </button>
+        <button className="mail-detail-action-btn mail-detail-action-btn--danger" onClick={onDeleteThread} title={t('mail.delete', 'Delete')}>
+          <Trash2 size={15} />
+          <span>{t('mail.delete', 'Delete')}</span>
+        </button>
+        <div className="mail-actions-dropdown">
+          <button
+            className="mail-detail-action-btn"
+            disabled={!supportsSnooze}
+            onClick={() => { if (supportsSnooze) setSnoozeOpen(o => !o); }}
+            title={t('mail.snooze', 'Snooze')}
+          >
+            <Clock size={15} />
+            <span>{t('mail.snooze', 'Snooze')}</span>
+          </button>
+          {snoozeOpen && supportsSnooze && (
+            <>
+              <div role="button" tabIndex={-1} className="mail-thread-toolbar__overlay" onClick={() => { setSnoozeOpen(false); setShowCustomPicker(false); }} onKeyDown={e => { if (e.key === 'Escape') { setSnoozeOpen(false); setShowCustomPicker(false); } }} />
+              <div className="mail-actions-menu mail-snooze-menu">
+                <button className="mail-actions-menu__item" onClick={() => handleSnoozeOption(laterToday)}>
+                  Plus tard aujourd'hui · {laterTodayLabel}
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => handleSnoozeOption(tomorrowMorning)}>
+                  Demain matin · 9:00
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => handleSnoozeOption(tomorrowAfternoon)}>
+                  Demain après-midi · 14:00
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => handleSnoozeOption(nextWeek)}>
+                  La semaine prochaine {nextWeekDayName} · 9:00
+                </button>
+                <div className="mail-actions-menu__separator" />
+                <button className="mail-actions-menu__item" onClick={() => setShowCustomPicker(o => !o)}>
+                  Choisir date et heure
+                </button>
+                {showCustomPicker && (
+                  <div className="mail-snooze-custom">
+                    <div className="mail-snooze-custom__fields">
+                      <input
+                        type="date"
+                        value={customDate}
+                        min={todayMin}
+                        onChange={e => setCustomDate(e.target.value)}
+                      />
+                      <input
+                        type="time"
+                        value={customTime}
+                        onChange={e => setCustomTime(e.target.value)}
+                      />
+                    </div>
+                    <div className="mail-snooze-custom__actions">
+                      <button onClick={() => setShowCustomPicker(false)}>Annuler</button>
+                      <button className="mail-snooze-custom__ok" onClick={handleCustomSnooze}>OK</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="mail-actions-dropdown" style={{ marginLeft: 'auto' }}>
+          <button
+            className="mail-detail-action-btn"
+            onClick={() => setMoreOpen(o => !o)}
+            title={t('mail.more', 'More')}
+          >
+            <MoreHorizontal size={15} />
+            <span>{t('mail.more', 'More')}</span>
+          </button>
+          {moreOpen && (
+            <>
+              <div className="mail-thread-toolbar__overlay" onClick={() => setMoreOpen(false)} />
+              <div className="mail-actions-menu" style={{ right: 0, left: 'auto' }}>
+                <button className="mail-actions-menu__item" onClick={() => { onToggleThreadRead(); setMoreOpen(false); }}>
+                  {isUnread ? t('mail.markRead', 'Mark as read') : t('mail.markUnread', 'Mark as unread')}
+                </button>
+                <div className="mail-actions-menu__separator" />
+                <button className="mail-actions-menu__item" onClick={() => { if (lastMsg) onForward(lastMsg); setMoreOpen(false); }}>
+                  <Forward size={13} />
+                  {t('mail.forward', 'Forward')}
+                </button>
+                <div className="mail-actions-menu__separator" />
+                <button className="mail-actions-menu__item mail-actions-menu__item--danger" onClick={() => setMoreOpen(false)}>
+                  <ShieldAlert size={13} />
+                  {t('mail.reportSpam', 'Report spam')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
       <div className="mail-thread-detail__header">
         <h2 className="mail-thread-detail__subject">{subject}</h2>
+        {snoozeUntil && (
+          <div className="mail-snooze-banner">
+            <AlarmClock size={22} className="mail-snooze-banner__icon" />
+            <span className="mail-snooze-banner__text">
+              Snoozé jusqu'au{' '}
+              <strong>
+                {new Date(snoozeUntil).toLocaleString('fr-FR', {
+                  weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+                })}
+              </strong>
+            </span>
+            <button className="mail-snooze-banner__btn" onClick={onUnsnooze}>
+              <BellOff size={14} />
+              Unsnooze
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mail-thread-detail__messages">
@@ -833,7 +1339,7 @@ function ThreadDetail({
       </div>
 
       {replyingTo && (
-        <MailComposer replyTo={replyingTo} contacts={contacts} onSend={onSend} onCancel={onCancelReply} />
+        <MailComposer replyTo={replyingTo} contacts={contacts} restoreData={composerRestoreData} onSend={onSend} onCancel={onCancelReply} />
       )}
     </div>
   );
@@ -916,31 +1422,19 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
   const [bgR, bgG, bgB] = bgParsed;
   const bgCss = `rgb(${bgR}, ${bgG}, ${bgB})`;
 
-  const updateHeight = useCallback(() => {
-    const doc = iframeRef.current?.contentDocument;
-    if (doc?.documentElement) {
-      setIframeHeight(doc.documentElement.scrollHeight + 4);
-    }
-  }, []);
-
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    let observer: ResizeObserver | null = null;
-    const onLoad = () => {
-      updateHeight();
-      const body = iframe.contentDocument?.body;
-      if (body) {
-        observer = new ResizeObserver(updateHeight);
-        observer.observe(body);
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      if (e.data?.type === 'open-url' && typeof e.data.url === 'string') {
+        invoke('open_url', { url: e.data.url }).catch(console.error);
+      }
+      if (e.data?.type === 'resize' && typeof e.data.height === 'number') {
+        setIframeHeight(e.data.height + 4);
       }
     };
-    iframe.addEventListener('load', onLoad);
-    return () => {
-      iframe.removeEventListener('load', onLoad);
-      observer?.disconnect();
-    };
-  }, [updateHeight]);
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
 
   // feColorMatrix: f(x) = -x + k maps white → bg color and black → white.
   // f is self-inverse, so images get the filter twice and return to original colors.
@@ -961,8 +1455,6 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
   .ew { filter: url(#dm); }
   .ew img, .ew video, .ew canvas, .ew iframe, .ew svg { filter: url(#dm); }` : '';
 
-  // Wrap email HTML in a minimal document with reset styles.
-  // The iframe scrolls internally — no JS resize needed (avoids WKWebView sandbox issues).
   const srcdoc = `<!DOCTYPE html>
 <html>
 <head>
@@ -979,7 +1471,7 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
     word-break: break-word; overflow-wrap: anywhere;
   }
   img { max-width: 100%; height: auto; }
-  a { color: #1a73e8; }
+  a { color: #1a73e8; cursor: pointer; }
   pre, code { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
   table { max-width: 100%; }
   blockquote {
@@ -988,14 +1480,29 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
   }${darkModeStyle}
 </style>
 </head>
-<body>${darkModeSvg}<div class="ew">${html}</div></body>
+<body>${darkModeSvg}<div class="ew">${html}</div>
+<script>
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('a');
+    if (a && a.href && !a.href.startsWith('javascript:')) {
+      e.preventDefault();
+      window.parent.postMessage({ type: 'open-url', url: a.href }, '*');
+    }
+  });
+  var ro = new ResizeObserver(function() {
+    window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
+  });
+  ro.observe(document.body);
+  window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
+</script>
+</body>
 </html>`;
 
   return (
     <iframe
       ref={iframeRef}
       srcDoc={srcdoc}
-      sandbox="allow-same-origin allow-popups"
+      sandbox="allow-scripts"
       className="mail-email-iframe"
       title="email-body"
       style={{ height: iframeHeight }}
@@ -1030,11 +1537,12 @@ function AttachmentList({ attachments, onOpen }: AttachmentListProps) {
 interface MailComposerProps {
   readonly replyTo: MailMessage;
   readonly contacts: { email: string; name?: string }[];
+  readonly restoreData?: ComposerRestoreData | null;
   readonly onSend: (to: string[], subject: string, body: string) => Promise<void>;
   readonly onCancel: () => void;
 }
 
-function MailComposer({ replyTo, contacts, onSend, onCancel }: MailComposerProps) {
+function MailComposer({ replyTo, contacts, restoreData, onSend, onCancel }: MailComposerProps) {
   const { t } = useTranslation();
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -1043,10 +1551,19 @@ function MailComposer({ replyTo, contacts, onSend, onCancel }: MailComposerProps
     email: replyTo.from_email ?? '',
     name: replyTo.from_name ?? undefined,
   };
-  const [recipients, setRecipients] = useState<RecipientEntry[]>([initialRecipient]);
-  const [subject, setSubject] = useState(
-    replyTo.subject.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject}`
+  const [recipients, setRecipients] = useState<RecipientEntry[]>(
+    restoreData?.recipients ?? [initialRecipient]
   );
+  const [subject, setSubject] = useState(
+    restoreData?.subject ?? (replyTo.subject.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject}`)
+  );
+
+  useEffect(() => {
+    if (restoreData?.bodyHtml && bodyRef.current) {
+      bodyRef.current.innerHTML = restoreData.bodyHtml;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -1101,18 +1618,34 @@ function MailComposer({ replyTo, contacts, onSend, onCancel }: MailComposerProps
 
 // ── New message composer (full panel) ─────────────────────────────────────────
 
+interface ComposerRestoreData {
+  readonly isNewMessage: boolean;
+  readonly recipients: RecipientEntry[];
+  readonly subject: string;
+  readonly bodyHtml: string;
+  readonly replyingToMsg: MailMessage | null;
+}
+
 interface NewMessageComposerProps {
   readonly contacts: { email: string; name?: string }[];
+  readonly restoreData?: ComposerRestoreData | null;
   readonly onSend: (to: string[], subject: string, body: string) => Promise<void>;
   readonly onCancel: () => void;
 }
 
-function NewMessageComposer({ contacts, onSend, onCancel }: NewMessageComposerProps) {
+function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMessageComposerProps) {
   const { t } = useTranslation();
-  const [recipients, setRecipients] = useState<RecipientEntry[]>([]);
-  const [subject, setSubject] = useState('');
+  const [recipients, setRecipients] = useState<RecipientEntry[]>(restoreData?.recipients ?? []);
+  const [subject, setSubject] = useState(restoreData?.subject ?? '');
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (restoreData?.bodyHtml && bodyRef.current) {
+      bodyRef.current.innerHTML = restoreData.bodyHtml;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
