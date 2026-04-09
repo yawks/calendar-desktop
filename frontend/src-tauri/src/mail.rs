@@ -285,11 +285,25 @@ pub async fn mail_list_threads(
 }
 
 /// Fetch all messages in a conversation thread.
+/// Pass `include_trash: true` to include items from the Deleted Items folder
+/// (needed when the caller itself is operating on the trash folder).
 #[command]
 pub async fn mail_get_thread(
     access_token: String,
     conversation_id: String,
+    include_trash: Option<bool>,
 ) -> Result<Vec<MailMessage>, String> {
+    let folders_to_ignore = if include_trash.unwrap_or(false) {
+        // Only ignore Drafts — keep Deleted Items so we can act on trashed messages.
+        r#"<m:FoldersToIgnore>
+    <t:DistinguishedFolderId Id="drafts"/>
+  </m:FoldersToIgnore>"#
+    } else {
+        r#"<m:FoldersToIgnore>
+    <t:DistinguishedFolderId Id="deleteditems"/>
+    <t:DistinguishedFolderId Id="drafts"/>
+  </m:FoldersToIgnore>"#
+    };
     let soap_body = format!(
         r#"<m:GetConversationItems>
   <m:ItemShape>
@@ -299,10 +313,7 @@ pub async fn mail_get_thread(
       <t:FieldURI FieldURI="message:IsRead"/>
     </t:AdditionalProperties>
   </m:ItemShape>
-  <m:FoldersToIgnore>
-    <t:DistinguishedFolderId Id="deleteditems"/>
-    <t:DistinguishedFolderId Id="drafts"/>
-  </m:FoldersToIgnore>
+  {folders_to_ignore}
   <m:MaxItemsToReturn>50</m:MaxItemsToReturn>
   <m:SortOrder>TreeOrderDescending</m:SortOrder>
   <m:Conversations>
@@ -513,6 +524,28 @@ pub async fn mail_move_to_trash(
 
     if xml.contains("ResponseClass=\"Error\"") {
         return Err(ews_err(&xml, "EWS move-to-trash error"));
+    }
+    Ok(())
+}
+
+/// Permanently delete a message (hard delete — used when already in Deleted Items).
+#[command]
+pub async fn mail_permanently_delete(
+    access_token: String,
+    item_id: String,
+) -> Result<(), String> {
+    let soap_body = format!(
+        r#"<m:DeleteItem DeleteType="HardDelete">
+  <m:ItemIds>
+    <t:ItemId Id="{item_id}"/>
+  </m:ItemIds>
+</m:DeleteItem>"#,
+    );
+
+    let xml = send(&access_token, &soap_body).await?;
+
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS permanently-delete error"));
     }
     Ok(())
 }

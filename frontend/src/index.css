@@ -769,6 +769,68 @@ body {
 }
 .mail-reply-btn { display: inline-flex; align-items: center; gap: 6px; }
 
+/* ── Composer block (reply/forward inside message scroll) ── */
+.mail-composer-block {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* ── Reply / Forward composer ───────────────────── */
+.mail-reply-composer {
+  display: flex;
+  flex-direction: column;
+}
+.mail-reply-composer__label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--primary);
+  padding: 8px 16px 0;
+  border-bottom: none;
+}
+.mail-reply-composer__form {
+  display: flex; flex-direction: column;
+}
+.mail-reply-composer__toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-bottom: 1px solid var(--border);
+}
+.mail-reply-composer__body {
+  min-height: 180px;
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* ── Quoted messages (nested Fastmail-style) ─────── */
+.mail-quoted {
+  margin-top: 16px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.mail-quoted__separator {
+  font-size: 11px; color: var(--text-muted); font-style: italic;
+  padding: 6px 12px 4px;
+}
+.mail-quoted__headers {
+  padding: 4px 12px 8px;
+  font-size: 12px; color: var(--text-muted);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.mail-quoted__hdr-key {
+  font-weight: 600; color: var(--text-muted);
+}
+.mail-quoted__body {
+  padding: 8px 12px 10px;
+  font-size: 13px; line-height: 1.5; color: var(--text);
+}
+
+/* Each nesting level gets a different left-border accent */
+.mail-quoted--level-1 { border-left: 3px solid hsl(210 70% 55%); background: color-mix(in srgb, hsl(210 70% 55%) 5%, var(--bg)); }
+.mail-quoted--level-2 { border-left: 3px solid hsl(145 55% 45%); background: color-mix(in srgb, hsl(145 55% 45%) 5%, var(--bg)); }
+.mail-quoted--level-3 { border-left: 3px solid hsl(35  80% 50%); background: color-mix(in srgb, hsl(35  80% 50%) 5%, var(--bg)); }
+.mail-quoted--level-4 { border-left: 3px solid hsl(300 45% 55%); background: color-mix(in srgb, hsl(300 45% 55%) 5%, var(--bg)); }
+
 /* ── Composer ──────────────────────────────────── */
 .mail-composer { flex-shrink: 0; border-top: 2px solid var(--primary); background: var(--bg); }
 

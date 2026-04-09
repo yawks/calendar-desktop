@@ -36,7 +36,7 @@ import {
 } from 'react';
 import { RecipientEntry, RecipientInput } from './components/RecipientInput';
 import { ThemePreference, useTheme } from '../../shared/store/ThemeStore';
-import { avatarColor, formatDate, formatSize, initials } from './utils';
+import { avatarColor, formatDate, formatFullDate, formatSize, initials } from './utils';
 
 import { Link } from 'react-router-dom';
 import { MailSidebar } from './components/MailSidebar';
@@ -63,6 +63,26 @@ function AttachmentIcon({ contentType }: { readonly contentType: string }) {
   return <File size={14} />;
 }
 
+// ── Folder unread count helpers ────────────────────────────────────────────────
+// EWS returns real FolderIds (base64) for well-known folders, not the distinguished
+// names ('inbox', 'sentitems', …) used as static sidebar keys. Map by display name.
+const DISPLAY_TO_STATIC: Record<string, string> = {
+  'inbox': 'inbox',
+  'boîte de réception': 'inbox',
+  'sent items': 'sentitems',
+  'éléments envoyés': 'sentitems',
+  'deleted items': 'deleteditems',
+  'éléments supprimés': 'deleteditems',
+};
+function buildUnreadCounts(folders: import('./types').MailFolder[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const f of folders) {
+    const key = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
+    counts[key] = f.unread_count;
+  }
+  return counts;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const SIDEBAR_MIN = 150;
@@ -87,6 +107,7 @@ export default function MailApp() {
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
+  const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward'>('reply');
   const [composing, setComposing] = useState(false);
   const [mailContacts, setMailContacts] = useState<RecipientEntry[]>([]);
   const contacts = useContactSuggestions(mailContacts);
@@ -117,6 +138,10 @@ export default function MailApp() {
       replyingToMsg: MailMessage | null;
     };
   } | null>(null);
+
+  // Tracks conversation_ids whose unread count has already been subtracted from folderUnreadCounts.
+  // Cleared when the folder or account changes.
+  const folderAccountedRef = useRef(new Set<string>());
 
   // Panel resizing
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -151,8 +176,14 @@ export default function MailApp() {
 
   // All Exchange folders, populated by MailSidebar once loaded
   const [allFolders, setAllFolders] = useState<import('./types').MailFolder[]>([]);
+  const [folderUnreadCounts, setFolderUnreadCounts] = useState<Record<string, number>>({});
   const snoozedFolderId = allFolders.find(f => f.display_name === 'Snoozed')?.folder_id;
   const isInSnoozedFolder = snoozedFolderId !== undefined && selectedFolder === snoozedFolderId;
+
+  const handleFoldersLoaded = useCallback((folders: import('./types').MailFolder[]) => {
+    setAllFolders(folders);
+    setFolderUnreadCounts(buildUnreadCounts(folders));
+  }, []);
 
   // Cleanup pending deletion and send on unmount
   useEffect(() => () => {
@@ -209,6 +240,7 @@ export default function MailApp() {
     if (!token) { setError('No valid token — please reconnect your Exchange account.'); return; }
     setThreadsLoading(true);
     setError(null);
+    folderAccountedRef.current.clear();
     try {
       const result = await invoke<MailThread[]>('mail_list_threads', {
         accessToken: token, folder: selectedFolder, maxCount: 50, offset: 0,
@@ -288,11 +320,15 @@ export default function MailApp() {
     const token = await getValidToken(selectedAccountId);
     if (!token) return;
     try {
-      const result = await invoke<MailThread[]>('mail_list_threads', {
-        accessToken: token, folder: selectedFolder, maxCount: 50, offset: 0,
-      });
+      const [result, folders] = await Promise.all([
+        invoke<MailThread[]>('mail_list_threads', {
+          accessToken: token, folder: selectedFolder, maxCount: 50, offset: 0,
+        }),
+        invoke<import('./types').MailFolder[]>('mail_list_folders', { accessToken: token }),
+      ]);
       setThreads(result);
       setHasMoreThreads(result.length >= 50);
+      setFolderUnreadCounts(buildUnreadCounts(folders));
     } catch {
       // Non-critical — ignore silent refresh errors
     }
@@ -350,11 +386,19 @@ export default function MailApp() {
     try {
       const result = await invoke<MailMessage[]>('mail_get_thread', {
         accessToken: token, conversationId: thread.conversation_id,
+        includeTrash: selectedFolder === 'deleteditems',
       });
       setMessages(result);
       setThreads(prev => prev.map(th =>
         th.conversation_id === thread.conversation_id ? { ...th, unread_count: 0 } : th
       ));
+      if (thread.unread_count > 0 && !folderAccountedRef.current.has(thread.conversation_id)) {
+        folderAccountedRef.current.add(thread.conversation_id);
+        setFolderUnreadCounts(prev => ({
+          ...prev,
+          [selectedFolder]: Math.max(0, (prev[selectedFolder] ?? 0) - thread.unread_count),
+        }));
+      }
       // Accumulate contacts from message senders/recipients
       setMailContacts(prev => {
         const map = new Map(prev.map(c => [c.email.toLowerCase(), c]));
@@ -378,7 +422,7 @@ export default function MailApp() {
     } finally {
       setMessagesLoading(false);
     }
-  }, [selectedAccountId, getValidToken]);
+  }, [selectedAccountId, selectedFolder, getValidToken]);
 
   const markRead = useCallback(async (msgs: MailMessage[]) => {
     if (!selectedAccountId || msgs.length === 0) return;
@@ -386,16 +430,31 @@ export default function MailApp() {
     if (!token) return;
     const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key }));
     const ids = msgs.map(m => m.item_id);
+    const unreadCount = msgs.filter(m => !m.is_read).length;
     try {
       await invoke('mail_mark_read', { accessToken: token, items });
       setMessages(prev => prev.map(m =>
         ids.includes(m.item_id) ? { ...m, is_read: true } : m
       ));
+      if (unreadCount > 0) {
+        setThreads(prev => prev.map(th =>
+          th.conversation_id === selectedThread?.conversation_id
+            ? { ...th, unread_count: Math.max(0, th.unread_count - unreadCount) }
+            : th
+        ));
+        // Only decrement folder if openThread hasn't already done it for this conversation.
+        if (!folderAccountedRef.current.has(selectedThread?.conversation_id ?? '')) {
+          setFolderUnreadCounts(prev => ({
+            ...prev,
+            [selectedFolder]: Math.max(0, (prev[selectedFolder] ?? 0) - unreadCount),
+          }));
+        }
+      }
     } catch (e) {
       console.error('[mail] markRead error:', e);
       setError(String(e));
     }
-  }, [selectedAccountId, getValidToken]);
+  }, [selectedAccountId, getValidToken, selectedThread, selectedFolder]);
 
   const toggleRead = useCallback(async (msg: MailMessage) => {
     if (!selectedAccountId) return;
@@ -416,6 +475,10 @@ export default function MailApp() {
           ? { ...th, unread_count: msg.is_read ? th.unread_count + 1 : Math.max(0, th.unread_count - 1) }
           : th
       ));
+      setFolderUnreadCounts(prev => ({
+        ...prev,
+        [selectedFolder]: Math.max(0, (prev[selectedFolder] ?? 0) + (msg.is_read ? 1 : -1)),
+      }));
     } catch (e) {
       console.error('[mail] toggleRead error:', e);
       setError(String(e));
@@ -431,11 +494,29 @@ export default function MailApp() {
     const removedThread = remaining.length === 0 ? selectedThread : null;
     const convId = selectedThread?.conversation_id;
 
+    // Only decrement folder counter if openThread hasn't already done it for this conversation.
+    const alreadyAccounted = folderAccountedRef.current.has(selectedThread?.conversation_id ?? '');
+    const wasUnread = !msgToDelete.is_read && !alreadyAccounted;
+
     // Optimistic update
     setMessages(remaining);
     if (removedThread) {
       setSelectedThread(null);
       setThreads(prev => prev.filter(th => th.conversation_id !== convId));
+    }
+    if (wasUnread) {
+      setFolderUnreadCounts(prev => ({
+        ...prev,
+        [selectedFolder]: Math.max(0, (prev[selectedFolder] ?? 0) - 1),
+      }));
+      if (!removedThread) {
+        setThreads(prev => prev.map(th =>
+          th.conversation_id === selectedThread?.conversation_id
+            ? { ...th, unread_count: Math.max(0, th.unread_count - 1) }
+            : th
+        ));
+        setSelectedThread(prev => prev ? { ...prev, unread_count: Math.max(0, prev.unread_count - 1) } : prev);
+      }
     }
 
     scheduleDeletion(
@@ -458,28 +539,52 @@ export default function MailApp() {
             return restored;
           });
         }
+        if (wasUnread) {
+          setFolderUnreadCounts(prev => ({
+            ...prev,
+            [selectedFolder]: (prev[selectedFolder] ?? 0) + 1,
+          }));
+          if (!removedThread) {
+            setThreads(prev => prev.map(th =>
+              th.conversation_id === selectedThread?.conversation_id
+                ? { ...th, unread_count: th.unread_count + 1 }
+                : th
+            ));
+            setSelectedThread(prev => prev ? { ...prev, unread_count: prev.unread_count + 1 } : prev);
+          }
+        }
       },
       async () => {
         const token = await getValidToken(selectedAccountId);
         if (!token) throw new Error('No token');
-        await invoke('mail_move_to_trash', { accessToken: token, itemId });
+        if (selectedFolder === 'deleteditems') {
+          await invoke('mail_permanently_delete', { accessToken: token, itemId });
+        } else {
+          await invoke('mail_move_to_trash', { accessToken: token, itemId });
+        }
       },
     );
-  }, [selectedAccountId, getValidToken, messages, selectedThread, scheduleDeletion, t]);
+  }, [selectedAccountId, getValidToken, messages, selectedThread, selectedFolder, scheduleDeletion, t]);
 
   const handleToggleThreadRead = useCallback(async (thread: MailThread) => {
     if (!selectedAccountId) return;
     const shouldMarkRead = thread.unread_count > 0;
 
     // Optimistic update
+    const newUnread = shouldMarkRead ? 0 : thread.message_count;
     setThreads(prev => prev.map(th =>
       th.conversation_id === thread.conversation_id
-        ? { ...th, unread_count: shouldMarkRead ? 0 : thread.message_count }
+        ? { ...th, unread_count: newUnread }
         : th
     ));
     if (selectedThread?.conversation_id === thread.conversation_id) {
+      setSelectedThread(prev => prev ? { ...prev, unread_count: newUnread } : prev);
       setMessages(prev => prev.map(m => ({ ...m, is_read: shouldMarkRead })));
     }
+    setFolderUnreadCounts(prev => {
+      const delta = shouldMarkRead ? -thread.unread_count : thread.message_count;
+      return { ...prev, [selectedFolder]: Math.max(0, (prev[selectedFolder] ?? 0) + delta) };
+    });
 
     // Background API call — revert on failure
     try {
@@ -487,6 +592,7 @@ export default function MailApp() {
       if (!token) throw new Error('No token');
       const msgs = await invoke<MailMessage[]>('mail_get_thread', {
         accessToken: token, conversationId: thread.conversation_id,
+        includeTrash: selectedFolder === 'deleteditems',
       });
       const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key }));
       if (shouldMarkRead) {
@@ -502,11 +608,12 @@ export default function MailApp() {
           : th
       ));
       if (selectedThread?.conversation_id === thread.conversation_id) {
+        setSelectedThread(prev => prev ? { ...prev, unread_count: thread.unread_count } : prev);
         setMessages(prev => prev.map(m => ({ ...m, is_read: !shouldMarkRead })));
       }
       setError(String(e));
     }
-  }, [selectedAccountId, getValidToken, selectedThread]);
+  }, [selectedAccountId, getValidToken, selectedThread, selectedFolder]);
 
   const handleDeleteThread = useCallback((thread: MailThread) => {
     if (!selectedAccountId) return;
@@ -514,11 +621,22 @@ export default function MailApp() {
     const wasSelected = selectedThread?.conversation_id === thread.conversation_id;
     const savedMessages = wasSelected ? messages : [];
 
+    // If openThread already decremented folderUnreadCounts for this conversation, don't do it again.
+    // Otherwise use the original EWS unread_count from the thread argument.
+    const alreadyAccounted = folderAccountedRef.current.has(thread.conversation_id);
+    const unreadToDecrement = alreadyAccounted ? 0 : thread.unread_count;
+
     // Optimistic update
     setThreads(prev => prev.filter(th => th.conversation_id !== thread.conversation_id));
     if (wasSelected) {
       setSelectedThread(null);
       setMessages([]);
+    }
+    if (unreadToDecrement > 0) {
+      setFolderUnreadCounts(prev => ({
+        ...prev,
+        [selectedFolder]: Math.max(0, (prev[selectedFolder] ?? 0) - unreadToDecrement),
+      }));
     }
 
     const label = thread.message_count > 1
@@ -539,19 +657,27 @@ export default function MailApp() {
           setSelectedThread(thread);
           setMessages(savedMessages);
         }
+        if (unreadToDecrement > 0) {
+          setFolderUnreadCounts(prev => ({
+            ...prev,
+            [selectedFolder]: (prev[selectedFolder] ?? 0) + unreadToDecrement,
+          }));
+        }
       },
       async () => {
         const token = await getValidToken(selectedAccountId);
         if (!token) throw new Error('No token');
+        const inTrash = selectedFolder === 'deleteditems';
         const msgs = await invoke<MailMessage[]>('mail_get_thread', {
-          accessToken: token, conversationId: thread.conversation_id,
+          accessToken: token, conversationId: thread.conversation_id, includeTrash: inTrash,
         });
+        const command = inTrash ? 'mail_permanently_delete' : 'mail_move_to_trash';
         for (const msg of msgs) {
-          await invoke('mail_move_to_trash', { accessToken: token, itemId: msg.item_id });
+          await invoke(command, { accessToken: token, itemId: msg.item_id });
         }
       },
     );
-  }, [selectedAccountId, getValidToken, selectedThread, messages, scheduleDeletion, t]);
+  }, [selectedAccountId, getValidToken, selectedThread, messages, selectedFolder, scheduleDeletion, t]);
 
   const handleSnooze = useCallback(async (snoozeUntil: string) => {
     if (!selectedAccountId || messages.length === 0 || !selectedThread) return;
@@ -782,7 +908,8 @@ export default function MailApp() {
               onCompose={() => { setComposing(true); setSelectedThread(null); }}
               accountId={selectedAccountId}
               getValidToken={getValidToken}
-              onFoldersLoaded={setAllFolders}
+              onFoldersLoaded={handleFoldersLoaded}
+              folderUnreadCounts={folderUnreadCounts}
             />
           </div>
           <div
@@ -845,10 +972,11 @@ export default function MailApp() {
                 onMarkRead={markRead}
                 onTrash={moveToTrash}
                 onOpenAttachment={openAttachment}
-                onReply={msg => setReplyingTo(msg)}
-                onReplyAll={msg => setReplyingTo(msg)}
-                onForward={msg => setReplyingTo(msg)}
+                onReply={msg => { setReplyMode('reply'); setReplyingTo(msg); }}
+                onReplyAll={msg => { setReplyMode('replyAll'); setReplyingTo(msg); }}
+                onForward={msg => { setReplyMode('forward'); setReplyingTo(msg); }}
                 onToggleRead={toggleRead}
+                replyMode={replyMode}
                 onCancelReply={() => setReplyingTo(null)}
                 onDeleteThread={() => handleDeleteThread(selectedThread)}
                 onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
@@ -1122,6 +1250,7 @@ interface ThreadDetailProps {
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
+  readonly replyMode: 'reply' | 'replyAll' | 'forward';
   readonly onCancelReply: () => void;
   readonly onSend: (to: string[], subject: string, body: string) => Promise<void>;
   readonly composerRestoreData?: ComposerRestoreData | null;
@@ -1158,7 +1287,7 @@ function computeSnoozeOptions() {
 }
 
 function ThreadDetail({
-  thread, messages, replyingTo, contacts,
+  thread, messages, replyingTo, replyMode, contacts,
   onMarkRead, onTrash, onOpenAttachment,
   onReply, onReplyAll, onForward, onToggleRead,
   onCancelReply, onSend, composerRestoreData,
@@ -1167,6 +1296,15 @@ function ThreadDetail({
 }: ThreadDetailProps) {
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const composerBlockRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!replyingTo || !composerBlockRef.current || !messagesContainerRef.current) return;
+    const container = messagesContainerRef.current;
+    const block = composerBlockRef.current;
+    container.scrollTop = block.offsetTop - container.offsetTop;
+  }, [replyingTo]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [customDate, setCustomDate] = useState(() => {
@@ -1321,7 +1459,7 @@ function ThreadDetail({
         )}
       </div>
 
-      <div className="mail-thread-detail__messages">
+      <div className="mail-thread-detail__messages" ref={messagesContainerRef}>
         {messages.map((msg, idx) => (
           <MessageBlock
             key={msg.item_id}
@@ -1336,11 +1474,19 @@ function ThreadDetail({
             onToggleRead={onToggleRead}
           />
         ))}
+        {replyingTo && (
+          <div className="mail-composer-block" ref={composerBlockRef}>
+            <MailComposer
+              replyTo={replyingTo}
+              mode={replyMode}
+              contacts={contacts}
+              restoreData={composerRestoreData}
+              onSend={onSend}
+              onCancel={onCancelReply}
+            />
+          </div>
+        )}
       </div>
-
-      {replyingTo && (
-        <MailComposer replyTo={replyingTo} contacts={contacts} restoreData={composerRestoreData} onSend={onSend} onCancel={onCancelReply} />
-      )}
     </div>
   );
 }
@@ -1536,31 +1682,70 @@ function AttachmentList({ attachments, onOpen }: AttachmentListProps) {
 
 interface MailComposerProps {
   readonly replyTo: MailMessage;
+  readonly mode: 'reply' | 'replyAll' | 'forward';
   readonly contacts: { email: string; name?: string }[];
   readonly restoreData?: ComposerRestoreData | null;
   readonly onSend: (to: string[], subject: string, body: string) => Promise<void>;
   readonly onCancel: () => void;
 }
 
-function MailComposer({ replyTo, contacts, restoreData, onSend, onCancel }: MailComposerProps) {
+function MailComposer({ replyTo, mode, contacts, restoreData, onSend, onCancel }: MailComposerProps) {
   const { t } = useTranslation();
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  const isForward = mode === 'forward';
 
   const initialRecipient: RecipientEntry = {
     email: replyTo.from_email ?? '',
     name: replyTo.from_name ?? undefined,
   };
   const [recipients, setRecipients] = useState<RecipientEntry[]>(
-    restoreData?.recipients ?? [initialRecipient]
+    restoreData?.recipients ?? (isForward ? [] : [initialRecipient])
   );
+
+  const baseSubject = replyTo.subject.replace(/^(Re|Fwd):\s*/i, '');
   const [subject, setSubject] = useState(
-    restoreData?.subject ?? (replyTo.subject.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject}`)
+    restoreData?.subject ?? (isForward ? `Fwd: ${baseSubject}` : `Re: ${baseSubject}`)
   );
 
   useEffect(() => {
-    if (restoreData?.bodyHtml && bodyRef.current) {
+    if (!bodyRef.current) return;
+    if (restoreData?.bodyHtml) {
       bodyRef.current.innerHTML = restoreData.bodyHtml;
+      return;
+    }
+    // Build quoted original message
+    const sep    = t('mail.originalMessage', '----- Message d\'origine -----');
+    const fLabel = t('mail.from', 'From');
+    const tLabel = t('mail.to', 'To');
+    const dLabel = t('mail.date', 'Date');
+    const sLabel = t('mail.subject', 'Subject');
+    const from = replyTo.from_name
+      ? `${replyTo.from_name} &lt;${replyTo.from_email}&gt;`
+      : (replyTo.from_email ?? '');
+    const to = replyTo.to_recipients
+      .map(r => (r.name ? `${r.name} &lt;${r.email}&gt;` : r.email))
+      .join(', ');
+    const date = formatFullDate(replyTo.date_time_received);
+    const quoted =
+      `<br><br><div class="mail-quoted mail-quoted--level-1">` +
+      `<div class="mail-quoted__separator">${sep}</div>` +
+      `<div class="mail-quoted__headers">` +
+      `<div><span class="mail-quoted__hdr-key">${fLabel} :</span> ${from}</div>` +
+      `<div><span class="mail-quoted__hdr-key">${tLabel} :</span> ${to}</div>` +
+      `<div><span class="mail-quoted__hdr-key">${dLabel} :</span> ${date}</div>` +
+      `<div><span class="mail-quoted__hdr-key">${sLabel} :</span> ${replyTo.subject}</div>` +
+      `</div><div class="mail-quoted__body">${replyTo.body_html}</div></div>`;
+    bodyRef.current.innerHTML = quoted;
+    // Place cursor at the top (before the quoted block)
+    const sel = window.getSelection();
+    if (sel) {
+      const range = document.createRange();
+      range.setStart(bodyRef.current, 0);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1574,10 +1759,17 @@ function MailComposer({ replyTo, contacts, restoreData, onSend, onCancel }: Mail
     finally { setSending(false); }
   };
 
+  const modeLabel = isForward
+    ? t('mail.forward', 'Forward')
+    : mode === 'replyAll'
+      ? t('mail.replyAll', 'Reply to all')
+      : t('mail.reply', 'Reply');
+
   return (
-    <div className="mail-new-composer">
-      <form className="mail-new-composer__form" onSubmit={handleSubmit}>
-        <div className="mail-new-composer__toolbar">
+    <div className="mail-reply-composer">
+      <div className="mail-reply-composer__label">{modeLabel}</div>
+      <form className="mail-reply-composer__form" onSubmit={handleSubmit}>
+        <div className="mail-reply-composer__toolbar">
           <button type="submit" className="btn-primary" disabled={sending || recipients.length === 0}>
             <Send size={15} />
             {sending ? t('mail.sending', 'Sending…') : t('mail.send', 'Send')}
@@ -1606,7 +1798,7 @@ function MailComposer({ replyTo, contacts, restoreData, onSend, onCancel }: Mail
         </div>
         <div
           ref={bodyRef}
-          className="mail-composer__body mail-new-composer__body"
+          className="mail-composer__body mail-reply-composer__body"
           contentEditable
           suppressContentEditableWarning
           data-placeholder={t('mail.bodyPlaceholder', 'Écrivez votre réponse…')}

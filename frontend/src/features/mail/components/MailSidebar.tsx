@@ -12,6 +12,7 @@ interface MailSidebarProps {
   readonly accountId: string | null;
   readonly getValidToken: (id: string) => Promise<string | null>;
   readonly onFoldersLoaded?: (folders: MailFolder[]) => void;
+  readonly folderUnreadCounts?: Record<string, number>;
 }
 
 export function MailSidebar({
@@ -21,6 +22,7 @@ export function MailSidebar({
   accountId,
   getValidToken,
   onFoldersLoaded,
+  folderUnreadCounts = {},
 }: MailSidebarProps) {
   const { t } = useTranslation();
   const [dynamicFolders, setDynamicFolders] = useState<MailFolder[]>([]);
@@ -73,32 +75,37 @@ export function MailSidebar({
         {t('mail.compose', 'Nouveau message')}
       </button>
 
-      {staticFolders.map(({ id, label, Icon }) => (
-        <button
-          key={id}
-          className={`mail-folder-btn${selectedFolder === id ? ' active' : ''}`}
-          onClick={() => onSelectFolder(id)}
-        >
-          <Icon size={16} />
-          {label}
-        </button>
-      ))}
+      {staticFolders.map(({ id, label, Icon }) => {
+        const unread = folderUnreadCounts[id] ?? 0;
+        return (
+          <button
+            key={id}
+            className={`mail-folder-btn${selectedFolder === id ? ' active' : ''}`}
+            onClick={() => onSelectFolder(id)}
+          >
+            <Icon size={16} />
+            {label}
+            {unread > 0 && <span className="mail-folder-btn__badge">{unread}</span>}
+          </button>
+        );
+      })}
 
       {dynamicFolders.length > 0 && <div className="mail-sidebar-separator" />}
 
-      {dynamicFolders.map(f => (
-        <button
-          key={f.folder_id}
-          className={`mail-folder-btn${selectedFolder === f.folder_id ? ' active' : ''}`}
-          onClick={() => onSelectFolder(f.folder_id)}
-        >
-          <FolderIcon size={16} />
-          <span className="mail-folder-btn__name">{f.display_name}</span>
-          {f.unread_count > 0 && (
-            <span className="mail-folder-btn__badge">{f.unread_count}</span>
-          )}
-        </button>
-      ))}
+      {dynamicFolders.map(f => {
+        const unread = folderUnreadCounts[f.folder_id] ?? f.unread_count;
+        return (
+          <button
+            key={f.folder_id}
+            className={`mail-folder-btn${selectedFolder === f.folder_id ? ' active' : ''}`}
+            onClick={() => onSelectFolder(f.folder_id)}
+          >
+            <FolderIcon size={16} />
+            <span className="mail-folder-btn__name">{f.display_name}</span>
+            {unread > 0 && <span className="mail-folder-btn__badge">{unread}</span>}
+          </button>
+        );
+      })}
     </nav>
   );
 }
