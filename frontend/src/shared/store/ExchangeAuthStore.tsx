@@ -7,7 +7,8 @@ const STORAGE_KEY = 'calendar-desktop-exchange-accounts';
 type Action =
   | { type: 'ADD'; payload: ExchangeAccount }
   | { type: 'REMOVE'; payload: string }
-  | { type: 'UPDATE_TOKEN'; payload: { id: string; accessToken: string; expiresAt: number } };
+  | { type: 'UPDATE_TOKEN'; payload: { id: string; accessToken: string; expiresAt: number } }
+  | { type: 'UPDATE_COLOR'; payload: { id: string; color: string } };
 
 function reducer(state: ExchangeAccount[], action: Action): ExchangeAccount[] {
   switch (action.type) {
@@ -21,6 +22,10 @@ function reducer(state: ExchangeAccount[], action: Action): ExchangeAccount[] {
           ? { ...a, accessToken: action.payload.accessToken, expiresAt: action.payload.expiresAt }
           : a
       );
+    case 'UPDATE_COLOR':
+      return state.map((a) =>
+        a.id === action.payload.id ? { ...a, color: action.payload.color } : a
+      );
   }
 }
 
@@ -28,6 +33,7 @@ interface ExchangeAuthContextValue {
   accounts: ExchangeAccount[];
   addAccount: (account: ExchangeAccount) => void;
   removeAccount: (id: string) => void;
+  updateAccountColor: (id: string, color: string) => void;
   /** Returns a valid access token, refreshing automatically if expired. */
   getValidToken: (accountId: string) => Promise<string | null>;
   /** Returns the stored refresh token (synchronous, no refresh). Used for Graph API calls. */
@@ -58,6 +64,10 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
     dispatch({ type: 'REMOVE', payload: id });
   }, []);
 
+  const updateAccountColor = useCallback((id: string, color: string) => {
+    dispatch({ type: 'UPDATE_COLOR', payload: { id, color } });
+  }, []);
+
   const getValidToken = useCallback(async (accountId: string): Promise<string | null> => {
     const account = accounts.find((a) => a.id === accountId);
     if (!account) return null;
@@ -82,8 +92,8 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
   }, [accounts]);
 
   const contextValue = useMemo(
-    () => ({ accounts, addAccount, removeAccount, getValidToken, getRefreshToken }),
-    [accounts, addAccount, removeAccount, getValidToken, getRefreshToken]
+    () => ({ accounts, addAccount, removeAccount, updateAccountColor, getValidToken, getRefreshToken }),
+    [accounts, addAccount, removeAccount, updateAccountColor, getValidToken, getRefreshToken]
   );
 
   return (

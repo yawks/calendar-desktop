@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star, LayoutPanelTop, Columns2, Sun, Moon, Monitor } from 'lucide-react';
+import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star, LayoutPanelTop, Columns2, Sun, Moon, Monitor, CalendarDays, Mail } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import { useLanguage } from '../shared/store/LanguageStore';
@@ -47,7 +47,33 @@ function nextColor(calendars: CalendarConfig[]) {
   return DEFAULT_COLORS[calendars.length % DEFAULT_COLORS.length];
 }
 
-type SectionType = 'calendars' | 'preferences';
+type SectionType = 'providers' | 'preferences';
+
+// ── Capability badge ──────────────────────────────────────────────────────────
+
+function CapBadge({ cap }: { cap: 'calendar' | 'email' }) {
+  const { t } = useTranslation();
+  const isCalendar = cap === 'calendar';
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 3,
+      padding: '2px 6px',
+      borderRadius: 4,
+      fontSize: 10,
+      fontWeight: 600,
+      letterSpacing: '0.03em',
+      textTransform: 'uppercase' as const,
+      background: isCalendar ? 'rgba(26, 115, 232, 0.12)' : 'rgba(156, 39, 176, 0.12)',
+      color: isCalendar ? '#1a73e8' : '#9c27b0',
+      flexShrink: 0,
+    }}>
+      {isCalendar ? <CalendarDays size={9} /> : <Mail size={9} />}
+      {t(`config.cap.${cap}`)}
+    </span>
+  );
+}
 
 // ── Color swatches ────────────────────────────────────────────────────────────
 
@@ -118,26 +144,59 @@ function CalendarItem({ cal, isDefault, onSetDefault }: {
 // ── Group section with hover edit icon ────────────────────────────────────────
 
 function GroupSection({
-  title, icon, onEdit, children,
+  title, icon, onEdit, children, caps, color, onColorChange,
 }: {
   title: string;
   icon: React.ReactNode;
   onEdit: () => void;
   children: React.ReactNode;
+  caps?: ('calendar' | 'email')[];
+  color?: string;
+  onColorChange?: (c: string) => void;
 }) {
   const { t } = useTranslation();
   return (
     <div className="config-group">
       <div className="config-group-header">
-        <div className="config-group-title">{icon}{title}</div>
-        <button
-          type="button"
-          className="config-group-edit-btn"
-          onClick={onEdit}
-          title={t('config.edit')}
-        >
-          <Settings2 size={13} />
-        </button>
+        <div className="config-group-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {icon}{title}
+          {caps && caps.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, marginLeft: 2 }}>
+              {caps.map((cap) => <CapBadge key={cap} cap={cap} />)}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {onColorChange && (
+            <label
+              title={t('config.accountColor', 'Account color')}
+              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative' }}
+            >
+              <span style={{
+                width: 14, height: 14, borderRadius: '50%',
+                background: color ?? '#888',
+                border: '2px solid var(--border)',
+                display: 'inline-block',
+                flexShrink: 0,
+              }} />
+              <input
+                type="color"
+                value={color ?? '#888888'}
+                onChange={(e) => onColorChange(e.target.value)}
+                style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+                tabIndex={-1}
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            className="config-group-edit-btn"
+            onClick={onEdit}
+            title={t('config.edit')}
+          >
+            <Settings2 size={13} />
+          </button>
+        </div>
       </div>
       <div className="config-group-body">{children}</div>
     </div>
@@ -1083,18 +1142,20 @@ function NewCalendarModal({
     onClose();
   };
 
-  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange'; icon: React.ReactNode; label: string; desc: string }[] = [
+  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange'; icon: React.ReactNode; label: string; desc: string; caps: ('calendar' | 'email')[] }[] = [
     {
       type: 'eventkit',
       icon: <Laptop size={28} />,
       label: t('config.macosCalendar'),
       desc: t('config.macosCalendarDesc'),
+      caps: ['calendar'],
     },
     {
       type: 'ics',
       icon: <Rss size={28} />,
       label: 'ICS / iCal',
       desc: t('config.icsFluxDesc'),
+      caps: ['calendar'],
     },
     {
       type: 'google',
@@ -1108,12 +1169,14 @@ function NewCalendarModal({
       ),
       label: t('config.googleAgenda'),
       desc: t('config.googleDesc'),
+      caps: ['calendar', 'email'],
     },
     {
       type: 'nextcloud',
       icon: <Cloud size={28} />,
       label: 'Nextcloud',
       desc: t('config.nextcloudCalDAV'),
+      caps: ['calendar'],
     },
     {
       type: 'exchange',
@@ -1125,11 +1188,12 @@ function NewCalendarModal({
       ),
       label: 'Exchange / Office 365',
       desc: t('config.exchangeDesc'),
+      caps: ['calendar', 'email'],
     },
   ];
 
   const modalTitle = step === 'pick'
-    ? t('config.newCalendar')
+    ? t('config.connectProvider')
     : step === 'google'
       ? t('config.googleAgenda')
       : step === 'exchange'
@@ -1168,10 +1232,10 @@ function NewCalendarModal({
           {step === 'pick' && (
             <>
               <p style={{ margin: '0 0 20px', fontSize: 14, color: 'var(--text-muted)' }}>
-                {t('config.chooseCalendarType')}
+                {t('config.chooseProviderType')}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {typeCards.map(({ type, icon, label, desc }) => (
+                {typeCards.map(({ type, icon, label, desc, caps }) => (
                   <button
                     key={type}
                     type="button"
@@ -1179,9 +1243,12 @@ function NewCalendarModal({
                     onClick={() => handleTypeSelect(type)}
                   >
                     <span className="calendar-type-card-icon">{icon}</span>
-                    <div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="calendar-type-card-label">{label}</div>
                       <div className="calendar-type-card-desc">{desc}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      {caps.map((cap) => <CapBadge key={cap} cap={cap} />)}
                     </div>
                   </button>
                 ))}
@@ -1567,11 +1634,11 @@ type EditModalState =
 export default function ConfigPage() {
   const { t } = useTranslation();
   const { calendars } = useCalendars();
-  const { accounts } = useGoogleAuth();
-  const { accounts: exchangeAccounts } = useExchangeAuth();
+  const { accounts, updateAccountColor: updateGoogleColor } = useGoogleAuth();
+  const { accounts: exchangeAccounts, updateAccountColor: updateExchangeColor } = useExchangeAuth();
   const { defaultCalendarId, setDefaultCalendar } = useDefaultCalendar();
 
-  const [activeSection, setActiveSection] = useState<SectionType>('calendars');
+  const [activeSection, setActiveSection] = useState<SectionType>('providers');
   const [showNewCalModal, setShowNewCalModal] = useState(false);
   const [editModal, setEditModal] = useState<EditModalState>(null);
 
@@ -1589,15 +1656,15 @@ export default function ConfigPage() {
     cals: calendars.filter((c) => c.type === 'exchange' && c.exchangeAccountId === account.id),
   }));
 
-  const hasAnyCalendar =
+  const hasAnyProvider =
     ekCals.length > 0 ||
-    googleGroups.some((g) => g.cals.length > 0) ||
-    exchangeGroups.some((g) => g.cals.length > 0) ||
+    accounts.length > 0 ||
+    exchangeAccounts.length > 0 ||
     icsCals.length > 0 ||
     nextcloudCals.length > 0;
 
   const sections: { id: SectionType; label: string; icon: React.ReactNode }[] = [
-    { id: 'calendars', label: t('config.sectCalendars'), icon: <SlidersHorizontal size={15} /> },
+    { id: 'providers', label: t('config.sectProviders'), icon: <SlidersHorizontal size={15} /> },
     { id: 'preferences', label: t('config.sectPreferences'), icon: <Languages size={15} /> },
   ];
 
@@ -1638,10 +1705,10 @@ export default function ConfigPage() {
           {/* ── Content ── */}
           <div className="config-content">
 
-            {activeSection === 'calendars' && (
+            {activeSection === 'providers' && (
               <>
                 <div className="config-section-header">
-                  <h2 className="config-section-title">{t('config.sectCalendars')}</h2>
+                  <h2 className="config-section-title">{t('config.sectProviders')}</h2>
                   <button
                     type="button"
                     className="btn-primary"
@@ -1649,13 +1716,13 @@ export default function ConfigPage() {
                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                   >
                     <Plus size={15} />
-                    {t('config.newCalendar')}
+                    {t('config.connectProvider')}
                   </button>
                 </div>
 
-                {!hasAnyCalendar && (
+                {!hasAnyProvider && (
                   <div className="empty-state" style={{ marginTop: 32 }}>
-                    {t('config.noCalendarsConfigured')}
+                    {t('config.noProvidersConfigured')}
                   </div>
                 )}
 
@@ -1665,35 +1732,40 @@ export default function ConfigPage() {
                     title="macOS"
                     icon={<Laptop size={13} />}
                     onEdit={() => setEditModal({ type: 'eventkit' })}
+                    caps={['calendar']}
                   >
                     {ekCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
                 )}
 
-                {/* Google — one group per account */}
-                {googleGroups.map(({ account, cals }) =>
-                  cals.length > 0 ? (
-                    <GroupSection
-                      key={account.id}
-                      title={account.email}
-                      icon={
-                        account.picture
-                          ? <img src={account.picture} alt="" style={{ width: 14, height: 14, borderRadius: '50%' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                          : (
-                            <svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true">
-                              <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
-                              <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-                              <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
-                              <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z"/>
-                            </svg>
-                          )
-                      }
-                      onEdit={() => setEditModal({ type: 'google', accountId: account.id })}
-                    >
-                      {cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
-                    </GroupSection>
-                  ) : null
-                )}
+                {/* Google — one group per account (shown even with no calendars) */}
+                {googleGroups.map(({ account, cals }) => (
+                  <GroupSection
+                    key={account.id}
+                    title={account.email}
+                    icon={
+                      account.picture
+                        ? <img src={account.picture} alt="" style={{ width: 14, height: 14, borderRadius: '50%' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        : (
+                          <svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true">
+                            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+                            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+                            <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
+                            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z"/>
+                          </svg>
+                        )
+                    }
+                    onEdit={() => setEditModal({ type: 'google', accountId: account.id })}
+                    caps={['calendar', 'email']}
+                    color={account.color}
+                    onColorChange={(c) => updateGoogleColor(account.id, c)}
+                  >
+                    {cals.length > 0
+                      ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
+                      : <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>{t('config.noCalendarsLinked')}</div>
+                    }
+                  </GroupSection>
+                ))}
 
                 {/* Exchange — one group per account */}
                 {exchangeGroups.map(({ account, cals }) =>
@@ -1708,6 +1780,9 @@ export default function ConfigPage() {
                         </svg>
                       }
                       onEdit={() => setEditModal({ type: 'exchange', accountId: account.id })}
+                      caps={['calendar', 'email']}
+                      color={account.color}
+                      onColorChange={(c) => updateExchangeColor(account.id, c)}
                     >
                       {cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                     </GroupSection>
@@ -1720,6 +1795,7 @@ export default function ConfigPage() {
                     title="ICS / iCal"
                     icon={<Rss size={13} />}
                     onEdit={() => setEditModal({ type: 'ics' })}
+                    caps={['calendar']}
                   >
                     {icsCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
@@ -1731,6 +1807,7 @@ export default function ConfigPage() {
                     title="Nextcloud / CalDAV"
                     icon={<Cloud size={13} />}
                     onEdit={() => setEditModal({ type: 'nextcloud' })}
+                    caps={['calendar']}
                   >
                     {nextcloudCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>

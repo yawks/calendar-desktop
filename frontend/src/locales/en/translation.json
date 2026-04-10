@@ -101,8 +101,17 @@
     "backToCalendar": "← Back to calendar",
     "pageTitle": "Settings",
     "sectCalendars": "Calendars",
+    "sectProviders": "Providers",
     "sectPreferences": "Preferences",
     "newCalendar": "New calendar",
+    "connectProvider": "Connect a provider",
+    "chooseProviderType": "Choose a provider to connect:",
+    "noProvidersConfigured": "No provider configured. Click \"Connect a provider\" to get started.",
+    "cap": {
+      "calendar": "Calendar",
+      "email": "Email"
+    },
+    "noCalendarsLinked": "No calendar linked",
     "caldavUrlRequired": "CalDAV URL is required.",
     "connectionSuccess": "Connection successful.",
     "invalidCredentials": "Invalid credentials (401 Unauthorized).",
@@ -191,6 +200,9 @@
     "eventKitRsvpNote": "For EventKit calendars, respond via the macOS Calendar app.",
     "missingInfo": "Missing information to respond to this invitation",
     "invalidToken": "Invalid token. Reconnect your Google account."
+  },
+  "mail": {
+    "previousMessage": "Previous message"
   },
   "settings": {
     "language": {

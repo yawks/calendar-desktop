@@ -8,7 +8,8 @@ const STORAGE_KEY = 'calendar-desktop-google-accounts';
 type Action =
   | { type: 'ADD'; payload: GoogleAccount }
   | { type: 'REMOVE'; payload: string }
-  | { type: 'UPDATE_TOKEN'; payload: { id: string; accessToken: string; expiresAt: number } };
+  | { type: 'UPDATE_TOKEN'; payload: { id: string; accessToken: string; expiresAt: number } }
+  | { type: 'UPDATE_COLOR'; payload: { id: string; color: string } };
 
 function reducer(state: GoogleAccount[], action: Action): GoogleAccount[] {
   switch (action.type) {
@@ -22,6 +23,10 @@ function reducer(state: GoogleAccount[], action: Action): GoogleAccount[] {
           ? { ...a, accessToken: action.payload.accessToken, expiresAt: action.payload.expiresAt }
           : a
       );
+    case 'UPDATE_COLOR':
+      return state.map((a) =>
+        a.id === action.payload.id ? { ...a, color: action.payload.color } : a
+      );
   }
 }
 
@@ -29,6 +34,7 @@ interface GoogleAuthContextValue {
   accounts: GoogleAccount[];
   addAccount: (account: Omit<GoogleAccount, 'id'>) => GoogleAccount;
   removeAccount: (id: string) => void;
+  updateAccountColor: (id: string, color: string) => void;
   /** Returns a valid access token, refreshing it automatically if expired. */
   getValidToken: (accountId: string) => Promise<string | null>;
   /** Opens Google OAuth (Tauri: system browser + PKCE; Web: popup + proxy). */
@@ -59,6 +65,10 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
 
   const removeAccount = useCallback((id: string) => {
     dispatch({ type: 'REMOVE', payload: id });
+  }, []);
+
+  const updateAccountColor = useCallback((id: string, color: string) => {
+    dispatch({ type: 'UPDATE_COLOR', payload: { id, color } });
   }, []);
 
   const getValidToken = useCallback(async (accountId: string): Promise<string | null> => {
@@ -138,8 +148,8 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
   }, [addAccount]);
 
   const contextValue = useMemo(
-    () => ({ accounts, addAccount, removeAccount, getValidToken, connectGoogle }),
-    [accounts, addAccount, removeAccount, getValidToken, connectGoogle]
+    () => ({ accounts, addAccount, removeAccount, updateAccountColor, getValidToken, connectGoogle }),
+    [accounts, addAccount, removeAccount, updateAccountColor, getValidToken, connectGoogle]
   );
 
   return (

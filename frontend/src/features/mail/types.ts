@@ -9,6 +9,12 @@ export interface MailThread {
   unread_count: number;
   from_name: string | null;
   has_attachments: boolean;
+  /** Set when loaded in All-accounts mode to route actions to the correct provider. */
+  accountId?: string;
+  /** Display label for the account badge (domain part of email). Only set in All-accounts mode. */
+  accountLabel?: string;
+  /** Account color for the badge. Only set in All-accounts mode. */
+  accountColor?: string;
 }
 
 export interface MailMessage {

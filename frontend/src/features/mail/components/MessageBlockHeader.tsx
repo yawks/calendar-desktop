@@ -4,6 +4,7 @@ import {
   Forward,
   Mail,
   MailOpen,
+  Paperclip,
   Reply,
   ReplyAll,
   Trash2,
@@ -143,6 +144,34 @@ export function MessageBlockHeader({
   // (which toggles expand/collapse) is not triggered.
   const sp = (e: MouseEvent) => e.stopPropagation();
 
+  // ── Collapsed: compact single-row stacked card ────────────────────────────
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        className="mail-message-block__header mail-message-block__header--compact"
+        onClick={onToggleExpand}
+      >
+        <div
+          className="mail-message-block__avatar mail-message-block__avatar--small"
+          style={{ background: avatarColor(sender) }}
+        >
+          {initials(sender)}
+        </div>
+        <span
+          className="mail-message-block__from--compact"
+          style={{ color: senderColor(sender, isDark) }}
+        >
+          {fromLabel}
+        </span>
+        <span className="mail-message-block__preview--collapsed">{message.subject}</span>
+        {message.has_attachments && <Paperclip size={11} className="mail-message-block__clip" />}
+        <span className="mail-message-block__date">{formatDate(message.date_time_received)}</span>
+        <ChevronDown size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+      </button>
+    );
+  }
+
   return (
     <>
       {/* ── Clickable header ─────────────────────────────────────────────────── */}
@@ -172,11 +201,22 @@ export function MessageBlockHeader({
           <div className="mail-message-block__row2">
 
             {/* Preview text — clicking bubbles to the header div (toggles expand) */}
-            <span className="mail-message-block__preview">
-              {expanded
-                ? <>{t('mail.to', 'to')} {toLabel}</>
-                : message.subject}
-            </span>
+            {expanded ? (
+              <div className="mail-message-block__recipients-preview">
+                <span className="mail-message-block__preview">
+                  <span className="mail-message-block__preview-label">{t('mail.to', 'To')}</span>
+                  {' '}{toLabel}
+                </span>
+                {message.cc_recipients.length > 0 && (
+                  <span className="mail-message-block__preview">
+                    <span className="mail-message-block__preview-label">Cc</span>
+                    {' '}{message.cc_recipients.map(r => r.name ?? r.email).join(', ')}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="mail-message-block__preview">{message.subject}</span>
+            )}
 
             {/* Show-headers chevron — immediately after recipients */}
             {expanded && (

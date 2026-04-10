@@ -1,5 +1,6 @@
 mod auth;
 mod ews;
+mod gmail;
 mod http;
 mod mail;
 
@@ -89,6 +90,7 @@ pub fn run() {
                     mail::mail_snooze,
                     mail::mail_move_to_folder,
                     mail::mail_find_or_create_snoozed_folder,
+                    gmail::gmail_open_attachment,
                     set_badge_count,
                 ]
             }

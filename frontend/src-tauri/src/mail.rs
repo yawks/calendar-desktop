@@ -254,7 +254,6 @@ pub async fn mail_list_threads(
         // GlobalPreview / Preview (Exchange 2013 SP1+)
         let snippet = xml_content_ns(&conv_xml, "t:GlobalPreview")
             .or_else(|| xml_content_ns(&conv_xml, "t:Preview"))
-            .map(|s| clean_snippet(&s))
             .unwrap_or_default();
 
         // UniqueSenders / UniqueUnreadSenders contain <String> children
@@ -369,6 +368,8 @@ pub async fn mail_get_thread(
 pub async fn mail_send(
     access_token: String,
     to: Vec<String>,
+    cc: Vec<String>,
+    bcc: Vec<String>,
     subject: String,
     body_html: String,
     reply_to_item_id: Option<String>,
@@ -399,6 +400,36 @@ pub async fn mail_send(
                 })
                 .collect::<Vec<_>>()
                 .join("\n        ");
+            let cc_block = if cc.is_empty() {
+                String::new()
+            } else {
+                let cc_recipients = cc
+                    .iter()
+                    .map(|email| {
+                        format!(
+                            r#"<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>"#,
+                            xml_escape(email)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n        ");
+                format!("\n      <t:CcRecipients>\n        {cc_recipients}\n      </t:CcRecipients>")
+            };
+            let bcc_block = if bcc.is_empty() {
+                String::new()
+            } else {
+                let bcc_recipients = bcc
+                    .iter()
+                    .map(|email| {
+                        format!(
+                            r#"<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>"#,
+                            xml_escape(email)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n        ");
+                format!("\n      <t:BccRecipients>\n        {bcc_recipients}\n      </t:BccRecipients>")
+            };
             format!(
                 r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
   <m:SavedItemFolderId>
@@ -410,13 +441,15 @@ pub async fn mail_send(
       <t:Body BodyType="HTML">{body}</t:Body>
       <t:ToRecipients>
         {to_recipients}
-      </t:ToRecipients>
+      </t:ToRecipients>{cc_block}{bcc_block}
     </t:Message>
   </m:Items>
 </m:CreateItem>"#,
                 subject = xml_escape(&subject),
                 body = xml_escape(&body_html),
                 to_recipients = to_recipients,
+                cc_block = cc_block,
+                bcc_block = bcc_block,
             )
         }
     };
@@ -910,34 +943,4 @@ fn xml_unescape_body(raw: &str) -> String {
         .replace("&#xd;", "\r")
         .replace("&#x9;", "\t")
         .replace("&amp;", "&")   // ← last
-}
-
-/// Decode XML/HTML character entities in a plain-text snippet and remove
-/// control characters (CR, LF, tab, etc.) that would show as garbage in the UI.
-fn clean_snippet(raw: &str) -> String {
-    // Decode numeric hex entities (&#xD; &#xA; &#x9; …) and named XML entities.
-    let decoded = raw
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&#xA;", " ")
-        .replace("&#xa;", " ")
-        .replace("&#xD;", " ")
-        .replace("&#xd;", " ")
-        .replace("&#x9;", " ")
-        .replace("&amp;", "&");  // ← last
-
-    // Replace any remaining ASCII control characters with a space, then
-    // collapse runs of whitespace and trim.
-    let cleaned: String = decoded
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-
-    // Collapse multiple spaces into one and trim edges.
-    cleaned
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
 }

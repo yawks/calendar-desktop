@@ -48,6 +48,8 @@ export interface GoogleAccount {
   refreshToken: string;
   /** Unix timestamp (ms) when the access token expires */
   expiresAt: number;
+  /** UI color for this account (used in mail) */
+  color?: string;
 }
 
 export interface ExchangeAccount {
@@ -58,6 +60,8 @@ export interface ExchangeAccount {
   refreshToken: string;
   /** Unix timestamp (ms) when the access token expires */
   expiresAt: number;
+  /** UI color for this account (used in mail) */
+  color?: string;
 }
 
 export interface CreateEventPayload {

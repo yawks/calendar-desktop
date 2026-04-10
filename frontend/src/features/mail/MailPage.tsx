@@ -2,15 +2,24 @@ import {
   AlarmClock,
   Archive,
   BellOff,
+  Bold,
   Clock,
   File,
   FileArchive,
   FileImage,
   FileText,
+  FolderInput,
   Forward,
+  Highlighter,
+  ImagePlus,
   Inbox,
+  Italic,
+  Layers,
+  List,
+  ListOrdered,
   Mail,
   MailOpen,
+  Menu,
   Monitor,
   Moon,
   MoreHorizontal,
@@ -21,6 +30,8 @@ import {
   ShieldAlert,
   Sun,
   Trash2,
+  Type,
+  Underline,
   X,
 } from 'lucide-react';
 import { Folder, MailAttachment, MailMessage, MailThread } from './types';
@@ -28,24 +39,33 @@ import {
   FormEvent,
   MouseEvent,
   MouseEvent as ReactMouseEvent,
+  RefObject,
   forwardRef,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 import { RecipientEntry, RecipientInput } from './components/RecipientInput';
 import { ThemePreference, useTheme } from '../../shared/store/ThemeStore';
-import { avatarColor, formatDate, formatFullDate, formatSize, initials } from './utils';
+import { avatarColor, decodeHtmlEntities, formatDate, formatFullDate, formatSize, initials } from './utils';
 
+import { EwsMailProvider } from './providers/EwsMailProvider';
+import { FolderPickerPopover } from './components/FolderPickerPopover';
+import { GmailMailProvider } from './providers/GmailMailProvider';
 import { Link } from 'react-router-dom';
+import { MailProvider } from './providers/MailProvider';
 import { MailSidebar } from './components/MailSidebar';
 import { MessageBlockHeader } from './components/MessageBlockHeader';
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { useContactSuggestions } from './hooks/useContactSuggestions';
 import { useExchangeAuth } from '../../shared/store/ExchangeAuthStore';
+import { useGoogleAuth } from '../../shared/store/GoogleAuthStore';
 import { useTranslation } from 'react-i18next';
+
+const ALL_ACCOUNTS_ID = '__all__';
 
 function ThemeIcon({ pref }: { readonly pref: ThemePreference }) {
   if (pref === 'light') return <Sun size={18} />;
@@ -69,8 +89,10 @@ function AttachmentIcon({ contentType }: { readonly contentType: string }) {
 const DISPLAY_TO_STATIC: Record<string, string> = {
   'inbox': 'inbox',
   'boîte de réception': 'inbox',
+  'sent': 'sentitems',
   'sent items': 'sentitems',
   'éléments envoyés': 'sentitems',
+  'trash': 'deleteditems',
   'deleted items': 'deleteditems',
   'éléments supprimés': 'deleteditems',
 };
@@ -92,12 +114,41 @@ const THREADLIST_MAX = 500;
 
 export default function MailApp() {
   const { t } = useTranslation();
-  const { accounts, getValidToken } = useExchangeAuth();
+  const { accounts: ewsAccounts, getValidToken: getEwsToken } = useExchangeAuth();
+  const { accounts: googleAccounts, getValidToken: getGoogleToken } = useGoogleAuth();
   const { preference, setPreference } = useTheme();
 
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
-    () => accounts[0]?.id ?? null
+  // Unified account list across all providers
+  const allMailAccounts = useMemo(() => [
+    ...ewsAccounts.map(a => ({ id: a.id, email: a.email, providerType: 'ews' as const, color: a.color })),
+    ...googleAccounts.map(a => ({ id: a.id, email: a.email, providerType: 'gmail' as const, color: a.color })),
+  ], [ewsAccounts, googleAccounts]);
+
+  // Map of accountId → MailProvider (stable — recreated only when accounts change)
+  const allProviders = useMemo<Map<string, MailProvider>>(() => {
+    const map = new Map<string, MailProvider>();
+    for (const a of ewsAccounts) map.set(a.id, new EwsMailProvider(a.id, getEwsToken));
+    for (const a of googleAccounts) map.set(a.id, new GmailMailProvider(a.id, getGoogleToken));
+    return map;
+  // getEwsToken / getGoogleToken are stable store refs — intentionally excluded
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ewsAccounts, googleAccounts]);
+
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(
+    () => allMailAccounts.length > 1 ? ALL_ACCOUNTS_ID : (allMailAccounts[0]?.id ?? ALL_ACCOUNTS_ID)
   );
+
+  const isAllMode = selectedAccountId === ALL_ACCOUNTS_ID;
+
+  // Resolve provider for an action — use thread's accountId in All mode, else single account
+  const resolveProvider = useCallback((accountId: string | undefined): MailProvider | null => {
+    if (accountId) return allProviders.get(accountId) ?? null;
+    if (!isAllMode) return allProviders.get(selectedAccountId) ?? null;
+    return null;
+  }, [allProviders, isAllMode, selectedAccountId]);
+
+  // Single-account provider for sidebar folder loading (null in All mode)
+  const provider = isAllMode ? null : (allProviders.get(selectedAccountId) ?? null);
   const [selectedFolder, setSelectedFolder] = useState<Folder>('inbox');
   const [threads, setThreads] = useState<MailThread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
@@ -120,23 +171,11 @@ export default function MailApp() {
   } | null>(null);
 
   const [sendToast, setSendToast] = useState<{ label: string } | null>(null);
-  const [composerRestoreData, setComposerRestoreData] = useState<{
-    isNewMessage: boolean;
-    recipients: RecipientEntry[];
-    subject: string;
-    bodyHtml: string;
-    replyingToMsg: MailMessage | null;
-  } | null>(null);
+  const [composerRestoreData, setComposerRestoreData] = useState<ComposerRestoreData | null>(null);
   const pendingSendRef = useRef<{
     execute: () => Promise<void>;
     timerId: ReturnType<typeof setTimeout>;
-    restoreData: {
-      isNewMessage: boolean;
-      recipients: RecipientEntry[];
-      subject: string;
-      bodyHtml: string;
-      replyingToMsg: MailMessage | null;
-    };
+    restoreData: ComposerRestoreData;
   } | null>(null);
 
   // Tracks conversation_ids whose unread count has already been subtracted from folderUnreadCounts.
@@ -144,6 +183,9 @@ export default function MailApp() {
   const folderAccountedRef = useRef(new Set<string>());
 
   // Panel resizing
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    localStorage.getItem('mail-sidebar-collapsed') === 'true'
+  );
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('mail-sidebar-width');
     return saved ? Number.parseInt(saved, 10) : 180;
@@ -174,8 +216,10 @@ export default function MailApp() {
     return map;
   });
 
-  // All Exchange folders, populated by MailSidebar once loaded
+  // Folders per account (used in All mode for sidebar override)
   const [allFolders, setAllFolders] = useState<import('./types').MailFolder[]>([]);
+  // In All mode: all dynamic folders from every account, keyed by accountId
+  const [allAccountFolders, setAllAccountFolders] = useState<Map<string, import('./types').MailFolder[]>>(new Map());
   const [folderUnreadCounts, setFolderUnreadCounts] = useState<Record<string, number>>({});
   const snoozedFolderId = allFolders.find(f => f.display_name === 'Snoozed')?.folder_id;
   const isInSnoozedFolder = snoozedFolderId !== undefined && selectedFolder === snoozedFolderId;
@@ -184,6 +228,27 @@ export default function MailApp() {
     setAllFolders(folders);
     setFolderUnreadCounts(buildUnreadCounts(folders));
   }, []);
+
+  // In All mode, build combined dynamic folders from all accounts for sidebar override
+  const allModeDynamicFolders = useMemo(() => {
+    if (!isAllMode) return null;
+    const STATIC_IDS = new Set(['inbox', 'sentitems', 'deleteditems', 'INBOX', 'SENT', 'TRASH', 'SPAM', 'DRAFT']);
+    const WELL_KNOWN_NAMES = new Set([
+      'inbox', 'sent', 'sent items', 'deleted items', 'drafts', 'outbox', 'junk email',
+      'spam', 'trash', 'boîte de réception', 'éléments envoyés', 'éléments supprimés',
+      'courrier indésirable', 'brouillons',
+    ]);
+    const result: (import('./types').MailFolder & { accountId: string; accountColor?: string })[] = [];
+    for (const [accountId, folders] of allAccountFolders.entries()) {
+      const acc = allMailAccounts.find(a => a.id === accountId);
+      for (const f of folders) {
+        if (STATIC_IDS.has(f.folder_id) || WELL_KNOWN_NAMES.has(f.display_name.toLowerCase())) continue;
+        result.push({ ...f, accountId, accountColor: acc?.color });
+      }
+    }
+    result.sort((a, b) => a.display_name.localeCompare(b.display_name));
+    return result;
+  }, [isAllMode, allAccountFolders, allMailAccounts]);
 
   // Cleanup pending deletion and send on unmount
   useEffect(() => () => {
@@ -231,38 +296,69 @@ export default function MailApp() {
   };
 
   useEffect(() => {
-    if (!selectedAccountId && accounts.length > 0) setSelectedAccountId(accounts[0].id);
-  }, [accounts, selectedAccountId]);
+    if (!selectedAccountId && allMailAccounts.length > 0) setSelectedAccountId(allMailAccounts[0].id);
+  }, [allMailAccounts, selectedAccountId]);
 
   const loadThreads = useCallback(async () => {
-    if (!selectedAccountId) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) { setError('No valid token — please reconnect your Exchange account.'); return; }
     setThreadsLoading(true);
     setError(null);
     folderAccountedRef.current.clear();
     try {
-      const result = await invoke<MailThread[]>('mail_list_threads', {
-        accessToken: token, folder: selectedFolder, maxCount: 50, offset: 0,
-      });
-      setThreads(result);
-      setHasMoreThreads(result.length >= 50);
+      if (isAllMode) {
+        // Load threads + folders from all accounts in parallel
+        const [threadResults, folderResults] = await Promise.all([
+          Promise.allSettled(
+            Array.from(allProviders.entries()).map(async ([accountId, p]) => {
+              const acc = allMailAccounts.find(a => a.id === accountId);
+              const atIdx = (acc?.email ?? '').indexOf('@');
+              const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
+              const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
+              const accountColor = acc?.color;
+              const threads = await p.listThreads(selectedFolder, 50, 0);
+              return threads.map(t => ({ ...t, accountId, accountLabel, accountColor }));
+            })
+          ),
+          Promise.allSettled(
+            Array.from(allProviders.entries()).map(async ([accountId, p]) => ({ accountId, folders: await p.listFolders() }))
+          ),
+        ]);
+        const merged = threadResults
+          .flatMap(r => r.status === 'fulfilled' ? r.value : [])
+          .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
+        setThreads(merged);
+        setHasMoreThreads(false); // no pagination in All mode
+        // Populate allAccountFolders so the sidebar dynamic folder list is complete
+        const mergedCounts: Record<string, number> = {};
+        const newAccountFolders = new Map<string, import('./types').MailFolder[]>();
+        for (const r of folderResults) {
+          if (r.status !== 'fulfilled') continue;
+          const { accountId, folders } = r.value;
+          newAccountFolders.set(accountId, folders);
+          const counts = buildUnreadCounts(folders);
+          for (const [key, val] of Object.entries(counts)) {
+            mergedCounts[key] = (mergedCounts[key] ?? 0) + val;
+          }
+        }
+        setFolderUnreadCounts(mergedCounts);
+        setAllAccountFolders(newAccountFolders);
+      } else {
+        if (!provider) return;
+        const result = await provider.listThreads(selectedFolder, 50, 0);
+        setThreads(result);
+        setHasMoreThreads(result.length >= 50);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setThreadsLoading(false);
     }
-  }, [selectedAccountId, selectedFolder, getValidToken]);
+  }, [isAllMode, allProviders, provider, selectedFolder]);
 
   const loadMoreThreads = useCallback(async () => {
-    if (!selectedAccountId || threadsLoadingMore || !hasMoreThreads) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
+    if (isAllMode || !provider || threadsLoadingMore || !hasMoreThreads) return;
     setThreadsLoadingMore(true);
     try {
-      const result = await invoke<MailThread[]>('mail_list_threads', {
-        accessToken: token, folder: selectedFolder, maxCount: 50, offset: threads.length,
-      });
+      const result = await provider.listThreads(selectedFolder, 50, threads.length);
       if (result.length > 0) {
         setThreads(prev => [...prev, ...result]);
         setHasMoreThreads(result.length >= 50);
@@ -274,7 +370,7 @@ export default function MailApp() {
     } finally {
       setThreadsLoadingMore(false);
     }
-  }, [selectedAccountId, threadsLoadingMore, hasMoreThreads, threads.length, selectedFolder, getValidToken]);
+  }, [isAllMode, provider, threadsLoadingMore, hasMoreThreads, threads.length, selectedFolder]);
 
   useEffect(() => {
     setSelectedThread(null);
@@ -303,36 +399,74 @@ export default function MailApp() {
 
   // Update the dock/taskbar badge with the inbox unread count.
   const updateBadge = useCallback(async () => {
-    if (!selectedAccountId) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
     try {
-      const count = await invoke<number>('mail_get_inbox_unread', { accessToken: token });
-      invoke('set_badge_count', { count }).catch(() => {});
+      if (isAllMode) {
+        const counts = await Promise.allSettled(
+          Array.from(allProviders.values()).map(p => p.getInboxUnread())
+        );
+        const total = counts.reduce((sum, r) => sum + (r.status === 'fulfilled' ? r.value : 0), 0);
+        invoke('set_badge_count', { count: total }).catch(() => {});
+      } else if (provider) {
+        const count = await provider.getInboxUnread();
+        invoke('set_badge_count', { count }).catch(() => {});
+      }
     } catch {
-      // Non-critical — ignore badge errors silently
+      // Non-critical
     }
-  }, [selectedAccountId, getValidToken]);
+  }, [isAllMode, allProviders, provider]);
 
   // Silent thread refresh (no loading spinner) used by the polling interval.
   const silentRefresh = useCallback(async () => {
-    if (!selectedAccountId) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
     try {
-      const [result, folders] = await Promise.all([
-        invoke<MailThread[]>('mail_list_threads', {
-          accessToken: token, folder: selectedFolder, maxCount: 50, offset: 0,
-        }),
-        invoke<import('./types').MailFolder[]>('mail_list_folders', { accessToken: token }),
-      ]);
-      setThreads(result);
-      setHasMoreThreads(result.length >= 50);
-      setFolderUnreadCounts(buildUnreadCounts(folders));
+      if (isAllMode) {
+        // Refresh threads + folders for all accounts
+        const [threadResults, folderResults] = await Promise.all([
+          Promise.allSettled(
+            Array.from(allProviders.entries()).map(async ([accountId, p]) => {
+              const acc = allMailAccounts.find(a => a.id === accountId);
+              const atIdx = (acc?.email ?? '').indexOf('@');
+              const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
+              const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
+              const accountColor = acc?.color;
+              const threads = await p.listThreads(selectedFolder, 50, 0);
+              return threads.map(t => ({ ...t, accountId, accountLabel, accountColor }));
+            })
+          ),
+          Promise.allSettled(
+            Array.from(allProviders.entries()).map(async ([accountId, p]) => ({ accountId, folders: await p.listFolders() }))
+          ),
+        ]);
+        const merged = threadResults
+          .flatMap(r => r.status === 'fulfilled' ? r.value : [])
+          .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
+        setThreads(merged);
+        // Build merged unread counts (sum for static folders, per-account for dynamic)
+        const mergedCounts: Record<string, number> = {};
+        const newAccountFolders = new Map<string, import('./types').MailFolder[]>();
+        for (const r of folderResults) {
+          if (r.status !== 'fulfilled') continue;
+          const { accountId, folders } = r.value;
+          newAccountFolders.set(accountId, folders);
+          const counts = buildUnreadCounts(folders);
+          for (const [key, val] of Object.entries(counts)) {
+            mergedCounts[key] = (mergedCounts[key] ?? 0) + val;
+          }
+        }
+        setFolderUnreadCounts(mergedCounts);
+        setAllAccountFolders(newAccountFolders);
+      } else if (provider) {
+        const [result, folders] = await Promise.all([
+          provider.listThreads(selectedFolder, 50, 0),
+          provider.listFolders(),
+        ]);
+        setThreads(result);
+        setHasMoreThreads(result.length >= 50);
+        setFolderUnreadCounts(buildUnreadCounts(folders));
+      }
     } catch {
-      // Non-critical — ignore silent refresh errors
+      // Non-critical
     }
-  }, [selectedAccountId, selectedFolder, getValidToken]);
+  }, [isAllMode, allProviders, provider, selectedFolder]);
 
   // Auto-refresh: poll every 60 s and update the badge on mount.
   useEffect(() => {
@@ -348,17 +482,19 @@ export default function MailApp() {
   useEffect(() => {
     const wakeupSnoozed = async () => {
       const key = 'mail-snoozed-items';
-      const stored: { itemId: string; accountId: string; snoozeUntil: string }[] =
+      const stored: { itemId: string; accountId: string; snoozeUntil: string; providerType?: 'ews' | 'gmail' }[] =
         JSON.parse(localStorage.getItem(key) ?? '[]');
       const now = new Date();
       const expired = stored.filter(item => new Date(item.snoozeUntil) <= now);
       if (expired.length === 0) return;
 
       for (const item of expired) {
-        const token = await getValidToken(item.accountId);
-        if (!token) continue;
         try {
-          await invoke('mail_move_to_folder', { accessToken: token, itemId: item.itemId, folderId: 'inbox' });
+          const pt = item.providerType ?? 'ews';
+          const tempProvider = pt === 'gmail'
+            ? new GmailMailProvider(item.accountId, getGoogleToken)
+            : new EwsMailProvider(item.accountId, getEwsToken);
+          await tempProvider.moveToFolder(item.itemId, 'inbox');
         } catch { /* best-effort */ }
       }
 
@@ -374,20 +510,16 @@ export default function MailApp() {
     wakeupSnoozed();
     const id = setInterval(wakeupSnoozed, 60_000);
     return () => clearInterval(id);
-  }, [getValidToken, selectedFolder, selectedAccountId, silentRefresh]);
+  }, [getEwsToken, getGoogleToken, selectedFolder, selectedAccountId, silentRefresh]);
 
   const openThread = useCallback(async (thread: MailThread) => {
-    if (!selectedAccountId) return;
+    const p = resolveProvider(thread.accountId);
+    if (!p) return;
     setSelectedThread(thread);
     setReplyingTo(null);
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
     setMessagesLoading(true);
     try {
-      const result = await invoke<MailMessage[]>('mail_get_thread', {
-        accessToken: token, conversationId: thread.conversation_id,
-        includeTrash: selectedFolder === 'deleteditems',
-      });
+      const result = await p.getThread(thread.conversation_id, selectedFolder === 'deleteditems');
       setMessages(result);
       setThreads(prev => prev.map(th =>
         th.conversation_id === thread.conversation_id ? { ...th, unread_count: 0 } : th
@@ -422,17 +554,16 @@ export default function MailApp() {
     } finally {
       setMessagesLoading(false);
     }
-  }, [selectedAccountId, selectedFolder, getValidToken]);
+  }, [resolveProvider, selectedFolder]);
 
   const markRead = useCallback(async (msgs: MailMessage[]) => {
-    if (!selectedAccountId || msgs.length === 0) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p || msgs.length === 0) return;
     const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key }));
     const ids = msgs.map(m => m.item_id);
     const unreadCount = msgs.filter(m => !m.is_read).length;
     try {
-      await invoke('mail_mark_read', { accessToken: token, items });
+      await p.markRead(items);
       setMessages(prev => prev.map(m =>
         ids.includes(m.item_id) ? { ...m, is_read: true } : m
       ));
@@ -454,18 +585,17 @@ export default function MailApp() {
       console.error('[mail] markRead error:', e);
       setError(String(e));
     }
-  }, [selectedAccountId, getValidToken, selectedThread, selectedFolder]);
+  }, [resolveProvider, selectedThread, selectedFolder]);
 
   const toggleRead = useCallback(async (msg: MailMessage) => {
-    if (!selectedAccountId) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p) return;
     try {
       const items = [{ item_id: msg.item_id, change_key: msg.change_key }];
       if (msg.is_read) {
-        await invoke('mail_mark_unread', { accessToken: token, items });
+        await p.markUnread(items);
       } else {
-        await invoke('mail_mark_read', { accessToken: token, items });
+        await p.markRead(items);
       }
       setMessages(prev => prev.map(m =>
         m.item_id === msg.item_id ? { ...m, is_read: !m.is_read } : m
@@ -483,10 +613,11 @@ export default function MailApp() {
       console.error('[mail] toggleRead error:', e);
       setError(String(e));
     }
-  }, [selectedAccountId, getValidToken, selectedThread]);
+  }, [resolveProvider, selectedThread]);
 
   const moveToTrash = useCallback((itemId: string) => {
-    if (!selectedAccountId) return;
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p) return;
     const msgToDelete = messages.find(m => m.item_id === itemId);
     if (!msgToDelete) return;
 
@@ -555,19 +686,18 @@ export default function MailApp() {
         }
       },
       async () => {
-        const token = await getValidToken(selectedAccountId);
-        if (!token) throw new Error('No token');
         if (selectedFolder === 'deleteditems') {
-          await invoke('mail_permanently_delete', { accessToken: token, itemId });
+          await p.permanentlyDelete(itemId);
         } else {
-          await invoke('mail_move_to_trash', { accessToken: token, itemId });
+          await p.moveToTrash(itemId);
         }
       },
     );
-  }, [selectedAccountId, getValidToken, messages, selectedThread, selectedFolder, scheduleDeletion, t]);
+  }, [resolveProvider, messages, selectedThread, selectedFolder, scheduleDeletion, t]);
 
   const handleToggleThreadRead = useCallback(async (thread: MailThread) => {
-    if (!selectedAccountId) return;
+    const p = resolveProvider(thread.accountId);
+    if (!p) return;
     const shouldMarkRead = thread.unread_count > 0;
 
     // Optimistic update
@@ -588,17 +718,12 @@ export default function MailApp() {
 
     // Background API call — revert on failure
     try {
-      const token = await getValidToken(selectedAccountId);
-      if (!token) throw new Error('No token');
-      const msgs = await invoke<MailMessage[]>('mail_get_thread', {
-        accessToken: token, conversationId: thread.conversation_id,
-        includeTrash: selectedFolder === 'deleteditems',
-      });
+      const msgs = await p.getThread(thread.conversation_id, selectedFolder === 'deleteditems');
       const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key }));
       if (shouldMarkRead) {
-        await invoke('mail_mark_read', { accessToken: token, items });
+        await p.markRead(items);
       } else {
-        await invoke('mail_mark_unread', { accessToken: token, items });
+        await p.markUnread(items);
       }
     } catch (e) {
       // Revert
@@ -613,10 +738,11 @@ export default function MailApp() {
       }
       setError(String(e));
     }
-  }, [selectedAccountId, getValidToken, selectedThread, selectedFolder]);
+  }, [resolveProvider, selectedThread, selectedFolder]);
 
   const handleDeleteThread = useCallback((thread: MailThread) => {
-    if (!selectedAccountId) return;
+    const p = resolveProvider(thread.accountId);
+    if (!p) return;
 
     const wasSelected = selectedThread?.conversation_id === thread.conversation_id;
     const savedMessages = wasSelected ? messages : [];
@@ -665,57 +791,45 @@ export default function MailApp() {
         }
       },
       async () => {
-        const token = await getValidToken(selectedAccountId);
-        if (!token) throw new Error('No token');
         const inTrash = selectedFolder === 'deleteditems';
-        const msgs = await invoke<MailMessage[]>('mail_get_thread', {
-          accessToken: token, conversationId: thread.conversation_id, includeTrash: inTrash,
-        });
-        const command = inTrash ? 'mail_permanently_delete' : 'mail_move_to_trash';
+        const msgs = await p.getThread(thread.conversation_id, inTrash);
         for (const msg of msgs) {
-          await invoke(command, { accessToken: token, itemId: msg.item_id });
+          if (inTrash) {
+            await p.permanentlyDelete(msg.item_id);
+          } else {
+            await p.moveToTrash(msg.item_id);
+          }
         }
       },
     );
-  }, [selectedAccountId, getValidToken, selectedThread, messages, selectedFolder, scheduleDeletion, t]);
+  }, [resolveProvider, selectedThread, messages, selectedFolder, scheduleDeletion, t]);
 
   const handleSnooze = useCallback(async (snoozeUntil: string) => {
-    if (!selectedAccountId || messages.length === 0 || !selectedThread) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p || messages.length === 0 || !selectedThread) return;
     const lastMsg = messages[messages.length - 1];
     try {
-      const folderId = await invoke<string>('mail_snooze', {
-        accessToken: token,
-        itemId: lastMsg.item_id,
-      });
-      // Store snooze expiry locally so the periodic check can restore it
+      const folderId = await p.snooze(lastMsg.item_id);
       const key = 'mail-snoozed-items';
-      const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string }[] =
+      const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string; providerType?: 'ews' | 'gmail' }[] =
         JSON.parse(localStorage.getItem(key) ?? '[]');
-      stored.push({ itemId: lastMsg.item_id, accountId: selectedAccountId, snoozeUntil, conversationId: selectedThread.conversation_id });
+      stored.push({ itemId: lastMsg.item_id, accountId: p.accountId, snoozeUntil, conversationId: selectedThread.conversation_id, providerType: p.providerType });
       localStorage.setItem(key, JSON.stringify(stored));
       setSnoozedMap(prev => ({ ...prev, [selectedThread.conversation_id]: snoozeUntil }));
       setSnoozedByItemId(prev => ({ ...prev, [lastMsg.item_id]: snoozeUntil }));
-      // Optimistic UI: hide the thread immediately
       setThreads(prev => prev.filter(t => t.conversation_id !== selectedThread.conversation_id));
       setSelectedThread(null);
       setMessages([]);
-      void folderId; // folder stored server-side; only item_id needed for restore
+      void folderId;
     } catch (e) { setError(String(e)); }
-  }, [selectedAccountId, getValidToken, messages, selectedThread]);
+  }, [resolveProvider, messages, selectedThread]);
 
   const handleUnsnooze = useCallback(async () => {
-    if (!selectedAccountId || messages.length === 0 || !selectedThread) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p || messages.length === 0 || !selectedThread) return;
     const lastMsg = messages[messages.length - 1];
     try {
-      await invoke('mail_move_to_folder', {
-        accessToken: token,
-        itemId: lastMsg.item_id,
-        folderId: 'inbox',
-      });
+      await p.moveToFolder(lastMsg.item_id, 'inbox');
       const key = 'mail-snoozed-items';
       const stored: { itemId: string }[] = JSON.parse(localStorage.getItem(key) ?? '[]');
       localStorage.setItem(key, JSON.stringify(stored.filter(i => i.itemId !== lastMsg.item_id)));
@@ -733,30 +847,67 @@ export default function MailApp() {
       setSelectedThread(null);
       setMessages([]);
     } catch (e) { setError(String(e)); }
-  }, [selectedAccountId, getValidToken, messages, selectedThread]);
+  }, [resolveProvider, messages, selectedThread]);
+
+  const handleMove = useCallback(async (targetFolderId: string) => {
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p || !selectedThread) return;
+    const thread = selectedThread;
+    const savedMessages = messages;
+    const unreadToDecrement = thread.unread_count;
+    // Optimistic: remove immediately
+    setThreads(prev => prev.filter(t => t.conversation_id !== thread.conversation_id));
+    setSelectedThread(null);
+    setMessages([]);
+    if (unreadToDecrement > 0) {
+      setFolderUnreadCounts(prev => ({
+        ...prev,
+        [selectedFolder]: Math.max(0, (prev[selectedFolder] ?? 0) - unreadToDecrement),
+      }));
+    }
+    try {
+      for (const msg of savedMessages) {
+        await p.moveToFolder(msg.item_id, targetFolderId);
+      }
+    } catch (e) {
+      setError(String(e));
+      // Restore on failure
+      setThreads(prev => {
+        const restored = [...prev, thread];
+        restored.sort((a, b) =>
+          new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime()
+        );
+        return restored;
+      });
+      setSelectedThread(thread);
+      setMessages(savedMessages);
+      if (unreadToDecrement > 0) {
+        setFolderUnreadCounts(prev => ({
+          ...prev,
+          [selectedFolder]: (prev[selectedFolder] ?? 0) + unreadToDecrement,
+        }));
+      }
+    }
+  }, [resolveProvider, messages, selectedThread, selectedFolder]);
 
   const openAttachment = useCallback(async (att: MailAttachment) => {
-    if (!selectedAccountId) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p) return;
     try {
-      await invoke('mail_open_attachment', {
-        accessToken: token,
-        attachmentId: att.attachment_id,
-        filename: att.name,
-      });
+      await p.openAttachment(att);
     } catch (e) { setError(String(e)); }
-  }, [selectedAccountId, getValidToken]);
+  }, [resolveProvider, selectedThread]);
 
   const scheduleSend = useCallback(async (
     to: string[],
+    cc: string[],
+    bcc: string[],
     subject: string,
     bodyHtml: string,
     restoreData: typeof composerRestoreData,
   ) => {
-    if (!selectedAccountId) return;
-    const token = await getValidToken(selectedAccountId);
-    if (!token) return;
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p) return;
 
     // Flush any already-pending send immediately
     if (pendingSendRef.current) {
@@ -768,13 +919,7 @@ export default function MailApp() {
     const replyToChangeKey = restoreData?.replyingToMsg?.change_key ?? null;
 
     const execute = async () => {
-      const freshToken = await getValidToken(selectedAccountId);
-      if (!freshToken) return;
-      await invoke('mail_send', {
-        accessToken: freshToken, to, subject, bodyHtml,
-        replyToItemId,
-        replyToChangeKey,
-      });
+      await p.sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey });
       if (!restoreData?.isNewMessage && selectedThread) openThread(selectedThread);
     };
 
@@ -790,7 +935,7 @@ export default function MailApp() {
     setSendToast({ label: t('mail.messageSent', 'Message envoyé') });
     setReplyingTo(null);
     setComposing(false);
-  }, [selectedAccountId, getValidToken, selectedThread, openThread, t]);
+  }, [resolveProvider, selectedThread, openThread, t]);
 
   const cancelSend = useCallback(() => {
     if (!pendingSendRef.current) return;
@@ -852,22 +997,21 @@ export default function MailApp() {
   return (
     <div className="mail-app">
       <header className="header">
+        <button
+          className="btn-icon"
+          onClick={() => setSidebarCollapsed(v => {
+            const next = !v;
+            localStorage.setItem('mail-sidebar-collapsed', String(next));
+            return next;
+          })}
+          title={sidebarCollapsed ? t('mail.showSidebar', 'Show sidebar') : t('mail.hideSidebar', 'Hide sidebar')}
+        >
+          <Menu size={20} />
+        </button>
         <span className="header-logo">
           <Mail size={22} strokeWidth={1.5} />
           <span>{t('tabs.mail', 'Mail')}</span>
         </span>
-
-        {accounts.length > 1 && (
-          <select
-            className="mail-account-select"
-            value={selectedAccountId ?? ''}
-            onChange={e => setSelectedAccountId(e.target.value)}
-          >
-            {accounts.map(acc => (
-              <option key={acc.id} value={acc.id}>{acc.email}</option>
-            ))}
-          </select>
-        )}
 
         <div className="header-spacer" />
 
@@ -891,32 +1035,76 @@ export default function MailApp() {
         </div>
       )}
 
-      {accounts.length === 0 ? (
+      {allMailAccounts.length === 0 ? (
         <div className="mail-placeholder">
           <Mail size={64} strokeWidth={1} style={{ opacity: 0.2 }} />
           <p style={{ opacity: 0.5 }}>
-            {t('mail.noAccount', 'No Exchange account configured. Add one in Settings.')}
+            {t('mail.noAccount', 'No mail account configured. Add an Exchange or Google account in Settings.')}
           </p>
           <Link to="/config" className="btn-primary">{t('header.calendarsBtn')}</Link>
         </div>
       ) : (
         <div className="mail-body" ref={mailBodyRef}>
-          <div style={{ width: sidebarWidth, overflow: 'hidden' }}>
-            <MailSidebar
-              selectedFolder={selectedFolder}
-              onSelectFolder={setSelectedFolder}
-              onCompose={() => { setComposing(true); setSelectedThread(null); }}
-              accountId={selectedAccountId}
-              getValidToken={getValidToken}
-              onFoldersLoaded={handleFoldersLoaded}
-              folderUnreadCounts={folderUnreadCounts}
-            />
-          </div>
-          <div
-            className="mail-resize-handle"
-            onMouseDown={startResizingSidebar}
-            style={{ cursor: 'col-resize' }}
-          />
+          {allMailAccounts.length > 1 && (
+            <nav className="mail-account-tabs">
+              {/* All tab */}
+              <button
+                type="button"
+                className={`mail-account-tab${isAllMode ? ' mail-account-tab--active' : ''}`}
+                onClick={() => setSelectedAccountId(ALL_ACCOUNTS_ID)}
+                title={t('mail.allAccounts', 'All accounts')}
+              >
+                <span className="mail-account-tab__stripe" style={{ background: 'var(--text-muted)' }} />
+                <span className="mail-account-tab__label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Layers size={13} />
+                </span>
+              </button>
+              <div className="mail-account-tab__divider" />
+              {allMailAccounts.map(acc => {
+                const label = (() => {
+                  const atIdx = acc.email.indexOf('@');
+                  const domain = atIdx >= 0 ? acc.email.slice(atIdx + 1) : acc.email;
+                  return domain.charAt(0).toUpperCase() + domain.slice(1);
+                })();
+                const isSelected = acc.id === selectedAccountId;
+                return (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    className={`mail-account-tab${isSelected ? ' mail-account-tab--active' : ''}`}
+                    onClick={() => setSelectedAccountId(acc.id)}
+                    title={acc.email}
+                  >
+                    <span
+                      className="mail-account-tab__stripe"
+                      style={{ background: acc.color ?? 'var(--primary)' }}
+                    />
+                    <span className="mail-account-tab__label">{label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+          {!sidebarCollapsed && (
+            <>
+              <div style={{ width: sidebarWidth, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <MailSidebar
+                  selectedFolder={selectedFolder}
+                  onSelectFolder={setSelectedFolder}
+                  onCompose={() => { setComposing(true); setSelectedThread(null); }}
+                  provider={isAllMode ? null : provider}
+                  onFoldersLoaded={handleFoldersLoaded}
+                  folderUnreadCounts={folderUnreadCounts}
+                  overrideDynamicFolders={allModeDynamicFolders ?? undefined}
+                />
+              </div>
+              <div
+                className="mail-resize-handle"
+                onMouseDown={startResizingSidebar}
+                style={{ cursor: 'col-resize' }}
+              />
+            </>
+          )}
 
           <div style={{ width: threadListWidth, height: '100%', position: 'relative', zIndex: 1 }}>
             <ThreadList
@@ -943,10 +1131,12 @@ export default function MailApp() {
               <NewMessageComposer
                 contacts={contacts}
                 restoreData={composerRestoreData?.isNewMessage ? composerRestoreData : null}
-                onSend={(to, subject, body) =>
-                  scheduleSend(to, subject, body, {
+                onSend={(to, cc, bcc, subject, body) =>
+                  scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: true,
                     recipients: to.map(email => ({ email })),
+                    cc: cc.map(email => ({ email })),
+                    bcc: bcc.map(email => ({ email })),
                     subject,
                     bodyHtml: body,
                     replyingToMsg: null,
@@ -969,6 +1159,11 @@ export default function MailApp() {
                 messages={messages}
                 replyingTo={replyingTo}
                 contacts={contacts}
+                currentUserEmail={
+                  isAllMode
+                    ? allMailAccounts.find(a => a.id === selectedThread.accountId)?.email
+                    : allMailAccounts.find(a => a.id === selectedAccountId)?.email
+                }
                 onMarkRead={markRead}
                 onTrash={moveToTrash}
                 onOpenAttachment={openAttachment}
@@ -980,10 +1175,12 @@ export default function MailApp() {
                 onCancelReply={() => setReplyingTo(null)}
                 onDeleteThread={() => handleDeleteThread(selectedThread)}
                 onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
-                onSend={(to, subject, body) =>
-                  scheduleSend(to, subject, body, {
+                onSend={(to, cc, bcc, subject, body) =>
+                  scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: false,
                     recipients: to.map(email => ({ email })),
+                    cc: cc.map(email => ({ email })),
+                    bcc: bcc.map(email => ({ email })),
                     subject,
                     bodyHtml: body,
                     replyingToMsg: replyingTo,
@@ -998,6 +1195,12 @@ export default function MailApp() {
                   ?? (isInSnoozedFolder ? snoozedMap[selectedThread.conversation_id] : undefined)
                 }
                 onUnsnooze={handleUnsnooze}
+                moveFolders={
+                  isAllMode
+                    ? (allAccountFolders.get(selectedThread.accountId ?? '') ?? [])
+                    : allFolders
+                }
+                onMove={handleMove}
               />
             )}
           </div>
@@ -1200,7 +1403,15 @@ function ThreadItem({ thread, isSelected, snoozeUntil, isInSnoozedFolder, onSele
         </div>
 
         <div className="mail-thread-item__snippet">
-          <span className="mail-thread-item__snippet-text">{thread.snippet}</span>
+          <span className="mail-thread-item__snippet-text">{decodeHtmlEntities(thread.snippet)}</span>
+          {thread.accountLabel && (
+            <span
+              className="mail-thread-item__account-badge"
+              style={{ color: thread.accountColor ?? 'var(--primary)', borderLeftColor: thread.accountColor ?? 'var(--primary)' }}
+            >
+              {thread.accountLabel}
+            </span>
+          )}
         </div>
       </div>
 
@@ -1243,6 +1454,7 @@ interface ThreadDetailProps {
   readonly messages: MailMessage[];
   readonly replyingTo: MailMessage | null;
   readonly contacts: { email: string; name?: string }[];
+  readonly currentUserEmail?: string;
   readonly onMarkRead: (msgs: MailMessage[]) => void;
   readonly onTrash: (id: string) => void;
   readonly onOpenAttachment: (att: MailAttachment) => void;
@@ -1252,7 +1464,7 @@ interface ThreadDetailProps {
   readonly onToggleRead: (msg: MailMessage) => void;
   readonly replyMode: 'reply' | 'replyAll' | 'forward';
   readonly onCancelReply: () => void;
-  readonly onSend: (to: string[], subject: string, body: string) => Promise<void>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => Promise<void>;
   readonly composerRestoreData?: ComposerRestoreData | null;
   readonly onDeleteThread: () => void;
   readonly onToggleThreadRead: () => void;
@@ -1260,6 +1472,8 @@ interface ThreadDetailProps {
   readonly onSnooze: (snoozeUntil: string) => void;
   readonly snoozeUntil?: string;
   readonly onUnsnooze: () => void;
+  readonly moveFolders: import('./types').MailFolder[];
+  readonly onMove: (folderId: string) => void;
 }
 
 const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -1287,15 +1501,17 @@ function computeSnoozeOptions() {
 }
 
 function ThreadDetail({
-  thread, messages, replyingTo, replyMode, contacts,
+  thread, messages, replyingTo, replyMode, contacts, currentUserEmail,
   onMarkRead, onTrash, onOpenAttachment,
   onReply, onReplyAll, onForward, onToggleRead,
   onCancelReply, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
   supportsSnooze, onSnooze, snoozeUntil, onUnsnooze,
+  moveFolders, onMove,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const composerBlockRef = useRef<HTMLDivElement>(null);
 
@@ -1407,6 +1623,27 @@ function ThreadDetail({
             </>
           )}
         </div>
+        <div className="mail-actions-dropdown">
+          <button
+            className="mail-detail-action-btn"
+            onClick={() => setMoveOpen(o => !o)}
+            title={t('mail.move', 'Move to folder')}
+          >
+            <FolderInput size={15} />
+            <span>{t('mail.move', 'Move')}</span>
+          </button>
+          {moveOpen && (
+            <>
+              <div role="button" tabIndex={-1} className="mail-thread-toolbar__overlay" onClick={() => setMoveOpen(false)} onKeyDown={e => { if (e.key === 'Escape') setMoveOpen(false); }} />
+              <FolderPickerPopover
+                folders={moveFolders}
+                currentFolderId={thread.accountId ? undefined : undefined}
+                onSelect={folderId => { onMove(folderId); setMoveOpen(false); }}
+                onClose={() => setMoveOpen(false)}
+              />
+            </>
+          )}
+        </div>
         <div className="mail-actions-dropdown" style={{ marginLeft: 'auto' }}>
           <button
             className="mail-detail-action-btn"
@@ -1480,6 +1717,7 @@ function ThreadDetail({
               replyTo={replyingTo}
               mode={replyMode}
               contacts={contacts}
+              currentUserEmail={currentUserEmail}
               restoreData={composerRestoreData}
               onSend={onSend}
               onCancel={onCancelReply}
@@ -1556,6 +1794,7 @@ function parseHexColor(raw: string): [number, number, number] | null {
 }
 
 function EmailHtmlBody({ html }: { readonly html: string }) {
+  const { t } = useTranslation();
   const { resolved } = useTheme();
   const isDark = resolved === 'dark';
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -1599,7 +1838,9 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
   const darkModeStyle = isDark ? `
   html, body { background: ${bgCss}; }
   .ew { filter: url(#dm); }
-  .ew img, .ew video, .ew canvas, .ew iframe, .ew svg { filter: url(#dm); }` : '';
+  .ew img, .ew video, .ew canvas, .ew iframe, .ew svg, .ew .qt-toggle { filter: url(#dm); }` : '';
+
+  const prevMsgLabel = t('mail.previousMessage', 'Previous message');
 
   const srcdoc = `<!DOCTYPE html>
 <html>
@@ -1608,7 +1849,7 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
 <meta name="viewport" content="width=device-width">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0; overflow: hidden; }
   .ew {
     padding: 4px 0;
     font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
@@ -1623,7 +1864,18 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
   blockquote {
     border-left: 3px solid #dadce0;
     margin: 8px 0; padding-left: 12px; color: #70757a;
-  }${darkModeStyle}
+  }
+  .qt { margin-top: 12px; border-radius: 4px; overflow: hidden; }
+  .qt-toggle {
+    display: flex; align-items: center; gap: 6px;
+    background: none; border: none;
+    padding: 5px 10px; width: 100%;
+    text-align: left; cursor: pointer;
+    font-size: 12px; font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  }
+  .qt-toggle:hover { opacity: 0.75; }
+  .qt-chevron { font-size: 10px; }
+  .qt-inner { padding: 0 12px 10px; }${darkModeStyle}
 </style>
 </head>
 <body>${darkModeSvg}<div class="ew">${html}</div>
@@ -1635,6 +1887,57 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
       window.parent.postMessage({ type: 'open-url', url: a.href }, '*');
     }
   });
+  (function() {
+    var COLORS = ['hsl(210,70%,55%)', 'hsl(145,55%,45%)', 'hsl(35,80%,50%)', 'hsl(300,45%,55%)'];
+    var BG_RGBS = [[100,160,220], [60,180,100], [220,150,50], [180,80,200]];
+    function isQuote(el) {
+      if (!el || el.nodeType !== 1) return false;
+      var cls = typeof el.className === 'string' ? el.className : '';
+      return el.tagName === 'BLOCKQUOTE' || cls.indexOf('mail-quoted') >= 0;
+    }
+    function wrap(el, depth) {
+      var d = depth % 4;
+      var color = COLORS[d];
+      var rgb = BG_RGBS[d];
+      var w = document.createElement('div');
+      w.className = 'qt';
+      w.style.borderLeft = '3px solid ' + color;
+      w.style.background = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0.06)';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'qt-toggle';
+      btn.style.color = color;
+      var chev = document.createElement('span');
+      chev.className = 'qt-chevron';
+      chev.textContent = '▶';
+      var lbl = document.createElement('span');
+      lbl.textContent = ${JSON.stringify(prevMsgLabel)};
+      btn.appendChild(chev);
+      btn.appendChild(lbl);
+      var inner = document.createElement('div');
+      inner.className = 'qt-inner';
+      inner.style.display = 'none';
+      while (el.firstChild) inner.appendChild(el.firstChild);
+      w.appendChild(btn);
+      w.appendChild(inner);
+      if (el.parentNode) el.parentNode.replaceChild(w, el);
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var open = inner.style.display !== 'none';
+        inner.style.display = open ? 'none' : '';
+        chev.textContent = open ? '▶' : '▼';
+        window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
+      });
+      processEl(inner, depth + 1);
+    }
+    function processEl(node, depth) {
+      Array.from(node.children).forEach(function(child) {
+        if (isQuote(child)) wrap(child, depth);
+        else processEl(child, depth);
+      });
+    }
+    processEl(document.querySelector('.ew') || document.body, 0);
+  })();
   var ro = new ResizeObserver(function() {
     window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
   });
@@ -1678,18 +1981,208 @@ function AttachmentList({ attachments, onOpen }: AttachmentListProps) {
   );
 }
 
+// ── Formatting toolbar ─────────────────────────────────────────────────────────
+
+const FONT_FAMILIES = [
+  { label: 'Défaut', value: 'system-ui, sans-serif' },
+  { label: 'Arial', value: 'Arial, sans-serif' },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'Times', value: 'Times New Roman, serif' },
+  { label: 'Mono', value: 'Courier New, monospace' },
+];
+
+const FONT_SIZES = ['10', '12', '14', '16', '18', '20', '24', '28', '36'];
+
+function FormattingToolbar({ bodyRef }: { readonly bodyRef: RefObject<HTMLDivElement> }) {
+  const savedRangeRef = useRef<Range | null>(null);
+  const [textColor, setTextColor] = useState('#000000');
+  const [bgColor, setBgColor] = useState('#ffff00');
+
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const restoreSelection = () => {
+    const sel = window.getSelection();
+    if (sel && savedRangeRef.current) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+  };
+
+  // For buttons: preventDefault prevents focus steal, selection stays in body
+  const fmt = (cmd: string, value?: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    document.execCommand(cmd, false, value ?? undefined);
+  };
+
+  const handleFontFamily = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    restoreSelection();
+    document.execCommand('fontName', false, e.target.value);
+    bodyRef.current?.focus();
+  };
+
+  const handleFontSize = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const px = e.target.value;
+    if (!bodyRef.current) return;
+    restoreSelection();
+    // Tag pre-existing font[size="7"] to avoid touching them
+    const preExisting = bodyRef.current.querySelectorAll('font[size="7"]');
+    preExisting.forEach(el => el.setAttribute('data-pre', '1'));
+    document.execCommand('fontSize', false, '7');
+    const newFonts = bodyRef.current.querySelectorAll('font[size="7"]:not([data-pre])');
+    newFonts.forEach(el => {
+      (el as HTMLElement).style.fontSize = `${px}px`;
+      el.removeAttribute('size');
+    });
+    preExisting.forEach(el => el.removeAttribute('data-pre'));
+    bodyRef.current.focus();
+  };
+
+  const handleTextColor = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const color = e.target.value;
+    setTextColor(color);
+    restoreSelection();
+    document.execCommand('foreColor', false, color);
+    bodyRef.current?.focus();
+  };
+
+  const handleBgColor = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const color = e.target.value;
+    setBgColor(color);
+    restoreSelection();
+    document.execCommand('hiliteColor', false, color);
+    bodyRef.current?.focus();
+  };
+
+  const insertImageFromClipboard = async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const reader = new FileReader();
+          reader.onload = () => {
+            restoreSelection();
+            document.execCommand('insertImage', false, reader.result as string);
+            bodyRef.current?.focus();
+          };
+          reader.readAsDataURL(blob);
+          return;
+        }
+      }
+    } catch {
+      bodyRef.current?.focus();
+    }
+  };
+
+  return (
+    <div className="mail-format-toolbar">
+      <button type="button" className="mail-format-btn" onMouseDown={fmt('bold')} title="Gras">
+        <Bold size={13} />
+      </button>
+      <button type="button" className="mail-format-btn" onMouseDown={fmt('italic')} title="Italique">
+        <Italic size={13} />
+      </button>
+      <button type="button" className="mail-format-btn" onMouseDown={fmt('underline')} title="Souligné">
+        <Underline size={13} />
+      </button>
+      <div className="mail-format-sep" />
+      <button type="button" className="mail-format-btn" onMouseDown={fmt('insertUnorderedList')} title="Puces">
+        <List size={13} />
+      </button>
+      <button type="button" className="mail-format-btn" onMouseDown={fmt('insertOrderedList')} title="Puces numérotées">
+        <ListOrdered size={13} />
+      </button>
+      <div className="mail-format-sep" />
+      <select
+        className="mail-format-select"
+        defaultValue=""
+        onMouseDown={saveSelection}
+        onChange={handleFontFamily}
+        title="Police"
+      >
+        <option value="" disabled>Police</option>
+        {FONT_FAMILIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+      </select>
+      <select
+        className="mail-format-select mail-format-select--size"
+        defaultValue=""
+        onMouseDown={saveSelection}
+        onChange={handleFontSize}
+        title="Taille"
+      >
+        <option value="" disabled>Taille</option>
+        {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+      <div className="mail-format-sep" />
+      <label className="mail-format-btn mail-format-color-label" title="Couleur du texte">
+        <Type size={12} />
+        <span className="mail-format-color-swatch" style={{ background: textColor }} />
+        <input
+          type="color"
+          className="mail-format-color-input"
+          value={textColor}
+          onMouseDown={saveSelection}
+          onChange={handleTextColor}
+        />
+      </label>
+      <label className="mail-format-btn mail-format-color-label" title="Couleur du fond">
+        <Highlighter size={12} />
+        <span className="mail-format-color-swatch" style={{ background: bgColor }} />
+        <input
+          type="color"
+          className="mail-format-color-input"
+          value={bgColor}
+          onMouseDown={saveSelection}
+          onChange={handleBgColor}
+        />
+      </label>
+      <div className="mail-format-sep" />
+      <button
+        type="button"
+        className="mail-format-btn"
+        onMouseDown={saveSelection}
+        onClick={insertImageFromClipboard}
+        title="Coller une image depuis le presse-papier"
+      >
+        <ImagePlus size={13} />
+      </button>
+    </div>
+  );
+}
+
+// Helper: intercept image paste in contentEditable body
+function handleImagePaste(e: React.ClipboardEvent<HTMLDivElement>) {
+  const imageItem = Array.from(e.clipboardData.items).find(i => i.type.startsWith('image/'));
+  if (!imageItem) return;
+  e.preventDefault();
+  const file = imageItem.getAsFile();
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.execCommand('insertImage', false, reader.result as string);
+  };
+  reader.readAsDataURL(file);
+}
+
 // ── Composer ───────────────────────────────────────────────────────────────────
 
 interface MailComposerProps {
   readonly replyTo: MailMessage;
   readonly mode: 'reply' | 'replyAll' | 'forward';
   readonly contacts: { email: string; name?: string }[];
+  readonly currentUserEmail?: string;
   readonly restoreData?: ComposerRestoreData | null;
-  readonly onSend: (to: string[], subject: string, body: string) => Promise<void>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => Promise<void>;
   readonly onCancel: () => void;
 }
 
-function MailComposer({ replyTo, mode, contacts, restoreData, onSend, onCancel }: MailComposerProps) {
+function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, onSend, onCancel }: MailComposerProps) {
   const { t } = useTranslation();
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -1700,9 +2193,23 @@ function MailComposer({ replyTo, mode, contacts, restoreData, onSend, onCancel }
     email: replyTo.from_email ?? '',
     name: replyTo.from_name ?? undefined,
   };
+  const userEmailLower = currentUserEmail?.toLowerCase() ?? '';
+  const initialReplyAllTo: RecipientEntry[] = [
+    initialRecipient,
+    ...replyTo.to_recipients.map(r => ({ email: r.email, name: r.name ?? undefined })),
+  ].filter(r => r.email.toLowerCase() !== userEmailLower);
+  const initialReplyAllCc: RecipientEntry[] = replyTo.cc_recipients
+    .map(r => ({ email: r.email, name: r.name ?? undefined }))
+    .filter(r => r.email.toLowerCase() !== userEmailLower);
   const [recipients, setRecipients] = useState<RecipientEntry[]>(
-    restoreData?.recipients ?? (isForward ? [] : [initialRecipient])
+    restoreData?.recipients ?? (isForward ? [] : mode === 'replyAll' ? initialReplyAllTo : [initialRecipient])
   );
+  const [ccRecipients, setCcRecipients] = useState<RecipientEntry[]>(
+    restoreData?.cc ?? (mode === 'replyAll' ? initialReplyAllCc : [])
+  );
+  const [bccRecipients, setBccRecipients] = useState<RecipientEntry[]>(restoreData?.bcc ?? []);
+  const [showCc, setShowCc] = useState(mode === 'replyAll' || (restoreData?.cc?.length ?? 0) > 0);
+  const [showBcc, setShowBcc] = useState((restoreData?.bcc?.length ?? 0) > 0);
 
   const baseSubject = replyTo.subject.replace(/^(Re|Fwd):\s*/i, '');
   const [subject, setSubject] = useState(
@@ -1750,14 +2257,14 @@ function MailComposer({ replyTo, mode, contacts, restoreData, onSend, onCancel }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const doSend = async () => {
     if (recipients.length === 0) return;
     const bodyHtml = bodyRef.current?.innerHTML ?? '';
     setSending(true);
-    try { await onSend(recipients.map(r => r.email), subject, bodyHtml); }
+    try { await onSend(recipients.map(r => r.email), ccRecipients.map(r => r.email), bccRecipients.map(r => r.email), subject, bodyHtml); }
     finally { setSending(false); }
   };
+  const handleSubmit = async (e: FormEvent) => { e.preventDefault(); doSend(); };
 
   const modeLabel = isForward
     ? t('mail.forward', 'Forward')
@@ -1768,7 +2275,8 @@ function MailComposer({ replyTo, mode, contacts, restoreData, onSend, onCancel }
   return (
     <div className="mail-reply-composer">
       <div className="mail-reply-composer__label">{modeLabel}</div>
-      <form className="mail-reply-composer__form" onSubmit={handleSubmit}>
+      <form className="mail-reply-composer__form" onSubmit={handleSubmit}
+        onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) { e.preventDefault(); doSend(); } }}>
         <div className="mail-reply-composer__toolbar">
           <button type="submit" className="btn-primary" disabled={sending || recipients.length === 0}>
             <Send size={15} />
@@ -1785,7 +2293,33 @@ function MailComposer({ replyTo, mode, contacts, restoreData, onSend, onCancel }
             contacts={contacts}
             autoFocus
           />
+          {!showCc && (
+            <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>
+          )}
+          {!showBcc && (
+            <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>
+          )}
         </div>
+        {showCc && (
+          <div className="mail-composer__field">
+            <span className="mail-composer__label">{t('mail.cc', 'Cc')}:</span>
+            <RecipientInput
+              value={ccRecipients}
+              onChange={setCcRecipients}
+              contacts={contacts}
+            />
+          </div>
+        )}
+        {showBcc && (
+          <div className="mail-composer__field">
+            <span className="mail-composer__label">Bcc:</span>
+            <RecipientInput
+              value={bccRecipients}
+              onChange={setBccRecipients}
+              contacts={contacts}
+            />
+          </div>
+        )}
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.subject', 'Subject')}:</span>
           <input
@@ -1794,14 +2328,19 @@ function MailComposer({ replyTo, mode, contacts, restoreData, onSend, onCancel }
             value={subject}
             onChange={e => setSubject(e.target.value)}
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
+            spellCheck={false}
           />
         </div>
+        <FormattingToolbar bodyRef={bodyRef} />
         <div
           ref={bodyRef}
           className="mail-composer__body mail-reply-composer__body"
           contentEditable
           suppressContentEditableWarning
+          spellCheck={false}
           data-placeholder={t('mail.bodyPlaceholder', 'Écrivez votre réponse…')}
+          onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) { e.preventDefault(); doSend(); } }}
+          onPaste={handleImagePaste}
         />
       </form>
     </div>
@@ -1813,6 +2352,8 @@ function MailComposer({ replyTo, mode, contacts, restoreData, onSend, onCancel }
 interface ComposerRestoreData {
   readonly isNewMessage: boolean;
   readonly recipients: RecipientEntry[];
+  readonly cc: RecipientEntry[];
+  readonly bcc: RecipientEntry[];
   readonly subject: string;
   readonly bodyHtml: string;
   readonly replyingToMsg: MailMessage | null;
@@ -1821,13 +2362,17 @@ interface ComposerRestoreData {
 interface NewMessageComposerProps {
   readonly contacts: { email: string; name?: string }[];
   readonly restoreData?: ComposerRestoreData | null;
-  readonly onSend: (to: string[], subject: string, body: string) => Promise<void>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => Promise<void>;
   readonly onCancel: () => void;
 }
 
 function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMessageComposerProps) {
   const { t } = useTranslation();
   const [recipients, setRecipients] = useState<RecipientEntry[]>(restoreData?.recipients ?? []);
+  const [ccRecipients, setCcRecipients] = useState<RecipientEntry[]>(restoreData?.cc ?? []);
+  const [bccRecipients, setBccRecipients] = useState<RecipientEntry[]>(restoreData?.bcc ?? []);
+  const [showCc, setShowCc] = useState((restoreData?.cc?.length ?? 0) > 0);
+  const [showBcc, setShowBcc] = useState((restoreData?.bcc?.length ?? 0) > 0);
   const [subject, setSubject] = useState(restoreData?.subject ?? '');
   const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -1839,18 +2384,19 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const doSend = async () => {
     if (recipients.length === 0) return;
     const bodyHtml = bodyRef.current?.innerHTML ?? '';
     setSending(true);
-    try { await onSend(recipients.map(r => r.email), subject, bodyHtml); }
+    try { await onSend(recipients.map(r => r.email), ccRecipients.map(r => r.email), bccRecipients.map(r => r.email), subject, bodyHtml); }
     finally { setSending(false); }
   };
+  const handleSubmit = async (e: FormEvent) => { e.preventDefault(); doSend(); };
 
   return (
     <div className="mail-new-composer">
-      <form className="mail-new-composer__form" onSubmit={handleSubmit}>
+      <form className="mail-new-composer__form" onSubmit={handleSubmit}
+        onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) { e.preventDefault(); doSend(); } }}>
         <div className="mail-new-composer__toolbar">
           <button type="submit" className="btn-primary" disabled={sending || recipients.length === 0}>
             <Send size={15} />
@@ -1871,7 +2417,33 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
             contacts={contacts}
             autoFocus
           />
+          {!showCc && (
+            <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>
+          )}
+          {!showBcc && (
+            <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>
+          )}
         </div>
+        {showCc && (
+          <div className="mail-composer__field">
+            <span className="mail-composer__label">{t('mail.cc', 'Cc')}:</span>
+            <RecipientInput
+              value={ccRecipients}
+              onChange={setCcRecipients}
+              contacts={contacts}
+            />
+          </div>
+        )}
+        {showBcc && (
+          <div className="mail-composer__field">
+            <span className="mail-composer__label">Bcc:</span>
+            <RecipientInput
+              value={bccRecipients}
+              onChange={setBccRecipients}
+              contacts={contacts}
+            />
+          </div>
+        )}
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.subject', 'Subject')}:</span>
           <input
@@ -1880,14 +2452,19 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
             value={subject}
             onChange={e => setSubject(e.target.value)}
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
+            spellCheck={false}
           />
         </div>
+        <FormattingToolbar bodyRef={bodyRef} />
         <div
           ref={bodyRef}
           className="mail-composer__body mail-new-composer__body"
           contentEditable
           suppressContentEditableWarning
+          spellCheck={false}
           data-placeholder={t('mail.bodyPlaceholder', 'Écrivez votre message…')}
+          onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) { e.preventDefault(); doSend(); } }}
+          onPaste={handleImagePaste}
         />
       </form>
     </div>

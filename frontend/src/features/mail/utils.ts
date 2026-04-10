@@ -1,3 +1,15 @@
+/** Decode HTML entities in a plain-text string (e.g. snippet previews).
+ *  Uses a temporary DOM element so all named and numeric entities are handled
+ *  without maintaining a manual list. Control characters are collapsed into spaces. */
+export function decodeHtmlEntities(text: string): string {
+  if (!text) return text;
+  const el = document.createElement('textarea');
+  el.innerHTML = text;
+  const decoded = el.value;
+  // Collapse control characters (CR, LF, tab…) into spaces, then trim runs.
+  return decoded.replace(/[\r\n\t\x00-\x1F\x7F]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
 // ── Avatar colors (used as background with white text) ─────────────────────────
 const AVATAR_COLORS = [
   '#1a73e8', '#d93025', '#188038', '#e37400',
