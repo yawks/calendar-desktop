@@ -9,7 +9,7 @@ import {
   ReplyAll,
   Trash2,
 } from 'lucide-react';
-import { MouseEvent, useEffect, useRef, useState } from 'react';
+import { MouseEvent, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { avatarColor, formatDate, formatFullDate, formatSize, initials, senderColor } from '../utils';
@@ -119,18 +119,6 @@ export function MessageBlockHeader({
 
   const [showHeaders, setShowHeaders] = useState(false);
   const [showActions, setShowActions] = useState(false);
-  const actionsRef = useRef<HTMLDivElement>(null);
-
-  // Close actions dropdown on outside click
-  useEffect(() => {
-    if (!showActions) return;
-    const handler = (e: globalThis.MouseEvent) => {
-      if (actionsRef.current && !actionsRef.current.contains(e.target as Node))
-        setShowActions(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showActions]);
 
   // Collapse headers panel when block collapses
   useEffect(() => { if (!expanded) setShowHeaders(false); }, [expanded]);
@@ -248,19 +236,22 @@ export function MessageBlockHeader({
 
             {/* Actions dropdown */}
             {expanded && (
-              <div className="mail-actions-dropdown" ref={actionsRef}>
+              <div className="mail-actions-dropdown">
                 <button type="button" className="btn-icon--labeled"
                   onClick={e => { sp(e); setShowActions(v => !v); }}>
                   <span>{t('mail.actions', 'Actions')}</span>
                   <ChevronDown size={11} />
                 </button>
                 {showActions && (
-                  <ActionsMenu
-                    message={message}
-                    onReply={onReply} onReplyAll={onReplyAll} onForward={onForward}
-                    onToggleRead={onToggleRead} onTrash={onTrash}
-                    onClose={() => setShowActions(false)}
-                  />
+                  <>
+                    <div className="mail-actions-backdrop" onClick={e => { e.stopPropagation(); setShowActions(false); }} />
+                    <ActionsMenu
+                      message={message}
+                      onReply={onReply} onReplyAll={onReplyAll} onForward={onForward}
+                      onToggleRead={onToggleRead} onTrash={onTrash}
+                      onClose={() => setShowActions(false)}
+                    />
+                  </>
                 )}
               </div>
             )}

@@ -220,11 +220,25 @@ pub(crate) async fn send_ews_request(
 }
 
 /// Extract the text content of the first occurrence of `<tag>…</tag>`.
+/// Uses exact tag-name matching: the character immediately after the tag name must be
+/// `>` or whitespace, so that `<t:Content` does NOT match `<t:ContentType>`.
 pub(crate) fn xml_content(xml: &str, tag: &str) -> Option<String> {
     let open_prefix = format!("<{}", tag);
     let close_tag = format!("</{}>", tag);
+    let bytes = xml.as_bytes();
 
-    let open_pos = xml.find(&open_prefix)?;
+    let mut search_from = 0;
+    let open_pos = loop {
+        let rel = xml[search_from..].find(&open_prefix)?;
+        let pos = search_from + rel;
+        // The byte right after the tag name must be '>', ' ', '\t', '\n', '\r', or '/'
+        // (self-closing tags), but NOT another identifier character.
+        match bytes.get(pos + open_prefix.len()) {
+            Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'/') | None => break pos,
+            _ => search_from = pos + 1,
+        }
+    };
+
     let gt_pos = xml[open_pos..].find('>')? + open_pos + 1;
     let close_pos = xml[gt_pos..].find(&close_tag)? + gt_pos;
 

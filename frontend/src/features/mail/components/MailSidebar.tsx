@@ -1,5 +1,5 @@
 import { Folder, MailFolder } from '../types';
-import { ChevronRight, Folder as FolderIcon, Inbox, Pencil, Send, Trash2 } from 'lucide-react';
+import { ChevronRight, FileText, Folder as FolderIcon, Inbox, Pencil, Send, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import type { MailProvider } from '../providers/MailProvider';
@@ -236,6 +236,7 @@ export function MailSidebar({
 
   const staticFolders = [
     { id: 'inbox', label: t('mail.inbox', 'Inbox'), Icon: Inbox },
+    { id: 'drafts', label: t('mail.drafts', 'Drafts'), Icon: FileText },
     { id: 'sentitems', label: t('mail.sent', 'Sent'), Icon: Send },
     { id: 'deleteditems', label: t('mail.trash', 'Trash'), Icon: Trash2 },
   ];

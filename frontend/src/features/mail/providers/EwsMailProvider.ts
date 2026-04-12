@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { MailAttachment, MailFolder, MailMessage, MailThread } from '../types';
-import type { MailItemRef, MailProvider, SendMailParams } from './MailProvider';
+import type { MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
 
 /**
  * EWS (Exchange Web Services) implementation of MailProvider.
@@ -29,9 +29,9 @@ export class EwsMailProvider implements MailProvider {
     return invoke<MailThread[]>('mail_list_threads', { accessToken, folder, maxCount, offset });
   }
 
-  async getThread(conversationId: string, includeTrash = false): Promise<MailMessage[]> {
+  async getThread(conversationId: string, includeTrash = false, isDraft = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
-    return invoke<MailMessage[]>('mail_get_thread', { accessToken, conversationId, includeTrash });
+    return invoke<MailMessage[]>('mail_get_thread', { accessToken, conversationId, includeTrash, isDraft });
   }
 
   async listFolders(): Promise<MailFolder[]> {
@@ -39,9 +39,13 @@ export class EwsMailProvider implements MailProvider {
     return invoke<MailFolder[]>('mail_list_folders', { accessToken });
   }
 
-  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey }: SendMailParams): Promise<void> {
+  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, attachments }: SendMailParams): Promise<void> {
     const accessToken = await this.token();
-    return invoke('mail_send', { accessToken, to, cc: cc ?? [], bcc: bcc ?? [], subject, bodyHtml, replyToItemId, replyToChangeKey });
+    return invoke('mail_send', {
+      accessToken, to, cc: cc ?? [], bcc: bcc ?? [], subject, bodyHtml,
+      replyToItemId, replyToChangeKey,
+      attachments: attachments ?? [],
+    });
   }
 
   async markRead(items: MailItemRef[]): Promise<void> {
@@ -70,6 +74,21 @@ export class EwsMailProvider implements MailProvider {
       accessToken,
       attachmentId: attachment.attachment_id,
       filename: attachment.name,
+    });
+  }
+
+  async getAttachmentData(attachment: MailAttachment): Promise<string> {
+    const accessToken = await this.token();
+    return invoke<string>('mail_get_attachment_data', {
+      accessToken,
+      attachmentId: attachment.attachment_id,
+    });
+  }
+
+  async saveDraft({ to, cc, bcc, subject, bodyHtml }: SaveDraftParams): Promise<void> {
+    const accessToken = await this.token();
+    return invoke('mail_save_draft', {
+      accessToken, to, cc: cc ?? [], bcc: bcc ?? [], subject, bodyHtml,
     });
   }
 

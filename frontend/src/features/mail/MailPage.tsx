@@ -3,11 +3,11 @@ import {
   Archive,
   BellOff,
   Bold,
+  Check,
+  ChevronDown,
   Clock,
-  File,
-  FileArchive,
-  FileImage,
-  FileText,
+  Download,
+  Eye,
   FolderInput,
   Forward,
   Highlighter,
@@ -34,6 +34,8 @@ import {
   Underline,
   X,
 } from 'lucide-react';
+import { ComposerAttachment, MailProvider } from './providers/MailProvider';
+import { FileIcon, defaultStyles } from 'react-file-icon';
 import { Folder, MailAttachment, MailMessage, MailThread } from './types';
 import {
   FormEvent,
@@ -51,11 +53,12 @@ import { RecipientEntry, RecipientInput } from './components/RecipientInput';
 import { ThemePreference, useTheme } from '../../shared/store/ThemeStore';
 import { avatarColor, decodeHtmlEntities, formatDate, formatFullDate, formatSize, initials } from './utils';
 
+import { CachedMailProvider } from './providers/CachedMailProvider';
+import type { OnInboxRefreshed } from './providers/CachedMailProvider';
 import { EwsMailProvider } from './providers/EwsMailProvider';
 import { FolderPickerPopover } from './components/FolderPickerPopover';
 import { GmailMailProvider } from './providers/GmailMailProvider';
 import { Link } from 'react-router-dom';
-import { MailProvider } from './providers/MailProvider';
 import { MailSidebar } from './components/MailSidebar';
 import { MessageBlockHeader } from './components/MessageBlockHeader';
 import { createPortal } from 'react-dom';
@@ -74,13 +77,13 @@ function ThemeIcon({ pref }: { readonly pref: ThemePreference }) {
 }
 const THEME_CYCLE: ThemePreference[] = ['system', 'light', 'dark'];
 
-function AttachmentIcon({ contentType }: { readonly contentType: string }) {
-  if (contentType.startsWith('image/')) return <FileImage size={14} />;
-  if (contentType.includes('pdf') || contentType.includes('word') || contentType.includes('text'))
-    return <FileText size={14} />;
-  if (contentType.includes('zip') || contentType.includes('compressed'))
-    return <FileArchive size={14} />;
-  return <File size={14} />;
+function FileTypeIcon({ name, size = 20 }: { readonly name: string; readonly size?: number }) {
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  return (
+    <div style={{ width: size, height: size, flexShrink: 0 }}>
+      <FileIcon extension={ext} {...(defaultStyles[ext as keyof typeof defaultStyles] ?? {})} />
+    </div>
+  );
 }
 
 // ── Folder unread count helpers ────────────────────────────────────────────────
@@ -95,6 +98,8 @@ const DISPLAY_TO_STATIC: Record<string, string> = {
   'trash': 'deleteditems',
   'deleted items': 'deleteditems',
   'éléments supprimés': 'deleteditems',
+  'drafts': 'drafts',
+  'brouillons': 'drafts',
 };
 function buildUnreadCounts(folders: import('./types').MailFolder[]): Record<string, number> {
   const counts: Record<string, number> = {};
@@ -118,17 +123,30 @@ export default function MailApp() {
   const { accounts: googleAccounts, getValidToken: getGoogleToken } = useGoogleAuth();
   const { preference, setPreference } = useTheme();
 
+  /** Stable ref so CachedMailProvider background refreshes always see current state. */
+  const onInboxRefreshedRef = useRef<OnInboxRefreshed | null>(null);
+
   // Unified account list across all providers
   const allMailAccounts = useMemo(() => [
-    ...ewsAccounts.map(a => ({ id: a.id, email: a.email, providerType: 'ews' as const, color: a.color })),
-    ...googleAccounts.map(a => ({ id: a.id, email: a.email, providerType: 'gmail' as const, color: a.color })),
+    ...ewsAccounts.map(a => ({ id: a.id, email: a.email, name: a.displayName, providerType: 'ews' as const, color: a.color })),
+    ...googleAccounts.map(a => ({ id: a.id, email: a.email, name: a.name, providerType: 'gmail' as const, color: a.color })),
   ], [ewsAccounts, googleAccounts]);
 
   // Map of accountId → MailProvider (stable — recreated only when accounts change)
   const allProviders = useMemo<Map<string, MailProvider>>(() => {
     const map = new Map<string, MailProvider>();
-    for (const a of ewsAccounts) map.set(a.id, new EwsMailProvider(a.id, getEwsToken));
-    for (const a of googleAccounts) map.set(a.id, new GmailMailProvider(a.id, getGoogleToken));
+    for (const a of ewsAccounts) {
+      map.set(a.id, new CachedMailProvider(
+        new EwsMailProvider(a.id, getEwsToken),
+        (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
+      ));
+    }
+    for (const a of googleAccounts) {
+      map.set(a.id, new CachedMailProvider(
+        new GmailMailProvider(a.id, getGoogleToken),
+        (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
+      ));
+    }
     return map;
   // getEwsToken / getGoogleToken are stable store refs — intentionally excluded
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -160,10 +178,14 @@ export default function MailApp() {
   const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward'>('reply');
   const [composing, setComposing] = useState(false);
+  // Account used when composing a new message in All-accounts mode
+  const [composingAccountId, setComposingAccountId] = useState<string>(() => allMailAccounts[0]?.id ?? '');
   const [mailContacts, setMailContacts] = useState<RecipientEntry[]>([]);
   const contacts = useContactSuggestions(mailContacts);
   const [error, setError] = useState<string | null>(null);
   const [deleteToast, setDeleteToast] = useState<{ label: string } | null>(null);
+  const [downloadToast, setDownloadToast] = useState<{ name: string; path: string } | null>(null);
+  const downloadToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDeletionRef = useRef<{
     revert: () => void;
     execute: () => Promise<void>;
@@ -171,7 +193,15 @@ export default function MailApp() {
   } | null>(null);
 
   const [sendToast, setSendToast] = useState<{ label: string } | null>(null);
+  const [draftToast, setDraftToast] = useState<{ label: string } | null>(null);
+  const draftToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [actionToast, setActionToast] = useState<{ label: string } | null>(null);
+  const actionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Multi-selection
+  const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
   const [composerRestoreData, setComposerRestoreData] = useState<ComposerRestoreData | null>(null);
+  const [composingDraftItemId, setComposingDraftItemId] = useState<{ itemId: string; accountId: string } | null>(null);
   const pendingSendRef = useRef<{
     execute: () => Promise<void>;
     timerId: ReturnType<typeof setTimeout>;
@@ -360,7 +390,10 @@ export default function MailApp() {
     try {
       const result = await provider.listThreads(selectedFolder, 50, threads.length);
       if (result.length > 0) {
-        setThreads(prev => [...prev, ...result]);
+        setThreads(prev => {
+          const seen = new Set(prev.map(t => t.conversation_id));
+          return [...prev, ...result.filter(t => !seen.has(t.conversation_id))];
+        });
         setHasMoreThreads(result.length >= 50);
       } else {
         setHasMoreThreads(false);
@@ -377,6 +410,7 @@ export default function MailApp() {
     setMessages([]);
     setReplyingTo(null);
     setHasMoreThreads(true);
+    setSelectedThreadIds(new Set());
     loadThreads();
   }, [loadThreads]);
 
@@ -415,6 +449,28 @@ export default function MailApp() {
     }
   }, [isAllMode, allProviders, provider]);
 
+  // Keep the onInboxRefreshed callback ref up to date with latest state each render.
+  // This lets CachedMailProvider background refreshes update the UI without re-creating providers.
+  onInboxRefreshedRef.current = (accountId: string, freshThreads: MailThread[]) => {
+    if (selectedFolder !== 'inbox') return;
+    if (isAllMode) {
+      const acc = allMailAccounts.find(a => a.id === accountId);
+      const atIdx = (acc?.email ?? '').indexOf('@');
+      const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
+      const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
+      const accountColor = acc?.color;
+      const tagged = freshThreads.map(t => ({ ...t, accountId, accountLabel, accountColor }));
+      setThreads(prev => {
+        const others = prev.filter(t => t.accountId !== accountId);
+        return [...others, ...tagged].sort((a, b) =>
+          new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime()
+        );
+      });
+    } else if (selectedAccountId === accountId) {
+      setThreads(freshThreads);
+    }
+  };
+
   // Silent thread refresh (no loading spinner) used by the polling interval.
   const silentRefresh = useCallback(async () => {
     try {
@@ -428,7 +484,10 @@ export default function MailApp() {
               const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
               const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
               const accountColor = acc?.color;
-              const threads = await p.listThreads(selectedFolder, 50, 0);
+              // Force a network fetch for inbox to bypass the local cache
+              const threads = selectedFolder === 'inbox'
+                ? await (p.forceRefreshInbox?.(50) ?? p.listThreads(selectedFolder, 50, 0))
+                : await p.listThreads(selectedFolder, 50, 0);
               return threads.map(t => ({ ...t, accountId, accountLabel, accountColor }));
             })
           ),
@@ -455,8 +514,12 @@ export default function MailApp() {
         setFolderUnreadCounts(mergedCounts);
         setAllAccountFolders(newAccountFolders);
       } else if (provider) {
+        // Force a network fetch for inbox to bypass the local cache
+        const fetchThreads = selectedFolder === 'inbox'
+          ? provider.forceRefreshInbox?.(50) ?? provider.listThreads(selectedFolder, 50, 0)
+          : provider.listThreads(selectedFolder, 50, 0);
         const [result, folders] = await Promise.all([
-          provider.listThreads(selectedFolder, 50, 0),
+          fetchThreads,
           provider.listFolders(),
         ]);
         setThreads(result);
@@ -515,11 +578,42 @@ export default function MailApp() {
   const openThread = useCallback(async (thread: MailThread) => {
     const p = resolveProvider(thread.accountId);
     if (!p) return;
+
+    // Drafts open directly in the composer instead of the thread view
+    if (selectedFolder === 'drafts') {
+      setMessagesLoading(true);
+      try {
+        const result = await p.getThread(thread.conversation_id, false, true);
+        const msg = result[0];
+        if (msg) {
+          setComposerRestoreData({
+            isNewMessage: true,
+            recipients: msg.to_recipients.map(r => ({ email: r.email, name: r.name ?? undefined })),
+            cc: msg.cc_recipients.map(r => ({ email: r.email, name: r.name ?? undefined })),
+            bcc: [],
+            subject: msg.subject,
+            bodyHtml: msg.body_html,
+            replyingToMsg: null,
+          });
+          setComposingDraftItemId(thread.accountId ? { itemId: msg.item_id, accountId: thread.accountId } : null);
+          if (thread.accountId) setComposingAccountId(thread.accountId);
+          setComposing(true);
+          setSelectedThread(null);
+        }
+      } catch (e) {
+        console.error('[mail] openThread error:', e);
+        setError(String(e));
+      } finally {
+        setMessagesLoading(false);
+      }
+      return;
+    }
+
     setSelectedThread(thread);
     setReplyingTo(null);
     setMessagesLoading(true);
     try {
-      const result = await p.getThread(thread.conversation_id, selectedFolder === 'deleteditems');
+      const result = await p.getThread(thread.conversation_id, selectedFolder === 'deleteditems', false);
       setMessages(result);
       setThreads(prev => prev.map(th =>
         th.conversation_id === thread.conversation_id ? { ...th, unread_count: 0 } : th
@@ -691,6 +785,7 @@ export default function MailApp() {
         } else {
           await p.moveToTrash(itemId);
         }
+        if (convId) (p as CachedMailProvider).evict?.(convId).catch(() => {});
       },
     );
   }, [resolveProvider, messages, selectedThread, selectedFolder, scheduleDeletion, t]);
@@ -792,14 +887,21 @@ export default function MailApp() {
       },
       async () => {
         const inTrash = selectedFolder === 'deleteditems';
-        const msgs = await p.getThread(thread.conversation_id, inTrash);
-        for (const msg of msgs) {
-          if (inTrash) {
-            await p.permanentlyDelete(msg.item_id);
-          } else {
-            await p.moveToTrash(msg.item_id);
+        const isDraft = selectedFolder === 'drafts';
+        if (isDraft) {
+          // For drafts conversation_id IS the item_id — delete directly, no getThread needed
+          await p.permanentlyDelete(thread.conversation_id);
+        } else {
+          const msgs = await p.getThread(thread.conversation_id, inTrash);
+          for (const msg of msgs) {
+            if (inTrash) {
+              await p.permanentlyDelete(msg.item_id);
+            } else {
+              await p.moveToTrash(msg.item_id);
+            }
           }
         }
+        (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
       },
     );
   }, [resolveProvider, selectedThread, messages, selectedFolder, scheduleDeletion, t]);
@@ -818,6 +920,7 @@ export default function MailApp() {
       setSnoozedMap(prev => ({ ...prev, [selectedThread.conversation_id]: snoozeUntil }));
       setSnoozedByItemId(prev => ({ ...prev, [lastMsg.item_id]: snoozeUntil }));
       setThreads(prev => prev.filter(t => t.conversation_id !== selectedThread.conversation_id));
+      (p as CachedMailProvider).evict?.(selectedThread.conversation_id).catch(() => {});
       setSelectedThread(null);
       setMessages([]);
       void folderId;
@@ -869,6 +972,7 @@ export default function MailApp() {
       for (const msg of savedMessages) {
         await p.moveToFolder(msg.item_id, targetFolderId);
       }
+      (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
     } catch (e) {
       setError(String(e));
       // Restore on failure
@@ -890,11 +994,173 @@ export default function MailApp() {
     }
   }, [resolveProvider, messages, selectedThread, selectedFolder]);
 
-  const openAttachment = useCallback(async (att: MailAttachment) => {
+  // ── Action toast helper ──────────────────────────────────────────────────────
+  const showActionToast = useCallback((label: string) => {
+    if (actionToastTimerRef.current) clearTimeout(actionToastTimerRef.current);
+    setActionToast({ label });
+    actionToastTimerRef.current = setTimeout(() => setActionToast(null), 4000);
+  }, []);
+
+  // ── Bulk action handlers ──────────────────────────────────────────────────────
+  const handleBulkDelete = useCallback(async () => {
+    const toDelete = threads.filter(t => selectedThreadIds.has(t.conversation_id));
+    if (toDelete.length === 0) return;
+
+    // Optimistic: remove from list immediately
+    setThreads(prev => prev.filter(t => !selectedThreadIds.has(t.conversation_id)));
+    if (selectedThread && selectedThreadIds.has(selectedThread.conversation_id)) {
+      setSelectedThread(null);
+      setMessages([]);
+    }
+    setSelectedThreadIds(new Set());
+    showActionToast(
+      `${toDelete.length} conversation${toDelete.length > 1 ? 's supprimées' : ' supprimée'}`
+    );
+
+    for (const thread of toDelete) {
+      const p = resolveProvider(thread.accountId);
+      if (!p) continue;
+      try {
+        const inTrash = selectedFolder === 'deleteditems';
+        if (selectedFolder === 'drafts') {
+          await p.permanentlyDelete(thread.conversation_id);
+        } else {
+          const msgs = await p.getThread(thread.conversation_id, inTrash);
+          for (const msg of msgs) {
+            if (inTrash) await p.permanentlyDelete(msg.item_id);
+            else await p.moveToTrash(msg.item_id);
+          }
+        }
+        (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
+      } catch (e) {
+        setError(String(e));
+      }
+    }
+  }, [threads, selectedThreadIds, selectedThread, resolveProvider, selectedFolder, showActionToast]);
+
+  const handleBulkSnooze = useCallback(async (snoozeUntil: string) => {
+    const toSnooze = threads.filter(t => selectedThreadIds.has(t.conversation_id));
+    if (toSnooze.length === 0) return;
+
+    setThreads(prev => prev.filter(t => !selectedThreadIds.has(t.conversation_id)));
+    if (selectedThread && selectedThreadIds.has(selectedThread.conversation_id)) {
+      setSelectedThread(null);
+      setMessages([]);
+    }
+    showActionToast(
+      `${toSnooze.length} conversation${toSnooze.length > 1 ? 's snoozées' : ' snoozée'}`
+    );
+
+    for (const thread of toSnooze) {
+      const p = resolveProvider(thread.accountId);
+      if (!p) continue;
+      try {
+        const msgs = await p.getThread(thread.conversation_id, false);
+        const lastMsg = msgs[msgs.length - 1];
+        if (!lastMsg) continue;
+        await p.snooze(lastMsg.item_id);
+        const key = 'mail-snoozed-items';
+        const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string; providerType?: 'ews' | 'gmail' }[] =
+          JSON.parse(localStorage.getItem(key) ?? '[]');
+        stored.push({ itemId: lastMsg.item_id, accountId: p.accountId, snoozeUntil, conversationId: thread.conversation_id, providerType: p.providerType });
+        localStorage.setItem(key, JSON.stringify(stored));
+        setSnoozedMap(prev => ({ ...prev, [thread.conversation_id]: snoozeUntil }));
+        setSnoozedByItemId(prev => ({ ...prev, [lastMsg.item_id]: snoozeUntil }));
+        (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
+      } catch (e) {
+        setError(String(e));
+      }
+    }
+  }, [threads, selectedThreadIds, selectedThread, resolveProvider, showActionToast]);
+
+  const handleBulkMove = useCallback(async (targetFolderId: string) => {
+    const toMove = threads.filter(t => selectedThreadIds.has(t.conversation_id));
+    if (toMove.length === 0) return;
+
+    setThreads(prev => prev.filter(t => !selectedThreadIds.has(t.conversation_id)));
+    if (selectedThread && selectedThreadIds.has(selectedThread.conversation_id)) {
+      setSelectedThread(null);
+      setMessages([]);
+    }
+    showActionToast(
+      `${toMove.length} conversation${toMove.length > 1 ? 's déplacées' : ' déplacée'}`
+    );
+
+    for (const thread of toMove) {
+      const p = resolveProvider(thread.accountId);
+      if (!p) continue;
+      try {
+        const msgs = await p.getThread(thread.conversation_id, false);
+        for (const msg of msgs) await p.moveToFolder(msg.item_id, targetFolderId);
+        (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
+      } catch (e) {
+        setError(String(e));
+      }
+    }
+  }, [threads, selectedThreadIds, selectedThread, resolveProvider, showActionToast]);
+
+  const handleBulkToggleRead = useCallback(async (markAsRead: boolean) => {
+    const toUpdate = threads.filter(t => selectedThreadIds.has(t.conversation_id));
+    if (toUpdate.length === 0) return;
+
+    // Optimistic update
+    setThreads(prev => prev.map(t =>
+      selectedThreadIds.has(t.conversation_id)
+        ? { ...t, unread_count: markAsRead ? 0 : t.message_count }
+        : t
+    ));
+    showActionToast(
+      markAsRead
+        ? `${toUpdate.length} conversation${toUpdate.length > 1 ? 's marquées comme lues' : ' marquée comme lue'}`
+        : `${toUpdate.length} conversation${toUpdate.length > 1 ? 's marquées comme non lues' : ' marquée comme non lue'}`
+    );
+
+    for (const thread of toUpdate) {
+      const p = resolveProvider(thread.accountId);
+      if (!p) continue;
+      try {
+        const msgs = await p.getThread(thread.conversation_id, selectedFolder === 'deleteditems');
+        const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key }));
+        if (markAsRead) await p.markRead(items);
+        else await p.markUnread(items);
+      } catch (e) {
+        setError(String(e));
+      }
+    }
+  }, [threads, selectedThreadIds, resolveProvider, selectedFolder, showActionToast]);
+
+  const [attachmentPreview, setAttachmentPreview] = useState<{
+    attachment: MailAttachment; loading: boolean; data: string | null;
+  } | null>(null);
+
+  const previewAttachment = useCallback(async (att: MailAttachment) => {
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p) return;
+    const canPreviewInApp = att.content_type.startsWith('image/') || att.content_type.includes('pdf');
+    if (!canPreviewInApp) {
+      // DOCX, Excel, others → open with system app
+      try { await p.openAttachment(att); } catch (e) { setError(String(e)); }
+      return;
+    }
+    setAttachmentPreview({ attachment: att, loading: true, data: null });
+    try {
+      const data = await p.getAttachmentData(att);
+      setAttachmentPreview({ attachment: att, loading: false, data });
+    } catch (e) {
+      setError(String(e));
+      setAttachmentPreview(null);
+    }
+  }, [resolveProvider, selectedThread]);
+
+  const downloadAttachment = useCallback(async (att: MailAttachment) => {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) return;
     try {
-      await p.openAttachment(att);
+      const data = await p.getAttachmentData(att);
+      const path = await invoke<string>('save_file_to_downloads', { filename: att.name, data });
+      if (downloadToastTimerRef.current) clearTimeout(downloadToastTimerRef.current);
+      setDownloadToast({ name: att.name, path });
+      downloadToastTimerRef.current = setTimeout(() => setDownloadToast(null), 15000);
     } catch (e) { setError(String(e)); }
   }, [resolveProvider, selectedThread]);
 
@@ -905,8 +1171,12 @@ export default function MailApp() {
     subject: string,
     bodyHtml: string,
     restoreData: typeof composerRestoreData,
+    attachments?: ComposerAttachment[],
+    fromAccountId?: string,
   ) => {
-    const p = resolveProvider(selectedThread?.accountId);
+    const p = fromAccountId
+      ? (allProviders.get(fromAccountId) ?? null)
+      : resolveProvider(selectedThread?.accountId);
     if (!p) return;
 
     // Flush any already-pending send immediately
@@ -919,7 +1189,7 @@ export default function MailApp() {
     const replyToChangeKey = restoreData?.replyingToMsg?.change_key ?? null;
 
     const execute = async () => {
-      await p.sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey });
+      await p.sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, attachments });
       if (!restoreData?.isNewMessage && selectedThread) openThread(selectedThread);
     };
 
@@ -935,7 +1205,7 @@ export default function MailApp() {
     setSendToast({ label: t('mail.messageSent', 'Message envoyé') });
     setReplyingTo(null);
     setComposing(false);
-  }, [resolveProvider, selectedThread, openThread, t]);
+  }, [allProviders, resolveProvider, selectedThread, openThread, t]);
 
   const cancelSend = useCallback(() => {
     if (!pendingSendRef.current) return;
@@ -950,6 +1220,25 @@ export default function MailApp() {
       setReplyingTo(restoreData.replyingToMsg);
     }
   }, []);
+
+  const handleSaveDraft = useCallback((
+    accountId: string | undefined,
+    to: string[],
+    cc: string[],
+    bcc: string[],
+    subject: string,
+    bodyHtml: string,
+  ) => {
+    const p = resolveProvider(accountId);
+    if (!p) return;
+    p.saveDraft({ to, cc, bcc, subject, bodyHtml }).catch(e => setError(String(e)));
+    if (draftToastTimerRef.current) clearTimeout(draftToastTimerRef.current);
+    setDraftToast({ label: t('mail.savedToDrafts', 'Brouillon enregistré') });
+    draftToastTimerRef.current = setTimeout(() => {
+      setDraftToast(null);
+      draftToastTimerRef.current = null;
+    }, 3_000);
+  }, [resolveProvider, t]);
 
   // Panel resizing handlers
   const startResizingSidebar = useCallback((e: MouseEvent) => {
@@ -1091,7 +1380,12 @@ export default function MailApp() {
                 <MailSidebar
                   selectedFolder={selectedFolder}
                   onSelectFolder={setSelectedFolder}
-                  onCompose={() => { setComposing(true); setSelectedThread(null); }}
+                  onCompose={() => {
+                    setComposing(true);
+                    setSelectedThread(null);
+                    // In All mode, default to first account; in single-account mode, use that account
+                    setComposingAccountId(isAllMode ? (allMailAccounts[0]?.id ?? '') : selectedAccountId);
+                  }}
                   provider={isAllMode ? null : provider}
                   onFoldersLoaded={handleFoldersLoaded}
                   folderUnreadCounts={folderUnreadCounts}
@@ -1115,9 +1409,31 @@ export default function MailApp() {
               selectedId={selectedThread?.conversation_id ?? null}
               snoozedMap={snoozedMap}
               isInSnoozedFolder={isInSnoozedFolder}
-              onSelect={openThread}
+              onSelect={thread => {
+                if (selectedThreadIds.size > 0) {
+                  setSelectedThreadIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(thread.conversation_id)) next.delete(thread.conversation_id);
+                    else next.add(thread.conversation_id);
+                    return next;
+                  });
+                } else {
+                  openThread(thread);
+                }
+              }}
               onToggleRead={handleToggleThreadRead}
               onDelete={handleDeleteThread}
+              selectedThreadIds={selectedThreadIds}
+              onToggleSelect={thread => {
+                setSelectedThreadIds(prev => {
+                  const next = new Set(prev);
+                  if (next.has(thread.conversation_id)) next.delete(thread.conversation_id);
+                  else next.add(thread.conversation_id);
+                  return next;
+                });
+              }}
+              onSelectAll={() => setSelectedThreadIds(new Set(threads.map(t => t.conversation_id)))}
+              onClearSelection={() => setSelectedThreadIds(new Set())}
             />
           </div>
           <div
@@ -1127,11 +1443,27 @@ export default function MailApp() {
           />
 
           <div className="mail-detail-panel">
-            {composing ? (
+            {!composing && selectedThreadIds.size > 0 ? (
+              <MultiSelectionPanel
+                threads={threads}
+                selectedIds={selectedThreadIds}
+                onClearSelection={() => setSelectedThreadIds(new Set())}
+                onBulkDelete={handleBulkDelete}
+                onBulkSnooze={handleBulkSnooze}
+                onBulkMove={handleBulkMove}
+                onBulkToggleRead={handleBulkToggleRead}
+                moveFolders={
+                  isAllMode
+                    ? (allAccountFolders.get(threads.find(t => selectedThreadIds.has(t.conversation_id))?.accountId ?? '') ?? allFolders)
+                    : allFolders
+                }
+                supportsSnooze={true}
+              />
+            ) : composing ? (
               <NewMessageComposer
                 contacts={contacts}
                 restoreData={composerRestoreData?.isNewMessage ? composerRestoreData : null}
-                onSend={(to, cc, bcc, subject, body) =>
+                onSend={(to, cc, bcc, subject, body, attachments) =>
                   scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: true,
                     recipients: to.map(email => ({ email })),
@@ -1140,9 +1472,22 @@ export default function MailApp() {
                     subject,
                     bodyHtml: body,
                     replyingToMsg: null,
-                  })
+                  }, attachments, composingAccountId || undefined)
                 }
-                onCancel={() => setComposing(false)}
+                onCancel={() => { setComposing(false); setComposingDraftItemId(null); }}
+                onSaveDraft={(to, cc, bcc, subject, bodyHtml) =>
+                  handleSaveDraft(composingAccountId || selectedAccountId, to, cc, bcc, subject, bodyHtml)
+                }
+                onDeleteDraft={composingDraftItemId ? async () => {
+                  const p = allProviders.get(composingDraftItemId.accountId);
+                  if (p) await p.permanentlyDelete(composingDraftItemId.itemId).catch(() => {});
+                  setComposing(false);
+                  setComposingDraftItemId(null);
+                  loadThreads();
+                } : undefined}
+                fromAccounts={isAllMode ? allMailAccounts : undefined}
+                fromAccountId={composingAccountId}
+                onFromAccountChange={setComposingAccountId}
               />
             ) : selectedThread === null ? (
               <div className="mail-detail-empty">
@@ -1166,16 +1511,20 @@ export default function MailApp() {
                 }
                 onMarkRead={markRead}
                 onTrash={moveToTrash}
-                onOpenAttachment={openAttachment}
+                onPreviewAttachment={previewAttachment}
+                onDownloadAttachment={downloadAttachment}
                 onReply={msg => { setReplyMode('reply'); setReplyingTo(msg); }}
                 onReplyAll={msg => { setReplyMode('replyAll'); setReplyingTo(msg); }}
                 onForward={msg => { setReplyMode('forward'); setReplyingTo(msg); }}
                 onToggleRead={toggleRead}
                 replyMode={replyMode}
                 onCancelReply={() => setReplyingTo(null)}
+                onSaveDraft={(to, cc, bcc, subject, bodyHtml) =>
+                  handleSaveDraft(selectedThread.accountId, to, cc, bcc, subject, bodyHtml)
+                }
                 onDeleteThread={() => handleDeleteThread(selectedThread)}
                 onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
-                onSend={(to, cc, bcc, subject, body) =>
+                onSend={(to, cc, bcc, subject, body, attachments) =>
                   scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: false,
                     recipients: to.map(email => ({ email })),
@@ -1184,7 +1533,7 @@ export default function MailApp() {
                     subject,
                     bodyHtml: body,
                     replyingToMsg: replyingTo,
-                  })
+                  }, attachments)
                 }
                 composerRestoreData={composerRestoreData?.isNewMessage === false ? composerRestoreData : null}
                 supportsSnooze={true}
@@ -1217,12 +1566,54 @@ export default function MailApp() {
         document.body
       )}
 
+      {downloadToast && createPortal(
+        <div className="mail-download-toast">
+          <Download size={13} />
+          <span className="mail-download-toast__name">{downloadToast.name}</span>
+          <button
+            type="button"
+            className="mail-download-toast__open"
+            onClick={() => invoke('open_file_path', { path: downloadToast.path }).catch(e => setError(String(e)))}
+          >
+            Ouvrir
+          </button>
+          <button type="button" className="mail-download-toast__close" onClick={() => setDownloadToast(null)}>
+            <X size={13} />
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {attachmentPreview && (
+        <AttachmentPreviewModal
+          attachment={attachmentPreview.attachment}
+          loading={attachmentPreview.loading}
+          data={attachmentPreview.data}
+          onClose={() => setAttachmentPreview(null)}
+        />
+      )}
+
       {sendToast && createPortal(
         <div className="mail-delete-toast">
           <span>{sendToast.label}</span>
           <button className="mail-delete-toast__undo" onClick={cancelSend}>
             {t('mail.undo', 'Annuler')}
           </button>
+        </div>,
+        document.body
+      )}
+
+      {draftToast && createPortal(
+        <div className="mail-delete-toast mail-draft-toast">
+          <span>{draftToast.label}</span>
+        </div>,
+        document.body
+      )}
+
+      {actionToast && createPortal(
+        <div className="mail-action-toast">
+          <Check size={14} />
+          <span>{actionToast.label}</span>
         </div>,
         document.body
       )}
@@ -1242,26 +1633,48 @@ interface ThreadListProps {
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
+  readonly selectedThreadIds: Set<string>;
+  readonly onToggleSelect: (t: MailThread) => void;
+  readonly onSelectAll: () => void;
+  readonly onClearSelection: () => void;
 }
 
 type ThreadFilter = 'all' | 'unread';
 
 const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
-  ({ threads, loading, loadingMore, selectedId, snoozedMap, isInSnoozedFolder, onSelect, onToggleRead, onDelete }, ref) => {
+  ({ threads, loading, loadingMore, selectedId, snoozedMap, isInSnoozedFolder, onSelect, onToggleRead, onDelete, selectedThreadIds, onToggleSelect, onSelectAll, onClearSelection }, ref) => {
     const { t } = useTranslation();
     const [filter, setFilter] = useState<ThreadFilter>('all');
-    const [allChecked, setAllChecked] = useState(false);
     const [filterOpen, setFilterOpen] = useState(false);
+    const checkboxRef = useRef<HTMLInputElement>(null);
 
     const visibleThreads = filter === 'unread' ? threads.filter(th => th.unread_count > 0) : threads;
+
+    const allSelected = visibleThreads.length > 0 && visibleThreads.every(th => selectedThreadIds.has(th.conversation_id));
+    const someSelected = !allSelected && visibleThreads.some(th => selectedThreadIds.has(th.conversation_id));
+
+    useEffect(() => {
+      if (checkboxRef.current) {
+        checkboxRef.current.indeterminate = someSelected;
+      }
+    }, [someSelected]);
+
+    const handleToolbarCheckbox = () => {
+      if (allSelected || someSelected) {
+        onClearSelection();
+      } else {
+        onSelectAll();
+      }
+    };
 
     const toolbar = (
       <div className="mail-thread-toolbar">
         <input
+          ref={checkboxRef}
           type="checkbox"
           className="mail-thread-toolbar__checkbox"
-          checked={allChecked}
-          onChange={e => setAllChecked(e.target.checked)}
+          checked={allSelected}
+          onChange={handleToolbarCheckbox}
           aria-label={t('mail.selectAll', 'Select all')}
         />
         <div className="mail-actions-dropdown">
@@ -1322,11 +1735,13 @@ const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
             key={thread.conversation_id}
             thread={thread}
             isSelected={thread.conversation_id === selectedId}
+            isChecked={selectedThreadIds.has(thread.conversation_id)}
             snoozeUntil={snoozedMap[thread.conversation_id]}
             isInSnoozedFolder={isInSnoozedFolder}
             onSelect={onSelect}
             onToggleRead={onToggleRead}
             onDelete={onDelete}
+            onToggleCheck={onToggleSelect}
           />
         ))}
         {loadingMore && (
@@ -1343,36 +1758,55 @@ ThreadList.displayName = 'ThreadList';
 interface ThreadItemProps {
   readonly thread: MailThread;
   readonly isSelected: boolean;
+  readonly isChecked: boolean;
   readonly snoozeUntil?: string;
   readonly isInSnoozedFolder: boolean;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
+  readonly onToggleCheck: (t: MailThread) => void;
 }
 
-function ThreadItem({ thread, isSelected, snoozeUntil, isInSnoozedFolder, onSelect, onToggleRead, onDelete }: ThreadItemProps) {
+function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const isUnread = thread.unread_count > 0;
   const sender = thread.from_name ?? t('mail.unknown', 'Unknown');
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [avatarHovered, setAvatarHovered] = useState(false);
 
   const showTooltip = (e: ReactMouseEvent<HTMLButtonElement>, text: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top });
   };
 
+  const showCheckbox = avatarHovered || isChecked;
+
   return (
     <div
       role="button"
       tabIndex={0}
-      className={`mail-thread-item${isSelected ? ' selected' : ''}${isUnread ? ' unread' : ''}`}
+      className={`mail-thread-item${isSelected ? ' selected' : ''}${isUnread ? ' unread' : ''}${isChecked ? ' checked' : ''}`}
       onClick={() => onSelect(thread)}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onSelect(thread); }}
     >
-      {/* Avatar */}
-      <div className="mail-thread-item__avatar"
-        style={{ background: avatarColor(sender) }}>
-        {initials(sender)}
+      {/* Avatar / Checkbox */}
+      <div
+        className={`mail-thread-item__avatar${showCheckbox ? ' mail-thread-item__avatar--checkbox' : ''}`}
+        style={showCheckbox ? {} : { background: avatarColor(sender) }}
+        onClick={e => { e.stopPropagation(); onToggleCheck(thread); }}
+        onMouseEnter={() => setAvatarHovered(true)}
+        onMouseLeave={() => setAvatarHovered(false)}
+        role="checkbox"
+        aria-checked={isChecked}
+        tabIndex={-1}
+      >
+        {showCheckbox ? (
+          <div className={`mail-thread-item__checkbox-box${isChecked ? ' mail-thread-item__checkbox-box--checked' : ''}`}>
+            {isChecked && <Check size={14} strokeWidth={3} />}
+          </div>
+        ) : (
+          initials(sender)
+        )}
       </div>
 
       {/* Content */}
@@ -1457,14 +1891,16 @@ interface ThreadDetailProps {
   readonly currentUserEmail?: string;
   readonly onMarkRead: (msgs: MailMessage[]) => void;
   readonly onTrash: (id: string) => void;
-  readonly onOpenAttachment: (att: MailAttachment) => void;
+  readonly onPreviewAttachment: (att: MailAttachment) => void;
+  readonly onDownloadAttachment: (att: MailAttachment) => void;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
   readonly replyMode: 'reply' | 'replyAll' | 'forward';
   readonly onCancelReply: () => void;
-  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => Promise<void>;
+  readonly onSaveDraft?: (to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) => void;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[]) => Promise<void>;
   readonly composerRestoreData?: ComposerRestoreData | null;
   readonly onDeleteThread: () => void;
   readonly onToggleThreadRead: () => void;
@@ -1502,9 +1938,9 @@ function computeSnoozeOptions() {
 
 function ThreadDetail({
   thread, messages, replyingTo, replyMode, contacts, currentUserEmail,
-  onMarkRead, onTrash, onOpenAttachment,
+  onMarkRead, onTrash, onPreviewAttachment, onDownloadAttachment,
   onReply, onReplyAll, onForward, onToggleRead,
-  onCancelReply, onSend, composerRestoreData,
+  onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
   supportsSnooze, onSnooze, snoozeUntil, onUnsnooze,
   moveFolders, onMove,
@@ -1704,7 +2140,8 @@ function ThreadDetail({
             defaultExpanded={idx === messages.length - 1}
             onMarkRead={onMarkRead}
             onTrash={onTrash}
-            onOpenAttachment={onOpenAttachment}
+            onPreviewAttachment={onPreviewAttachment}
+            onDownloadAttachment={onDownloadAttachment}
             onReply={onReply}
             onReplyAll={onReplyAll}
             onForward={onForward}
@@ -1721,9 +2158,237 @@ function ThreadDetail({
               restoreData={composerRestoreData}
               onSend={onSend}
               onCancel={onCancelReply}
+              onSaveDraft={onSaveDraft}
             />
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Multi-selection panel ─────────────────────────────────────────────────────
+
+interface MultiSelectionPanelProps {
+  readonly threads: MailThread[];
+  readonly selectedIds: Set<string>;
+  readonly onClearSelection: () => void;
+  readonly onBulkDelete: () => void;
+  readonly onBulkArchive?: () => void;
+  readonly onBulkSnooze: (until: string) => void;
+  readonly onBulkMove: (folderId: string) => void;
+  readonly onBulkToggleRead: (markAsRead: boolean) => void;
+  readonly moveFolders: import('./types').MailFolder[];
+  readonly supportsSnooze: boolean;
+}
+
+function MultiSelectionPanel({
+  threads, selectedIds, onClearSelection,
+  onBulkDelete, onBulkSnooze, onBulkMove, onBulkToggleRead,
+  moveFolders, supportsSnooze,
+}: MultiSelectionPanelProps) {
+  const { t } = useTranslation();
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [customDate, setCustomDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10);
+  });
+  const [customTime, setCustomTime] = useState('09:00');
+
+  const selectedThreads = threads.filter(t => selectedIds.has(t.conversation_id));
+  const count = selectedIds.size;
+  const allUnread = selectedThreads.every(t => t.unread_count > 0);
+  const { laterToday, tomorrowMorning, tomorrowAfternoon, nextWeek } = computeSnoozeOptions();
+  const laterTodayLabel = laterToday.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const nextWeekDayName = FR_DAYS[nextWeek.getDay()];
+  const todayMin = new Date().toISOString().slice(0, 10);
+
+  function handleSnoozeOption(date: Date) {
+    onBulkSnooze(date.toISOString());
+    setSnoozeOpen(false);
+    setShowCustomPicker(false);
+  }
+
+  function handleCustomSnooze() {
+    if (!customDate || !customTime) return;
+    const [year, month, day] = customDate.split('-').map(Number);
+    const [hour, minute] = customTime.split(':').map(Number);
+    const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+    onBulkSnooze(date.toISOString());
+    setSnoozeOpen(false);
+    setShowCustomPicker(false);
+  }
+
+  return (
+    <div className="mail-thread-detail">
+      {/* Toolbar — same layout as single-thread toolbar */}
+      <div className="mail-thread-detail__toolbar">
+        <button className="mail-detail-action-btn" onClick={() => {}} title={t('mail.archive', 'Archive')}>
+          <Archive size={15} />
+          <span>{t('mail.archive', 'Archive')}</span>
+        </button>
+        <button
+          className="mail-detail-action-btn mail-detail-action-btn--danger"
+          onClick={onBulkDelete}
+          title={t('mail.delete', 'Delete')}
+        >
+          <Trash2 size={15} />
+          <span>{t('mail.delete', 'Delete')}</span>
+        </button>
+
+        {/* Snooze */}
+        <div className="mail-actions-dropdown">
+          <button
+            className="mail-detail-action-btn"
+            disabled={!supportsSnooze}
+            onClick={() => { if (supportsSnooze) setSnoozeOpen(o => !o); }}
+            title={t('mail.snooze', 'Snooze')}
+          >
+            <Clock size={15} />
+            <span>{t('mail.snooze', 'Snooze')}</span>
+          </button>
+          {snoozeOpen && supportsSnooze && (
+            <>
+              <div role="button" tabIndex={-1} className="mail-thread-toolbar__overlay"
+                onClick={() => { setSnoozeOpen(false); setShowCustomPicker(false); }}
+                onKeyDown={e => { if (e.key === 'Escape') { setSnoozeOpen(false); setShowCustomPicker(false); } }} />
+              <div className="mail-actions-menu mail-snooze-menu">
+                <button className="mail-actions-menu__item" onClick={() => handleSnoozeOption(laterToday)}>
+                  Plus tard aujourd'hui · {laterTodayLabel}
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => handleSnoozeOption(tomorrowMorning)}>
+                  Demain matin · 9:00
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => handleSnoozeOption(tomorrowAfternoon)}>
+                  Demain après-midi · 14:00
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => handleSnoozeOption(nextWeek)}>
+                  La semaine prochaine {nextWeekDayName} · 9:00
+                </button>
+                <div className="mail-actions-menu__separator" />
+                <button className="mail-actions-menu__item" onClick={() => setShowCustomPicker(o => !o)}>
+                  Choisir date et heure
+                </button>
+                {showCustomPicker && (
+                  <div className="mail-snooze-custom">
+                    <div className="mail-snooze-custom__fields">
+                      <input type="date" value={customDate} min={todayMin} onChange={e => setCustomDate(e.target.value)} />
+                      <input type="time" value={customTime} onChange={e => setCustomTime(e.target.value)} />
+                    </div>
+                    <div className="mail-snooze-custom__actions">
+                      <button onClick={() => setShowCustomPicker(false)}>Annuler</button>
+                      <button className="mail-snooze-custom__ok" onClick={handleCustomSnooze}>OK</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Move */}
+        <div className="mail-actions-dropdown">
+          <button
+            className="mail-detail-action-btn"
+            onClick={() => setMoveOpen(o => !o)}
+            title={t('mail.move', 'Move to folder')}
+          >
+            <FolderInput size={15} />
+            <span>{t('mail.move', 'Move')}</span>
+          </button>
+          {moveOpen && (
+            <>
+              <div role="button" tabIndex={-1} className="mail-thread-toolbar__overlay"
+                onClick={() => setMoveOpen(false)}
+                onKeyDown={e => { if (e.key === 'Escape') setMoveOpen(false); }} />
+              <FolderPickerPopover
+                folders={moveFolders}
+                onSelect={folderId => { onBulkMove(folderId); setMoveOpen(false); }}
+                onClose={() => setMoveOpen(false)}
+              />
+            </>
+          )}
+        </div>
+
+        {/* More */}
+        <div className="mail-actions-dropdown" style={{ marginLeft: 'auto' }}>
+          <button
+            className="mail-detail-action-btn"
+            onClick={() => setMoreOpen(o => !o)}
+            title={t('mail.more', 'More')}
+          >
+            <MoreHorizontal size={15} />
+            <span>{t('mail.more', 'More')}</span>
+          </button>
+          {moreOpen && (
+            <>
+              <div className="mail-thread-toolbar__overlay" onClick={() => setMoreOpen(false)} />
+              <div className="mail-actions-menu" style={{ right: 0, left: 'auto' }}>
+                <button className="mail-actions-menu__item" onClick={() => { onBulkToggleRead(allUnread); setMoreOpen(false); }}>
+                  {allUnread ? t('mail.markRead', 'Mark as read') : t('mail.markUnread', 'Mark as unread')}
+                </button>
+                <div className="mail-actions-menu__separator" />
+                <button className="mail-actions-menu__item mail-actions-menu__item--danger" onClick={() => setMoreOpen(false)}>
+                  <ShieldAlert size={13} />
+                  {t('mail.reportSpam', 'Report spam')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Selection header */}
+      <div className="mail-multiselect-header">
+        <div className="mail-multiselect-header__count">
+          <div className="mail-multiselect-header__count-badge">{count}</div>
+          <span>
+            conversation{count > 1 ? 's' : ''} sélectionnée{count > 1 ? 's' : ''}
+          </span>
+        </div>
+        <button
+          className="mail-multiselect-header__clear btn-icon"
+          onClick={onClearSelection}
+          title="Effacer la sélection"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Thread cards */}
+      <div className="mail-multiselect-list">
+        {selectedThreads.map(thread => {
+          const sender = thread.from_name ?? t('mail.unknown', 'Unknown');
+          return (
+            <div key={thread.conversation_id} className={`mail-multiselect-card${thread.unread_count > 0 ? ' unread' : ''}`}>
+              <div className="mail-multiselect-card__avatar" style={{ background: avatarColor(sender) }}>
+                {initials(sender)}
+              </div>
+              <div className="mail-multiselect-card__body">
+                <div className="mail-multiselect-card__top">
+                  <span className="mail-multiselect-card__from">
+                    {sender}
+                    {thread.message_count > 1 && (
+                      <span className="mail-multiselect-card__count">{thread.message_count}</span>
+                    )}
+                  </span>
+                  <div className="mail-multiselect-card__meta">
+                    {thread.has_attachments && <Paperclip size={11} style={{ opacity: 0.5 }} />}
+                    <span className="mail-multiselect-card__date">{formatDate(thread.last_delivery_time)}</span>
+                  </div>
+                </div>
+                <div className="mail-multiselect-card__subject">
+                  {thread.topic || t('mail.noSubject', '(no subject)')}
+                </div>
+                <div className="mail-multiselect-card__snippet">
+                  {decodeHtmlEntities(thread.snippet)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1736,7 +2401,8 @@ interface MessageBlockProps {
   readonly defaultExpanded: boolean;
   readonly onMarkRead: (msgs: MailMessage[]) => void;
   readonly onTrash: (id: string) => void;
-  readonly onOpenAttachment: (att: MailAttachment) => void;
+  readonly onPreviewAttachment: (att: MailAttachment) => void;
+  readonly onDownloadAttachment: (att: MailAttachment) => void;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
@@ -1745,7 +2411,7 @@ interface MessageBlockProps {
 
 function MessageBlock({
   message, defaultExpanded,
-  onMarkRead, onTrash, onOpenAttachment,
+  onMarkRead, onTrash, onPreviewAttachment, onDownloadAttachment,
   onReply, onReplyAll, onForward, onToggleRead,
 }: MessageBlockProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -1774,10 +2440,14 @@ function MessageBlock({
 
       {expanded && (
         <div className="mail-message-block__body">
-          <EmailHtmlBody html={message.body_html} />
           {message.attachments.length > 0 && (
-            <AttachmentList attachments={message.attachments} onOpen={onOpenAttachment} />
+            <AttachmentList
+              attachments={message.attachments}
+              onPreview={onPreviewAttachment}
+              onDownload={onDownloadAttachment}
+            />
           )}
+          <EmailHtmlBody html={message.body_html} />
         </div>
       )}
     </div>
@@ -1842,6 +2512,11 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
 
   const prevMsgLabel = t('mail.previousMessage', 'Previous message');
 
+  // Strip CID inline-image references — they can't be resolved in the sandbox and
+  // produce console errors. Replace with an empty src so the <img> tag is kept
+  // (preserving layout) but no network request is made.
+  const safeHtml = html.replace(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
+
   const srcdoc = `<!DOCTYPE html>
 <html>
 <head>
@@ -1878,7 +2553,7 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
   .qt-inner { padding: 0 12px 10px; }${darkModeStyle}
 </style>
 </head>
-<body>${darkModeSvg}<div class="ew">${html}</div>
+<body>${darkModeSvg}<div class="ew">${safeHtml}</div>
 <script>
   document.addEventListener('click', function(e) {
     var a = e.target.closest('a');
@@ -1963,19 +2638,130 @@ function EmailHtmlBody({ html }: { readonly html: string }) {
 
 interface AttachmentListProps {
   readonly attachments: MailAttachment[];
-  readonly onOpen: (att: MailAttachment) => void;
+  readonly onPreview: (att: MailAttachment) => void;
+  readonly onDownload: (att: MailAttachment) => void;
 }
 
-function AttachmentList({ attachments, onOpen }: AttachmentListProps) {
+function AttachmentList({ attachments, onPreview, onDownload }: AttachmentListProps) {
   return (
     <div className="mail-attachments">
       {attachments.map(att => (
-        <button key={att.attachment_id} className="mail-attachment-item"
-          onClick={() => onOpen(att)} title={att.name}>
-          <AttachmentIcon contentType={att.content_type} />
-          <span className="mail-attachment-name">{att.name}</span>
-          <span className="mail-attachment-size">{formatSize(att.size)}</span>
-        </button>
+        <div key={att.attachment_id} className="mail-view-att-card" title={att.name}>
+          <div className="mail-view-att-card__icon">
+            <FileTypeIcon name={att.name} size={20} />
+          </div>
+          <div className="mail-view-att-card__info">
+            <span className="mail-view-att-card__name">{att.name}</span>
+            <span className="mail-view-att-card__size">{formatSize(att.size)}</span>
+          </div>
+          <div className="mail-view-att-card__actions">
+            <button type="button" className="mail-view-att-card__btn" onClick={() => onPreview(att)} title="Aperçu">
+              <Eye size={14} />
+            </button>
+            <button type="button" className="mail-view-att-card__btn" onClick={() => onDownload(att)} title="Télécharger">
+              <Download size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Attachment preview modal ───────────────────────────────────────────────────
+
+interface AttachmentPreviewModalProps {
+  readonly attachment: MailAttachment;
+  readonly loading: boolean;
+  readonly data: string | null;
+  readonly onClose: () => void;
+}
+
+function AttachmentPreviewModal({ attachment, loading, data, onClose }: AttachmentPreviewModalProps) {
+  const isImage = attachment.content_type.startsWith('image/');
+  const isPdf = attachment.content_type.includes('pdf');
+  const dataUrl = data ? `data:${attachment.content_type};base64,${data}` : null;
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="mail-preview-overlay" onClick={onClose}>
+      <div className="mail-preview-modal" onClick={e => e.stopPropagation()}>
+        <div className="mail-preview-modal__header">
+          <FileTypeIcon name={attachment.name} size={16} />
+          <span className="mail-preview-modal__title">{attachment.name}</span>
+          <button type="button" className="btn-icon" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div className="mail-preview-modal__body">
+          {loading && (
+            <div className="mail-preview-modal__loading">
+              <RefreshCw size={32} className="spin" style={{ opacity: 0.4 }} />
+            </div>
+          )}
+          {!loading && dataUrl && isImage && (
+            <img src={dataUrl} alt={attachment.name} className="mail-preview-modal__img" />
+          )}
+          {!loading && dataUrl && isPdf && (
+            <iframe src={dataUrl} title={attachment.name} className="mail-preview-modal__iframe" />
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ── Composer attachment helpers ────────────────────────────────────────────────
+
+function readFilesAsBase64(files: FileList): Promise<ComposerAttachment[]> {
+  return Promise.all(
+    Array.from(files).map(
+      file =>
+        new Promise<ComposerAttachment>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result as string;
+            // Strip "data:<type>;base64," prefix
+            const base64 = dataUrl.split(',')[1] ?? '';
+            resolve({ name: file.name, contentType: file.type || 'application/octet-stream', size: file.size, data: base64 });
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        })
+    )
+  );
+}
+
+
+interface ComposerAttachmentPanelProps {
+  readonly attachments: ComposerAttachment[];
+  readonly onRemove: (index: number) => void;
+}
+
+function ComposerAttachmentPanel({ attachments, onRemove }: ComposerAttachmentPanelProps) {
+  if (attachments.length === 0) return null;
+  return (
+    <div className="mail-composer-attachments">
+      {attachments.map((att, i) => (
+        <div key={i} className="mail-composer-att-card">
+          <button
+            type="button"
+            className="mail-composer-att-card__remove"
+            onClick={() => onRemove(i)}
+            title="Supprimer"
+          >
+            <X size={12} />
+          </button>
+          <div className="mail-composer-att-card__icon">
+            <FileTypeIcon name={att.name} size={28} />
+          </div>
+          <span className="mail-composer-att-card__name" title={att.name}>{att.name}</span>
+          <span className="mail-composer-att-card__size">{formatSize(att.size)}</span>
+        </div>
       ))}
     </div>
   );
@@ -2178,13 +2964,16 @@ interface MailComposerProps {
   readonly contacts: { email: string; name?: string }[];
   readonly currentUserEmail?: string;
   readonly restoreData?: ComposerRestoreData | null;
-  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => Promise<void>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[]) => Promise<void>;
   readonly onCancel: () => void;
+  readonly onSaveDraft?: (to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) => void;
 }
 
-function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, onSend, onCancel }: MailComposerProps) {
+function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, onSend, onCancel, onSaveDraft }: MailComposerProps) {
   const { t } = useTranslation();
   const [sending, setSending] = useState(false);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const isForward = mode === 'forward';
@@ -2257,14 +3046,52 @@ function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleAttachFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.length) return;
+    const newAtts = await readFilesAsBase64(e.target.files);
+    setAttachments(prev => [...prev, ...newAtts]);
+    e.target.value = '';
+  };
+
+  const handleTransferRecipient = (entry: RecipientEntry, fromField: string, toField: string) => {
+    const remove = (set: RecipientEntry[], setter: React.Dispatch<React.SetStateAction<RecipientEntry[]>>) =>
+      setter(set.filter(r => r.email.toLowerCase() !== entry.email.toLowerCase()));
+    const add = (set: RecipientEntry[], setter: React.Dispatch<React.SetStateAction<RecipientEntry[]>>) => {
+      if (!set.some(r => r.email.toLowerCase() === entry.email.toLowerCase()))
+        setter([...set, entry]);
+    };
+    if (fromField === 'to') remove(recipients, setRecipients);
+    if (fromField === 'cc') remove(ccRecipients, setCcRecipients);
+    if (fromField === 'bcc') remove(bccRecipients, setBccRecipients);
+    if (toField === 'to') add(recipients, setRecipients);
+    if (toField === 'cc') { setShowCc(true); add(ccRecipients, setCcRecipients); }
+    if (toField === 'bcc') { setShowBcc(true); add(bccRecipients, setBccRecipients); }
+  };
+
   const doSend = async () => {
     if (recipients.length === 0) return;
     const bodyHtml = bodyRef.current?.innerHTML ?? '';
     setSending(true);
-    try { await onSend(recipients.map(r => r.email), ccRecipients.map(r => r.email), bccRecipients.map(r => r.email), subject, bodyHtml); }
+    try { await onSend(recipients.map(r => r.email), ccRecipients.map(r => r.email), bccRecipients.map(r => r.email), subject, bodyHtml, attachments); }
     finally { setSending(false); }
   };
   const handleSubmit = async (e: FormEvent) => { e.preventDefault(); doSend(); };
+
+  const handleClose = () => {
+    if (onSaveDraft) {
+      const bodyHtml = bodyRef.current?.innerHTML ?? '';
+      if (bodyHtml.trim().length > 0) {
+        onSaveDraft(
+          recipients.map(r => r.email),
+          ccRecipients.map(r => r.email),
+          bccRecipients.map(r => r.email),
+          subject,
+          bodyHtml,
+        );
+      }
+    }
+    onCancel();
+  };
 
   const modeLabel = isForward
     ? t('mail.forward', 'Forward')
@@ -2282,8 +3109,13 @@ function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, 
             <Send size={15} />
             {sending ? t('mail.sending', 'Sending…') : t('mail.send', 'Send')}
           </button>
+          <button type="button" className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
+            <Paperclip size={15} />
+            {t('mail.attach', 'Joindre')}
+          </button>
+          <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAttachFiles} />
           <div style={{ flex: 1 }} />
-          <button type="button" className="btn-icon" onClick={onCancel}><X size={16} /></button>
+          <CloseComposerPopover onSaveDraft={handleClose} onDiscard={onCancel} />
         </div>
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'To')}:</span>
@@ -2292,6 +3124,8 @@ function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, 
             onChange={setRecipients}
             contacts={contacts}
             autoFocus
+            fieldId="to"
+            onDropFromOtherField={(entry, from) => handleTransferRecipient(entry, from, 'to')}
           />
           {!showCc && (
             <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>
@@ -2307,6 +3141,8 @@ function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, 
               value={ccRecipients}
               onChange={setCcRecipients}
               contacts={contacts}
+              fieldId="cc"
+              onDropFromOtherField={(entry, from) => handleTransferRecipient(entry, from, 'cc')}
             />
           </div>
         )}
@@ -2317,6 +3153,8 @@ function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, 
               value={bccRecipients}
               onChange={setBccRecipients}
               contacts={contacts}
+              fieldId="bcc"
+              onDropFromOtherField={(entry, from) => handleTransferRecipient(entry, from, 'bcc')}
             />
           </div>
         )}
@@ -2332,6 +3170,10 @@ function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, 
           />
         </div>
         <FormattingToolbar bodyRef={bodyRef} />
+        <ComposerAttachmentPanel
+          attachments={attachments}
+          onRemove={i => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
+        />
         <div
           ref={bodyRef}
           className="mail-composer__body mail-reply-composer__body"
@@ -2359,14 +3201,118 @@ interface ComposerRestoreData {
   readonly replyingToMsg: MailMessage | null;
 }
 
+// ── Close composer popover ────────────────────────────────────────────────────
+
+function CloseComposerPopover({ onSaveDraft, onDiscard }: {
+  readonly onSaveDraft: () => void;
+  readonly onDiscard: () => void | Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: Event) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" className="btn-icon" onClick={() => setOpen(o => !o)}>
+        <X size={16} />
+      </button>
+      {open && (
+        <div className="close-composer-popover">
+          <button
+            type="button"
+            className="close-composer-popover__option"
+            onClick={() => { setOpen(false); onSaveDraft(); }}
+          >
+            {t('mail.saveDraft', 'Enregistrer le brouillon')}
+          </button>
+          <button
+            type="button"
+            className="close-composer-popover__option close-composer-popover__option--danger"
+            onClick={() => { setOpen(false); onDiscard(); }}
+          >
+            {t('mail.discard', 'Supprimer')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── From account selector ──────────────────────────────────────────────────────
+
+interface FromAccount { id: string; email: string; name?: string; color?: string }
+
+function FromAccountSelector({ accounts, selectedId, onChange, label }: {
+  readonly accounts: FromAccount[];
+  readonly selectedId: string;
+  readonly onChange: (id: string) => void;
+  readonly label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = accounts.find(a => a.id === selectedId) ?? accounts[0];
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div className="mail-composer__field" ref={ref} style={{ position: 'relative' }}>
+      <span className="mail-composer__label">{label}:</span>
+      <button
+        type="button"
+        className="from-account-btn"
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className="from-account-name" style={{ color: selected?.color ?? 'var(--primary)' }}>{selected?.name ?? selected?.email}</span>
+        <span className="from-account-email">{selected?.name ? `<${selected.email}>` : ''}</span>
+        <ChevronDown size={12} style={{ marginLeft: 'auto', opacity: 0.5 }} />
+      </button>
+      {open && (
+        <ul className="from-account-dropdown">
+          {accounts.map(a => (
+            <li
+              key={a.id}
+              className={`from-account-option${a.id === selectedId ? ' from-account-option--active' : ''}`}
+              onClick={() => { onChange(a.id); setOpen(false); }}
+            >
+              <span className="from-account-name" style={{ color: a.color ?? 'var(--primary)' }}>{a.name ?? a.email}</span>
+              <span className="from-account-email">{a.name ? `<${a.email}>` : ''}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 interface NewMessageComposerProps {
   readonly contacts: { email: string; name?: string }[];
   readonly restoreData?: ComposerRestoreData | null;
-  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => Promise<void>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[]) => Promise<void>;
   readonly onCancel: () => void;
+  readonly onSaveDraft?: (to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) => void;
+  readonly onDeleteDraft?: () => Promise<void>;
+  /** Shown only in All-accounts mode to let the user pick the sender. */
+  readonly fromAccounts?: { id: string; email: string; name?: string; color?: string }[];
+  readonly fromAccountId?: string;
+  readonly onFromAccountChange?: (id: string) => void;
 }
 
-function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMessageComposerProps) {
+function NewMessageComposer({ contacts, restoreData, onSend, onCancel, onSaveDraft, onDeleteDraft, fromAccounts, fromAccountId, onFromAccountChange }: NewMessageComposerProps) {
   const { t } = useTranslation();
   const [recipients, setRecipients] = useState<RecipientEntry[]>(restoreData?.recipients ?? []);
   const [ccRecipients, setCcRecipients] = useState<RecipientEntry[]>(restoreData?.cc ?? []);
@@ -2375,6 +3321,8 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
   const [showBcc, setShowBcc] = useState((restoreData?.bcc?.length ?? 0) > 0);
   const [subject, setSubject] = useState(restoreData?.subject ?? '');
   const [sending, setSending] = useState(false);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2384,14 +3332,53 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleAttachFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.length) return;
+    const newAtts = await readFilesAsBase64(e.target.files);
+    setAttachments(prev => [...prev, ...newAtts]);
+    e.target.value = '';
+  };
+
+  const handleTransferRecipient = (entry: RecipientEntry, fromField: string, toField: string) => {
+    const remove = (set: RecipientEntry[], setter: React.Dispatch<React.SetStateAction<RecipientEntry[]>>) =>
+      setter(set.filter(r => r.email.toLowerCase() !== entry.email.toLowerCase()));
+    const add = (set: RecipientEntry[], setter: React.Dispatch<React.SetStateAction<RecipientEntry[]>>) => {
+      if (!set.some(r => r.email.toLowerCase() === entry.email.toLowerCase()))
+        setter([...set, entry]);
+    };
+    if (fromField === 'to') remove(recipients, setRecipients);
+    if (fromField === 'cc') remove(ccRecipients, setCcRecipients);
+    if (fromField === 'bcc') remove(bccRecipients, setBccRecipients);
+    if (toField === 'to') add(recipients, setRecipients);
+    if (toField === 'cc') { setShowCc(true); add(ccRecipients, setCcRecipients); }
+    if (toField === 'bcc') { setShowBcc(true); add(bccRecipients, setBccRecipients); }
+  };
+
   const doSend = async () => {
     if (recipients.length === 0) return;
     const bodyHtml = bodyRef.current?.innerHTML ?? '';
     setSending(true);
-    try { await onSend(recipients.map(r => r.email), ccRecipients.map(r => r.email), bccRecipients.map(r => r.email), subject, bodyHtml); }
+    try { await onSend(recipients.map(r => r.email), ccRecipients.map(r => r.email), bccRecipients.map(r => r.email), subject, bodyHtml, attachments); }
     finally { setSending(false); }
   };
   const handleSubmit = async (e: FormEvent) => { e.preventDefault(); doSend(); };
+
+  const handleClose = () => {
+    if (onSaveDraft) {
+      const bodyHtml = bodyRef.current?.innerHTML ?? '';
+      const hasContent = recipients.length > 0 || subject.trim().length > 0 || bodyHtml.trim().length > 0;
+      if (hasContent) {
+        onSaveDraft(
+          recipients.map(r => r.email),
+          ccRecipients.map(r => r.email),
+          bccRecipients.map(r => r.email),
+          subject,
+          bodyHtml,
+        );
+      }
+    }
+    onCancel();
+  };
 
   return (
     <div className="mail-new-composer">
@@ -2402,20 +3389,31 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
             <Send size={15} />
             {sending ? t('mail.sending', 'Sending…') : t('mail.send', 'Send')}
           </button>
-          <button type="button" className="btn-secondary mail-new-composer__attach" disabled>
+          <button type="button" className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={15} />
-            {t('mail.attach', 'Attach')}
+            {t('mail.attach', 'Joindre')}
           </button>
+          <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAttachFiles} />
           <div style={{ flex: 1 }} />
-          <button type="button" className="btn-icon" onClick={onCancel}><X size={16} /></button>
+          <CloseComposerPopover onSaveDraft={handleClose} onDiscard={onDeleteDraft ?? onCancel} />
         </div>
+        {fromAccounts && fromAccounts.length > 1 && (
+          <FromAccountSelector
+            accounts={fromAccounts}
+            selectedId={fromAccountId ?? ''}
+            onChange={id => onFromAccountChange?.(id)}
+            label={t('mail.from', 'From')}
+          />
+        )}
         <div className="mail-composer__field">
-          <span className="mail-composer__label">{t('mail.to', 'To')}:</span>
+          <span className="mail-composer__label">{t('mail.to', 'To')}</span>
           <RecipientInput
             value={recipients}
             onChange={setRecipients}
             contacts={contacts}
             autoFocus
+            fieldId="to"
+            onDropFromOtherField={(entry, from) => handleTransferRecipient(entry, from, 'to')}
           />
           {!showCc && (
             <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>
@@ -2426,11 +3424,13 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
         </div>
         {showCc && (
           <div className="mail-composer__field">
-            <span className="mail-composer__label">{t('mail.cc', 'Cc')}:</span>
+            <span className="mail-composer__label">{t('mail.cc', 'Cc')}</span>
             <RecipientInput
               value={ccRecipients}
               onChange={setCcRecipients}
               contacts={contacts}
+              fieldId="cc"
+              onDropFromOtherField={(entry, from) => handleTransferRecipient(entry, from, 'cc')}
             />
           </div>
         )}
@@ -2441,11 +3441,13 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
               value={bccRecipients}
               onChange={setBccRecipients}
               contacts={contacts}
+              fieldId="bcc"
+              onDropFromOtherField={(entry, from) => handleTransferRecipient(entry, from, 'bcc')}
             />
           </div>
         )}
         <div className="mail-composer__field">
-          <span className="mail-composer__label">{t('mail.subject', 'Subject')}:</span>
+          <span className="mail-composer__label">{t('mail.subject', 'Subject')}</span>
           <input
             className="mail-composer__input"
             type="text"
@@ -2456,6 +3458,10 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel }: NewMess
           />
         </div>
         <FormattingToolbar bodyRef={bodyRef} />
+        <ComposerAttachmentPanel
+          attachments={attachments}
+          onRemove={i => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
+        />
         <div
           ref={bodyRef}
           className="mail-composer__body mail-new-composer__body"

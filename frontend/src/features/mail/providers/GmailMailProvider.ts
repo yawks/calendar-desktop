@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { MailAttachment, MailFolder, MailMessage, MailRecipient, MailThread } from '../types';
-import type { MailItemRef, MailProvider, SendMailParams } from './MailProvider';
+import type { MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
 
 // ── Gmail REST API types ──────────────────────────────────────────────────────
 
@@ -294,7 +294,7 @@ export class GmailMailProvider implements MailProvider {
     }
   }
 
-  async getThread(conversationId: string, includeTrash = false): Promise<MailMessage[]> {
+  async getThread(conversationId: string, includeTrash = false, _isDraft = false): Promise<MailMessage[]> {
     const token = await this.token();
     const thread = await this.gFetch<GmailThread>(
       token,
@@ -376,7 +376,7 @@ export class GmailMailProvider implements MailProvider {
 
   // ── Send ───────────────────────────────────────────────────────────────────
 
-  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey }: SendMailParams): Promise<void> {
+  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, attachments }: SendMailParams): Promise<void> {
     const token = await this.token();
 
     let inReplyToMsgId: string | null = null;
@@ -391,7 +391,53 @@ export class GmailMailProvider implements MailProvider {
       } catch { /* non-critical */ }
     }
 
-    const mimeLines = [
+    const headerLines = [
+      `To: ${to.join(', ')}`,
+      ...(cc && cc.length > 0 ? [`Cc: ${cc.join(', ')}`] : []),
+      ...(bcc && bcc.length > 0 ? [`Bcc: ${bcc.join(', ')}`] : []),
+      `Subject: ${subject.replace(/\r?\n/g, ' ')}`,
+      'MIME-Version: 1.0',
+    ];
+    if (inReplyToMsgId) {
+      headerLines.push(`In-Reply-To: ${inReplyToMsgId}`);
+      headerLines.push(`References: ${inReplyToMsgId}`);
+    }
+
+    let mime: string;
+    if (attachments && attachments.length > 0) {
+      const boundary = `__bnd_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      headerLines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+      const parts: string[] = [
+        `--${boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n${bodyHtml}`,
+        ...attachments.map(att => {
+          // Wrap base64 data at 76 chars per line (RFC 2045)
+          const wrapped = att.data.match(/.{1,76}/g)?.join('\r\n') ?? att.data;
+          return (
+            `--${boundary}\r\n` +
+            `Content-Type: ${att.contentType}; name="${att.name}"\r\n` +
+            `Content-Disposition: attachment; filename="${att.name}"\r\n` +
+            `Content-Transfer-Encoding: base64\r\n\r\n` +
+            wrapped
+          );
+        }),
+      ];
+      mime = headerLines.join('\r\n') + '\r\n\r\n' + parts.join('\r\n') + `\r\n--${boundary}--`;
+    } else {
+      headerLines.push('Content-Type: text/html; charset=UTF-8');
+      mime = headerLines.join('\r\n') + '\r\n\r\n' + bodyHtml;
+    }
+
+    const body: Record<string, string> = { raw: encodeBase64Url(mime) };
+    // replyToChangeKey stores the threadId (set in parseMessage)
+    if (replyToChangeKey) body.threadId = replyToChangeKey;
+
+    await this.gPost(token, '/users/me/messages/send', body);
+  }
+
+  async saveDraft({ to, cc, bcc, subject, bodyHtml }: SaveDraftParams): Promise<void> {
+    const token = await this.token();
+    const headerLines = [
       `To: ${to.join(', ')}`,
       ...(cc && cc.length > 0 ? [`Cc: ${cc.join(', ')}`] : []),
       ...(bcc && bcc.length > 0 ? [`Bcc: ${bcc.join(', ')}`] : []),
@@ -399,17 +445,10 @@ export class GmailMailProvider implements MailProvider {
       'MIME-Version: 1.0',
       'Content-Type: text/html; charset=UTF-8',
     ];
-    if (inReplyToMsgId) {
-      mimeLines.push(`In-Reply-To: ${inReplyToMsgId}`);
-      mimeLines.push(`References: ${inReplyToMsgId}`);
-    }
-    const mime = mimeLines.join('\r\n') + '\r\n\r\n' + bodyHtml;
-
-    const body: Record<string, string> = { raw: encodeBase64Url(mime) };
-    // replyToChangeKey stores the threadId (set in parseMessage)
-    if (replyToChangeKey) body.threadId = replyToChangeKey;
-
-    await this.gPost(token, '/users/me/messages/send', body);
+    const mime = headerLines.join('\r\n') + '\r\n\r\n' + bodyHtml;
+    await this.gPost(token, '/users/me/drafts', {
+      message: { raw: encodeBase64Url(mime) },
+    });
   }
 
   // ── Read / unread ──────────────────────────────────────────────────────────
@@ -450,13 +489,15 @@ export class GmailMailProvider implements MailProvider {
   async openAttachment(attachment: MailAttachment): Promise<void> {
     const [messageId, attachmentId] = attachment.attachment_id.split(':');
     const accessToken = await this.token();
-    // Rust handles download + write to temp dir + open with system app
-    return invoke('gmail_open_attachment', {
-      accessToken,
-      messageId,
-      attachmentId,
-      filename: attachment.name,
-    });
+    return invoke('gmail_open_attachment', { accessToken, messageId, attachmentId, filename: attachment.name });
+  }
+
+  async getAttachmentData(attachment: MailAttachment): Promise<string> {
+    const [messageId, attachmentId] = attachment.attachment_id.split(':');
+    const accessToken = await this.token();
+    // Delegate to the Rust command which uses the correct URL_SAFE_NO_PAD decoder
+    // and returns clean standard base64.
+    return invoke<string>('gmail_get_attachment_data', { accessToken, messageId, attachmentId });
   }
 
   // ── Snooze ─────────────────────────────────────────────────────────────────

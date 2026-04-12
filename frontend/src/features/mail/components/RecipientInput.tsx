@@ -16,15 +16,22 @@ interface RecipientInputProps {
   /** Accumulated contacts from all loaded mail messages. */
   readonly contacts: RecipientEntry[];
   readonly autoFocus?: boolean;
+  /** Identifies this field for cross-field drag & drop (e.g. 'to', 'cc', 'bcc'). */
+  readonly fieldId?: string;
+  /** Called when a chip from another field is dropped here. */
+  readonly onDropFromOtherField?: (entry: RecipientEntry, fromFieldId: string) => void;
 }
 
-export function RecipientInput({ value, onChange, contacts, autoFocus }: RecipientInputProps) {
+export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, onDropFromOtherField }: RecipientInputProps) {
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const chipsRef = useRef<HTMLUListElement>(null);
+  const dragEnterCount = useRef(0);
 
   const filtered = useMemo(() => {
     const q = inputValue.trim().toLowerCase();
@@ -59,6 +66,65 @@ export function RecipientInput({ value, onChange, contacts, autoFocus }: Recipie
     onChange(value.filter(r => r.email.toLowerCase() !== email.toLowerCase()));
   };
 
+  const handleDragStart = (e: React.DragEvent, entry: RecipientEntry) => {
+    console.log('[DnD] dragStart', { entry, fieldId });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-recipient', JSON.stringify({ entry, fromFieldId: fieldId ?? '' }));
+    console.log('[DnD] types after setData:', [...e.dataTransfer.types]);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    console.log('[DnD] dragEnter on field', fieldId, 'types:', [...e.dataTransfer.types]);
+    if (!e.dataTransfer.types.includes('application/x-recipient')) {
+      console.log('[DnD] dragEnter ignored — type not found');
+      return;
+    }
+    e.preventDefault();
+    dragEnterCount.current += 1;
+    setIsDragOver(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('application/x-recipient')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDragLeave = () => {
+    dragEnterCount.current -= 1;
+    console.log('[DnD] dragLeave on field', fieldId, 'count now:', dragEnterCount.current);
+    if (dragEnterCount.current === 0) setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    console.log('[DnD] drop on field', fieldId, 'types:', [...e.dataTransfer.types]);
+    e.preventDefault();
+    dragEnterCount.current = 0;
+    setIsDragOver(false);
+    const raw = e.dataTransfer.getData('application/x-recipient');
+    console.log('[DnD] raw data:', raw);
+    if (!raw) return;
+    try {
+      const { entry, fromFieldId } = JSON.parse(raw) as { entry: RecipientEntry; fromFieldId: string };
+      console.log('[DnD] parsed:', { entry, fromFieldId, targetField: fieldId });
+      if (fromFieldId === fieldId) { console.log('[DnD] same field, no-op'); return; }
+      onDropFromOtherField?.(entry, fromFieldId);
+    } catch (err) {
+      console.error('[DnD] parse error:', err);
+    }
+  };
+
+  const handleEnterKey = () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed) return;
+    if (open && filtered.length > 0) {
+      addRecipient(filtered[activeIndex] ?? { email: trimmed });
+    } else {
+      const exact = filtered.find(c => c.email.toLowerCase() === trimmed.toLowerCase());
+      addRecipient(exact ?? { email: trimmed });
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -72,14 +138,7 @@ export function RecipientInput({ value, onChange, contacts, autoFocus }: Recipie
       setActiveIndex(i => Math.max(i - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const trimmed = inputValue.trim();
-      if (!trimmed) return;
-      if (open && filtered.length > 0) {
-        addRecipient(filtered[activeIndex] ?? { email: trimmed });
-      } else {
-        const exact = filtered.find(c => c.email.toLowerCase() === trimmed.toLowerCase());
-        addRecipient(exact ?? { email: trimmed });
-      }
+      handleEnterKey();
     } else if (e.key === 'Escape') {
       setOpen(false);
     } else if (e.key === 'Backspace' && inputValue === '' && value.length > 0) {
@@ -99,9 +158,21 @@ export function RecipientInput({ value, onChange, contacts, autoFocus }: Recipie
 
   return (
     <div ref={containerRef} className="recipient-input">
-      <div className="recipient-input__chips">
+      <ul
+        ref={chipsRef}
+        className={`recipient-input__chips${isDragOver ? ' recipient-input__chips--drag-over' : ''}`}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {value.map(r => (
-          <span key={r.email} className="recipient-chip">
+          <li
+            key={r.email}
+            className="recipient-chip"
+            draggable
+            onDragStart={e => handleDragStart(e, r)}
+          >
             {r.name ?? r.email}
             <button
               type="button"
@@ -111,9 +182,9 @@ export function RecipientInput({ value, onChange, contacts, autoFocus }: Recipie
             >
               <X size={11} />
             </button>
-          </span>
+          </li>
         ))}
-        <input
+        <li className="recipient-input__field-item"><input
           ref={inputRef}
           className="recipient-input__field"
           type="text"
@@ -125,8 +196,8 @@ export function RecipientInput({ value, onChange, contacts, autoFocus }: Recipie
           spellCheck={false}
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus={autoFocus}
-        />
-      </div>
+        /></li>
+      </ul>
       {open && filtered.length > 0 && (
         <ContactDropdown
           items={filtered}

@@ -72,6 +72,14 @@ pub struct MailItemRef {
     pub change_key: String,
 }
 
+/// A file attachment supplied by the frontend composer (base64-encoded content).
+#[derive(Deserialize, Debug)]
+pub struct ComposerAttachment {
+    pub name: String,
+    pub content_type: String,
+    pub data: String, // base64
+}
+
 #[derive(Serialize, Debug, Clone)]
 pub struct MailThread {
     pub conversation_id: String,
@@ -188,13 +196,89 @@ pub async fn mail_list_threads(
     folder: String,
     max_count: Option<u32>,
 ) -> Result<Vec<MailThread>, String> {
+    let count = max_count.unwrap_or(50);
+
+    // Drafts are not real conversations in EWS — use FindItem to list them as individual items.
+    // We use IdOnly + targeted AdditionalProperties to get a compact, unambiguous response
+    // where the very first <t:ItemId> in each <t:Message> is guaranteed to be the message's
+    // own ItemId (not a ConversationId or any nested reference).
+    if folder == "drafts" {
+        let soap_body = format!(
+            r#"<m:FindItem Traversal="Shallow">
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURI FieldURI="item:DateTimeReceived"/>
+      <t:FieldURI FieldURI="item:HasAttachments"/>
+      <t:FieldURI FieldURI="item:Preview"/>
+      <t:FieldURI FieldURI="message:ToRecipients"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="0" BasePoint="Beginning"/>
+  <m:SortOrder>
+    <t:FieldOrder Order="Descending">
+      <t:FieldURI FieldURI="item:DateTimeReceived"/>
+    </t:FieldOrder>
+  </m:SortOrder>
+  <m:ParentFolderIds>
+    <t:DistinguishedFolderId Id="drafts"/>
+  </m:ParentFolderIds>
+</m:FindItem>"#,
+        );
+        let xml = send(&access_token, &soap_body).await?;
+        if xml.contains("ResponseClass=\"Error\"") {
+            return Err(ews_err(&xml, "EWS error listing drafts"));
+        }
+        let mut threads = Vec::new();
+        for msg_xml in xml_all_ns(&xml, "t:Message") {
+            // ItemId is the first self-closing element in IdOnly shape — both prefixed and
+            // unprefixed namespace variants are handled.
+            let item_id_elem = msg_xml
+                .find("<t:ItemId ")
+                .or_else(|| msg_xml.find("<ItemId "))
+                .and_then(|s| msg_xml[s..].find("/>").map(|e| &msg_xml[s..s + e]));
+            let item_id = match item_id_elem.and_then(|e| xml_attr(e, "Id")) {
+                Some(id) => id,
+                None => continue,
+            };
+            let topic = xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default();
+            let last_delivery_time = xml_content_ns(&msg_xml, "t:DateTimeReceived").unwrap_or_default();
+            let has_attachments = xml_content_ns(&msg_xml, "t:HasAttachments")
+                .map(|v| v == "true")
+                .unwrap_or(false);
+            let snippet = xml_content_ns(&msg_xml, "t:Preview").unwrap_or_default();
+            // For drafts show the recipient(s) instead of the sender (which is always ourselves)
+            let to_xml = xml_content_ns(&msg_xml, "t:ToRecipients").unwrap_or_default();
+            let to_display = xml_all_ns(&to_xml, "t:Mailbox")
+                .into_iter()
+                .filter_map(|mb| {
+                    xml_content_ns(&mb, "t:Name")
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| xml_content_ns(&mb, "t:EmailAddress"))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            threads.push(MailThread {
+                conversation_id: item_id,
+                topic,
+                snippet,
+                last_delivery_time,
+                message_count: 1,
+                unread_count: 0,
+                from_name: if to_display.is_empty() { None } else { Some(to_display) },
+                has_attachments,
+            });
+        }
+        return Ok(threads);
+    }
+
     let parent_folder_id = match folder.as_str() {
         "inbox" | "sentitems" | "deleteditems" => {
             format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder)
         }
         id => format!(r#"<t:FolderId Id="{}"/>"#, id),
     };
-    let count = max_count.unwrap_or(50);
 
     let soap_body = format!(
         r#"<m:FindConversation>
@@ -291,7 +375,38 @@ pub async fn mail_get_thread(
     access_token: String,
     conversation_id: String,
     include_trash: Option<bool>,
+    is_draft: Option<bool>,
 ) -> Result<Vec<MailMessage>, String> {
+    // Drafts are not real conversations — fetch the item directly by its ItemId.
+    if is_draft.unwrap_or(false) {
+        let soap_body = format!(
+            r#"<m:GetItem>
+  <m:ItemShape>
+    <t:BaseShape>AllProperties</t:BaseShape>
+    <t:BodyType>HTML</t:BodyType>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="message:IsRead"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:ItemIds>
+    <t:ItemId Id="{item_id}"/>
+  </m:ItemIds>
+</m:GetItem>"#,
+            item_id = conversation_id,
+        );
+        let xml = send(&access_token, &soap_body).await?;
+        if xml.contains("ResponseClass=\"Error\"") {
+            return Err(ews_err(&xml, "EWS error getting draft"));
+        }
+        let mut messages = Vec::new();
+        for msg_xml in xml_all_ns(&xml, "t:Message") {
+            if let Some(msg) = parse_message(&msg_xml) {
+                messages.push(msg);
+            }
+        }
+        return Ok(messages);
+    }
+
     let folders_to_ignore = if include_trash.unwrap_or(false) {
         // Only ignore Drafts — keep Deleted Items so we can act on trashed messages.
         r#"<m:FoldersToIgnore>
@@ -362,8 +477,55 @@ pub async fn mail_get_thread(
 
 /// Send an email or reply to an existing message.
 ///
+/// Extract the first `<t:ItemId Id="..." ChangeKey="..."/>` from an EWS response.
+fn parse_item_id(xml: &str) -> Option<(String, String)> {
+    let start = xml.find("<t:ItemId ")?;
+    let end = xml[start..].find("/>").map(|e| start + e)?;
+    let elem = &xml[start..end];
+    let id = xml_attr(elem, "Id")?;
+    let ck = xml_attr(elem, "ChangeKey")?;
+    Some((id, ck))
+}
+
+/// Extract the updated item id/change-key from a `<t:RootItemId .../>` element
+/// returned by EWS CreateAttachment.
+fn parse_root_item_id(xml: &str) -> Option<(String, String)> {
+    let start = xml.find("<t:RootItemId ")?;
+    let end = xml[start..].find("/>").map(|e| start + e)?;
+    let elem = &xml[start..end];
+    let id = xml_attr(elem, "RootItemId")?;
+    let ck = xml_attr(elem, "RootItemChangeKey")?;
+    Some((id, ck))
+}
+
+/// Build the recipient XML blocks used in CreateItem.
+fn build_recipients_blocks(to: &[String], cc: &[String], bcc: &[String]) -> (String, String, String) {
+    let fmt_list = |list: &[String]| {
+        list.iter()
+            .map(|e| format!("<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>", xml_escape(e)))
+            .collect::<Vec<_>>()
+            .join("\n        ")
+    };
+    let to_block = fmt_list(to);
+    let cc_block = if cc.is_empty() {
+        String::new()
+    } else {
+        format!("\n      <t:CcRecipients>\n        {}\n      </t:CcRecipients>", fmt_list(cc))
+    };
+    let bcc_block = if bcc.is_empty() {
+        String::new()
+    } else {
+        format!("\n      <t:BccRecipients>\n        {}\n      </t:BccRecipients>", fmt_list(bcc))
+    };
+    (to_block, cc_block, bcc_block)
+}
+
 /// If `reply_to_item_id` + `reply_to_change_key` are provided a `ReplyAllToItem`
 /// is created; otherwise a brand-new `Message` is created.
+/// When `attachments` is non-empty, a three-step flow is used:
+///   1. CreateItem (SaveOnly) to get an ItemId
+///   2. CreateAttachment for each file
+///   3. SendItem with the updated ItemId/ChangeKey
 #[command]
 pub async fn mail_send(
     access_token: String,
@@ -374,10 +536,62 @@ pub async fn mail_send(
     body_html: String,
     reply_to_item_id: Option<String>,
     reply_to_change_key: Option<String>,
+    attachments: Option<Vec<ComposerAttachment>>,
 ) -> Result<(), String> {
-    let soap_body = match (&reply_to_item_id, &reply_to_change_key) {
+    let atts = attachments.unwrap_or_default();
+
+    // ── Simple path: no attachments ────────────────────────────────────────────
+    if atts.is_empty() {
+        let soap_body = match (&reply_to_item_id, &reply_to_change_key) {
+            (Some(id), Some(ck)) => format!(
+                r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
+  <m:Items>
+    <t:ReplyAllToItem>
+      <t:ReferenceItemId Id="{id}" ChangeKey="{ck}"/>
+      <t:NewBodyContent BodyType="HTML">{body}</t:NewBodyContent>
+    </t:ReplyAllToItem>
+  </m:Items>
+</m:CreateItem>"#,
+                id = id,
+                ck = ck,
+                body = xml_escape(&body_html),
+            ),
+            _ => {
+                let (to_block, cc_block, bcc_block) = build_recipients_blocks(&to, &cc, &bcc);
+                format!(
+                    r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
+  <m:SavedItemFolderId>
+    <t:DistinguishedFolderId Id="sentitems"/>
+  </m:SavedItemFolderId>
+  <m:Items>
+    <t:Message>
+      <t:Subject>{subject}</t:Subject>
+      <t:Body BodyType="HTML">{body}</t:Body>
+      <t:ToRecipients>
+        {to_block}
+      </t:ToRecipients>{cc_block}{bcc_block}
+    </t:Message>
+  </m:Items>
+</m:CreateItem>"#,
+                    subject = xml_escape(&subject),
+                    body = xml_escape(&body_html),
+                )
+            }
+        };
+        let xml = send(&access_token, &soap_body).await?;
+        if xml.contains("ResponseClass=\"Error\"") {
+            return Err(ews_err(&xml, "EWS send error"));
+        }
+        return Ok(());
+    }
+
+    // ── Step 1: CreateItem (SaveOnly) to obtain an ItemId ─────────────────────
+    let create_body = match (&reply_to_item_id, &reply_to_change_key) {
         (Some(id), Some(ck)) => format!(
-            r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
+            r#"<m:CreateItem MessageDisposition="SaveOnly">
+  <m:SavedItemFolderId>
+    <t:DistinguishedFolderId Id="drafts"/>
+  </m:SavedItemFolderId>
   <m:Items>
     <t:ReplyAllToItem>
       <t:ReferenceItemId Id="{id}" ChangeKey="{ck}"/>
@@ -390,74 +604,117 @@ pub async fn mail_send(
             body = xml_escape(&body_html),
         ),
         _ => {
-            let to_recipients = to
-                .iter()
-                .map(|email| {
-                    format!(
-                        r#"<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>"#,
-                        xml_escape(email)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n        ");
-            let cc_block = if cc.is_empty() {
-                String::new()
-            } else {
-                let cc_recipients = cc
-                    .iter()
-                    .map(|email| {
-                        format!(
-                            r#"<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>"#,
-                            xml_escape(email)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n        ");
-                format!("\n      <t:CcRecipients>\n        {cc_recipients}\n      </t:CcRecipients>")
-            };
-            let bcc_block = if bcc.is_empty() {
-                String::new()
-            } else {
-                let bcc_recipients = bcc
-                    .iter()
-                    .map(|email| {
-                        format!(
-                            r#"<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>"#,
-                            xml_escape(email)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n        ");
-                format!("\n      <t:BccRecipients>\n        {bcc_recipients}\n      </t:BccRecipients>")
-            };
+            let (to_block, cc_block, bcc_block) = build_recipients_blocks(&to, &cc, &bcc);
             format!(
-                r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
+                r#"<m:CreateItem MessageDisposition="SaveOnly">
   <m:SavedItemFolderId>
-    <t:DistinguishedFolderId Id="sentitems"/>
+    <t:DistinguishedFolderId Id="drafts"/>
   </m:SavedItemFolderId>
   <m:Items>
     <t:Message>
       <t:Subject>{subject}</t:Subject>
       <t:Body BodyType="HTML">{body}</t:Body>
       <t:ToRecipients>
-        {to_recipients}
+        {to_block}
       </t:ToRecipients>{cc_block}{bcc_block}
     </t:Message>
   </m:Items>
 </m:CreateItem>"#,
                 subject = xml_escape(&subject),
                 body = xml_escape(&body_html),
-                to_recipients = to_recipients,
-                cc_block = cc_block,
-                bcc_block = bcc_block,
             )
         }
     };
 
-    let xml = send(&access_token, &soap_body).await?;
+    let xml = send(&access_token, &create_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS create-draft error"));
+    }
+    let (mut item_id, mut change_key) =
+        parse_item_id(&xml).ok_or("EWS: no ItemId in CreateItem response")?;
 
+    // ── Step 2: CreateAttachment for each file ────────────────────────────────
+    for att in &atts {
+        let att_block = format!(
+            r#"<t:FileAttachment>
+    <t:Name>{name}</t:Name>
+    <t:ContentType>{ct}</t:ContentType>
+    <t:IsInline>false</t:IsInline>
+    <t:Content>{data}</t:Content>
+  </t:FileAttachment>"#,
+            name = xml_escape(&att.name),
+            ct = xml_escape(&att.content_type),
+            data = att.data,
+        );
+        let attach_body = format!(
+            r#"<m:CreateAttachment>
+  <m:ParentItemId Id="{item_id}" ChangeKey="{change_key}"/>
+  <m:Attachments>
+    {att_block}
+  </m:Attachments>
+</m:CreateAttachment>"#,
+        );
+        let xml = send(&access_token, &attach_body).await?;
+        if xml.contains("ResponseClass=\"Error\"") {
+            return Err(ews_err(&xml, "EWS create-attachment error"));
+        }
+        // The ChangeKey is updated after each attachment — use the new root item id
+        if let Some((new_id, new_ck)) = parse_root_item_id(&xml) {
+            item_id = new_id;
+            change_key = new_ck;
+        }
+    }
+
+    // ── Step 3: SendItem ──────────────────────────────────────────────────────
+    let send_body = format!(
+        r#"<m:SendItem SaveItemToFolder="true">
+  <m:ItemIds>
+    <t:ItemId Id="{item_id}" ChangeKey="{change_key}"/>
+  </m:ItemIds>
+  <m:SavedItemFolderId>
+    <t:DistinguishedFolderId Id="sentitems"/>
+  </m:SavedItemFolderId>
+</m:SendItem>"#,
+    );
+    let xml = send(&access_token, &send_body).await?;
     if xml.contains("ResponseClass=\"Error\"") {
         return Err(ews_err(&xml, "EWS send error"));
+    }
+    Ok(())
+}
+
+/// Save a message as a draft in the Drafts folder without sending it.
+#[command]
+pub async fn mail_save_draft(
+    access_token: String,
+    to: Vec<String>,
+    cc: Vec<String>,
+    bcc: Vec<String>,
+    subject: String,
+    body_html: String,
+) -> Result<(), String> {
+    let (to_block, cc_block, bcc_block) = build_recipients_blocks(&to, &cc, &bcc);
+    let soap_body = format!(
+        r#"<m:CreateItem MessageDisposition="SaveOnly">
+  <m:SavedItemFolderId>
+    <t:DistinguishedFolderId Id="drafts"/>
+  </m:SavedItemFolderId>
+  <m:Items>
+    <t:Message>
+      <t:Subject>{subject}</t:Subject>
+      <t:Body BodyType="HTML">{body}</t:Body>
+      <t:ToRecipients>
+        {to_block}
+      </t:ToRecipients>{cc_block}{bcc_block}
+    </t:Message>
+  </m:Items>
+</m:CreateItem>"#,
+        subject = xml_escape(&subject),
+        body = xml_escape(&body_html),
+    );
+    let xml = send(&access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS save draft error"));
     }
     Ok(())
 }
@@ -591,27 +848,7 @@ pub async fn mail_open_attachment(
     attachment_id: String,
     filename: String,
 ) -> Result<(), String> {
-    let soap_body = format!(
-        r#"<m:GetAttachment>
-  <m:AttachmentShape/>
-  <m:AttachmentIds>
-    <t:AttachmentId Id="{attachment_id}"/>
-  </m:AttachmentIds>
-</m:GetAttachment>"#,
-    );
-
-    let xml = send(&access_token, &soap_body).await?;
-
-    if xml.contains("ResponseClass=\"Error\"") {
-        return Err(ews_err(&xml, "EWS get-attachment error"));
-    }
-
-    // Content is base64-encoded inside <t:Content> or <Content>
-    let b64 = xml_content_ns(&xml, "t:Content")
-        .ok_or_else(|| "No attachment content in EWS response".to_string())?;
-
-    // Strip any whitespace/newlines that EWS may insert
-    let b64_clean: String = b64.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    let b64_clean = fetch_ews_attachment_base64(&access_token, &attachment_id).await?;
     let bytes = BASE64
         .decode(b64_clean)
         .map_err(|e| format!("Base64 decode error: {}", e))?;
@@ -644,6 +881,35 @@ pub async fn mail_open_attachment(
         .map_err(|e| format!("start: {}", e))?;
 
     Ok(())
+}
+
+/// Fetch an EWS attachment and return its content as a standard base64 string.
+async fn fetch_ews_attachment_base64(access_token: &str, attachment_id: &str) -> Result<String, String> {
+    let soap_body = format!(
+        r#"<m:GetAttachment>
+  <m:AttachmentShape/>
+  <m:AttachmentIds>
+    <t:AttachmentId Id="{attachment_id}"/>
+  </m:AttachmentIds>
+</m:GetAttachment>"#,
+    );
+    let xml = send(access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS get-attachment error"));
+    }
+    let b64 = xml_content_ns(&xml, "t:Content")
+        .ok_or_else(|| "No attachment content in EWS response".to_string())?;
+    let b64_clean: String = b64.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    Ok(b64_clean)
+}
+
+/// Return the raw base64 content of an EWS attachment (for in-app preview).
+#[command]
+pub async fn mail_get_attachment_data(
+    access_token: String,
+    attachment_id: String,
+) -> Result<String, String> {
+    fetch_ews_attachment_base64(&access_token, &attachment_id).await
 }
 
 // ── Parsing helpers ────────────────────────────────────────────────────────────

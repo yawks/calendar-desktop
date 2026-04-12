@@ -4,6 +4,56 @@ mod gmail;
 mod http;
 mod mail;
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+
+/// Save a base64-encoded file to the user's Downloads folder.
+/// Accepts both standard base64 and base64url encoding.
+/// Returns the absolute path of the saved file.
+#[tauri::command]
+fn save_file_to_downloads(filename: String, data: String) -> Result<String, String> {
+    // Normalise base64url → standard base64
+    let standard = data.replace('-', "+").replace('_', "/");
+    let padding = (4 - standard.len() % 4) % 4;
+    let padded = format!("{}{}", standard, "=".repeat(padding));
+    let bytes = BASE64.decode(padded.as_bytes()).map_err(|e| format!("Base64 decode: {}", e))?;
+
+    let safe_name: String = filename
+        .chars()
+        .map(|c| if c.is_alphanumeric() || ".-_ ()[]".contains(c) { c } else { '_' })
+        .collect();
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let downloads = std::path::PathBuf::from(home).join("Downloads");
+    std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
+    let dest = downloads.join(&safe_name);
+    std::fs::write(&dest, &bytes).map_err(|e| format!("Write: {}", e))?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Open a local file with the system default application.
+#[tauri::command]
+fn open_file_path(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("open: {}", e))?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("xdg-open: {}", e))?;
+
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &path])
+        .spawn()
+        .map_err(|e| format!("start: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 mod eventkit;
 
@@ -86,11 +136,16 @@ pub fn run() {
                     mail::mail_move_to_trash,
                     mail::mail_permanently_delete,
                     mail::mail_open_attachment,
+                    mail::mail_get_attachment_data,
                     mail::mail_get_inbox_unread,
                     mail::mail_snooze,
                     mail::mail_move_to_folder,
                     mail::mail_find_or_create_snoozed_folder,
+                    mail::mail_save_draft,
                     gmail::gmail_open_attachment,
+                    gmail::gmail_get_attachment_data,
+                    save_file_to_downloads,
+                    open_file_path,
                     set_badge_count,
                 ]
             }
@@ -124,10 +179,16 @@ pub fn run() {
                     mail::mail_move_to_trash,
                     mail::mail_permanently_delete,
                     mail::mail_open_attachment,
+                    mail::mail_get_attachment_data,
                     mail::mail_get_inbox_unread,
                     mail::mail_snooze,
                     mail::mail_move_to_folder,
                     mail::mail_find_or_create_snoozed_folder,
+                    mail::mail_save_draft,
+                    gmail::gmail_open_attachment,
+                    gmail::gmail_get_attachment_data,
+                    save_file_to_downloads,
+                    open_file_path,
                     set_badge_count,
                     eventkit::check_eventkit_status,
                     eventkit::request_eventkit_access,
