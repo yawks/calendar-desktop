@@ -1,5 +1,5 @@
-import { CalendarConfig, CalendarEvent } from '../../../shared/types';
-import { cacheGetStale, cacheIsFresh, cacheSet } from '../utils/eventCache';
+import { AttendeeStatus, CalendarConfig, CalendarEvent } from '../../../shared/types';
+import { cacheGetStale, cacheIsFresh, cacheSet, patchCachedEventRsvp } from '../utils/eventCache';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { listEvents } from '../utils/googleCalendarApi';
@@ -101,4 +101,9 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
   const refresh = useCallback(() => run(true), [run]);
 
   return { events, loading, errors, refresh };
+}
+
+/** Patch a single Google event's RSVP status in the IndexedDB cache. */
+export function patchGoogleCachedRsvp(calId: string, eventId: string, status: AttendeeStatus): Promise<void> {
+  return patchCachedEventRsvp(`google-events:${CACHE_VERSION}:${calId}`, eventId, status);
 }

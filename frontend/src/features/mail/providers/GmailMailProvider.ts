@@ -165,6 +165,130 @@ function extractAttachments(messageId: string, part: GmailMessagePart): MailAtta
   return result;
 }
 
+interface InlineImageRef {
+  /** Content-Id value without angle brackets, e.g. "image001.jpg@01D..." */
+  contentId: string;
+  contentType: string;
+  /** base64url-encoded data when included directly in the Gmail response */
+  data?: string;
+  /** Gmail attachment ID when data must be fetched separately */
+  attachmentId?: string;
+}
+
+/** Recursively collect all MIME parts that carry a Content-Id (inline images). */
+function collectInlineImageParts(part: GmailMessagePart, result: InlineImageRef[]): void {
+  const contentIdHeader = part.headers?.find(h => h.name.toLowerCase() === 'content-id')?.value;
+  if (contentIdHeader && part.body && part.mimeType?.startsWith('image/')) {
+    const contentId = contentIdHeader.replace(/^<|>$/g, ''); // strip angle brackets
+    if (part.body.data) {
+      result.push({ contentId, contentType: part.mimeType, data: part.body.data });
+    } else if (part.body.attachmentId) {
+      result.push({ contentId, contentType: part.mimeType, attachmentId: part.body.attachmentId });
+    }
+  }
+  for (const sub of part.parts ?? []) {
+    collectInlineImageParts(sub, result);
+  }
+}
+
+/** Convert base64url to standard base64. */
+function base64UrlToStandard(s: string): string {
+  return s.replace(/-/g, '+').replace(/_/g, '/');
+}
+
+/**
+ * Replace src="" / bare src / src="cid:xxx" references in the HTML body
+ * with data URIs fetched from the Gmail message parts.
+ */
+async function injectGmailInlineImages(
+  token: string,
+  messageId: string,
+  bodyHtml: string,
+  payload: GmailMessagePart,
+  gFetch: <T>(token: string, path: string) => Promise<T>,
+): Promise<string> {
+  const refs: InlineImageRef[] = [];
+  collectInlineImageParts(payload, refs);
+  if (refs.length === 0) return bodyHtml;
+
+  let html = bodyHtml;
+  const unresolved: Array<{ contentType: string; base64: string }> = [];
+
+  for (const ref of refs) {
+    let base64url: string;
+    if (ref.data) {
+      base64url = ref.data;
+    } else if (ref.attachmentId) {
+      try {
+        const att = await gFetch<{ data: string }>(
+          token,
+          `/users/me/messages/${messageId}/attachments/${ref.attachmentId}`,
+        );
+        base64url = att.data;
+      } catch {
+        continue;
+      }
+    } else {
+      continue;
+    }
+
+    const b64 = base64UrlToStandard(base64url);
+    const dataUri = `data:${ref.contentType};base64,${b64}`;
+
+    // Try to replace by CID reference (double or single quotes).
+    const replaced = replaceCidSrc(html, ref.contentId, dataUri);
+    if (replaced !== null) {
+      html = replaced;
+    } else {
+      unresolved.push({ contentType: ref.contentType, base64: b64 });
+    }
+  }
+
+  // Fallback: sequentially replace empty/bare src attributes.
+  for (const { contentType, base64 } of unresolved) {
+    const dataUri = `data:${contentType};base64,${base64}`;
+    html = replaceNextEmptySrc(html, dataUri);
+  }
+
+  return html;
+}
+
+/** Replace src="cid:{contentId}" (or single-quoted) with src="{dataUri}". Returns null if not found. */
+function replaceCidSrc(html: string, contentId: string, dataUri: string): string | null {
+  const dq = `src="cid:${contentId}"`;
+  if (html.includes(dq)) return html.replaceAll(dq, `src="${dataUri}"`);
+  const sq = `src='cid:${contentId}'`;
+  if (html.includes(sq)) return html.replaceAll(sq, `src='${dataUri}'`);
+  return null;
+}
+
+/** Replace the next empty or bare src attribute in the HTML with src="{dataUri}". */
+function replaceNextEmptySrc(html: string, dataUri: string): string {
+  // src=""
+  const dq = html.indexOf('src=""');
+  if (dq !== -1) return html.slice(0, dq) + `src="${dataUri}"` + html.slice(dq + 6);
+  // src=''
+  const sq = html.indexOf("src=''");
+  if (sq !== -1) return html.slice(0, sq) + `src='${dataUri}'` + html.slice(sq + 6);
+  // bare src (not followed by =)
+  let pos = 0;
+  while (pos < html.length) {
+    const idx = html.indexOf('src', pos);
+    if (idx === -1) break;
+    const afterSrc = idx + 3;
+    // Must not be preceded by a word char
+    const prevOk = idx === 0 || !/[\w-]/.test(html[idx - 1]);
+    // Must not be followed by = (after optional whitespace)
+    const rest = html.slice(afterSrc).trimStart();
+    const nextOk = !rest.startsWith('=');
+    if (prevOk && nextOk) {
+      return html.slice(0, idx) + `src="${dataUri}"` + html.slice(afterSrc);
+    }
+    pos = idx + 1;
+  }
+  return html;
+}
+
 // ── GmailMailProvider ─────────────────────────────────────────────────────────
 
 /**
@@ -242,11 +366,18 @@ export class GmailMailProvider implements MailProvider {
 
     if (!res.threads?.length) return [];
 
-    // Fetch thread metadata in parallel (subject, from, dates, unread count)
-    const threads = await Promise.all(
-      res.threads.map(t => this.fetchThreadSummary(token, t.id, t.snippet ?? ''))
-    );
-    return threads.filter((t): t is MailThread => t !== null);
+    // Fetch thread metadata in batches to stay within Gmail's rate limits.
+    // Firing all 50 in parallel triggers 429s; 10 concurrent is safe.
+    const CONCURRENCY = 10;
+    const results: (MailThread | null)[] = [];
+    for (let i = 0; i < res.threads.length; i += CONCURRENCY) {
+      const batch = res.threads.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map(t => this.fetchThreadSummary(token, t.id, t.snippet ?? ''))
+      );
+      results.push(...batchResults);
+    }
+    return results.filter((t): t is MailThread => t !== null);
   }
 
   private async fetchThreadSummary(
@@ -301,10 +432,23 @@ export class GmailMailProvider implements MailProvider {
       `/users/me/threads/${conversationId}?format=full`,
     );
 
-    const messages = thread.messages ?? [];
-    return messages
-      .filter(m => includeTrash || !m.labelIds?.includes('TRASH'))
-      .map(m => this.parseMessage(m));
+    const messages = (thread.messages ?? []).filter(
+      m => includeTrash || !m.labelIds?.includes('TRASH'),
+    );
+
+    return Promise.all(
+      messages.map(async m => {
+        const msg = this.parseMessage(m);
+        const body_html = await injectGmailInlineImages(
+          token,
+          m.id,
+          msg.body_html,
+          m.payload ?? {},
+          this.gFetch.bind(this),
+        );
+        return { ...msg, body_html };
+      }),
+    );
   }
 
   private parseMessage(msg: GmailMessage): MailMessage {

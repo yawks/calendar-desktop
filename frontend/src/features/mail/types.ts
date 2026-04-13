@@ -32,6 +32,8 @@ export interface MailMessage {
   attachments: MailAttachment[];
   /** Optional — not yet returned by the EWS backend */
   size?: number;
+  /** ICS text extracted from a text/calendar MIME part (Teams invitations, etc.) */
+  ics_mime?: string;
 }
 
 export interface MailRecipient {

@@ -108,6 +108,10 @@ pub struct MailMessage {
     pub is_read: bool,
     pub has_attachments: bool,
     pub attachments: Vec<MailAttachment>,
+    /// ICS text extracted from a text/calendar MIME part (e.g. Teams meeting invitations
+    /// that are delivered as plain emails rather than Exchange MeetingRequest items).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ics_mime: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -213,6 +217,7 @@ pub async fn mail_list_threads(
       <t:FieldURI FieldURI="item:HasAttachments"/>
       <t:FieldURI FieldURI="item:Preview"/>
       <t:FieldURI FieldURI="message:ToRecipients"/>
+      <t:FieldURI FieldURI="message:Sender"/>
     </t:AdditionalProperties>
   </m:ItemShape>
   <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="0" BasePoint="Beginning"/>
@@ -248,17 +253,12 @@ pub async fn mail_list_threads(
                 .map(|v| v == "true")
                 .unwrap_or(false);
             let snippet = xml_content_ns(&msg_xml, "t:Preview").unwrap_or_default();
-            // For drafts show the recipient(s) instead of the sender (which is always ourselves)
-            let to_xml = xml_content_ns(&msg_xml, "t:ToRecipients").unwrap_or_default();
-            let to_display = xml_all_ns(&to_xml, "t:Mailbox")
-                .into_iter()
-                .filter_map(|mb| {
-                    xml_content_ns(&mb, "t:Name")
-                        .filter(|s| !s.is_empty())
-                        .or_else(|| xml_content_ns(&mb, "t:EmailAddress"))
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
+            // Extract Sender mailbox (the account owner) as from_name
+            let sender_xml = xml_content_ns(&msg_xml, "t:Sender").unwrap_or_default();
+            let sender_mb = xml_content_ns(&sender_xml, "t:Mailbox").unwrap_or_default();
+            let sender_name = xml_content_ns(&sender_mb, "t:Name")
+                .filter(|s| !s.is_empty())
+                .or_else(|| xml_content_ns(&sender_mb, "t:EmailAddress").filter(|s| !s.is_empty()));
             threads.push(MailThread {
                 conversation_id: item_id,
                 topic,
@@ -266,7 +266,7 @@ pub async fn mail_list_threads(
                 last_delivery_time,
                 message_count: 1,
                 unread_count: 0,
-                from_name: if to_display.is_empty() { None } else { Some(to_display) },
+                from_name: sender_name,
                 has_attachments,
             });
         }
@@ -386,6 +386,7 @@ pub async fn mail_get_thread(
     <t:BodyType>HTML</t:BodyType>
     <t:AdditionalProperties>
       <t:FieldURI FieldURI="message:IsRead"/>
+      <t:FieldURI FieldURI="item:MimeContent"/>
     </t:AdditionalProperties>
   </m:ItemShape>
   <m:ItemIds>
@@ -401,7 +402,9 @@ pub async fn mail_get_thread(
         let mut messages = Vec::new();
         for msg_xml in xml_all_ns(&xml, "t:Message") {
             if let Some(msg) = parse_message(&msg_xml) {
-                messages.push(msg);
+                let inline = parse_inline_images(&msg_xml);
+                let body = inject_inline_images(&access_token, msg.body_html, inline).await;
+                messages.push(MailMessage { body_html: body, ..msg });
             }
         }
         return Ok(messages);
@@ -425,6 +428,7 @@ pub async fn mail_get_thread(
     <t:BodyType>HTML</t:BodyType>
     <t:AdditionalProperties>
       <t:FieldURI FieldURI="message:IsRead"/>
+      <t:FieldURI FieldURI="item:MimeContent"/>
     </t:AdditionalProperties>
   </m:ItemShape>
   {folders_to_ignore}
@@ -444,6 +448,10 @@ pub async fn mail_get_thread(
         return Err(ews_err(&xml, "EWS error getting thread"));
     }
 
+    // Debug: log whether EWS returned any Attachments block in this response
+    eprintln!("[mail] GetConversationItems response has t:Attachments: {}", xml.contains("t:Attachments"));
+    eprintln!("[mail] GetConversationItems response has t:IsInline: {}", xml.contains("t:IsInline"));
+
     let mut messages = Vec::new();
 
     // EWS items inside a conversation can be Message, MeetingRequest,
@@ -457,16 +465,26 @@ pub async fn mail_get_thread(
         "t:MeetingCancellation",
     ];
 
+    // Collect (message, inline_images) pairs first, then resolve images async.
+    let mut pending: Vec<(MailMessage, Vec<InlineImage>)> = Vec::new();
     for node_xml in xml_all_ns(&xml, "t:ConversationNode") {
         if let Some(items_xml) = xml_content_ns(&node_xml, "t:Items") {
             for &item_type in ITEM_TYPES {
                 for msg_xml in xml_all_ns(&items_xml, item_type) {
                     if let Some(msg) = parse_message(&msg_xml) {
-                        messages.push(msg);
+                        let inline = parse_inline_images(&msg_xml);
+                        pending.push((msg, inline));
                     }
                 }
             }
         }
+    }
+
+    // Resolve inline images for all messages (sequential per message — images
+    // within a single message are fetched in parallel inside inject_inline_images).
+    for (msg, inline) in pending {
+        let body = inject_inline_images(&access_token, msg.body_html.clone(), inline).await;
+        messages.push(MailMessage { body_html: body, ..msg });
     }
 
     // Sort chronologically (oldest first so the thread reads top-to-bottom)
@@ -964,6 +982,16 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
     // Attachments — parse FileAttachment elements (skip inline images)
     let attachments = parse_attachments(msg_xml);
 
+    // Try to extract an ICS from the raw MIME content (for Teams/other invitations
+    // that embed text/calendar as a MIME part rather than a FileAttachment).
+    let ics_mime = if !has_attachments {
+        xml_content_ns(msg_xml, "t:MimeContent")
+            .as_deref()
+            .and_then(extract_ics_from_mime_base64)
+    } else {
+        None
+    };
+
     Some(MailMessage {
         item_id,
         change_key,
@@ -977,7 +1005,142 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
         is_read,
         has_attachments,
         attachments,
+        ics_mime,
     })
+}
+
+/// Extract the first `text/calendar` MIME part from a base64-encoded MIME message
+/// (the value of `t:MimeContent` in an EWS response).
+///
+/// Returns the plain ICS text, or `None` if no calendar part is found.
+fn extract_ics_from_mime_base64(mime_b64: &str) -> Option<String> {
+    // Strip whitespace that EWS sometimes wraps into MimeContent
+    let cleaned: String = mime_b64.chars().filter(|c| !c.is_whitespace()).collect();
+    let raw = BASE64.decode(cleaned.as_bytes()).ok()?;
+    let text = String::from_utf8_lossy(&raw);
+    extract_calendar_part_from_mime(&text)
+}
+
+/// Walk MIME parts and return the content of the first `text/calendar` part.
+///
+/// Handles:
+/// - `Content-Transfer-Encoding: base64`
+/// - `Content-Transfer-Encoding: quoted-printable`
+/// - Plain (7bit / 8bit) content
+fn extract_calendar_part_from_mime(mime: &str) -> Option<String> {
+    let lines: Vec<&str> = mime.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        // Headers can be folded (continuation starts with whitespace).
+        // Collect the full unfolded header line.
+        if !lines[i].to_ascii_lowercase().starts_with("content-type:") {
+            i += 1;
+            continue;
+        }
+
+        // Gather folded continuation lines for this header
+        let mut header = lines[i].to_string();
+        let mut j = i + 1;
+        while j < lines.len() {
+            let next = lines[j];
+            if next.starts_with(' ') || next.starts_with('\t') {
+                header.push(' ');
+                header.push_str(next.trim());
+                j += 1;
+            } else {
+                break;
+            }
+        }
+
+        if !header.to_ascii_lowercase().contains("text/calendar") {
+            i = j;
+            continue;
+        }
+
+        // Found a text/calendar header. Now scan the following headers of this part
+        // to find Content-Transfer-Encoding, then collect the body.
+        let mut transfer_encoding = String::new();
+        let mut k = j;
+        while k < lines.len() && !lines[k].is_empty() {
+            let h = lines[k].to_ascii_lowercase();
+            if h.starts_with("content-transfer-encoding:") {
+                transfer_encoding = h
+                    .trim_start_matches("content-transfer-encoding:")
+                    .trim()
+                    .to_string();
+            }
+            // Consume folded lines
+            k += 1;
+            while k < lines.len() && (lines[k].starts_with(' ') || lines[k].starts_with('\t')) {
+                k += 1;
+            }
+        }
+
+        // Skip the blank line separating headers from body
+        if k < lines.len() && lines[k].is_empty() {
+            k += 1;
+        }
+
+        // Collect body lines until next boundary (starts with "--") or end
+        let mut body_lines: Vec<&str> = Vec::new();
+        while k < lines.len() {
+            let l = lines[k];
+            if l.starts_with("--") {
+                break;
+            }
+            body_lines.push(l);
+            k += 1;
+        }
+
+        let body = body_lines.join("\n");
+
+        return match transfer_encoding.as_str() {
+            "base64" => {
+                let b64: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+                BASE64.decode(b64.as_bytes()).ok()
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+            }
+            "quoted-printable" => Some(decode_quoted_printable(&body)),
+            _ => Some(body),
+        };
+    }
+
+    None
+}
+
+/// Minimal quoted-printable decoder (RFC 2045).
+fn decode_quoted_printable(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '=' {
+            let h1 = chars.next();
+            let h2 = chars.next();
+            match (h1, h2) {
+                (Some('\r') | Some('\n'), _) => {
+                    // Soft line break — skip
+                    // If h1 was \r and h2 is \n, h2 was already consumed
+                }
+                (Some(a), Some(b)) => {
+                    let hex = format!("{}{}", a, b);
+                    if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                        out.push(byte as char);
+                    } else {
+                        out.push('=');
+                        out.push(a);
+                        out.push(b);
+                    }
+                }
+                (Some(a), None) => { out.push('='); out.push(a); }
+                (None, _) => { out.push('='); }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn parse_attachments(msg_xml: &str) -> Vec<MailAttachment> {
@@ -1005,8 +1168,8 @@ fn parse_attachments(msg_xml: &str) -> Vec<MailAttachment> {
             .map(|v| v == "true")
             .unwrap_or(false);
 
-        // Skip cid: inline images — they're already embedded in body_html
         if is_inline {
+            // Inline images are collected separately for later HTML injection.
             continue;
         }
 
@@ -1020,6 +1183,165 @@ fn parse_attachments(msg_xml: &str) -> Vec<MailAttachment> {
     }
 
     attachments
+}
+
+/// Internal representation of an inline image attachment (used for body injection).
+struct InlineImage {
+    attachment_id: String,
+    content_id: Option<String>,
+    content_type: String,
+}
+
+/// Parse inline image attachments (IsInline=true) from the message XML,
+/// returning attachment id, optional CID, and content-type.
+fn parse_inline_images(msg_xml: &str) -> Vec<InlineImage> {
+    let mut images = Vec::new();
+    let att_list = match xml_content_ns(msg_xml, "t:Attachments") {
+        Some(l) => l,
+        None => return images,
+    };
+
+    for att_xml in xml_all_ns(&att_list, "t:FileAttachment") {
+        let is_inline = xml_content_ns(&att_xml, "t:IsInline")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        if !is_inline {
+            continue;
+        }
+
+        let id_elem = att_xml
+            .find("<t:AttachmentId ")
+            .or_else(|| att_xml.find("<AttachmentId "))
+            .and_then(|s| att_xml[s..].find("/>").map(|e| &att_xml[s..s + e]));
+        let attachment_id = match id_elem.and_then(|e| xml_attr(e, "Id")) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        let content_id = xml_content_ns(&att_xml, "t:ContentId");
+        let content_type = xml_content_ns(&att_xml, "t:ContentType")
+            .unwrap_or_else(|| "image/png".to_string());
+
+        images.push(InlineImage { attachment_id, content_id, content_type });
+    }
+
+    images
+}
+
+/// Fetch inline image attachments and inject them into the HTML body as data URIs.
+///
+/// Exchange often strips `cid:` references from `src` attributes, leaving
+/// `src=""`.  We try two strategies:
+/// 1. Replace `src="cid:{contentId}"` by CID when the reference is present.
+/// 2. Fall back to sequential replacement of `src=""` for images that had no
+///    CID match (preserves the document order, which Exchange keeps consistent).
+async fn inject_inline_images(
+    access_token: &str,
+    body_html: String,
+    inline_images: Vec<InlineImage>,
+) -> String {
+    if inline_images.is_empty() {
+        eprintln!("[mail] inject_inline_images: no inline attachments found in EWS response");
+        return body_html;
+    }
+    eprintln!("[mail] inject_inline_images: {} inline attachment(s) to fetch", inline_images.len());
+
+    // Fetch all inline image data sequentially (avoids the `futures` crate dependency).
+    let mut fetch_results: Vec<(InlineImage, Result<String, String>)> = Vec::new();
+    for img in inline_images {
+        eprintln!("[mail] fetching inline attachment id={} content_id={:?} type={}", img.attachment_id, img.content_id, img.content_type);
+        let data = fetch_ews_attachment_base64(access_token, &img.attachment_id).await;
+        if let Err(ref e) = data {
+            eprintln!("[mail] fetch failed: {}", e);
+        }
+        fetch_results.push((img, data));
+    }
+
+    let mut html = body_html;
+    let mut unmatched: Vec<(String, String)> = Vec::new(); // (content_type, base64_data)
+
+    for (img, result) in fetch_results {
+        let base64_data = match result {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let data_uri = format!("data:{};base64,{}", img.content_type, base64_data);
+
+        // Strategy 1: replace by CID reference.
+        let mut replaced = false;
+        if let Some(cid) = &img.content_id {
+            let cid_ref = format!("src=\"cid:{}\"", cid);
+            let new = html.replace(&cid_ref, &format!("src=\"{}\"", data_uri));
+            if new != html {
+                html = new;
+                replaced = true;
+            }
+            // Also try single-quoted variant.
+            if !replaced {
+                let cid_ref_sq = format!("src='cid:{}'", cid);
+                let new = html.replace(&cid_ref_sq, &format!("src='{}'", data_uri));
+                if new != html {
+                    html = new;
+                    replaced = true;
+                }
+            }
+        }
+
+        if !replaced {
+            unmatched.push((img.content_type, base64_data));
+        }
+    }
+
+    // Strategy 2: sequentially replace empty/bare src for unmatched images.
+    // Exchange can produce: src=""  |  src=''  |  src  (bare, no value at all)
+    for (ct, data) in unmatched {
+        let data_uri = format!("data:{};base64,{}", ct, data);
+        html = replace_next_empty_src(&html, &data_uri);
+    }
+
+    html
+}
+
+/// Replace the next occurrence of an empty/bare `src` attribute in HTML with `src="{data_uri}"`.
+///
+/// Handles three forms Exchange produces:
+///   `src=""`  — empty double-quoted value
+///   `src=''`  — empty single-quoted value
+///   `src`     — bare attribute (no `=`, no value), which is what Exchange Online often emits
+fn replace_next_empty_src(html: &str, data_uri: &str) -> String {
+    // 1. src="" (6 bytes)
+    if let Some(pos) = html.find("src=\"\"") {
+        return format!("{}src=\"{}\"{}",
+            &html[..pos], data_uri, &html[pos + 6..]);
+    }
+    // 2. src='' (6 bytes)
+    if let Some(pos) = html.find("src=''") {
+        return format!("{}src='{}'{}",
+            &html[..pos], data_uri, &html[pos + 6..]);
+    }
+    // 3. Bare `src` not followed by `=` — scan carefully to avoid false matches
+    //    on e.g. `srcset=`.
+    let needle = "src";
+    let mut search = 0;
+    while let Some(rel) = html[search..].find(needle) {
+        let abs = search + rel;
+        let after = abs + needle.len();
+        // Must not be preceded by a word character (avoid matching "nosrc" etc.)
+        let preceded_ok = abs == 0 || !html[..abs].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        // Must not be followed by `=` (that would be a non-empty src=...)
+        // Whitespace between `src` and `>` / next attr is fine.
+        let next_non_ws = html[after..].trim_start_matches(|c: char| c == ' ' || c == '\t' || c == '\r' || c == '\n');
+        let followed_ok = !next_non_ws.starts_with('=');
+        if preceded_ok && followed_ok {
+            // Replace `src` (the bare attribute) with `src="data_uri"`,
+            // leaving whatever follows (space, >) untouched.
+            return format!("{}src=\"{}\"{}",
+                &html[..abs], data_uri, &html[after..]);
+        }
+        search = abs + 1;
+    }
+    // No empty/bare src found — return unchanged.
+    html.to_string()
 }
 
 fn parse_recipients(msg_xml: &str, tag: &str) -> Vec<MailRecipient> {

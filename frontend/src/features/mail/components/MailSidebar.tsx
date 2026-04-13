@@ -1,5 +1,5 @@
-import { Folder, MailFolder } from '../types';
 import { ChevronRight, FileText, Folder as FolderIcon, Inbox, Pencil, Send, Trash2 } from 'lucide-react';
+import { Folder, MailFolder } from '../types';
 import { useEffect, useState } from 'react';
 
 import type { MailProvider } from '../providers/MailProvider';
@@ -33,7 +33,7 @@ const WELL_KNOWN_NAMES = new Set([
 ]);
 
 function buildFolderTree(folders: DynamicFolderEntry[]): FolderNode[] {
-  console.log('[MailSidebar] buildFolderTree input:', folders.map(f => `${f.display_name} (${f.folder_id})`));
+  //console.log('[MailSidebar] buildFolderTree input:', folders.map(f => `${f.display_name} (${f.folder_id})`));
 
   // Pass 1 – collect all names that need a node (real + implied parents)
   const allNames = new Set<string>();
@@ -109,7 +109,7 @@ function buildFolderTree(folders: DynamicFolderEntry[]): FolderNode[] {
   }
   sortChildren(roots);
 
-  console.log('[MailSidebar] buildFolderTree roots:', roots.map(r => `${r.entry.display_name} (${r.children.length} children)`));
+  //console.log('[MailSidebar] buildFolderTree roots:', roots.map(r => `${r.entry.display_name} (${r.children.length} children)`));
   return roots;
 }
 

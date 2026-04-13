@@ -36,8 +36,12 @@ export class CachedMailProvider implements MailProvider {
   private readonly inner: MailProvider;
   private readonly onInboxRefreshed: OnInboxRefreshed | undefined;
 
-  /** Prevents overlapping background inbox refreshes. */
-  private refreshing = false;
+  /**
+   * Tracks the in-flight background refresh promise.
+   * Pagination calls (offset > 0) await this so that Gmail's page token
+   * is populated before they run, preventing a duplicate first-page fetch.
+   */
+  private refreshPromise: Promise<void> | null = null;
 
   constructor(inner: MailProvider, onInboxRefreshed?: OnInboxRefreshed) {
     this.inner = inner;
@@ -49,8 +53,14 @@ export class CachedMailProvider implements MailProvider {
   // ── Threads ────────────────────────────────────────────────────────────────
 
   async listThreads(folder: string, maxCount = 50, offset = 0): Promise<MailThread[]> {
-    // Only cache inbox, first page
-    if (folder !== 'inbox' || offset !== 0) {
+    if (folder !== 'inbox') {
+      return this.inner.listThreads(folder, maxCount, offset);
+    }
+
+    if (offset !== 0) {
+      // Pagination: wait for any in-flight background refresh first so that
+      // providers relying on page tokens (e.g. Gmail) have their token ready.
+      if (this.refreshPromise) await this.refreshPromise;
       return this.inner.listThreads(folder, maxCount, offset);
     }
 
@@ -58,7 +68,7 @@ export class CachedMailProvider implements MailProvider {
 
     if (cached.length > 0) {
       // Return cached data immediately, refresh in background
-      this.backgroundRefresh(maxCount);
+      this.startBackgroundRefresh(maxCount);
       return cached.slice(0, maxCount);
     }
 
@@ -66,33 +76,52 @@ export class CachedMailProvider implements MailProvider {
     return this.fetchAndCache(maxCount);
   }
 
+  /**
+   * Fetch fresh inbox threads, evict conversation cache for threads whose
+   * message_count changed (new messages arrived), then update the thread cache.
+   */
   private async fetchAndCache(maxCount: number): Promise<MailThread[]> {
-    const threads = await this.inner.listThreads('inbox', maxCount, 0);
+    const [threads, previousThreads] = await Promise.all([
+      this.inner.listThreads('inbox', maxCount, 0),
+      getInboxThreads(this.accountId),
+    ]);
+    await this.evictStaleConversations(threads, previousThreads);
     await setInboxThreads(this.accountId, threads);
     return threads;
   }
 
-  private backgroundRefresh(maxCount: number): void {
-    if (this.refreshing) return;
-    this.refreshing = true;
-    this.inner
-      .listThreads('inbox', maxCount, 0)
-      .then(async threads => {
-        await setInboxThreads(this.accountId, threads);
-        this.onInboxRefreshed?.(this.accountId, threads);
-      })
+  /**
+   * Evict conversation message cache for any thread whose message_count
+   * has increased since the last fetch, so getThread() re-fetches fresh messages.
+   */
+  private async evictStaleConversations(
+    freshThreads: MailThread[],
+    previousThreads: MailThread[],
+  ): Promise<void> {
+    const prevMap = new Map(previousThreads.map(t => [t.conversation_id, t.message_count]));
+    const toEvict = freshThreads.filter(t => {
+      const prev = prevMap.get(t.conversation_id);
+      return prev !== undefined && t.message_count !== prev;
+    });
+    await Promise.all(
+      toEvict.map(t => evictConversation(this.accountId, t.conversation_id))
+    );
+  }
+
+  private startBackgroundRefresh(maxCount: number): void {
+    if (this.refreshPromise) return;
+    this.refreshPromise = this.fetchAndCache(maxCount)
+      .then(threads => { this.onInboxRefreshed?.(this.accountId, threads); })
       .catch(() => { /* non-critical */ })
-      .finally(() => { this.refreshing = false; });
+      .finally(() => { this.refreshPromise = null; });
   }
 
   /**
    * Force a fresh network fetch and update the cache.
    * Called by the 60 s polling interval in MailPage (via silentRefresh).
    */
-  async forceRefreshInbox(maxCount = 50): Promise<MailThread[]> {
-    const threads = await this.inner.listThreads('inbox', maxCount, 0);
-    await setInboxThreads(this.accountId, threads);
-    return threads;
+  forceRefreshInbox(maxCount = 50): Promise<MailThread[]> {
+    return this.fetchAndCache(maxCount);
   }
 
   // ── Messages ───────────────────────────────────────────────────────────────

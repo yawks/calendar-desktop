@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { CalendarConfig, CalendarEvent } from '../../../shared/types';
+import { AttendeeStatus, CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
-import { cacheGetStale, cacheSet, cacheIsFresh } from '../utils/eventCache';
+import { cacheGetStale, cacheSet, cacheIsFresh, patchCachedEventRsvp } from '../utils/eventCache';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const CACHE_VERSION = 'ews1';
@@ -208,4 +208,9 @@ export function useEWSEvents(calendars: CalendarConfig[]) {
   const refresh = useCallback(() => run(true), [run]);
 
   return { events, loading, errors, refresh };
+}
+
+/** Patch a single EWS event's RSVP status in the IndexedDB cache. */
+export function patchEWSCachedRsvp(calId: string, eventId: string, status: AttendeeStatus): Promise<void> {
+  return patchCachedEventRsvp(`ews-events:${CACHE_VERSION}:${calId}`, eventId, status);
 }

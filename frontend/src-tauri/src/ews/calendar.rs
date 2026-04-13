@@ -543,6 +543,38 @@ pub async fn ews_respond_to_invitation(
         return Err(msg);
     }
 
+    // When declining, Exchange moves the CalendarItem to Deleted Items.
+    // Move it back to the Calendar folder so it stays visible as declined.
+    if response_type == "decline" {
+        let move_soap = format!(
+            r#"<m:MoveItem>
+  <m:ToFolderId>
+    <t:DistinguishedFolderId Id="calendar">
+      <t:Mailbox>
+        <t:EmailAddress>{owner_email}</t:EmailAddress>
+      </t:Mailbox>
+    </t:DistinguishedFolderId>
+  </m:ToFolderId>
+  <m:ItemIds>
+    <t:ItemId Id="{item_id}"/>
+  </m:ItemIds>
+</m:MoveItem>"#,
+            owner_email = owner_email,
+            item_id = item_id,
+        );
+
+        let move_xml =
+            send_ews_request(&access_token, &move_soap, Some(owner_email.as_str())).await?;
+
+        if move_xml.contains("ResponseClass=\"Error\"") {
+            // Non-fatal: the decline was sent successfully, the item just stays in Deleted Items.
+            eprintln!(
+                "[EWS] MoveItem after decline failed (item stays in Deleted Items): {}",
+                xml_content(&move_xml, "m:MessageText").unwrap_or_default()
+            );
+        }
+    }
+
     Ok(())
 }
 

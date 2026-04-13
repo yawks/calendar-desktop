@@ -51,13 +51,14 @@ import {
 } from 'react';
 import { RecipientEntry, RecipientInput } from './components/RecipientInput';
 import { ThemePreference, useTheme } from '../../shared/store/ThemeStore';
-import { avatarColor, decodeHtmlEntities, formatDate, formatFullDate, formatSize, initials } from './utils';
+import { avatarColor, decodeHtmlEntities, formatDate, formatFullDate, formatSize, initials, senderColor } from './utils';
 
 import { CachedMailProvider } from './providers/CachedMailProvider';
 import type { OnInboxRefreshed } from './providers/CachedMailProvider';
 import { EwsMailProvider } from './providers/EwsMailProvider';
 import { FolderPickerPopover } from './components/FolderPickerPopover';
 import { GmailMailProvider } from './providers/GmailMailProvider';
+import { ICSInvitationCard } from './components/ICSInvitationCard';
 import { Link } from 'react-router-dom';
 import { MailSidebar } from './components/MailSidebar';
 import { MessageBlockHeader } from './components/MessageBlockHeader';
@@ -345,7 +346,15 @@ export default function MailApp() {
               const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
               const accountColor = acc?.color;
               const threads = await p.listThreads(selectedFolder, 50, 0);
-              return threads.map(t => ({ ...t, accountId, accountLabel, accountColor }));
+              const accountFrom = acc?.name ?? acc?.email ?? null;
+              return threads.map(t => ({
+                ...t,
+                accountId,
+                accountLabel,
+                accountColor,
+                // In Drafts, from_name should show the account owner; fall back to account info if missing
+                from_name: selectedFolder === 'drafts' ? (t.from_name ?? accountFrom) : t.from_name,
+              }));
             })
           ),
           Promise.allSettled(
@@ -356,7 +365,7 @@ export default function MailApp() {
           .flatMap(r => r.status === 'fulfilled' ? r.value : [])
           .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
         setThreads(merged);
-        setHasMoreThreads(false); // no pagination in All mode
+        setHasMoreThreads(merged.length >= 50);
         // Populate allAccountFolders so the sidebar dynamic folder list is complete
         const mergedCounts: Record<string, number> = {};
         const newAccountFolders = new Map<string, import('./types').MailFolder[]>();
@@ -374,7 +383,13 @@ export default function MailApp() {
       } else {
         if (!provider) return;
         const result = await provider.listThreads(selectedFolder, 50, 0);
-        setThreads(result);
+        if (selectedFolder === 'drafts') {
+          const acc = allMailAccounts.find(a => a.id === provider.accountId);
+          const accountFrom = acc?.name ?? acc?.email ?? null;
+          setThreads(result.map(t => ({ ...t, from_name: t.from_name ?? accountFrom })));
+        } else {
+          setThreads(result);
+        }
         setHasMoreThreads(result.length >= 50);
       }
     } catch (e) {
@@ -382,28 +397,64 @@ export default function MailApp() {
     } finally {
       setThreadsLoading(false);
     }
-  }, [isAllMode, allProviders, provider, selectedFolder]);
+  }, [isAllMode, allProviders, provider, selectedFolder, allMailAccounts]);
 
   const loadMoreThreads = useCallback(async () => {
-    if (isAllMode || !provider || threadsLoadingMore || !hasMoreThreads) return;
+    if (threadsLoadingMore || !hasMoreThreads) return;
     setThreadsLoadingMore(true);
     try {
-      const result = await provider.listThreads(selectedFolder, 50, threads.length);
-      if (result.length > 0) {
-        setThreads(prev => {
-          const seen = new Set(prev.map(t => t.conversation_id));
-          return [...prev, ...result.filter(t => !seen.has(t.conversation_id))];
-        });
-        setHasMoreThreads(result.length >= 50);
+      if (isAllMode) {
+        // Compute per-provider offset from threads already displayed
+        const perProviderOffset = new Map<string, number>();
+        for (const t of threads) {
+          if (t.accountId) perProviderOffset.set(t.accountId, (perProviderOffset.get(t.accountId) ?? 0) + 1);
+        }
+
+        const results = await Promise.allSettled(
+          Array.from(allProviders.entries()).map(async ([accountId, p]) => {
+            const offset = perProviderOffset.get(accountId) ?? 0;
+            const acc = allMailAccounts.find(a => a.id === accountId);
+            const atIdx = (acc?.email ?? '').indexOf('@');
+            const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
+            const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
+            const accountColor = acc?.color;
+            const fetched = await p.listThreads(selectedFolder, 50, offset);
+            return fetched.map(t => ({ ...t, accountId, accountLabel, accountColor }));
+          })
+        );
+
+        const newThreads = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+        if (newThreads.length > 0) {
+          setThreads(prev => {
+            const seen = new Set(prev.map(t => t.conversation_id));
+            const fresh = newThreads.filter(t => !seen.has(t.conversation_id));
+            return [...prev, ...fresh].sort((a, b) =>
+              new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime()
+            );
+          });
+          setHasMoreThreads(newThreads.length >= 50);
+        } else {
+          setHasMoreThreads(false);
+        }
       } else {
-        setHasMoreThreads(false);
+        if (!provider) return;
+        const result = await provider.listThreads(selectedFolder, 50, threads.length);
+        if (result.length > 0) {
+          setThreads(prev => {
+            const seen = new Set(prev.map(t => t.conversation_id));
+            return [...prev, ...result.filter(t => !seen.has(t.conversation_id))];
+          });
+          setHasMoreThreads(result.length >= 50);
+        } else {
+          setHasMoreThreads(false);
+        }
       }
     } catch (e) {
       console.error('[mail] loadMoreThreads error:', e);
     } finally {
       setThreadsLoadingMore(false);
     }
-  }, [isAllMode, provider, threadsLoadingMore, hasMoreThreads, threads.length, selectedFolder]);
+  }, [isAllMode, allProviders, allMailAccounts, provider, threadsLoadingMore, hasMoreThreads, threads, selectedFolder]);
 
   useEffect(() => {
     setSelectedThread(null);
@@ -842,6 +893,15 @@ export default function MailApp() {
     const wasSelected = selectedThread?.conversation_id === thread.conversation_id;
     const savedMessages = wasSelected ? messages : [];
 
+    // Find next thread to auto-select after deletion
+    let nextThread: MailThread | null = null;
+    if (wasSelected) {
+      const idx = threads.findIndex(th => th.conversation_id === thread.conversation_id);
+      if (idx !== -1) {
+        nextThread = threads[idx + 1] ?? threads[idx - 1] ?? null;
+      }
+    }
+
     // If openThread already decremented folderUnreadCounts for this conversation, don't do it again.
     // Otherwise use the original EWS unread_count from the thread argument.
     const alreadyAccounted = folderAccountedRef.current.has(thread.conversation_id);
@@ -850,8 +910,12 @@ export default function MailApp() {
     // Optimistic update
     setThreads(prev => prev.filter(th => th.conversation_id !== thread.conversation_id));
     if (wasSelected) {
-      setSelectedThread(null);
       setMessages([]);
+      if (nextThread) {
+        openThread(nextThread);
+      } else {
+        setSelectedThread(null);
+      }
     }
     if (unreadToDecrement > 0) {
       setFolderUnreadCounts(prev => ({
@@ -904,7 +968,7 @@ export default function MailApp() {
         (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
       },
     );
-  }, [resolveProvider, selectedThread, messages, selectedFolder, scheduleDeletion, t]);
+  }, [resolveProvider, selectedThread, messages, selectedFolder, scheduleDeletion, t, threads, openThread]);
 
   const handleSnooze = useCallback(async (snoozeUntil: string) => {
     const p = resolveProvider(selectedThread?.accountId);
@@ -1162,6 +1226,12 @@ export default function MailApp() {
       setDownloadToast({ name: att.name, path });
       downloadToastTimerRef.current = setTimeout(() => setDownloadToast(null), 15000);
     } catch (e) { setError(String(e)); }
+  }, [resolveProvider, selectedThread]);
+
+  const getRawAttachmentData = useCallback(async (att: MailAttachment): Promise<string> => {
+    const p = resolveProvider(selectedThread?.accountId);
+    if (!p) throw new Error('Provider introuvable');
+    return p.getAttachmentData(att);
   }, [resolveProvider, selectedThread]);
 
   const scheduleSend = useCallback(async (
@@ -1509,10 +1579,16 @@ export default function MailApp() {
                     ? allMailAccounts.find(a => a.id === selectedThread.accountId)?.email
                     : allMailAccounts.find(a => a.id === selectedAccountId)?.email
                 }
+                mailProviderType={
+                  isAllMode
+                    ? allMailAccounts.find(a => a.id === selectedThread.accountId)?.providerType
+                    : allMailAccounts.find(a => a.id === selectedAccountId)?.providerType
+                }
                 onMarkRead={markRead}
                 onTrash={moveToTrash}
                 onPreviewAttachment={previewAttachment}
                 onDownloadAttachment={downloadAttachment}
+                onGetAttachmentData={getRawAttachmentData}
                 onReply={msg => { setReplyMode('reply'); setReplyingTo(msg); }}
                 onReplyAll={msg => { setReplyMode('replyAll'); setReplyingTo(msg); }}
                 onForward={msg => { setReplyMode('forward'); setReplyingTo(msg); }}
@@ -1710,7 +1786,7 @@ const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       </div>
     );
 
-    if (loading && threads.length === 0) {
+    if (loading) {
       return (
         <div className="mail-thread-list mail-thread-list--empty">
           <RefreshCw size={24} className="spin" style={{ opacity: 0.4 }} />
@@ -1889,10 +1965,12 @@ interface ThreadDetailProps {
   readonly replyingTo: MailMessage | null;
   readonly contacts: { email: string; name?: string }[];
   readonly currentUserEmail?: string;
+  readonly mailProviderType?: 'gmail' | 'ews';
   readonly onMarkRead: (msgs: MailMessage[]) => void;
   readonly onTrash: (id: string) => void;
   readonly onPreviewAttachment: (att: MailAttachment) => void;
   readonly onDownloadAttachment: (att: MailAttachment) => void;
+  readonly onGetAttachmentData: (att: MailAttachment) => Promise<string>;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
@@ -1937,8 +2015,8 @@ function computeSnoozeOptions() {
 }
 
 function ThreadDetail({
-  thread, messages, replyingTo, replyMode, contacts, currentUserEmail,
-  onMarkRead, onTrash, onPreviewAttachment, onDownloadAttachment,
+  thread, messages, replyingTo, replyMode, contacts, currentUserEmail, mailProviderType,
+  onMarkRead, onTrash, onPreviewAttachment, onDownloadAttachment, onGetAttachmentData,
   onReply, onReplyAll, onForward, onToggleRead,
   onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
@@ -1948,14 +2026,18 @@ function ThreadDetail({
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [middleExpanded, setMiddleExpanded] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const composerBlockRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => { setMiddleExpanded(false); }, [thread.conversation_id]);
+
   useEffect(() => {
-    if (!replyingTo || !composerBlockRef.current || !messagesContainerRef.current) return;
-    const container = messagesContainerRef.current;
-    const block = composerBlockRef.current;
-    container.scrollTop = block.offsetTop - container.offsetTop;
+    if (!replyingTo) return;
+    const id = setTimeout(() => {
+      composerBlockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+    return () => clearTimeout(id);
   }, [replyingTo]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
@@ -2133,21 +2215,49 @@ function ThreadDetail({
       </div>
 
       <div className="mail-thread-detail__messages" ref={messagesContainerRef}>
-        {messages.map((msg, idx) => (
-          <MessageBlock
-            key={msg.item_id}
-            message={msg}
-            defaultExpanded={idx === messages.length - 1}
-            onMarkRead={onMarkRead}
-            onTrash={onTrash}
-            onPreviewAttachment={onPreviewAttachment}
-            onDownloadAttachment={onDownloadAttachment}
-            onReply={onReply}
-            onReplyAll={onReplyAll}
-            onForward={onForward}
-            onToggleRead={onToggleRead}
-          />
-        ))}
+        {messages.length > 5 && !middleExpanded ? (
+          <>
+            <CollapsedMessagesBar
+              messages={messages.slice(0, messages.length - 1)}
+              onExpand={() => setMiddleExpanded(true)}
+            />
+            <MessageBlock
+              key={messages[messages.length - 1].item_id}
+              message={messages[messages.length - 1]}
+              defaultExpanded={true}
+              onMarkRead={onMarkRead}
+              onTrash={onTrash}
+              onPreviewAttachment={onPreviewAttachment}
+              onDownloadAttachment={onDownloadAttachment}
+              onGetAttachmentData={onGetAttachmentData}
+              onReply={onReply}
+              onReplyAll={onReplyAll}
+              onForward={onForward}
+              onToggleRead={onToggleRead}
+              currentUserEmail={currentUserEmail}
+              mailProviderType={mailProviderType}
+            />
+          </>
+        ) : (
+          messages.map((msg, idx) => (
+            <MessageBlock
+              key={msg.item_id}
+              message={msg}
+              defaultExpanded={idx === messages.length - 1}
+              onMarkRead={onMarkRead}
+              onTrash={onTrash}
+              onPreviewAttachment={onPreviewAttachment}
+              onDownloadAttachment={onDownloadAttachment}
+              onGetAttachmentData={onGetAttachmentData}
+              onReply={onReply}
+              onReplyAll={onReplyAll}
+              onForward={onForward}
+              onToggleRead={onToggleRead}
+              currentUserEmail={currentUserEmail}
+              mailProviderType={mailProviderType}
+            />
+          ))
+        )}
         {replyingTo && (
           <div className="mail-composer-block" ref={composerBlockRef}>
             <MailComposer
@@ -2396,6 +2506,37 @@ function MultiSelectionPanel({
 
 // ── Message block ──────────────────────────────────────────────────────────────
 
+// ── Collapsed messages bar ────────────────────────────────────────────────────
+
+interface CollapsedMessagesBarProps {
+  readonly messages: MailMessage[];
+  readonly onExpand: () => void;
+}
+
+function CollapsedMessagesBar({ messages, onExpand }: CollapsedMessagesBarProps) {
+  const { resolved } = useTheme();
+  const isDark = resolved === 'dark';
+
+  const senders = messages.map(m => m.from_name ?? m.from_email ?? '?');
+  const uniqueSenders = senders.filter((s, i) => senders.indexOf(s) === i);
+
+  return (
+    <button type="button" className="mail-collapsed-bar" onClick={onExpand}>
+      <MoreHorizontal size={14} className="mail-collapsed-bar__dots" />
+      <span className="mail-collapsed-bar__senders">
+        {uniqueSenders.map((name, i) => (
+          <span key={i} style={{ color: senderColor(name, isDark), fontWeight: 700 }}>
+            {name}{i < uniqueSenders.length - 1 ? ', ' : ''}
+          </span>
+        ))}
+      </span>
+      <span className="mail-collapsed-bar__count">
+        show {messages.length} more message{messages.length > 1 ? 's' : ''}
+      </span>
+    </button>
+  );
+}
+
 interface MessageBlockProps {
   readonly message: MailMessage;
   readonly defaultExpanded: boolean;
@@ -2403,16 +2544,20 @@ interface MessageBlockProps {
   readonly onTrash: (id: string) => void;
   readonly onPreviewAttachment: (att: MailAttachment) => void;
   readonly onDownloadAttachment: (att: MailAttachment) => void;
+  readonly onGetAttachmentData: (att: MailAttachment) => Promise<string>;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
+  readonly currentUserEmail?: string;
+  readonly mailProviderType?: 'gmail' | 'ews';
 }
 
 function MessageBlock({
   message, defaultExpanded,
-  onMarkRead, onTrash, onPreviewAttachment, onDownloadAttachment,
+  onMarkRead, onTrash, onPreviewAttachment, onDownloadAttachment, onGetAttachmentData,
   onReply, onReplyAll, onForward, onToggleRead,
+  currentUserEmail, mailProviderType,
 }: MessageBlockProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const markedRef = useRef(false);
@@ -2445,6 +2590,24 @@ function MessageBlock({
               attachments={message.attachments}
               onPreview={onPreviewAttachment}
               onDownload={onDownloadAttachment}
+            />
+          )}
+          {message.attachments
+            .filter(att => att.content_type.includes('calendar') || att.name.toLowerCase().endsWith('.ics'))
+            .map(att => (
+              <ICSInvitationCard
+                key={att.attachment_id}
+                source={{ kind: 'attachment', attachment: att, getAttachmentData: onGetAttachmentData }}
+                currentUserEmail={currentUserEmail}
+                mailProviderType={mailProviderType}
+              />
+            ))}
+          {message.ics_mime && (
+            <ICSInvitationCard
+              key="ics_mime"
+              source={{ kind: 'text', icsText: message.ics_mime }}
+              currentUserEmail={currentUserEmail}
+              mailProviderType={mailProviderType}
             />
           )}
           <EmailHtmlBody html={message.body_html} />
@@ -3167,6 +3330,7 @@ function MailComposer({ replyTo, mode, contacts, currentUserEmail, restoreData, 
             onChange={e => setSubject(e.target.value)}
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
             spellCheck={false}
+            onKeyDown={e => { if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); bodyRef.current?.focus(); } }}
           />
         </div>
         <FormattingToolbar bodyRef={bodyRef} />
@@ -3455,6 +3619,7 @@ function NewMessageComposer({ contacts, restoreData, onSend, onCancel, onSaveDra
             onChange={e => setSubject(e.target.value)}
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
             spellCheck={false}
+            onKeyDown={e => { if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); bodyRef.current?.focus(); } }}
           />
         </div>
         <FormattingToolbar bodyRef={bodyRef} />

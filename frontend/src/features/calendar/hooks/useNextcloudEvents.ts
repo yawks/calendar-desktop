@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { CalendarConfig, CalendarEvent } from '../../../shared/types';
+import { AttendeeStatus, CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { parseICS } from '../utils/parseICS';
-import { cacheGetStale, cacheSet, cacheIsFresh } from '../utils/eventCache';
+import { cacheGetStale, cacheSet, cacheIsFresh, patchCachedEventRsvp } from '../utils/eventCache';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const CACHE_VERSION = 'v1';
@@ -100,4 +100,9 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
   const refresh = useCallback(() => run(true), [run]);
 
   return { events, loading, errors, refresh };
+}
+
+/** Patch a single Nextcloud event's RSVP status in the IndexedDB cache. */
+export function patchNextcloudCachedRsvp(calId: string, eventId: string, status: AttendeeStatus): Promise<void> {
+  return patchCachedEventRsvp(`nextcloud-events:${CACHE_VERSION}:${calId}`, eventId, status);
 }

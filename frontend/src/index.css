@@ -938,6 +938,25 @@ body {
   flex-shrink: 0; color: var(--text-muted);
 }
 
+/* ── Collapsed messages bar ──────────────────────── */
+.mail-collapsed-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  margin-bottom: 8px;
+  width: 100%; cursor: pointer;
+  color: var(--text); font-size: 13px; text-align: left;
+  overflow: hidden;
+  transition: background 0.1s;
+}
+.mail-collapsed-bar:hover { background: var(--bg-hover); }
+.mail-collapsed-bar__dots { flex-shrink: 0; color: var(--text-muted); }
+.mail-collapsed-bar__senders {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mail-collapsed-bar__count { flex-shrink: 0; color: var(--text-muted); font-size: 12px; }
+
 /* Action buttons inside the message header (Reply, Trash) */
 .mail-message-block__header-actions {
   display: flex; align-items: center; gap: 4px; flex-shrink: 0;
