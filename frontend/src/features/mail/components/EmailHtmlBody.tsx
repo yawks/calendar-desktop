@@ -43,7 +43,7 @@ export function EmailHtmlBody({ html }: { readonly html: string }) {
         ref={iframeRef}
         title="Email content"
         style={{ width: '100%', border: 'none', display: 'block' }}
-        sandbox="allow-popups allow-popups-to-escape-sandbox"
+        sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
       />
     </div>
   );

@@ -411,6 +411,52 @@ export function useCalendarLogic() {
     });
   }, [calendars, exchangeAccounts]);
 
+  const handleBeforeUpdateEvent = useCallback(
+    ({ event, changes }: { event: any; changes: any }) => {
+      const originalEvent = events.find((e) => e.id === event.id);
+      if (!originalEvent) return;
+
+      if (!isEventEditable(originalEvent)) return;
+
+      const toISO = (d: unknown): string => {
+        if (d instanceof Date) return d.toISOString();
+        if (d && typeof (d as any).toDate === 'function') return (d as any).toDate().toISOString();
+        return String(d);
+      };
+
+      const newStart = changes.start ? toISO(changes.start) : originalEvent.start;
+      let newEnd: string;
+      if (changes.end) {
+        newEnd = toISO(changes.end);
+      } else if (changes.start) {
+        const duration = new Date(originalEvent.end).getTime() - new Date(originalEvent.start).getTime();
+        newEnd = new Date(new Date(newStart).getTime() + duration).toISOString();
+      } else {
+        newEnd = originalEvent.end;
+      }
+
+      if (originalEvent.isAllday && changes.end) {
+        const d = new Date(newEnd);
+        d.setDate(d.getDate() + 1);
+        newEnd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+
+      const payload: CreateEventPayload = {
+        title: originalEvent.title,
+        start: newStart,
+        end: newEnd,
+        isAllday: originalEvent.isAllday,
+        calendarId: originalEvent.calendarId,
+        location: originalEvent.location,
+        description: originalEvent.description,
+        attendees: originalEvent.attendees?.map((a) => ({ email: a.email, name: a.name })),
+      };
+
+      void handleSaveEvent(payload, originalEvent);
+    },
+    [events, isEventEditable, handleSaveEvent]
+  );
+
   return {
     calendarRef,
     view,
@@ -458,6 +504,7 @@ export function useCalendarLogic() {
     handleRsvp,
     handleDeleteEvent,
     isEventEditable,
-    isExchangeOrganizer
+    isExchangeOrganizer,
+    handleBeforeUpdateEvent
   };
 }

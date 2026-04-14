@@ -100,19 +100,7 @@ export function ThreadDetail({
 
   return (
     <div className="mail-thread-detail">
-      <div className="mail-thread-detail__header">
-        <div className="mail-thread-detail__header-main">
-           <h2 className="mail-thread-detail__title">{thread.topic || t('mail.noSubject', '(Pas d’objet)')}</h2>
-           <div className="mail-thread-detail__header-badges">
-             {isSnoozed && (
-               <div className="mail-thread-detail__snooze-badge" onClick={onUnsnooze} title={t('mail.clickToUnsnooze', 'Cliquer pour annuler l’attente')}>
-                 <Clock size={12} />
-                 <span>{t('mail.snoozedUntil', 'En attente jusqu’au')} {formatFullDate(snoozeUntil!)}</span>
-               </div>
-             )}
-           </div>
-        </div>
-
+      <div className="mail-thread-detail__toolbar">
         <div className="mail-thread-detail__actions">
           <div style={{ position: 'relative' }}>
             <button
@@ -121,6 +109,7 @@ export function ThreadDetail({
               title={t('mail.moveToFolder', 'Déplacer vers un dossier')}
             >
               <FolderInput size={18} />
+              <span>{t('mail.move', 'Déplacer')}</span>
             </button>
             {showMoveMenu && (
               <FolderPickerPopover
@@ -133,12 +122,15 @@ export function ThreadDetail({
 
           <button className="mail-thread-detail__action-btn" onClick={onDeleteThread} title={t('mail.deleteThread', 'Supprimer la conversation')}>
             <Trash2 size={18} />
+            <span>{t('mail.delete', 'Supprimer')}</span>
           </button>
           <button className="mail-thread-detail__action-btn" onClick={() => {/* TODO */}} title={t('mail.archiveThread', 'Archiver')}>
             <Archive size={18} />
+            <span>{t('mail.archive', 'Archiver')}</span>
           </button>
           <button className="mail-thread-detail__action-btn" onClick={onToggleThreadRead} title={isThreadUnread ? t('mail.markAsRead', 'Marquer comme lu') : t('mail.markAsUnread', 'Marquer comme non lu')}>
             {isThreadUnread ? <MailOpen size={18} /> : <MailIcon size={18} />}
+            <span>{isThreadUnread ? t('mail.markAsRead', 'Marquer comme lu') : t('mail.markAsUnread', 'Marquer comme non lu')}</span>
           </button>
 
           {supportsSnooze && (
@@ -149,6 +141,7 @@ export function ThreadDetail({
                 title={t('mail.snooze', 'Mettre en attente')}
               >
                 <Clock size={18} />
+                <span>{t('mail.snooze', 'En attente')}</span>
               </button>
               {showSnoozeMenu && (
                 <div className="mail-snooze-menu">
@@ -175,7 +168,17 @@ export function ThreadDetail({
         </div>
       </div>
 
-      <div className="mail-thread-detail__body">
+      <div className="mail-thread-detail__header">
+        <h2 className="mail-thread-detail__subject">{thread.topic || t('mail.noSubject', '(Pas d’objet)')}</h2>
+        {isSnoozed && (
+          <div className="mail-thread-detail__snooze-badge" onClick={onUnsnooze} title={t('mail.clickToUnsnooze', 'Cliquer pour annuler l’attente')}>
+            <Clock size={12} />
+            <span>{t('mail.snoozedUntil', 'En attente jusqu’au')} {formatFullDate(snoozeUntil!)}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="mail-thread-detail__messages">
         {visibleMessages.map((msg, idx) => (
           <React.Fragment key={msg.item_id}>
             {idx === 1 && isCollapsed && !expanded && (

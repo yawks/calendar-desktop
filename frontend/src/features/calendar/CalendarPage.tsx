@@ -54,6 +54,7 @@ export default function CalendarPage() {
     handleSaveEvent,
     handleRsvp,
     handleDeleteEvent,
+    handleBeforeUpdateEvent,
     isEventEditable,
     isExchangeOrganizer,
   } = useCalendarLogic();
@@ -149,6 +150,7 @@ export default function CalendarPage() {
               };
               setCreateModalState({ start: toISO(start), end: toISO(end) });
             }}
+            onBeforeUpdateEvent={handleBeforeUpdateEvent}
              template={{
               time: (event: any) => {
                 const start = formatTime(event.start);
