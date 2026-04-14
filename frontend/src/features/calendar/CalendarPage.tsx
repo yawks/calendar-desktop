@@ -82,7 +82,7 @@ export default function CalendarPage() {
   ), [calendars]);
 
   return (
-    <div className={`calendar-app ${theme === 'dark' ? 'dark-theme' : ''}`}>
+    <div className={`app ${theme === 'dark' ? 'dark-theme' : ''}`}>
       <AppHeader
         view={view}
         onViewChange={handleViewChange}
@@ -96,7 +96,7 @@ export default function CalendarPage() {
         onSearch={() => {}}
       />
 
-      <div className="calendar-main">
+      <div className="app-body">
         {!sidebarCollapsed && (
           <Sidebar
             calendars={calendars}
