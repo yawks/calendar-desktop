@@ -105,6 +105,7 @@ interface ICSEventData {
   organizer?: { name: string; email: string };
   attendees: Array<{ name: string; email: string; status: AttendeeStatus; isOrganizer?: boolean }>;
   uid?: string;
+  method?: string;     // VCALENDAR METHOD property (e.g. "CANCEL", "REQUEST", "REPLY")
 }
 
 function parseRawICS(icsText: string): ICSEventData | null {
@@ -145,6 +146,11 @@ function parseRawICS(icsText: string): ICSEventData | null {
       attendees.push({ name, email, status });
     }
 
+    const methodProp = comp.getFirstProperty('method');
+    const method = methodProp
+      ? (methodProp.getFirstValue() as string).toUpperCase()
+      : undefined;
+
     return {
       title:    ev.summary    ?? '(sans titre)',
       start:    toISO(ev.startDate),
@@ -155,6 +161,7 @@ function parseRawICS(icsText: string): ICSEventData | null {
       organizer: orgEmail ? { name: attendees[0]?.name ?? orgEmail, email: orgEmail } : undefined,
       attendees,
       uid: ev.uid ?? undefined,
+      method,
     };
   } catch (e) {
     console.error('[ICSInvitationCard] parse error', e);
@@ -474,8 +481,9 @@ export function ICSInvitationCard({
     setStoredStatus(persisted);
   }, [icsData]);
 
+  const isCancelled = icsData?.method === 'CANCEL';
   const currentStatus = storedStatus ?? matchedInSelected?.selfRsvpStatus;
-  const canRsvp = selectedCal ? supportsRsvp(selectedCal.type) : false;
+  const canRsvp = !isCancelled && (selectedCal ? supportsRsvp(selectedCal.type) : false);
   const isInCalendar = matchedInSelected !== null;
 
   // Events for the day timeline
@@ -589,10 +597,14 @@ export function ICSInvitationCard({
       <div className="ics-card__main">
         <div className="ics-card__header">
           <CalendarCheck size={18} className="ics-card__icon" />
-          <span className="ics-card__label">Invitation</span>
+          <span className="ics-card__label">{isCancelled ? 'Annulation' : 'Invitation'}</span>
         </div>
 
         <h3 className="ics-card__title">{icsData.title}</h3>
+
+        {isCancelled && (
+          <div className="ics-status ics-status--cancelled">Évènement annulé</div>
+        )}
 
         <div className="ics-card__meta">
           <div className="ics-card__meta-row">
@@ -625,8 +637,8 @@ export function ICSInvitationCard({
           </div>
         )}
 
-        {/* Calendar selector */}
-        {writableCalendars.length > 0 && selectedCalId && (
+        {/* Calendar selector — hidden for cancellations */}
+        {!isCancelled && writableCalendars.length > 0 && selectedCalId && (
           <div className="ics-card__cal-row">
             <span className="ics-card__cal-label">Calendrier :</span>
             <CalendarSelector
@@ -637,8 +649,8 @@ export function ICSInvitationCard({
           </div>
         )}
 
-        {/* Actions */}
-        <div className="ics-card__actions">
+        {/* Actions — hidden for cancellations */}
+        {!isCancelled && (<div className="ics-card__actions">
           {actionLoading && <Loader2 size={14} className="ics-spinner" />}
           {canRsvp ? (
             <>
@@ -677,7 +689,7 @@ export function ICSInvitationCard({
               <Plus size={13} /> Ajouter au calendrier
             </button>
           )}
-        </div>
+        </div>)}
 
         {actionError   && <p className="ics-card__feedback ics-card__feedback--error">{actionError}</p>}
         {actionSuccess && <p className="ics-card__feedback ics-card__feedback--success">{actionSuccess}</p>}
