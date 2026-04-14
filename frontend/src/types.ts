@@ -47,7 +47,7 @@ export interface GoogleAccount {
   accessToken: string;
   refreshToken: string;
   /** Unix timestamp (ms) when the access token expires */
-  expiresAt: number;
+  expiresAt: number; color?: string;
 }
 
 export interface ExchangeAccount {
@@ -57,7 +57,7 @@ export interface ExchangeAccount {
   accessToken: string;
   refreshToken: string;
   /** Unix timestamp (ms) when the access token expires */
-  expiresAt: number;
+  expiresAt: number; color?: string;
 }
 
 export interface CreateEventPayload {
