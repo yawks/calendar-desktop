@@ -58,3 +58,26 @@ export interface MailFolder {
   total_count: number;
   unread_count: number;
 }
+
+export interface ComposerRestoreData {
+  toRecipients: import('./components/RecipientInput').RecipientEntry[];
+  ccRecipients: import('./components/RecipientInput').RecipientEntry[];
+  bccRecipients: import('./components/RecipientInput').RecipientEntry[];
+  subject: string;
+  body: string;
+  attachments: import('./providers/MailProvider').ComposerAttachment[];
+  showCc: boolean;
+  showBcc: boolean;
+  isNewMessage: boolean;
+  replyingToMsg: MailMessage | null;
+}
+
+export interface FromAccount {
+  id: string;
+  email: string;
+  name?: string;
+  color?: string;
+  providerType: 'ews' | 'gmail';
+}
+
+export type ThreadFilter = 'all' | 'unread';

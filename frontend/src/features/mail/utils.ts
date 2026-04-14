@@ -1,3 +1,8 @@
+import { Monitor, Moon, Sun } from 'lucide-react';
+import { ThemePreference } from '../../shared/store/ThemeStore';
+import React from 'react';
+import { FileIcon, defaultStyles } from 'react-file-icon';
+
 /** Decode HTML entities in a plain-text string (e.g. snippet previews).
  *  Uses a temporary DOM element so all named and numeric entities are handled
  *  without maintaining a manual list. Control characters are collapsed into spaces. */
@@ -91,4 +96,47 @@ export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export const ALL_ACCOUNTS_ID = '__all__';
+
+export function ThemeIcon({ pref }: { readonly pref: ThemePreference }) {
+  if (pref === 'light') return React.createElement(Sun, { size: 18 });
+  if (pref === 'dark') return React.createElement(Moon, { size: 18 });
+  return React.createElement(Monitor, { size: 18 });
+}
+export const THEME_CYCLE: ThemePreference[] = ['system', 'light', 'dark'];
+
+// ── Folder unread count helpers ────────────────────────────────────────────────
+// EWS returns real FolderIds (base64) for well-known folders, not the distinguished
+// names ('inbox', 'sentitems', …) used as static sidebar keys. Map by display name.
+export const DISPLAY_TO_STATIC: Record<string, string> = {
+  'inbox': 'inbox',
+  'boîte de réception': 'inbox',
+  'sent': 'sentitems',
+  'sent items': 'sentitems',
+  'éléments envoyés': 'sentitems',
+  'trash': 'deleteditems',
+  'deleted items': 'deleteditems',
+  'éléments supprimés': 'deleteditems',
+  'drafts': 'drafts',
+  'brouillons': 'drafts',
+};
+
+export function buildUnreadCounts(folders: import('./types').MailFolder[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const f of folders) {
+    const key = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
+    counts[key] = f.unread_count;
+  }
+  return counts;
+}
+
+export function FileTypeIcon({ name, size = 20 }: { readonly name: string; readonly size?: number }) {
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  return React.createElement(
+    'div',
+    { style: { width: size, height: size, flexShrink: 0 } },
+    React.createElement(FileIcon, { extension: ext, ...(defaultStyles[ext as keyof typeof defaultStyles] ?? {}) })
+  );
 }

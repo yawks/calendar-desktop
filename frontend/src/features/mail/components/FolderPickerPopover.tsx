@@ -1,5 +1,5 @@
 import { ChevronRight, Folder as FolderIcon, Inbox, Search, Send, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import type { MailFolder } from '../types';
 
@@ -11,12 +11,12 @@ interface FolderNode {
 }
 
 const SYSTEM_FOLDER_MAP: Record<string, { label: string; Icon: React.FC<{ size?: number }> }> = {
-  inbox:        { label: 'Inbox',   Icon: Inbox  },
-  INBOX:        { label: 'Inbox',   Icon: Inbox  },
-  sentitems:    { label: 'Sent',    Icon: Send   },
-  SENT:         { label: 'Sent',    Icon: Send   },
-  deleteditems: { label: 'Trash',   Icon: Trash2 },
-  TRASH:        { label: 'Trash',   Icon: Trash2 },
+  inbox:        { label: 'Inbox',   Icon: Inbox as any },
+  INBOX:        { label: 'Inbox',   Icon: Inbox as any },
+  sentitems:    { label: 'Sent',    Icon: Send as any },
+  SENT:         { label: 'Sent',    Icon: Send as any },
+  deleteditems: { label: 'Trash',   Icon: Trash2 as any },
+  TRASH:        { label: 'Trash',   Icon: Trash2 as any },
 };
 
 function collectAllNames(folders: MailFolder[]): Set<string> {
@@ -29,7 +29,8 @@ function collectAllNames(folders: MailFolder[]): Set<string> {
 }
 
 function makeNode(name: string, real: MailFolder | undefined): FolderNode {
-  const label = name.split('/').at(-1) ?? name;
+  const parts = name.split('/');
+  const label = parts[parts.length - 1] ?? name;
   if (real) return { folder: real, label, children: [], isVirtual: false };
   return {
     folder: { folder_id: `__v__:${name}`, display_name: name, total_count: 0, unread_count: 0 },
