@@ -1,27 +1,23 @@
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../types';
 import { ChevronDown, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import FreeBusyGrid, { FreeBusyRow } from './FreeBusyGrid';
 import { FreeBusyResult, queryFreeBusy } from '../utils/googleCalendarApi';
-
 import AttendeeInput from './AttendeeInput';
 import { getDefaultCalendarId } from '../store/defaultCalendarStore';
 import { queryEWSFreeBusy } from '../utils/ewsApi';
 import { useTags } from '../store/TagStore';
 import { useTranslation } from 'react-i18next';
+import { FreeBusySection } from './event/FreeBusySection';
 
 interface Props {
   readonly initialStart: string;
   readonly initialEnd: string;
   readonly writableCalendars: CalendarConfig[];
   readonly allEvents: CalendarEvent[];
-  /** When provided, the modal operates in edit mode */
   readonly editEvent?: CalendarEvent;
   readonly onSubmit: (payload: CreateEventPayload) => Promise<void>;
   readonly onClose: () => void;
-  /** Required to query freebusy for Google calendars */
   readonly getValidToken?: (accountId: string) => Promise<string | null>;
-  /** Required to query freebusy for Exchange calendars (synchronous refresh token getter) */
   readonly getExchangeRefreshToken?: (accountId: string) => string | null;
 }
 
@@ -73,198 +69,70 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowTagDropdown(false);
-      }
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) setShowTagDropdown(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // FreeBusy state
   const [freeBusyData, setFreeBusyData] = useState<Record<string, FreeBusyResult>>({});
   const [freeBusyLoading, setFreeBusyLoading] = useState(false);
 
   const selectedCalendar = writableCalendars.find((c) => c.id === calendarId);
-  const headerColor = selectedCalendar?.color ?? '#888';
+  const showFreeBusy = (selectedCalendar?.type === 'google' || selectedCalendar?.type === 'exchange') && !isAllday && attendees.length > 0;
 
-  const isGoogleCalendar = selectedCalendar?.type === 'google';
-  const isExchangeCalendar = selectedCalendar?.type === 'exchange';
-  // Exchange free/busy requires a registered Azure app with Calendars.Read scope;
-  // with the public Office client ID (d3590ed6), Graph API access is blocked.
-  // But we can use EWS-based free/busy as fallback.
-  const showFreeBusy = (isGoogleCalendar || isExchangeCalendar) && !isAllday && attendees.length > 0;
-
-  // "Me" busy slots — computed locally from allEvents so ALL synced calendars are included
-  // (Google, EventKit, ICS, Nextcloud, etc.)
-  const selfBusySlots = useMemo((): { busy: Array<{ start: Date; end: Date }>; tentative: Array<{ start: Date; end: Date }> } => {
+  const selfBusySlots = useMemo(() => {
     const eventDate = new Date(start);
     if (Number.isNaN(eventDate.getTime())) return { busy: [], tentative: [] };
-
-    const dayStart = new Date(eventDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(eventDate);
-    dayEnd.setHours(23, 59, 59, 999);
-
+    const dayStart = new Date(eventDate); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(eventDate); dayEnd.setHours(23, 59, 59, 999);
     const busy: Array<{ start: Date; end: Date }> = [];
     const tentative: Array<{ start: Date; end: Date }> = [];
-
     for (const ev of allEvents) {
-      if (ev.isAllday) continue;
-      if (ev.isDeclined) continue;
-
+      if (ev.isAllday || ev.isDeclined) continue;
       const evStart = new Date(ev.start);
       const evEnd = new Date(ev.end);
-      if (Number.isNaN(evStart.getTime()) || Number.isNaN(evEnd.getTime())) continue;
-      if (evStart >= dayEnd || evEnd <= dayStart) continue;
-
-      const slot = { start: evStart, end: evEnd };
-      if (ev.isUnaccepted) {
-        tentative.push(slot);
-      } else {
-        busy.push(slot);
-      }
+      if (Number.isNaN(evStart.getTime()) || Number.isNaN(evEnd.getTime()) || evStart >= dayEnd || evEnd <= dayStart) continue;
+      if (ev.isUnaccepted) tentative.push({ start: evStart, end: evEnd });
+      else busy.push({ start: evStart, end: evEnd });
     }
-
     return { busy, tentative };
   }, [allEvents, start]);
 
-  // Query freebusy for attendees only (self is covered by allEvents above)
   useEffect(() => {
     if (!showFreeBusy || attendees.length === 0) return;
-
     const timer = setTimeout(async () => {
       const startDate = new Date(start);
-      if (Number.isNaN(startDate.getTime())) {
-        console.log('[FreeBusy] invalid start date, skipping');
-        return;
-      }
-
-      const dayStart = new Date(startDate);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(startDate);
-      dayEnd.setHours(23, 59, 59, 999);
-
-      const ownerEmail = selectedCalendar?.ownerEmail;
-      const emails = attendees.map((a) => a.email).filter((e) => e !== ownerEmail);
-      console.log('[FreeBusy] trigger', {
-        calendarType: selectedCalendar?.type,
-        isGoogleCalendar,
-        isExchangeCalendar,
-        googleAccountId: selectedCalendar?.googleAccountId,
-        exchangeAccountId: selectedCalendar?.exchangeAccountId,
-        hasGetValidToken: !!getValidToken,
-        hasGetExchangeRefreshToken: !!getExchangeRefreshToken,
-        ownerEmail,
-        attendees: attendees.map((a) => a.email),
-        emails,
-        dayStart,
-        dayEnd,
-      });
-      console.log('[FreeBusy] showFreeBusy=', showFreeBusy);
-      if (emails.length === 0) {
-        console.log('[FreeBusy] no emails to query (all filtered as owner)');
-        return;
-      }
-
+      if (Number.isNaN(startDate.getTime())) return;
+      const dayStart = new Date(startDate); dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(startDate); dayEnd.setHours(23, 59, 59, 999);
+      const emails = attendees.map((a) => a.email).filter((e) => e !== selectedCalendar?.ownerEmail);
+      if (emails.length === 0) return;
       setFreeBusyLoading(true);
       try {
-        if (isGoogleCalendar && selectedCalendar?.googleAccountId && getValidToken) {
+        if (selectedCalendar?.type === 'google' && selectedCalendar?.googleAccountId && getValidToken) {
           const token = await getValidToken(selectedCalendar.googleAccountId);
-          console.log('[FreeBusy] Google token obtained:', !!token);
-          if (!token) return;
-          const data = await queryFreeBusy(token, emails, dayStart, dayEnd);
-          console.log('[FreeBusy] Google result:', data);
-          setFreeBusyData(data);
-        } else if (isExchangeCalendar && selectedCalendar?.exchangeAccountId && getExchangeRefreshToken) {
+          if (token) setFreeBusyData(await queryFreeBusy(token, emails, dayStart, dayEnd));
+        } else if (selectedCalendar?.type === 'exchange' && selectedCalendar?.exchangeAccountId && getExchangeRefreshToken) {
           const refreshToken = getExchangeRefreshToken(selectedCalendar.exchangeAccountId);
-          console.log('[FreeBusy] Exchange refresh token obtained:', !!refreshToken);
-          if (!refreshToken) return;
-          const data = await queryEWSFreeBusy(refreshToken, emails, dayStart, dayEnd, selectedCalendar?.ownerEmail);
-          console.log('[FreeBusy] Exchange result:', data);
-          setFreeBusyData(data);
-        } else {
-          console.log('[FreeBusy] no branch matched — conditions not met');
+          if (refreshToken) setFreeBusyData(await queryEWSFreeBusy(refreshToken, emails, dayStart, dayEnd, selectedCalendar?.ownerEmail));
         }
-      } catch (err) {
-        console.error('[FreeBusy] error:', err);
-      } finally {
-        setFreeBusyLoading(false);
-      }
+      } catch (err) { console.error('[FreeBusy] error:', err); } finally { setFreeBusyLoading(false); }
     }, 600);
-
     return () => clearTimeout(timer);
-  }, [showFreeBusy, attendees, start, isGoogleCalendar, isExchangeCalendar, selectedCalendar?.googleAccountId, selectedCalendar?.exchangeAccountId, selectedCalendar?.ownerEmail, getValidToken, getExchangeRefreshToken]);
+  }, [showFreeBusy, attendees, start, selectedCalendar, getValidToken, getExchangeRefreshToken]);
 
-  // Reset freebusy data when calendar changes away from a supported type
-  useEffect(() => {
-    if (!isGoogleCalendar && !isExchangeCalendar) setFreeBusyData({});
-  }, [isGoogleCalendar, isExchangeCalendar]);
-
-  // Compute display window (07:00–21:00 on the event day, clamped to include the event)
-  const freeBusyWindow = useMemo(() => {
-    const d = new Date(start);
-    if (Number.isNaN(d.getTime())) return null;
-    const ws = new Date(d);
-    ws.setHours(7, 0, 0, 0);
-    const we = new Date(d);
-    we.setHours(21, 0, 0, 0);
-    // Expand window if event falls outside
-    const eventStart = new Date(start);
-    const eventEnd = new Date(end);
-    if (!Number.isNaN(eventStart.getTime()) && eventStart < ws) ws.setTime(eventStart.getTime());
-    if (!Number.isNaN(eventEnd.getTime()) && eventEnd > we) we.setTime(eventEnd.getTime());
-    return { windowStart: ws, windowEnd: we };
-  }, [start, end]);
-
-  const freeBusyRows = useMemo((): FreeBusyRow[] => {
-    const ownerEmail = selectedCalendar?.ownerEmail;
-    const rows: FreeBusyRow[] = [];
-
-    // Self row — always shown, computed from allEvents (all synced calendars)
-    rows.push({
-      email: ownerEmail ?? 'self',
-      label: t('freeBusy.me'),
-      busy: selfBusySlots.busy,
-      tentative: selfBusySlots.tentative,
-      unavailable: false,
-      isSelf: true,
-    });
-
-    // Attendee rows — from freebusy API (shown even while loading)
-    for (const attendee of attendees) {
-      if (attendee.email === ownerEmail) continue;
-      const data = freeBusyData[attendee.email];
-      const tentativeSlots = data
-        ? ((data as FreeBusyResult & { tentative?: Array<{ start: Date; end: Date }> }).tentative ?? [])
-        : [];
-      rows.push({
-        email: attendee.email,
-        label: attendee.name ?? attendee.email,
-        busy: data?.busy ?? [],
-        tentative: tentativeSlots,
-        unavailable: data?.unavailable ?? false,
-        isSelf: false,
-      });
-    }
-
-    return rows;
-  }, [selfBusySlots.busy, selfBusySlots.tentative, freeBusyData, attendees, selectedCalendar?.ownerEmail, t]);
+  useEffect(() => { if (selectedCalendar?.type !== 'google' && selectedCalendar?.type !== 'exchange') setFreeBusyData({}); }, [selectedCalendar]);
 
   function handleSelectTime(newStart: Date) {
     const currentStart = new Date(start);
     const currentEnd = new Date(end);
-    const duration = Number.isNaN(currentEnd.getTime()) || Number.isNaN(currentStart.getTime())
-      ? 60 * 60 * 1000
-      : currentEnd.getTime() - currentStart.getTime();
-    const newEnd = new Date(newStart.getTime() + duration);
+    const duration = Number.isNaN(currentEnd.getTime()) || Number.isNaN(currentStart.getTime()) ? 3600000 : currentEnd.getTime() - currentStart.getTime();
     setStart(toDatetimeLocal(newStart.toISOString()));
-    setEnd(toDatetimeLocal(newEnd.toISOString()));
+    setEnd(toDatetimeLocal(new Date(newStart.getTime() + duration).toISOString()));
   }
 
-  useEffect(() => {
-    dialogRef.current?.showModal();
-  }, []);
+  useEffect(() => { dialogRef.current?.showModal(); }, []);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -272,165 +140,67 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
     const onCancel = (e: Event) => { e.preventDefault(); onClose(); };
     const onBackdropClick = (e: MouseEvent) => {
       const rect = dialog.getBoundingClientRect();
-      const outside =
-        e.clientX < rect.left || e.clientX > rect.right ||
-        e.clientY < rect.top  || e.clientY > rect.bottom;
-      if (outside) onClose();
+      if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) onClose();
     };
     dialog.addEventListener('cancel', onCancel);
     dialog.addEventListener('click', onBackdropClick);
-    return () => {
-      dialog.removeEventListener('cancel', onCancel);
-      dialog.removeEventListener('click', onBackdropClick);
-    };
+    return () => { dialog.removeEventListener('cancel', onCancel); dialog.removeEventListener('click', onBackdropClick); };
   }, [onClose]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !calendarId) return;
-
-    const startIso = isAllday ? startDate : new Date(start).toISOString();
-    const endIso   = isAllday ? endDate   : new Date(end).toISOString();
-
     setSaving(true);
     setError('');
     try {
-      const payload: CreateEventPayload = {
+      await onSubmit({
         title: title || t('createEvent.untitledEvent'),
-        start: startIso,
-        end: endIso,
-        isAllday,
-        location,
-        description,
-        calendarId,
-        attendees,
-        tagId: tagId || null,
-      };
-      await onSubmit(payload);
+        start: isAllday ? startDate : new Date(start).toISOString(),
+        end: isAllday ? endDate : new Date(end).toISOString(),
+        isAllday, location, description, calendarId, attendees, tagId: tagId || null,
+      });
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('createEvent.saveError'));
-      setSaving(false);
-    }
+    } catch (err) { setError(err instanceof Error ? err.message : t('createEvent.saveError')); setSaving(false); }
   };
 
-  const googleCals = writableCalendars.filter((c) => c.type === 'google');
-  const ekCals = writableCalendars.filter((c) => c.type === 'eventkit');
-  const nextcloudCals = writableCalendars.filter((c) => c.type === 'nextcloud');
-  const exchangeCals = writableCalendars.filter((c) => c.type === 'exchange');
-
-  let submitLabel: string;
-  if (saving) {
-    submitLabel = isEditing ? t('createEvent.savingEdit') : t('createEvent.savingNew');
-  } else {
-    submitLabel = isEditing ? t('createEvent.save') : t('createEvent.create');
-  }
+  const submitLabel = saving ? (isEditing ? t('createEvent.savingEdit') : t('createEvent.savingNew')) : (isEditing ? t('createEvent.save') : t('createEvent.create'));
 
   return (
     <dialog ref={dialogRef} className="modal-dialog modal-dialog--form">
       <div className="modal">
-        <div className="modal-header" style={{ background: headerColor }}>
+        <div className="modal-header" style={{ background: selectedCalendar?.color || '#888' }}>
           <span className="modal-title">{isEditing ? t('createEvent.titleEdit') : t('createEvent.titleNew')}</span>
-          <button className="btn-icon modal-close" onClick={onClose} aria-label={t('createEvent.close')}>
-            <X size={18} />
-          </button>
+          <button className="btn-icon modal-close" onClick={onClose} aria-label={t('createEvent.close')}><X size={18} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="modal-body modal-form">
           <div className="form-row">
             <label htmlFor="ev-title">{t('createEvent.titleLabel')}</label>
-            <input
-              id="ev-title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t('createEvent.titlePlaceholder')}
-              autoFocus
-              required
-            />
+            <input id="ev-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('createEvent.titlePlaceholder')} autoFocus required />
           </div>
 
           <div className="form-row">
             <label htmlFor="ev-allday" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                id="ev-allday"
-                type="checkbox"
-                checked={isAllday}
-                onChange={(e) => setIsAllday(e.target.checked)}
-              />
+              <input id="ev-allday" type="checkbox" checked={isAllday} onChange={(e) => setIsAllday(e.target.checked)} />
               <span>{t('createEvent.allDay')}</span>
             </label>
           </div>
 
-          {isAllday ? (
-            <>
-              <div className="form-row">
-                <label htmlFor="ev-start-date">{t('createEvent.start')}</label>
-                <input id="ev-start-date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-              </div>
-              <div className="form-row">
-                <label htmlFor="ev-end-date">{t('createEvent.end')}</label>
-                <input id="ev-end-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="form-row">
-                <label htmlFor="ev-start">{t('createEvent.start')}</label>
-                <input id="ev-start" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required />
-              </div>
-              <div className="form-row">
-                <label htmlFor="ev-end">{t('createEvent.end')}</label>
-                <input id="ev-end" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required />
-              </div>
-            </>
-          )}
+          <div className="form-row">
+            <label htmlFor="ev-start">{t('createEvent.start')}</label>
+            <input id="ev-start" type={isAllday ? 'date' : 'datetime-local'} value={isAllday ? startDate : start} onChange={(e) => isAllday ? setStartDate(e.target.value) : setStart(e.target.value)} required />
+          </div>
+          <div className="form-row">
+            <label htmlFor="ev-end">{t('createEvent.end')}</label>
+            <input id="ev-end" type={isAllday ? 'date' : 'endDate'} value={isAllday ? endDate : end} onChange={(e) => isAllday ? setEndDate(e.target.value) : setEnd(e.target.value)} required />
+          </div>
 
           <div className="form-row">
             <label htmlFor="ev-calendar">{t('createEvent.calendar')}</label>
-            <select
-              id="ev-calendar"
-              value={calendarId}
-              onChange={(e) => setCalendarId(e.target.value)}
-              disabled={isEditing}
-              required
-            >
-              {ekCals.length > 0 || googleCals.length > 0 || nextcloudCals.length > 0 || exchangeCals.length > 0 ? (
-                <>
-                  {ekCals.length > 0 && (
-                    <optgroup label="macOS">
-                      {ekCals.map((cal) => (
-                        <option key={cal.id} value={cal.id}>{cal.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {googleCals.length > 0 && (
-                    <optgroup label="Google Agenda">
-                      {googleCals.map((cal) => (
-                        <option key={cal.id} value={cal.id}>{cal.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {nextcloudCals.length > 0 && (
-                    <optgroup label={t('config.nextcloudCalDAV')}>
-                      {nextcloudCals.map((cal) => (
-                        <option key={cal.id} value={cal.id}>{cal.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {exchangeCals.length > 0 && (
-                    <optgroup label="Exchange / Office 365">
-                      {exchangeCals.map((cal) => (
-                        <option key={cal.id} value={cal.id}>{cal.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                </>
-              ) : (
-                writableCalendars.map((cal) => (
-                  <option key={cal.id} value={cal.id}>{cal.name}</option>
-                ))
-              )}
+            <select id="ev-calendar" value={calendarId} onChange={(e) => setCalendarId(e.target.value)} disabled={isEditing} required>
+              {writableCalendars.map((cal) => (
+                <option key={cal.id} value={cal.id}>{cal.name}</option>
+              ))}
             </select>
           </div>
 
@@ -438,53 +208,19 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
             <div className="form-row">
               <label htmlFor="ev-tag">{t('createEvent.tag', 'Tag / Insight')}</label>
               <div ref={dropdownRef} style={{ position: 'relative', flex: 1 }}>
-                <div
-                  className="custom-select-trigger"
-                  onClick={() => setShowTagDropdown((p) => !p)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '8px 12px', border: '1px solid var(--border)',
-                    borderRadius: '4px', cursor: 'pointer'
-                  }}
-                >
-                  <div style={{
-                    width: '12px', height: '12px', borderRadius: '50%',
-                    backgroundColor: tagId ? tags.find(t => t.id === tagId)?.color : 'transparent',
-                    border: tagId ? 'none' : '1px solid var(--border)'
-                  }} />
-                  <span style={{ flex: 1 }}>
-                    {tagId ? tags.find(t => t.id === tagId)?.name : t('createEvent.noTag', 'Aucun tag')}
-                  </span>
+                <div className="custom-select-trigger" onClick={() => setShowTagDropdown((p) => !p)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer' }}>
+                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: tagId ? tags.find(t => t.id === tagId)?.color : 'transparent', border: tagId ? 'none' : '1px solid var(--border)' }} />
+                  <span style={{ flex: 1 }}>{tagId ? tags.find(t => t.id === tagId)?.name : t('createEvent.noTag', 'Aucun tag')}</span>
                   <ChevronDown size={14} />
                 </div>
                 {showTagDropdown && (
-                  <div className="custom-select-dropdown" style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
-                    background: 'var(--bg)', border: '1px solid var(--border)',
-                    borderRadius: '4px', marginTop: '4px', maxHeight: '200px',
-                    overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                  }}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className="custom-select-option"
-                      onClick={() => { setTagId(''); setShowTagDropdown(false); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { setTagId(''); setShowTagDropdown(false); } }}
-                      style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    >
+                  <div className="custom-select-dropdown" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '4px', marginTop: '4px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                    <div role="button" tabIndex={0} className="custom-select-option" onClick={() => { setTagId(''); setShowTagDropdown(false); }} onKeyDown={(e) => { if (e.key === 'Enter') { setTagId(''); setShowTagDropdown(false); } }} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{ width: '12px', height: '12px', borderRadius: '50%', border: '1px solid var(--border)' }} />
                       {t('createEvent.noTag', 'Aucun tag')}
                     </div>
                     {tags.map((tag) => (
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        key={tag.id}
-                        className="custom-select-option"
-                        onClick={() => { setTagId(tag.id); setShowTagDropdown(false); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { setTagId(tag.id); setShowTagDropdown(false); } }}
-                        style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                      >
+                      <div role="button" tabIndex={0} key={tag.id} className="custom-select-option" onClick={() => { setTagId(tag.id); setShowTagDropdown(false); }} onKeyDown={(e) => { if (e.key === 'Enter') { setTagId(tag.id); setShowTagDropdown(false); } }} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: tag.color }} />
                         {tag.name}
                       </div>
@@ -496,60 +232,32 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
           )}
 
           <div className="form-row">
-            <label htmlFor="ev-attendees">
-              {t('createEvent.attendees')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
-            </label>
+            <label htmlFor="ev-attendees">{t('createEvent.attendees')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span></label>
             <AttendeeInput value={attendees} onChange={setAttendees} allEvents={allEvents} />
           </div>
 
-          {/* Free/busy grid — only for Google calendars with attendees */}
-          {showFreeBusy && freeBusyWindow && (
-            <div className="form-row form-row--freebusy">
-              <FreeBusyGrid
-                rows={freeBusyRows}
-                windowStart={freeBusyWindow.windowStart}
-                windowEnd={freeBusyWindow.windowEnd}
-                selectedStart={new Date(start)}
-                selectedEnd={new Date(end)}
-                loading={freeBusyLoading}
-                onSelectTime={handleSelectTime}
-              />
-            </div>
+          {showFreeBusy && (
+            <FreeBusySection
+              start={start} end={end} attendees={attendees} freeBusyData={freeBusyData}
+              freeBusyLoading={freeBusyLoading} selfBusySlots={selfBusySlots}
+              ownerEmail={selectedCalendar?.ownerEmail} onSelectTime={handleSelectTime}
+            />
           )}
 
           <div className="form-row">
-            <label htmlFor="ev-location">
-              {t('createEvent.location')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
-            </label>
-            <input
-              id="ev-location"
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder={t('createEvent.locationPlaceholder')}
-            />
+            <label htmlFor="ev-location">{t('createEvent.location')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span></label>
+            <input id="ev-location" type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder={t('createEvent.locationPlaceholder')} />
           </div>
 
           <div className="form-row">
-            <label htmlFor="ev-desc">
-              {t('createEvent.description')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
-            </label>
-            <textarea
-              id="ev-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
+            <label htmlFor="ev-desc">{t('createEvent.description')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span></label>
+            <textarea id="ev-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
           </div>
 
-          {error && (
-            <div style={{ color: 'var(--color-error, #d93025)', fontSize: 13 }}>{error}</div>
-          )}
+          {error && <div style={{ color: 'var(--color-error, #d93025)', fontSize: 13 }}>{error}</div>}
 
           <div className="config-edit-actions">
-            <button type="submit" className="btn-primary" disabled={saving || !title.trim()}>
-              {submitLabel}
-            </button>
+            <button type="submit" className="btn-primary" disabled={saving || !title.trim()}>{submitLabel}</button>
             <button type="button" className="btn-cancel" onClick={onClose}>{t('createEvent.cancel')}</button>
           </div>
         </form>
