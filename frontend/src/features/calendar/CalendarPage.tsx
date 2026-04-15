@@ -130,7 +130,7 @@ export default function CalendarPage() {
           />
         )}
 
-        <div className="calendar-content">
+        <div className="calendar-container">
           <Calendar
             ref={calendarRef as any}
             height="100%"

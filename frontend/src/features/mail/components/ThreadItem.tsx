@@ -82,7 +82,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
 
         <div className="mail-thread-item__subject">{thread.topic || t('mail.noSubject', '(Pas d’objet)')}</div>
         <div className="mail-thread-item__snippet">
-          {decodeHtmlEntities(thread.snippet)}
+          <span className="mail-thread-item__snippet-text">{decodeHtmlEntities(thread.snippet)}</span>
         </div>
 
         {isInSnoozedFolder && isSnoozed && (

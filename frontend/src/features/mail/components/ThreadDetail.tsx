@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { MailThread, MailMessage, MailAttachment, ComposerRestoreData } from '../types';
 import {
-  Archive, Clock, FolderInput, Mail as MailIcon, MailOpen, Trash2
+  Archive, Clock, FolderInput, Forward, MoreHorizontal, ShieldAlert, Trash2
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ComposerAttachment } from '../providers/MailProvider';
@@ -10,7 +10,6 @@ import { MessageBlock } from './MessageBlock';
 import { CollapsedMessagesBar } from './CollapsedMessagesBar';
 import { MailComposer } from './MailComposer';
 import { FolderPickerPopover } from './FolderPickerPopover';
-import React from 'react';
 
 export interface ThreadDetailProps {
   readonly thread: MailThread;
@@ -68,7 +67,8 @@ function computeSnoozeOptions() {
 }
 
 export function ThreadDetail({
-  thread, messages, replyingTo, contacts, currentUserEmail, onMarkRead, onTrash,
+  thread, messages, replyingTo, contacts, currentUserEmail, mailProviderType,
+  onMarkRead, onTrash,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData,
   onReply, onReplyAll, onForward, onToggleRead,
   replyMode, onCancelReply, onSaveDraft, onSend, composerRestoreData,
@@ -77,118 +77,159 @@ export function ThreadDetail({
   moveFolders, onMove,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
-  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
-  const [showMoveMenu, setShowMoveMenu] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     const unread = messages.filter(m => !m.is_read);
     if (unread.length > 0) onMarkRead(unread);
   }, [messages, onMarkRead]);
 
-  const displayCount = messages.length;
-  const isCollapsed = displayCount > 3;
-  const [expanded, setExpanded] = useState(false);
-
-  const visibleMessages = (isCollapsed && !expanded)
-    ? [messages[0], ...messages.slice(-2)]
-    : messages;
+  const [middleExpanded, setMiddleExpanded] = useState(false);
 
   const { laterToday, tomorrowMorning, tomorrowAfternoon, nextWeek } = computeSnoozeOptions();
+  const laterTodayLabel = laterToday.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const nextWeekDayName = FR_DAYS[nextWeek.getDay()];
 
-  const isThreadUnread = thread.unread_count > 0;
+  const isUnread = thread.unread_count > 0;
   const isSnoozed = !!snoozeUntil && new Date(snoozeUntil) > new Date();
+  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
 
   return (
     <div className="mail-thread-detail">
       <div className="mail-thread-detail__toolbar">
-        <div className="mail-thread-detail__actions">
-          <div style={{ position: 'relative' }}>
-            <button
-              className="mail-thread-detail__action-btn"
-              onClick={() => setShowMoveMenu(!showMoveMenu)}
-              title={t('mail.moveToFolder', 'Déplacer vers un dossier')}
-            >
-              <FolderInput size={18} />
-              <span>{t('mail.move', 'Déplacer')}</span>
-            </button>
-            {showMoveMenu && (
+        {/* Archive */}
+        <button className="mail-detail-action-btn" onClick={() => {}} title={t('mail.archive', 'Archive')}>
+          <Archive size={15} />
+          <span>{t('mail.archive', 'Archive')}</span>
+        </button>
+
+        {/* Delete */}
+        <button
+          className="mail-detail-action-btn mail-detail-action-btn--danger"
+          onClick={onDeleteThread}
+          title={t('mail.delete', 'Delete')}
+        >
+          <Trash2 size={15} />
+          <span>{t('mail.delete', 'Delete')}</span>
+        </button>
+
+        {/* Snooze */}
+        <div className="mail-actions-dropdown">
+          <button
+            className="mail-detail-action-btn"
+            disabled={!supportsSnooze}
+            onClick={() => { if (supportsSnooze) setSnoozeOpen(o => !o); }}
+            title={t('mail.snooze', 'Snooze')}
+          >
+            <Clock size={15} />
+            <span>{t('mail.snooze', 'Snooze')}</span>
+          </button>
+          {snoozeOpen && supportsSnooze && (
+            <>
+              <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => setSnoozeOpen(false)} />
+              <div className="mail-actions-menu mail-snooze-menu">
+                <button className="mail-actions-menu__item" onClick={() => { onSnooze(laterToday.toISOString()); setSnoozeOpen(false); }}>
+                  Plus tard aujourd'hui · {laterTodayLabel}
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => { onSnooze(tomorrowMorning.toISOString()); setSnoozeOpen(false); }}>
+                  Demain matin · 9:00
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => { onSnooze(tomorrowAfternoon.toISOString()); setSnoozeOpen(false); }}>
+                  Demain après-midi · 14:00
+                </button>
+                <button className="mail-actions-menu__item" onClick={() => { onSnooze(nextWeek.toISOString()); setSnoozeOpen(false); }}>
+                  La semaine prochaine {nextWeekDayName} · 9:00
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Move */}
+        <div className="mail-actions-dropdown">
+          <button
+            className="mail-detail-action-btn"
+            onClick={() => setMoveOpen(o => !o)}
+            title={t('mail.move', 'Move to folder')}
+          >
+            <FolderInput size={15} />
+            <span>{t('mail.move', 'Move')}</span>
+          </button>
+          {moveOpen && (
+            <>
+              <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => setMoveOpen(false)} />
               <FolderPickerPopover
                 folders={moveFolders}
-                onSelect={(fid) => { onMove(fid); setShowMoveMenu(false); }}
-                onClose={() => setShowMoveMenu(false)}
+                onSelect={folderId => { onMove(folderId); setMoveOpen(false); }}
+                onClose={() => setMoveOpen(false)}
               />
-            )}
-          </div>
+            </>
+          )}
+        </div>
 
-          <button className="mail-thread-detail__action-btn" onClick={onDeleteThread} title={t('mail.deleteThread', 'Supprimer la conversation')}>
-            <Trash2 size={18} />
-            <span>{t('mail.delete', 'Supprimer')}</span>
+        {/* More */}
+        <div className="mail-actions-dropdown" style={{ marginLeft: 'auto' }}>
+          <button
+            className="mail-detail-action-btn"
+            onClick={() => setMoreOpen(o => !o)}
+            title={t('mail.more', 'More')}
+          >
+            <MoreHorizontal size={15} />
+            <span>{t('mail.more', 'More')}</span>
           </button>
-          <button className="mail-thread-detail__action-btn" onClick={() => {/* TODO */}} title={t('mail.archiveThread', 'Archiver')}>
-            <Archive size={18} />
-            <span>{t('mail.archive', 'Archiver')}</span>
-          </button>
-          <button className="mail-thread-detail__action-btn" onClick={onToggleThreadRead} title={isThreadUnread ? t('mail.markAsRead', 'Marquer comme lu') : t('mail.markAsUnread', 'Marquer comme non lu')}>
-            {isThreadUnread ? <MailOpen size={18} /> : <MailIcon size={18} />}
-            <span>{isThreadUnread ? t('mail.markAsRead', 'Marquer comme lu') : t('mail.markAsUnread', 'Marquer comme non lu')}</span>
-          </button>
-
-          {supportsSnooze && (
-            <div style={{ position: 'relative' }}>
-              <button
-                className={`mail-thread-detail__action-btn ${isSnoozed ? 'active' : ''}`}
-                onClick={() => setShowSnoozeMenu(!showSnoozeMenu)}
-                title={t('mail.snooze', 'Mettre en attente')}
-              >
-                <Clock size={18} />
-                <span>{t('mail.snooze', 'En attente')}</span>
-              </button>
-              {showSnoozeMenu && (
-                <div className="mail-snooze-menu">
-                  <div className="mail-snooze-menu__item" onClick={() => { onSnooze(laterToday.toISOString()); setShowSnoozeMenu(false); }}>
-                    <span>{t('mail.laterToday', 'Plus tard aujourd’hui')}</span>
-                    <span className="mail-snooze-menu__date">{FR_DAYS[laterToday.getDay()]} {laterToday.getHours()}h</span>
-                  </div>
-                  <div className="mail-snooze-menu__item" onClick={() => { onSnooze(tomorrowMorning.toISOString()); setShowSnoozeMenu(false); }}>
-                    <span>{t('mail.tomorrowMorning', 'Demain matin')}</span>
-                    <span className="mail-snooze-menu__date">{FR_DAYS[tomorrowMorning.getDay()]} 09:00</span>
-                  </div>
-                  <div className="mail-snooze-menu__item" onClick={() => { onSnooze(tomorrowAfternoon.toISOString()); setShowSnoozeMenu(false); }}>
-                    <span>{t('mail.tomorrowAfternoon', 'Demain après-midi')}</span>
-                    <span className="mail-snooze-menu__date">{FR_DAYS[tomorrowAfternoon.getDay()]} {tomorrowAfternoon.getHours()}:00</span>
-                  </div>
-                  <div className="mail-snooze-menu__item" onClick={() => { onSnooze(nextWeek.toISOString()); setShowSnoozeMenu(false); }}>
-                    <span>{t('mail.nextWeek', 'La semaine prochaine')}</span>
-                    <span className="mail-snooze-menu__date">{FR_DAYS[nextWeek.getDay()]} 09:00</span>
-                  </div>
-                </div>
-              )}
-            </div>
+          {moreOpen && (
+            <>
+              <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => setMoreOpen(false)} />
+              <div className="mail-actions-menu" style={{ right: 0, left: 'auto' }}>
+                <button className="mail-actions-menu__item" onClick={() => { onToggleThreadRead(); setMoreOpen(false); }}>
+                  {isUnread ? t('mail.markRead', 'Mark as read') : t('mail.markUnread', 'Mark as unread')}
+                </button>
+                <div className="mail-actions-menu__separator" />
+                <button className="mail-actions-menu__item" onClick={() => { if (lastMsg) onForward(lastMsg); setMoreOpen(false); }}>
+                  <Forward size={13} />
+                  {t('mail.forward', 'Forward')}
+                </button>
+                <div className="mail-actions-menu__separator" />
+                <button className="mail-actions-menu__item mail-actions-menu__item--danger" onClick={() => setMoreOpen(false)}>
+                  <ShieldAlert size={13} />
+                  {t('mail.reportSpam', 'Report spam')}
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
 
       <div className="mail-thread-detail__header">
-        <h2 className="mail-thread-detail__subject">{thread.topic || t('mail.noSubject', '(Pas d’objet)')}</h2>
-        {isSnoozed && (
-          <div className="mail-thread-detail__snooze-badge" onClick={onUnsnooze} title={t('mail.clickToUnsnooze', 'Cliquer pour annuler l’attente')}>
-            <Clock size={12} />
-            <span>{t('mail.snoozedUntil', 'En attente jusqu’au')} {formatFullDate(snoozeUntil!)}</span>
+        <h2 className="mail-thread-detail__subject">{thread.topic || t('mail.noSubject', "(Pas d'objet)")}</h2>
+        {isSnoozed && snoozeUntil && (
+          <div className="mail-snooze-banner">
+            <Clock size={22} className="mail-snooze-banner__icon" />
+            <span className="mail-snooze-banner__text">
+              {t('mail.snoozedUntil', "En attente jusqu'au")}{' '}
+              <strong>{formatFullDate(snoozeUntil)}</strong>
+            </span>
+            <button className="mail-snooze-banner__btn" onClick={onUnsnooze}>
+              {t('mail.clickToUnsnooze', 'Annuler')}
+            </button>
           </div>
         )}
       </div>
 
       <div className="mail-thread-detail__messages">
-        {visibleMessages.map((msg, idx) => (
-          <React.Fragment key={msg.item_id}>
-            {idx === 1 && isCollapsed && !expanded && (
-              <CollapsedMessagesBar
-                messages={messages.slice(1, -2)}
-                onExpand={() => setExpanded(true)}
-              />
-            )}
+        {messages.length > 5 && !middleExpanded ? (
+          <>
+            <CollapsedMessagesBar
+              messages={messages.slice(0, messages.length - 1)}
+              onExpand={() => setMiddleExpanded(true)}
+            />
             <MessageBlock
-              message={msg}
+              message={messages[messages.length - 1]}
+              defaultExpanded={true}
+              currentUserEmail={currentUserEmail}
+              mailProviderType={mailProviderType}
               onReply={onReply}
               onReplyAll={onReplyAll}
               onForward={onForward}
@@ -198,8 +239,26 @@ export function ThreadDetail({
               onDownloadAttachment={onDownloadAttachment}
               onGetAttachmentData={onGetAttachmentData}
             />
-          </React.Fragment>
-        ))}
+          </>
+        ) : (
+          messages.map((msg, idx) => (
+            <MessageBlock
+              key={msg.item_id}
+              message={msg}
+              defaultExpanded={idx === messages.length - 1}
+              currentUserEmail={currentUserEmail}
+              mailProviderType={mailProviderType}
+              onReply={onReply}
+              onReplyAll={onReplyAll}
+              onForward={onForward}
+              onTrash={onTrash}
+              onToggleRead={onToggleRead}
+              onPreviewAttachment={onPreviewAttachment}
+              onDownloadAttachment={onDownloadAttachment}
+              onGetAttachmentData={onGetAttachmentData}
+            />
+          ))
+        )}
 
         {replyingTo && (
           <div className="mail-thread-detail__composer-anchor">

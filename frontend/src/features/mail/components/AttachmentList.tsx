@@ -10,31 +10,26 @@ export interface AttachmentListProps {
 
 export function AttachmentList({ attachments, onPreview, onDownload }: AttachmentListProps) {
   return (
-    <div className="mail-attachment-list">
-      <div className="mail-attachment-list__header">
-        <span>{attachments.length} pièce(s) jointe(s)</span>
-      </div>
-      <div className="mail-attachment-list__grid">
-        {attachments.map((att) => (
-          <div key={att.attachment_id} className="mail-attachment-card">
-            <div className="mail-attachment-card__icon">
-              <FileTypeIcon name={att.name} size={32} />
-            </div>
-            <div className="mail-attachment-card__info">
-              <div className="mail-attachment-card__name" title={att.name}>{att.name}</div>
-              <div className="mail-attachment-card__size">{formatSize(att.size)}</div>
-            </div>
-            <div className="mail-attachment-card__actions">
-              <button onClick={() => onPreview(att)} title="Aperçu">
-                <Eye size={16} />
-              </button>
-              <button onClick={() => onDownload(att)} title="Télécharger">
-                <Download size={16} />
-              </button>
-            </div>
+    <div className="mail-attachments">
+      {attachments.map((att) => (
+        <div key={att.attachment_id} className="mail-view-att-card" title={att.name}>
+          <div className="mail-view-att-card__icon">
+            <FileTypeIcon name={att.name} size={20} />
           </div>
-        ))}
-      </div>
+          <div className="mail-view-att-card__info">
+            <span className="mail-view-att-card__name">{att.name}</span>
+            <span className="mail-view-att-card__size">{formatSize(att.size)}</span>
+          </div>
+          <div className="mail-view-att-card__actions">
+            <button type="button" className="mail-view-att-card__btn" onClick={() => onPreview(att)} title="Aperçu">
+              <Eye size={14} />
+            </button>
+            <button type="button" className="mail-view-att-card__btn" onClick={() => onDownload(att)} title="Télécharger">
+              <Download size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
