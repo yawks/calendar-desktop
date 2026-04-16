@@ -47,7 +47,8 @@ async fn send(access_token: &str, soap_body: &str) -> Result<String, String> {
         return Err("ews_unauthorized".to_string());
     }
     if !status.is_success() {
-        return Err(format!("EWS HTTP {}: {}", status, &body[..body.len().min(400)]));
+        eprintln!("[EWS send] HTTP {} body:\n{}", status, &body);
+        return Err(format!("EWS HTTP {}: {}", status, &body[..body.len().min(2000)]));
     }
     Ok(body)
 }
@@ -64,6 +65,22 @@ fn ews_err(xml: &str, fallback: &str) -> String {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+/// Structured search query forwarded from the TypeScript provider.
+#[derive(Deserialize, Debug)]
+pub struct MailSearchQuery {
+    pub from:    Option<String>,
+    pub to:      Option<String>,
+    pub cc:      Option<String>,
+    pub bcc:     Option<String>,
+    pub subject: Option<String>,
+    /// Free-text search in body/subject.
+    pub text:    Option<String>,
+    /// Well-known folder key or arbitrary EWS FolderId.
+    pub folder:  Option<String>,
+    /// 'today', 'yesterday', or 'YYYY-MM-DD'.
+    pub date:    Option<String>,
+}
 
 /// Minimal item reference used by mark-read / mark-unread commands.
 #[derive(Deserialize, Debug)]
@@ -364,6 +381,208 @@ pub async fn mail_list_threads(
         });
     }
 
+    Ok(threads)
+}
+
+/// Return the EWS `FolderId Id="..."` XML fragment for every mail folder in the
+/// mailbox (deep traversal, excludes calendar/contacts/tasks folders).
+async fn find_all_mail_folder_ids(access_token: &str) -> Vec<String> {
+    let soap_body = r#"<m:FindFolder Traversal="Deep">
+  <m:FolderShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+  </m:FolderShape>
+  <m:ParentFolderIds>
+    <t:DistinguishedFolderId Id="msgfolderroot"/>
+  </m:ParentFolderIds>
+</m:FindFolder>"#;
+
+    let xml = match send(access_token, soap_body).await {
+        Ok(x) => x,
+        Err(e) => { eprintln!("[find_all_mail_folder_ids] error: {}", e); return vec![]; }
+    };
+
+    let containers: Vec<String> = xml_all_ns(&xml, "t:Folders");
+    let mut ids = Vec::new();
+    for container in &containers {
+        for folder_xml in xml_all_ns(container, "t:Folder") {
+            let id_elem = folder_xml
+                .find("<t:FolderId ")
+                .or_else(|| folder_xml.find("<FolderId "))
+                .and_then(|s| folder_xml[s..].find("/>").map(|e| &folder_xml[s..s + e]));
+            if let Some(id) = id_elem.and_then(|e| xml_attr(e, "Id")) {
+                ids.push(id);
+            }
+        }
+    }
+    ids
+}
+
+/// Search messages using `FindItem Traversal="Shallow"` + `QueryString` across all
+/// mail folders. Results are grouped by `ConversationId` to produce thread summaries.
+#[command]
+pub async fn mail_search_threads(
+    access_token: String,
+    query: MailSearchQuery,
+    max_count: Option<u32>,
+) -> Result<Vec<MailThread>, String> {
+    let thread_limit = max_count.unwrap_or(50) as usize;
+    // Fetch up to 5× more messages than threads requested so we can aggregate properly.
+    let msg_limit = (thread_limit * 5).max(200);
+
+    // ── Build AQS / KQL query string ──────────────────────────────────────────
+    let mut aqs_parts: Vec<String> = Vec::new();
+
+    if let Some(from) = &query.from { aqs_parts.push(format!("from:{}", from)); }
+    if let Some(to)   = &query.to   { aqs_parts.push(format!("to:{}", to)); }
+    if let Some(cc)   = &query.cc   { aqs_parts.push(format!("cc:{}", cc)); }
+    if let Some(bcc)  = &query.bcc  { aqs_parts.push(format!("bcc:{}", bcc)); }
+    if let Some(subj) = &query.subject {
+        if subj.contains(' ') {
+            aqs_parts.push(format!("subject:\"{}\"", subj));
+        } else {
+            aqs_parts.push(format!("subject:{}", subj));
+        }
+    }
+    if let Some(text) = &query.text { aqs_parts.push(text.clone()); }
+    if let Some(date) = &query.date {
+        aqs_parts.push(format!("received:{}", date));
+    }
+
+    let aqs_query = aqs_parts.join(" ");
+    if aqs_query.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let escaped_query = aqs_query
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;");
+
+    eprintln!("[mail_search_threads] AQS query: {:?}", aqs_query);
+
+    // ── Collect folders to search ──────────────────────────────────────────────
+    // FindItem + QueryString only accepts one folder per request (Exchange Online
+    // returns ErrorInvalidOperation for multiple). We discover all mail folders
+    // via FindFolder Deep, then fan out one FindItem per folder in parallel.
+    let folder_id_xmls: Vec<String> = if let Some(f) = &query.folder {
+        vec![match f.as_str() {
+            "inbox" | "sentitems" | "deleteditems" | "drafts" => {
+                format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, f)
+            }
+            id => format!(r#"<t:FolderId Id="{}"/>"#, id),
+        }]
+    } else {
+        let discovered = find_all_mail_folder_ids(&access_token).await;
+        eprintln!("[mail_search_threads] discovered {} mail folder(s)", discovered.len());
+        if discovered.is_empty() {
+            // Fallback to well-known folders if discovery failed.
+            vec![
+                r#"<t:DistinguishedFolderId Id="inbox"/>"#.to_string(),
+                r#"<t:DistinguishedFolderId Id="sentitems"/>"#.to_string(),
+                r#"<t:DistinguishedFolderId Id="drafts"/>"#.to_string(),
+                r#"<t:DistinguishedFolderId Id="deleteditems"/>"#.to_string(),
+            ]
+        } else {
+            discovered.into_iter().map(|id| format!(r#"<t:FolderId Id="{}"/>"#, id)).collect()
+        }
+    };
+
+    // ── Fan out searches in parallel ───────────────────────────────────────────
+    type Row = (String, String, String, bool, bool, Option<String>);
+
+    fn search_xml_to_rows(xml: &str) -> Vec<Row> {
+        let mut rows = Vec::new();
+        for msg_xml in xml_all_ns(xml, "t:Message") {
+            let conv_id_elem = msg_xml
+                .find("<t:ConversationId ")
+                .or_else(|| msg_xml.find("<ConversationId "))
+                .and_then(|s| msg_xml[s..].find("/>").map(|e| &msg_xml[s..s + e]));
+            let conv_id = match conv_id_elem.and_then(|e| xml_attr(e, "Id")) {
+                Some(id) => id,
+                None => continue,
+            };
+            let topic        = xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default();
+            let date         = xml_content_ns(&msg_xml, "t:DateTimeReceived").unwrap_or_default();
+            let is_read      = xml_content_ns(&msg_xml, "t:IsRead").map(|v| v == "true").unwrap_or(true);
+            let has_attach   = xml_content_ns(&msg_xml, "t:HasAttachments").map(|v| v == "true").unwrap_or(false);
+            let from_name    = xml_content_ns(&msg_xml, "t:From")
+                .as_deref()
+                .and_then(|f| xml_content_ns(f, "t:Name"))
+                .filter(|s| !s.is_empty());
+            rows.push((conv_id, topic, date, is_read, has_attach, from_name));
+        }
+        rows
+    }
+
+    let handles: Vec<_> = folder_id_xmls.into_iter().map(|folder_id_xml| {
+        let token = access_token.clone();
+        let query_escaped = escaped_query.clone();
+        tokio::spawn(async move {
+            let soap_body = format!(
+                r#"<m:FindItem Traversal="Shallow">
+  <m:ItemShape>
+    <t:BaseShape>AllProperties</t:BaseShape>
+  </m:ItemShape>
+  <m:ParentFolderIds>
+    {folder_id_xml}
+  </m:ParentFolderIds>
+  <m:QueryString>{query_escaped}</m:QueryString>
+</m:FindItem>"#,
+            );
+            match send(&token, &soap_body).await {
+                Ok(xml) if !xml.contains("ResponseClass=\"Error\"") => search_xml_to_rows(&xml),
+                _ => vec![],
+            }
+        })
+    }).collect();
+
+    let mut all_rows: Vec<Row> = Vec::new();
+    for handle in handles {
+        if let Ok(rows) = handle.await {
+            all_rows.extend(rows);
+        }
+    }
+
+    // Sort all messages newest-first before grouping.
+    all_rows.sort_by(|a, b| b.2.cmp(&a.2));
+    let rows = all_rows;
+
+    // Messages arrive newest-first; first occurrence of a ConversationId becomes
+    // the representative for the thread summary.
+    use std::collections::HashMap;
+    let mut order: Vec<String> = Vec::new();
+    let mut by_conv: HashMap<String, MailThread> = HashMap::new();
+
+    for (conv_id, topic, date, is_read, has_attach, from_name) in rows {
+        if let Some(t) = by_conv.get_mut(&conv_id) {
+            t.message_count += 1;
+            if !is_read { t.unread_count += 1; }
+            if has_attach { t.has_attachments = true; }
+        } else {
+            order.push(conv_id.clone());
+            by_conv.insert(conv_id.clone(), MailThread {
+                conversation_id: conv_id,
+                topic,
+                snippet: String::new(),
+                last_delivery_time: date,
+                message_count: 1,
+                unread_count: if is_read { 0 } else { 1 },
+                from_name,
+                has_attachments: has_attach,
+            });
+        }
+        if order.len() >= thread_limit && by_conv.len() >= thread_limit {
+            break;
+        }
+    }
+
+    let threads: Vec<MailThread> = order.into_iter()
+        .filter_map(|id| by_conv.remove(&id))
+        .take(thread_limit)
+        .collect();
+
+    eprintln!("[mail_search_threads] parsed {} thread(s)", threads.len());
     Ok(threads)
 }
 

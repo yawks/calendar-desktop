@@ -1,4 +1,4 @@
-import type { MailAttachment, MailFolder, MailMessage, MailThread } from '../types';
+import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
 import {
   evictConversation,
   evictThread,
@@ -114,6 +114,11 @@ export class CachedMailProvider implements MailProvider {
       .then(threads => { this.onInboxRefreshed?.(this.accountId, threads); })
       .catch(() => { /* non-critical */ })
       .finally(() => { this.refreshPromise = null; });
+  }
+
+  /** Search bypasses the cache entirely — always delegates to the inner provider. */
+  searchThreads(query: MailSearchQuery, maxCount?: number): Promise<MailThread[]> {
+    return this.inner.searchThreads(query, maxCount);
   }
 
   /**

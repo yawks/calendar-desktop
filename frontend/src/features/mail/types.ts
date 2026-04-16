@@ -81,3 +81,34 @@ export interface FromAccount {
 }
 
 export type ThreadFilter = 'all' | 'unread';
+
+/**
+ * Structured search query for mail. All fields are optional and combined with AND logic.
+ * Provider implementations translate this into their native query language
+ * (Gmail q-parameter, EWS AQS QueryString, etc.).
+ */
+export interface MailSearchQuery {
+  /** Free-text search (matches subject and body). */
+  text?: string;
+  /** Filter by sender email or name. */
+  from?: string;
+  /** Filter by recipient email or name. */
+  to?: string;
+  /** Filter by CC email or name. */
+  cc?: string;
+  /** Filter by BCC email or name. */
+  bcc?: string;
+  /** Filter by subject text. */
+  subject?: string;
+  /**
+   * Limit search to a specific folder.
+   * Accepts well-known folder keys ('inbox', 'sentitems', 'drafts', …)
+   * or a provider-specific folder/label ID.
+   */
+  folder?: string;
+  /**
+   * Date filter: 'today', 'yesterday', or an ISO date string 'YYYY-MM-DD'.
+   * The provider resolves relative values to the correct date range.
+   */
+  date?: string;
+}

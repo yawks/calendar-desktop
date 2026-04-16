@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { MailAttachment, MailFolder, MailMessage, MailThread } from '../types';
+import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
 import type { MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
 
 /**
@@ -27,6 +27,14 @@ export class EwsMailProvider implements MailProvider {
   async listThreads(folder: string, maxCount = 50, offset = 0): Promise<MailThread[]> {
     const accessToken = await this.token();
     return invoke<MailThread[]>('mail_list_threads', { accessToken, folder, maxCount, offset });
+  }
+
+  async searchThreads(query: MailSearchQuery, maxCount = 50): Promise<MailThread[]> {
+    const accessToken = await this.token();
+    console.log('[EWS.searchThreads] query:', JSON.stringify(query), '| maxCount:', maxCount);
+    const results = await invoke<MailThread[]>('mail_search_threads', { accessToken, query, maxCount });
+    console.log('[EWS.searchThreads] → threads returned:', results.length, results.map(t => t.topic));
+    return results;
   }
 
   async getThread(conversationId: string, includeTrash = false, isDraft = false): Promise<MailMessage[]> {

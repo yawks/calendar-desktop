@@ -9,7 +9,7 @@ import { MailProvider, ComposerAttachment } from '../providers/MailProvider';
 import { CachedMailProvider, OnInboxRefreshed } from '../providers/CachedMailProvider';
 import { EwsMailProvider } from '../providers/EwsMailProvider';
 import { GmailMailProvider } from '../providers/GmailMailProvider';
-import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData } from '../types';
+import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery } from '../types';
 import { ALL_ACCOUNTS_ID, THEME_CYCLE, buildUnreadCounts } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
 
@@ -73,6 +73,11 @@ export function useMailPageLogic() {
   const [selectedThread, setSelectedThread] = useState<MailThread | null>(null);
   const [messages, setMessages] = useState<MailMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  // Stable refs for use inside useCallback/ref callbacks that can't list these as deps
+  const selectedThreadRef = useRef<MailThread | null>(null);
+  selectedThreadRef.current = selectedThread;
+  const messagesRef = useRef<MailMessage[]>([]);
+  messagesRef.current = messages;
   const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward'>('reply');
   const [composing, setComposing] = useState(false);
@@ -87,6 +92,7 @@ export function useMailPageLogic() {
     revert: () => void;
     execute: () => Promise<void>;
     timerId: ReturnType<typeof setTimeout>;
+    conversationId?: string;
   } | null>(null);
 
   const [sendToast, setSendToast] = useState<{ label: string } | null>(null);
@@ -95,6 +101,11 @@ export function useMailPageLogic() {
   const [actionToast, setActionToast] = useState<{ label: string } | null>(null);
   const actionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Search ─────────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState<MailSearchQuery | null>(null);
+  const [searchResults, setSearchResults] = useState<MailThread[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
   const [composerRestoreData, setComposerRestoreData] = useState<ComposerRestoreData | null>(null);
   const [composingDraftItemId, setComposingDraftItemId] = useState<{ itemId: string; accountId: string } | null>(null);
@@ -102,6 +113,7 @@ export function useMailPageLogic() {
     execute: () => Promise<void>;
     timerId: ReturnType<typeof setTimeout>;
     restoreData: ComposerRestoreData;
+    optimisticConversationId?: string;
   } | null>(null);
 
   const folderAccountedRef = useRef(new Set<string>());
@@ -178,6 +190,7 @@ export function useMailPageLogic() {
     label: string,
     revert: () => void,
     execute: () => Promise<void>,
+    conversationId?: string,
   ) => {
     if (pendingDeletionRef.current) {
       clearTimeout(pendingDeletionRef.current.timerId);
@@ -192,7 +205,7 @@ export function useMailPageLogic() {
       setDeleteToast(null);
     }, 10_000);
 
-    pendingDeletionRef.current = { revert, execute, timerId };
+    pendingDeletionRef.current = { revert, execute, timerId, conversationId };
     setDeleteToast({ label });
   }, []);
 
@@ -361,13 +374,22 @@ export function useMailPageLogic() {
 
   onInboxRefreshedRef.current = (accountId: string, freshThreads: MailThread[]) => {
     if (selectedFolder !== 'inbox') return;
+    const pendingDeleteCid = pendingDeletionRef.current?.conversationId;
+    const filtered = pendingDeleteCid
+      ? freshThreads.filter(t => t.conversation_id !== pendingDeleteCid)
+      : freshThreads;
+    const optimisticCid = pendingSendRef.current?.optimisticConversationId;
+    const applyOptimistic = (t: MailThread) =>
+      optimisticCid && t.conversation_id === optimisticCid
+        ? { ...t, message_count: t.message_count + 1 }
+        : t;
     if (isAllMode) {
       const acc = allMailAccounts.find(a => a.id === accountId);
       const atIdx = (acc?.email ?? '').indexOf('@');
       const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
       const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
       const accountColor = acc?.color;
-      const tagged = freshThreads.map(t => ({ ...t, accountId, accountLabel, accountColor }));
+      const tagged = filtered.map(t => applyOptimistic({ ...t, accountId, accountLabel, accountColor }));
       setThreads(prev => {
         const others = prev.filter(t => t.accountId !== accountId);
         return [...others, ...tagged].sort((a, b) =>
@@ -375,7 +397,31 @@ export function useMailPageLogic() {
         );
       });
     } else if (selectedAccountId === accountId) {
-      setThreads(freshThreads);
+      setThreads(filtered.map(applyOptimistic));
+    }
+    // Auto-refresh the currently open conversation if the server reports new messages
+    if (selectedThread) {
+      const freshThread = filtered.find(t => t.conversation_id === selectedThread.conversation_id);
+      if (freshThread) {
+        const realCount = messages.filter(m => m.item_id !== '__optimistic__').length;
+        if (freshThread.message_count > realCount) {
+          const p = resolveProvider(selectedThread.accountId);
+          if (p) {
+            p.getThread(selectedThread.conversation_id, false, false)
+              .then(result => {
+                if (result.length > realCount) {
+                  setMessages(result);
+                  setThreads(prev => prev.map(th =>
+                    th.conversation_id === selectedThread.conversation_id
+                      ? { ...th, message_count: result.length }
+                      : th
+                  ));
+                }
+              })
+              .catch(() => {});
+          }
+        }
+      }
     }
   };
 
@@ -400,10 +446,33 @@ export function useMailPageLogic() {
             Array.from(allProviders.entries()).map(async ([accountId, p]) => ({ accountId, folders: await p.listFolders() }))
           ),
         ]);
+        const optimisticCidSR = pendingSendRef.current?.optimisticConversationId;
+        const pendingDeleteCidSR = pendingDeletionRef.current?.conversationId;
         const merged = threadResults
           .flatMap(r => r.status === 'fulfilled' ? r.value : [])
-          .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
+          .filter(t => !pendingDeleteCidSR || t.conversation_id !== pendingDeleteCidSR)
+          .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime())
+          .map(t => optimisticCidSR && t.conversation_id === optimisticCidSR
+            ? { ...t, message_count: t.message_count + 1 }
+            : t);
         setThreads(merged);
+        // Auto-refresh currently open conversation if server reports new messages
+        const openThread_ = selectedThreadRef.current;
+        if (openThread_) {
+          const freshThread = merged.find(t => t.conversation_id === openThread_.conversation_id);
+          if (freshThread) {
+            const currentMsgs = messagesRef.current;
+            const realCount = currentMsgs.filter(m => m.item_id !== '__optimistic__').length;
+            if (freshThread.message_count > realCount) {
+              const p = resolveProvider(openThread_.accountId);
+              if (p) {
+                p.getThread(openThread_.conversation_id, false, false)
+                  .then(result => { if (result.length > realCount) setMessages(result); })
+                  .catch(() => {});
+              }
+            }
+          }
+        }
         const mergedCounts: Record<string, number> = {};
         const newAccountFolders = new Map<string, import('../types').MailFolder[]>();
         for (const r of folderResults) {
@@ -425,9 +494,33 @@ export function useMailPageLogic() {
           fetchThreads,
           provider.listFolders(),
         ]);
-        setThreads(result);
+        const optimisticCidSR = pendingSendRef.current?.optimisticConversationId;
+        const pendingDeleteCidSR2 = pendingDeletionRef.current?.conversationId;
+        const adjustedResult = result
+          .filter(t => !pendingDeleteCidSR2 || t.conversation_id !== pendingDeleteCidSR2)
+          .map(t => optimisticCidSR && t.conversation_id === optimisticCidSR
+            ? { ...t, message_count: t.message_count + 1 }
+            : t);
+        setThreads(adjustedResult);
         setHasMoreThreads(result.length >= 50);
         setFolderUnreadCounts(buildUnreadCounts(folders));
+        // Auto-refresh currently open conversation if server reports new messages
+        const openThread_ = selectedThreadRef.current;
+        if (openThread_) {
+          const freshThread = adjustedResult.find(t => t.conversation_id === openThread_.conversation_id);
+          if (freshThread) {
+            const currentMsgs = messagesRef.current;
+            const realCount = currentMsgs.filter(m => m.item_id !== '__optimistic__').length;
+            if (freshThread.message_count > realCount) {
+              const p = resolveProvider(openThread_.accountId);
+              if (p) {
+                p.getThread(openThread_.conversation_id, false, false)
+                  .then(result => { if (result.length > realCount) setMessages(result); })
+                  .catch(() => {});
+              }
+            }
+          }
+        }
       }
     } catch { /* Non-critical */ }
   }, [isAllMode, allProviders, provider, selectedFolder, allMailAccounts]);
@@ -516,7 +609,9 @@ export function useMailPageLogic() {
       const result = await p.getThread(thread.conversation_id, selectedFolder === 'deleteditems', false);
       setMessages(result);
       setThreads(prev => prev.map(th =>
-        th.conversation_id === thread.conversation_id ? { ...th, unread_count: 0 } : th
+        th.conversation_id === thread.conversation_id
+          ? { ...th, unread_count: 0, message_count: result.length }
+          : th
       ));
       if (thread.unread_count > 0 && !folderAccountedRef.current.has(thread.conversation_id)) {
         folderAccountedRef.current.add(thread.conversation_id);
@@ -683,6 +778,7 @@ export function useMailPageLogic() {
         }
         if (convId) (p as CachedMailProvider).evict?.(convId).catch(() => {});
       },
+      convId,
     );
   }, [resolveProvider, messages, selectedThread, selectedFolder, scheduleDeletion, t]);
 
@@ -804,6 +900,7 @@ export function useMailPageLogic() {
         }
         (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
       },
+      thread.conversation_id,
     );
   }, [resolveProvider, selectedThread, messages, selectedFolder, scheduleDeletion, t, threads, openThread]);
 
@@ -1096,9 +1193,60 @@ export function useMailPageLogic() {
     const replyToItemId = restoreData?.replyingToMsg?.item_id ?? null;
     const replyToChangeKey = restoreData?.replyingToMsg?.change_key ?? null;
 
+    // Optimistic update: add the sent message immediately so the thread feels instant.
+    const optimisticConversationId = (!restoreData?.isNewMessage && selectedThread)
+      ? selectedThread.conversation_id
+      : undefined;
+
+    if (optimisticConversationId) {
+      const senderAccountId = fromAccountId ?? selectedThread?.accountId;
+      const senderAccount = allMailAccounts.find(a => a.id === senderAccountId);
+      const optimisticMsg: MailMessage = {
+        item_id: '__optimistic__',
+        change_key: '',
+        subject,
+        from_name: senderAccount?.name ?? null,
+        from_email: senderAccount?.email ?? null,
+        to_recipients: to.map(e => ({ email: e, name: null })),
+        cc_recipients: cc.map(e => ({ email: e, name: null })),
+        body_html: body,
+        date_time_received: new Date().toISOString(),
+        is_read: true,
+        has_attachments: (attachments?.length ?? 0) > 0,
+        attachments: [],
+      };
+      setMessages(prev => [...prev, optimisticMsg]);
+      setThreads(prev => prev.map(th =>
+        th.conversation_id === optimisticConversationId
+          ? { ...th, message_count: th.message_count + 1 }
+          : th
+      ));
+    }
+
     const execute = async () => {
-      await p.sendMail({ to, cc, bcc, subject, bodyHtml: body, replyToItemId, replyToChangeKey, attachments });
-      if (!restoreData?.isNewMessage && selectedThread) openThread(selectedThread);
+      try {
+        await p.sendMail({ to, cc, bcc, subject, bodyHtml: body, replyToItemId, replyToChangeKey, attachments });
+        if (!restoreData?.isNewMessage && selectedThread) {
+          // Evict cache so the next getThread() fetches fresh data from the server.
+          // We intentionally do NOT call openThread() here: the server may not have
+          // the sent message in the conversation yet, so fetching immediately would
+          // replace the optimistic message with stale data. The background refresh
+          // (onInboxRefreshed / silentRefresh) will auto-refresh messages once the
+          // server's message_count reflects the new reply.
+          await (p as CachedMailProvider).evict?.(selectedThread.conversation_id);
+        }
+      } catch (e) {
+        // Roll back the optimistic message on send failure
+        if (optimisticConversationId) {
+          setMessages(prev => prev.filter(m => m.item_id !== '__optimistic__'));
+          setThreads(prev => prev.map(th =>
+            th.conversation_id === optimisticConversationId
+              ? { ...th, message_count: Math.max(0, th.message_count - 1) }
+              : th
+          ));
+        }
+        throw e;
+      }
     };
 
     const timerId = setTimeout(async () => {
@@ -1108,19 +1256,28 @@ export function useMailPageLogic() {
       execute().catch(e => setError(String(e)));
     }, 5_000);
 
-    pendingSendRef.current = { execute, timerId, restoreData: restoreData as any };
+    pendingSendRef.current = { execute, timerId, restoreData: restoreData as any, optimisticConversationId };
     setComposerRestoreData(restoreData as any);
     setSendToast({ label: t('mail.messageSent', 'Message envoyé') });
     setReplyingTo(null);
     setComposing(false);
-  }, [allProviders, resolveProvider, selectedThread, openThread, t]);
+  }, [allProviders, allMailAccounts, resolveProvider, selectedThread, t]);
 
   const cancelSend = useCallback(() => {
     if (!pendingSendRef.current) return;
     clearTimeout(pendingSendRef.current.timerId);
-    const { restoreData } = pendingSendRef.current;
+    const { restoreData, optimisticConversationId } = pendingSendRef.current;
     pendingSendRef.current = null;
     setSendToast(null);
+    // Remove the optimistic message added on send
+    if (optimisticConversationId) {
+      setMessages(prev => prev.filter(m => m.item_id !== '__optimistic__'));
+      setThreads(prev => prev.map(th =>
+        th.conversation_id === optimisticConversationId
+          ? { ...th, message_count: Math.max(0, th.message_count - 1) }
+          : th
+      ));
+    }
     setComposerRestoreData(restoreData);
     if ((restoreData as any).isNewMessage) {
       setComposing(true);
@@ -1147,6 +1304,63 @@ export function useMailPageLogic() {
       draftToastTimerRef.current = null;
     }, 3_000);
   }, [resolveProvider, t]);
+
+  const handleSearch = useCallback(async (query: MailSearchQuery | null) => {
+    console.log('[handleSearch] called with:', JSON.stringify(query));
+    console.log('[handleSearch] isAllMode:', isAllMode, '| provider:', provider?.providerType, provider?.accountId);
+
+    if (!query || Object.values(query).every(v => !v)) {
+      console.log('[handleSearch] empty query → clearing search');
+      setSearchQuery(null);
+      setSearchResults([]);
+      return;
+    }
+
+    setSearchQuery(query);
+    setSearchLoading(true);
+    setSelectedThread(null);
+
+    try {
+      if (isAllMode) {
+        console.log('[handleSearch] ALL mode — providers:', Array.from(allProviders.keys()));
+        const results = await Promise.allSettled(
+          Array.from(allProviders.entries()).map(async ([accountId, p]) => {
+            console.log(`[handleSearch] searching account ${accountId} (${p.providerType})…`);
+            const acc = allMailAccounts.find(a => a.id === accountId);
+            const atIdx = (acc?.email ?? '').indexOf('@');
+            const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
+            const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
+            const accountColor = acc?.color;
+            const threads = await p.searchThreads(query);
+            console.log(`[handleSearch] account ${accountId} → ${threads.length} results`);
+            return threads.map(t => ({ ...t, accountId, accountLabel, accountColor }));
+          })
+        );
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') console.error(`[handleSearch] account[${i}] error:`, r.reason);
+        });
+        const merged = results
+          .flatMap(r => r.status === 'fulfilled' ? r.value : [])
+          .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
+        console.log('[handleSearch] total merged results:', merged.length);
+        setSearchResults(merged);
+      } else {
+        if (!provider) {
+          console.warn('[handleSearch] no provider available');
+          return;
+        }
+        console.log(`[handleSearch] single provider ${provider.providerType} (${provider.accountId})`);
+        const threads = await provider.searchThreads(query);
+        console.log(`[handleSearch] → ${threads.length} results`);
+        setSearchResults(threads);
+      }
+    } catch (e) {
+      console.error('[handleSearch] error:', e);
+      setError(String(e));
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [isAllMode, allProviders, allMailAccounts, provider]);
 
   const startResizingSidebar = useCallback((e: ReactMouseEvent) => {
     e.preventDefault();
@@ -1206,6 +1420,7 @@ export function useMailPageLogic() {
     downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, provider, setReplyingTo, setReplyMode,
-    snoozedByItemId, handleFoldersLoaded, setSelectedThread
+    snoozedByItemId, handleFoldersLoaded, setSelectedThread,
+    searchQuery, searchResults, searchLoading, handleSearch,
   };
 }

@@ -19,6 +19,7 @@ import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
 import { NewMessageComposer } from "./components/NewMessageComposer";
 import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
 import { useMailPageLogic } from './hooks/useMailPageLogic';
+import { MailSearchBar } from './components/MailSearchBar';
 import { Link } from 'react-router-dom';
 import { MailSidebar } from './components/MailSidebar';
 import { createPortal } from 'react-dom';
@@ -44,7 +45,8 @@ export default function MailApp() {
     downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, provider, setReplyingTo, setReplyMode,
-    snoozedByItemId, handleFoldersLoaded, setSelectedThread
+    snoozedByItemId, handleFoldersLoaded, setSelectedThread,
+    searchQuery, searchResults, searchLoading, handleSearch,
   } = useMailPageLogic();
 
   const threadListRef = useRef<HTMLDivElement>(null);
@@ -64,7 +66,7 @@ export default function MailApp() {
           <span>{t('tabs.mail', 'Mail')}</span>
         </span>
 
-        <div className="header-spacer" />
+        <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} />
 
         <button className="btn-icon" onClick={loadThreads} disabled={threadsLoading}
           title={t('header.refresh', 'Refresh')}>
@@ -163,9 +165,10 @@ export default function MailApp() {
           <div style={{ width: threadListWidth, height: '100%', position: 'relative', zIndex: 1 }}>
             <ThreadList
               ref={threadListRef}
-              threads={threads}
-              loading={threadsLoading}
-              loadingMore={threadsLoadingMore}
+              threads={searchQuery ? searchResults : threads}
+              loading={searchQuery ? searchLoading : threadsLoading}
+              loadingMore={searchQuery ? false : threadsLoadingMore}
+              isSearchMode={!!searchQuery}
               selectedId={selectedThread?.conversation_id ?? null}
               snoozedMap={snoozedMap}
               isInSnoozedFolder={isInSnoozedFolder}

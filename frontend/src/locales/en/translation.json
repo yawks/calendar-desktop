@@ -289,6 +289,23 @@
       "textColor": "Text color",
       "bgColor": "Background color",
       "pasteImage": "Paste image from clipboard"
+    },
+    "search": {
+      "placeholder": "Search… (from:, to:, cc:, in:, date:)",
+      "label": "Search mail",
+      "clear": "Clear search",
+      "removeFilter": "Remove filter",
+      "results": "{{count}} result(s)",
+      "noResults": "No results",
+      "from": "From",
+      "to": "To",
+      "cc": "Cc",
+      "bcc": "Bcc",
+      "subject": "Subject",
+      "in": "In",
+      "date": "Date",
+      "text": "Text",
+      "hint": "Use from:, to:, cc:, bcc:, subject:, in:, date: to filter"
     }
   },
   "settings": {

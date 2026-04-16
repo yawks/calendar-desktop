@@ -365,6 +365,8 @@ export interface ICSInvitationCardProps {
   readonly mailProviderType?: 'gmail' | 'ews';
 }
 
+const ICS_PREVIEW_ID = '__ics_preview__';
+
 export function ICSInvitationCard({
   source, currentUserEmail, mailProviderType,
 }: ICSInvitationCardProps) {
@@ -498,11 +500,26 @@ export function ICSInvitationCard({
     day.setHours(0, 0, 0, 0);
     const dayEnd = new Date(day);
     dayEnd.setHours(23, 59, 59, 999);
-    return allEvents.filter(ev => {
+    const filtered = allEvents.filter(ev => {
       const s = new Date(ev.start);
       return s >= day && s <= dayEnd;
     });
-  }, [allEvents, icsData]);
+    // If the event isn't in the calendar yet, inject a virtual pending event
+    // so the timeline shows it as a dashed preview.
+    if (!matchedInSelected && !icsData.isAllday) {
+      const virtualEvent = {
+        id: ICS_PREVIEW_ID,
+        calendarId: selectedCalId || '',
+        title: icsData.title,
+        start: icsData.start,
+        end: icsData.end,
+        isAllday: false,
+        category: 'time' as const,
+      };
+      return [...filtered, virtualEvent];
+    }
+    return filtered;
+  }, [allEvents, icsData, matchedInSelected, selectedCalId]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
   const [actionLoading, setActionLoading] = useState(false);
@@ -700,7 +717,7 @@ export function ICSInvitationCard({
         events={dayEvents}
         calendars={allCalendars}
         targetDate={targetDate}
-        highlightedEventId={matchedInSelected?.id}
+        highlightedEventId={matchedInSelected?.id ?? (!icsData?.isAllday ? ICS_PREVIEW_ID : undefined)}
       />
     </div>
   );

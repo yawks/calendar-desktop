@@ -1,4 +1,4 @@
-import type { MailAttachment, MailFolder, MailMessage, MailThread } from '../types';
+import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
 
 export type ProviderType = 'ews' | 'gmail';
 
@@ -44,6 +44,8 @@ export interface MailProvider {
   readonly accountId: string;
 
   listThreads(folder: string, maxCount?: number, offset?: number): Promise<MailThread[]>;
+  /** Search threads using a structured query. Results are not cached. */
+  searchThreads(query: MailSearchQuery, maxCount?: number): Promise<MailThread[]>;
   /** Force a network fetch for inbox, bypassing any local cache. Optional — only implemented by CachedMailProvider. */
   forceRefreshInbox?(maxCount?: number): Promise<MailThread[]>;
   getThread(conversationId: string, includeTrash?: boolean, isDraft?: boolean): Promise<MailMessage[]>;

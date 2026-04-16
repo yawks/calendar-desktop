@@ -289,6 +289,23 @@
       "textColor": "Couleur du texte",
       "bgColor": "Couleur du fond",
       "pasteImage": "Coller une image depuis le presse-papier"
+    },
+    "search": {
+      "placeholder": "Rechercher… (from:, to:, cc:, in:, date:)",
+      "label": "Rechercher dans les mails",
+      "clear": "Effacer la recherche",
+      "removeFilter": "Supprimer le filtre",
+      "results": "{{count}} résultat(s)",
+      "noResults": "Aucun résultat",
+      "from": "De",
+      "to": "À",
+      "cc": "Cc",
+      "bcc": "Cci",
+      "subject": "Objet",
+      "in": "Dans",
+      "date": "Date",
+      "text": "Texte",
+      "hint": "Utilisez from:, to:, cc:, bcc:, subject:, in:, date: pour filtrer"
     }
   },
   "settings": {

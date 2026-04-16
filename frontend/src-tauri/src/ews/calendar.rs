@@ -90,12 +90,12 @@ pub async fn ews_create_event(
 ) -> Result<String, String> {
     let location_xml = location
         .filter(|s| !s.is_empty())
-        .map(|s| format!("<t:Location>{}</t:Location>", s))
+        .map(|s| format!("<t:Location>{}</t:Location>", xml_escape(&s)))
         .unwrap_or_default();
 
     let body_xml = description
         .filter(|s| !s.is_empty())
-        .map(|s| format!(r#"<t:Body BodyType="Text">{}</t:Body>"#, s))
+        .map(|s| format!(r#"<t:Body BodyType="Text">{}</t:Body>"#, xml_escape(&s)))
         .unwrap_or_default();
 
     let attendees_xml = attendees
@@ -119,6 +119,7 @@ pub async fn ews_create_event(
         "SendToAllAndSaveCopy"
     };
 
+    let title_escaped = xml_escape(&title);
     let soap_body = format!(
         r#"<m:CreateItem SendMeetingInvitations="{invitations_attr}">
   <m:Items>
@@ -134,7 +135,7 @@ pub async fn ews_create_event(
   </m:Items>
 </m:CreateItem>"#,
         invitations_attr = invitations_attr,
-        title = title,
+        title = title_escaped,
         body_xml = body_xml,
         start = start,
         end = end,

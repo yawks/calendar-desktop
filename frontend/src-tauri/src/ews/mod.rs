@@ -219,6 +219,15 @@ pub(crate) async fn send_ews_request(
     Ok(body)
 }
 
+/// Escape XML special characters in a text value.
+pub(crate) fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
+     .replace('\'', "&apos;")
+}
+
 /// Extract the text content of the first occurrence of `<tag>…</tag>`.
 /// Uses exact tag-name matching: the character immediately after the tag name must be
 /// `>` or whitespace, so that `<t:Content` does NOT match `<t:ContentType>`.

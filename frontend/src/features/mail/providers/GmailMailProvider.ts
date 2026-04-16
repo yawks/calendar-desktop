@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { MailAttachment, MailFolder, MailMessage, MailRecipient, MailThread } from '../types';
+import type { MailAttachment, MailFolder, MailMessage, MailRecipient, MailSearchQuery, MailThread } from '../types';
 import type { MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
 
 // ── Gmail REST API types ──────────────────────────────────────────────────────
@@ -425,6 +425,36 @@ export class GmailMailProvider implements MailProvider {
     }
   }
 
+  async searchThreads(query: MailSearchQuery, maxCount = 50): Promise<MailThread[]> {
+    const token = await this.token();
+    const q = buildGmailQuery(query);
+    console.log('[Gmail.searchThreads] q=', JSON.stringify(q));
+    if (!q) {
+      console.warn('[Gmail.searchThreads] empty q — no search performed');
+      return [];
+    }
+
+    const params = new URLSearchParams({ q, maxResults: String(maxCount) });
+    console.log('[Gmail.searchThreads] URL:', `/users/me/threads?${params}`);
+    const res = await this.gFetch<{
+      threads?: Array<{ id: string; snippet?: string }>;
+    }>(token, `/users/me/threads?${params}`);
+
+    console.log('[Gmail.searchThreads] raw thread IDs:', res.threads?.length ?? 0, res.threads?.map(t => t.id));
+    if (!res.threads?.length) return [];
+
+    const CONCURRENCY = 10;
+    const results: (MailThread | null)[] = [];
+    for (let i = 0; i < res.threads.length; i += CONCURRENCY) {
+      const batch = res.threads.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map(t => this.fetchThreadSummary(token, t.id, t.snippet ?? ''))
+      );
+      results.push(...batchResults);
+    }
+    return results.filter((t): t is MailThread => t !== null);
+  }
+
   async getThread(conversationId: string, includeTrash = false, _isDraft = false): Promise<MailMessage[]> {
     const token = await this.token();
     const thread = await this.gFetch<GmailThread>(
@@ -675,6 +705,7 @@ export class GmailMailProvider implements MailProvider {
   }
 
   async moveToFolder(itemId: string, folderId: string): Promise<void> {
+
     const token = await this.token();
     const targetLabel = folderToLabel(folderId);
 
@@ -696,4 +727,55 @@ export class GmailMailProvider implements MailProvider {
       removeLabelIds,
     });
   }
+}
+
+// ── Search helpers ────────────────────────────────────────────────────────────
+
+/** Resolve 'today' / 'yesterday' to a YYYY-MM-DD string; pass through otherwise. */
+function resolveSearchDate(date: string): string {
+  const d = new Date();
+  if (date === 'today') return d.toISOString().split('T')[0];
+  if (date === 'yesterday') {
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  }
+  return date;
+}
+
+/**
+ * Build a Gmail search query string (q parameter) from a MailSearchQuery.
+ * Gmail operators: from:, to:, cc:, bcc:, subject:, in:, after:/before:
+ */
+export function buildGmailQuery(query: MailSearchQuery): string {
+  const parts: string[] = [];
+
+  if (query.from)    parts.push(`from:${query.from}`);
+  if (query.to)      parts.push(`to:${query.to}`);
+  if (query.cc)      parts.push(`cc:${query.cc}`);
+  if (query.bcc)     parts.push(`bcc:${query.bcc}`);
+  if (query.subject) {
+    const sub = query.subject.includes(' ') ? `"${query.subject}"` : query.subject;
+    parts.push(`subject:${sub}`);
+  }
+  if (query.text) parts.push(query.text);
+
+  if (query.folder) {
+    // Map known folder keys to Gmail labels/in-operands
+    const inLabel = folderToLabel(query.folder).toLowerCase();
+    parts.push(`in:${inLabel}`);
+  }
+
+  if (query.date) {
+    const resolved = resolveSearchDate(query.date);
+    // Gmail after/before use YYYY/MM/DD format
+    const [y, m, day] = resolved.split('-');
+    const afterDate = `${y}/${m}/${day}`;
+    const nextDay = new Date(resolved);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const [ny, nm, nd] = nextDay.toISOString().split('T')[0].split('-');
+    const beforeDate = `${ny}/${nm}/${nd}`;
+    parts.push(`after:${afterDate} before:${beforeDate}`);
+  }
+
+  return parts.join(' ');
 }
