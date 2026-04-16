@@ -3,12 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
+import { useImapAuth } from '../../../shared/store/ImapAuthStore';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useContactSuggestions } from './useContactSuggestions';
 import { MailProvider, ComposerAttachment } from '../providers/MailProvider';
 import { CachedMailProvider, OnInboxRefreshed } from '../providers/CachedMailProvider';
 import { EwsMailProvider } from '../providers/EwsMailProvider';
 import { GmailMailProvider } from '../providers/GmailMailProvider';
+import { ImapMailProvider } from '../providers/ImapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery } from '../types';
 import { ALL_ACCOUNTS_ID, THEME_CYCLE, buildUnreadCounts } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
@@ -17,6 +19,7 @@ export function useMailPageLogic() {
   const { t } = useTranslation();
   const { accounts: ewsAccounts, getValidToken: getEwsToken } = useExchangeAuth();
   const { accounts: googleAccounts, getValidToken: getGoogleToken } = useGoogleAuth();
+  const { accounts: imapAccounts } = useImapAuth();
   const { preference, setPreference } = useTheme();
 
   const onInboxRefreshedRef = useRef<OnInboxRefreshed | null>(null);
@@ -33,7 +36,8 @@ export function useMailPageLogic() {
   const allMailAccounts = useMemo(() => [
     ...mailEwsAccounts.map(a => ({ id: a.id, email: a.email, name: a.displayName, providerType: 'ews' as const, color: a.color })),
     ...mailGoogleAccounts.map(a => ({ id: a.id, email: a.email, name: a.name, providerType: 'gmail' as const, color: a.color })),
-  ], [mailEwsAccounts, mailGoogleAccounts]);
+    ...imapAccounts.map(a => ({ id: a.id, email: a.email, name: a.displayName, providerType: 'imap' as const, color: a.color })),
+  ], [mailEwsAccounts, mailGoogleAccounts, imapAccounts]);
 
   const allProviders = useMemo<Map<string, MailProvider>>(() => {
     const map = new Map<string, MailProvider>();
@@ -49,8 +53,14 @@ export function useMailPageLogic() {
         (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
       ));
     }
+    for (const a of imapAccounts) {
+      map.set(a.id, new CachedMailProvider(
+        new ImapMailProvider(a),
+        (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
+      ));
+    }
     return map;
-  }, [mailEwsAccounts, mailGoogleAccounts, getEwsToken, getGoogleToken]);
+  }, [mailEwsAccounts, mailGoogleAccounts, imapAccounts, getEwsToken, getGoogleToken]);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
     () => allMailAccounts.length > 1 ? ALL_ACCOUNTS_ID : (allMailAccounts[0]?.id ?? ALL_ACCOUNTS_ID)

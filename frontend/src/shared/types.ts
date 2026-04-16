@@ -54,6 +54,26 @@ export interface GoogleAccount {
   enabledCapabilities?: ('calendar' | 'email')[];
 }
 
+export interface ImapAccount {
+  id: string;
+  email: string;
+  displayName: string;
+  imapServer: string;
+  imapPort: number;
+  imapUseSsl: boolean;
+  imapUseStarttls: boolean;
+  imapUsername: string;
+  imapPassword: string;
+  smtpServer: string;
+  smtpPort: number;
+  smtpUseSsl: boolean;
+  smtpUseStarttls: boolean;
+  smtpUsername: string;
+  smtpPassword: string;
+  /** UI color for this account (used in mail) */
+  color?: string;
+}
+
 export interface ExchangeAccount {
   id: string;
   email: string;

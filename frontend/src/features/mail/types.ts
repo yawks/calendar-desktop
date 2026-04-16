@@ -77,7 +77,7 @@ export interface FromAccount {
   email: string;
   name?: string;
   color?: string;
-  providerType: 'ews' | 'gmail';
+  providerType: 'ews' | 'gmail' | 'imap';
 }
 
 export type ThreadFilter = 'all' | 'unread';

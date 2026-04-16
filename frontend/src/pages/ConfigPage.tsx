@@ -33,10 +33,12 @@ async function testNextcloudConnection(url: string, username: string, password: 
 import { useCalendars } from '../features/calendar/store/CalendarStore';
 import { useGoogleAuth } from '../shared/store/GoogleAuthStore';
 import { useExchangeAuth, parseExchangeToken } from '../shared/store/ExchangeAuthStore';
+import { useImapAuth } from '../shared/store/ImapAuthStore';
 import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../shared/store/googleClientConfig';
 import { listCalendars } from '../features/calendar/utils/googleCalendarApi';
-import { CalendarConfig, GoogleAccount, ExchangeAccount } from '../shared/types';
+import { CalendarConfig, GoogleAccount, ExchangeAccount, ImapAccount } from '../shared/types';
 import { useDefaultCalendar } from '../features/calendar/store/defaultCalendarStore';
+import { ImapAccountManageModal } from './ImapAccountManageModal';
 
 const DEFAULT_COLORS = [
   '#1a73e8', '#34a853', '#ea4335', '#fbbc04',
@@ -1027,8 +1029,9 @@ function NewCalendarModal({
   const { addCalendar, calendars } = useCalendars();
   const { connectGoogle, updateAccountCapabilities: updateGoogleCapabilities } = useGoogleAuth();
   const { addAccount } = useExchangeAuth();
+  const { addAccount: addImapAccount } = useImapAuth();
 
-  const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange'>('pick');
+  const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange' | 'imap'>('pick');
   const [selectedType, setSelectedType] = useState<'ics' | 'nextcloud' | null>(null);
   const [pendingProviderType, setPendingProviderType] = useState<'google' | 'exchange' | null>(null);
   const [pendingCapabilities, setPendingCapabilities] = useState<('calendar' | 'email')[]>(['calendar', 'email']);
@@ -1065,6 +1068,23 @@ function NewCalendarModal({
   const [ncTestResult, setNcTestResult] = useState<TestResult | null>(null);
   const [ncTesting, setNcTesting] = useState(false);
 
+  // IMAP form
+  const [imapEmail, setImapEmail] = useState('');
+  const [imapDisplayName, setImapDisplayName] = useState('');
+  const [imapServer, setImapServer] = useState('');
+  const [imapPort, setImapPort] = useState(993);
+  const [imapUseSsl, setImapUseSsl] = useState(true);
+  const [imapUseStarttls, setImapUseStarttls] = useState(false);
+  const [imapUsername, setImapUsername] = useState('');
+  const [imapPassword, setImapPassword] = useState('');
+  const [smtpServer, setSmtpServer] = useState('');
+  const [smtpPort, setSmtpPort] = useState(465);
+  const [smtpUseSsl, setSmtpUseSsl] = useState(true);
+  const [smtpUseStarttls, setSmtpUseStarttls] = useState(false);
+  const [smtpUsername, setSmtpUsername] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [imapColor, setImapColor] = useState(() => nextColor(calendars));
+
   const handleNcTest = async () => {
     setNcTesting(true);
     setNcTestResult(null);
@@ -1099,13 +1119,17 @@ function NewCalendarModal({
     }
   };
 
-  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange') => {
+  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap') => {
     if (type === 'eventkit') { onOpenEventKit(); return; }
     if (type === 'google' || type === 'exchange') {
       setPendingProviderType(type);
       setPendingCapabilities(['calendar', 'email']);
       setStep('capabilities');
       return;
+    }
+    if (type === 'imap') {
+        setStep('imap');
+        return;
     }
     setSelectedType(type);
     setStep('configure');
@@ -1213,7 +1237,31 @@ function NewCalendarModal({
     onClose();
   };
 
-  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange'; icon: React.ReactNode; label: string; desc: string; caps: ('calendar' | 'email')[] }[] = [
+  const handleAddImap = (e: FormEvent) => {
+    e.preventDefault();
+    if (!imapEmail.trim() || !imapServer.trim() || !smtpServer.trim()) return;
+    addImapAccount({
+      id: imapEmail.trim(),
+      email: imapEmail.trim(),
+      displayName: imapDisplayName.trim() || imapEmail.trim(),
+      imapServer: imapServer.trim(),
+      imapPort,
+      imapUseSsl,
+      imapUseStarttls,
+      imapUsername: imapUsername.trim(),
+      imapPassword,
+      smtpServer: smtpServer.trim(),
+      smtpPort,
+      smtpUseSsl,
+      smtpUseStarttls,
+      smtpUsername: smtpUsername.trim(),
+      smtpPassword,
+      color: imapColor,
+    });
+    onClose();
+  };
+
+  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap'; icon: React.ReactNode; label: string; desc: string; caps: ('calendar' | 'email')[] }[] = [
     {
       type: 'eventkit',
       icon: <Laptop size={28} />,
@@ -1261,6 +1309,13 @@ function NewCalendarModal({
       desc: t('config.exchangeDesc'),
       caps: ['calendar', 'email'],
     },
+    {
+      type: 'imap',
+      icon: <Mail size={28} />,
+      label: 'IMAP / SMTP',
+      desc: t('config.imapDesc', 'Generic IMAP/SMTP account'),
+      caps: ['email'],
+    },
   ];
 
   const modalTitle = step === 'pick'
@@ -1271,6 +1326,8 @@ function NewCalendarModal({
         ? t('config.googleAgenda')
         : step === 'exchange'
           ? 'Exchange / Office 365'
+        : step === 'imap'
+          ? 'IMAP / SMTP'
           : selectedType === 'ics'
             ? t('config.addICSCalendar')
             : t('config.addNextcloudCalendar');
@@ -1304,7 +1361,7 @@ function NewCalendarModal({
           </button>
         </div>
 
-        <div className="nc-modal-body">
+        <div className="nc-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
           {/* Step 1: pick type */}
           {step === 'pick' && (
             <>
@@ -1489,6 +1546,103 @@ function NewCalendarModal({
                 <div style={{ fontSize: 13, color: 'var(--color-error, #d93025)' }}>{connectError}</div>
               )}
             </div>
+          )}
+
+          {/* Step: IMAP form */}
+          {step === 'imap' && (
+            <form onSubmit={handleAddImap} className="config-form">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
+                  <div className="form-row">
+                    <label>{t('config.email', 'Email')}</label>
+                    <input type="email" value={imapEmail} onChange={(e) => setImapEmail(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.displayName', 'Display Name')}</label>
+                    <input type="text" value={imapDisplayName} onChange={(e) => setImapDisplayName(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <ColorSwatches colors={DEFAULT_COLORS} selected={imapColor} onSelect={setImapColor} />
+                    <input type="color" value={imapColor} onChange={(e) => setImapColor(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>IMAP (Incoming)</h3>
+                  <div className="form-row">
+                    <label>{t('config.server', 'Server')}</label>
+                    <input type="text" value={imapServer} onChange={(e) => setImapServer(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.port', 'Port')}</label>
+                    <input type="number" value={imapPort} onChange={(e) => setImapPort(Number(e.target.value))} required />
+                  </div>
+                  <div className="form-row--inline" style={{ display: 'flex', gap: 15, margin: '8px 0' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={imapUseSsl} onChange={(e) => { setImapUseSsl(e.target.checked); if (e.target.checked) setImapUseStarttls(false); }} />
+                      SSL / TLS
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={imapUseStarttls} onChange={(e) => { setImapUseStarttls(e.target.checked); if (e.target.checked) setImapUseSsl(false); }} />
+                      STARTTLS
+                    </label>
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.username', 'Username')}</label>
+                    <input type="text" value={imapUsername} onChange={(e) => setImapUsername(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.password', 'Password')}</label>
+                    <input type="password" value={imapPassword} onChange={(e) => setImapPassword(e.target.value)} required />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>SMTP (Outgoing)</h3>
+                  <div className="form-row">
+                    <label>{t('config.server', 'Server')}</label>
+                    <input type="text" value={smtpServer} onChange={(e) => setSmtpServer(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.port', 'Port')}</label>
+                    <input type="number" value={smtpPort} onChange={(e) => setSmtpPort(Number(e.target.value))} required />
+                  </div>
+                  <div className="form-row--inline" style={{ display: 'flex', gap: 15, margin: '8px 0' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={smtpUseSsl} onChange={(e) => { setSmtpUseSsl(e.target.checked); if (e.target.checked) setSmtpUseStarttls(false); }} />
+                      SSL / TLS
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={smtpUseStarttls} onChange={(e) => { setSmtpUseStarttls(e.target.checked); if (e.target.checked) setSmtpUseSsl(false); }} />
+                      STARTTLS
+                    </label>
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.username', 'Username')}</label>
+                    <input type="text" value={smtpUsername} onChange={(e) => setSmtpUsername(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.password', 'Password')}</label>
+                    <input type="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} required />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-actions" style={{ marginTop: 24 }}>
+                <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
+                  {t('config.add', 'Ajouter')}
+                </button>
+                <button type="button" className="btn-cancel" onClick={onClose}>
+                  {t('config.cancel', 'Annuler')}
+                </button>
+              </div>
+            </form>
           )}
 
           {/* Step 2: ICS form */}
@@ -1742,6 +1896,7 @@ type EditModalState =
   | { type: 'eventkit' }
   | { type: 'google'; accountId: string }
   | { type: 'exchange'; accountId: string }
+  | { type: 'imap'; accountId: string }
   | { type: 'ics' }
   | { type: 'nextcloud' }
   | null;
@@ -1753,6 +1908,7 @@ export default function ConfigPage() {
   const { calendars } = useCalendars();
   const { accounts, updateAccountColor: updateGoogleColor } = useGoogleAuth();
   const { accounts: exchangeAccounts, updateAccountColor: updateExchangeColor } = useExchangeAuth();
+  const { accounts: imapAccounts, updateAccountColor: updateImapColor, removeAccount: removeImapAccount, updateAccount: updateImapAccount } = useImapAuth();
   const { defaultCalendarId, setDefaultCalendar } = useDefaultCalendar();
 
   const [activeSection, setActiveSection] = useState<SectionType>('providers');
@@ -1777,6 +1933,7 @@ export default function ConfigPage() {
     ekCals.length > 0 ||
     accounts.length > 0 ||
     exchangeAccounts.length > 0 ||
+    imapAccounts.length > 0 ||
     icsCals.length > 0 ||
     nextcloudCals.length > 0;
 
@@ -1908,6 +2065,23 @@ export default function ConfigPage() {
                   )
                 )}
 
+                {/* IMAP */}
+                {imapAccounts.map((account) => (
+                  <GroupSection
+                    key={account.id}
+                    title={account.email}
+                    icon={<Mail size={13} />}
+                    onEdit={() => setEditModal({ type: 'imap', accountId: account.id })}
+                    caps={['email']}
+                    color={account.color}
+                    onColorChange={(c) => updateImapColor(account.id, c)}
+                  >
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>
+                      {account.imapServer}
+                    </div>
+                  </GroupSection>
+                ))}
+
                 {/* ICS */}
                 {icsCals.length > 0 && (
                   <GroupSection
@@ -1973,6 +2147,15 @@ export default function ConfigPage() {
           <ExchangeAccountManageModal
             account={acc}
             existingCalendars={calendars}
+            onClose={() => setEditModal(null)}
+          />
+        ) : null;
+      })()}
+      {editModal?.type === 'imap' && (() => {
+        const acc = imapAccounts.find((a) => a.id === (editModal as { type: 'imap'; accountId: string }).accountId);
+        return acc ? (
+          <ImapAccountManageModal
+            account={acc}
             onClose={() => setEditModal(null)}
           />
         ) : null;

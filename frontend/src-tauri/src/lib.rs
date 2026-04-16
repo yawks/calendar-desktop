@@ -2,6 +2,7 @@ mod auth;
 mod ews;
 mod gmail;
 mod http;
+mod imap;
 mod mail;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -145,6 +146,16 @@ pub fn run() {
                     mail::mail_search_threads,
                     gmail::gmail_open_attachment,
                     gmail::gmail_get_attachment_data,
+                    imap::imap_list_folders,
+                    imap::imap_get_inbox_unread,
+                    imap::imap_list_threads,
+                    imap::imap_get_thread,
+                    imap::imap_mark_read,
+                    imap::imap_mark_unread,
+                    imap::imap_move_to_trash,
+                    imap::imap_permanently_delete,
+                    imap::imap_send,
+                    imap::imap_get_attachment_data,
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,
@@ -189,6 +200,16 @@ pub fn run() {
                     mail::mail_search_threads,
                     gmail::gmail_open_attachment,
                     gmail::gmail_get_attachment_data,
+                    imap::imap_list_folders,
+                    imap::imap_get_inbox_unread,
+                    imap::imap_list_threads,
+                    imap::imap_get_thread,
+                    imap::imap_mark_read,
+                    imap::imap_mark_unread,
+                    imap::imap_move_to_trash,
+                    imap::imap_permanently_delete,
+                    imap::imap_send,
+                    imap::imap_get_attachment_data,
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,

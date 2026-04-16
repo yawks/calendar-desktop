@@ -6,6 +6,7 @@ import { ThemeProvider } from './shared/store/ThemeStore';
 import { LanguageProvider } from './shared/store/LanguageStore';
 import { GoogleAuthProvider } from './shared/store/GoogleAuthStore';
 import { ExchangeAuthProvider } from './shared/store/ExchangeAuthStore';
+import { ImapAuthProvider } from './shared/store/ImapAuthStore';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 import CalendarPage from './features/calendar/CalendarPage';
 import ConfigPage from './pages/ConfigPage';
@@ -35,6 +36,7 @@ export default function App() {
         <LayoutProvider>
           <GoogleAuthProvider>
           <ExchangeAuthProvider>
+          <ImapAuthProvider>
             <CalendarProvider>
             <CalendarGroupProvider>
             <TagProvider>
@@ -48,6 +50,7 @@ export default function App() {
             </TagProvider>
             </CalendarGroupProvider>
             </CalendarProvider>
+          </ImapAuthProvider>
           </ExchangeAuthProvider>
           </GoogleAuthProvider>
         </LayoutProvider>

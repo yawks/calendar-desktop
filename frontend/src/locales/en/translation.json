@@ -215,7 +215,13 @@
     "chooseServices": "Choose services",
     "chooseServicesDesc": "Select which services you want to use with this account:",
     "enabledServices": "Enabled services",
-    "continue": "Continue"
+    "continue": "Continue",
+    "imapDesc": "Generic IMAP / SMTP account",
+    "generalInfo": "General",
+    "email": "Email",
+    "displayName": "Display Name",
+    "server": "Server",
+    "port": "Port"
   },
   "freeBusy": {
     "title": "Availability",
