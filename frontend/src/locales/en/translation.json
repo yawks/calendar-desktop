@@ -49,7 +49,15 @@
     "collapseGroup": "Collapse group"
   },
   "miniCalendar": {
-    "dayNames": ["M", "T", "W", "T", "F", "S", "S"],
+    "dayNames": [
+      "M",
+      "T",
+      "W",
+      "T",
+      "F",
+      "S",
+      "S"
+    ],
     "prevMonth": "Previous month",
     "nextMonth": "Next month"
   },
@@ -291,7 +299,7 @@
       "pasteImage": "Paste image from clipboard"
     },
     "search": {
-      "placeholder": "Search… (from:, to:, cc:, in:, date:)",
+      "placeholder": "Search…",
       "label": "Search mail",
       "clear": "Clear search",
       "removeFilter": "Remove filter",
@@ -305,7 +313,9 @@
       "in": "In",
       "date": "Date",
       "text": "Text",
-      "hint": "Use from:, to:, cc:, bcc:, subject:, in:, date: to filter"
+      "hint": "Use from:, to:, cc:, bcc:, subject:, in:, date: to filter",
+      "inInbox": "In Inbox",
+      "today": "Today"
     }
   },
   "settings": {

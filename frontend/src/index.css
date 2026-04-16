@@ -1679,14 +1679,14 @@ body {
 
 /* ── Mail search bar ─────────────────────────────── */
 .mail-search-bar {
-  flex: 1;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  min-width: 0;
-  max-width: 480px;
-  margin: 0 8px;
+  height: 34px;
+  min-width: 200px;
+  max-width: 520px;
+  width: 100%;
   padding: 0 10px;
   border-radius: 8px;
   border: 1px solid transparent;
@@ -1705,7 +1705,7 @@ body {
 .mail-search-bar__icon { flex-shrink: 0; opacity: 0.5; }
 .mail-search-bar__input {
   flex: 1;
-  min-width: 0;
+  min-width: 60px;
   background: transparent;
   border: none;
   outline: none;
@@ -1734,21 +1734,19 @@ body {
 }
 .mail-search-bar__clear:hover { opacity: 1; background: var(--bg-hover); }
 
-/* Chips (active filter tokens) */
-.mail-search-bar__chips {
-  display: flex; flex-wrap: nowrap; overflow: hidden;
-  gap: 4px; flex: 1; min-width: 0;
-}
+/* Chips — inline, structured tokens only (no plain-text chip) */
 .mail-search-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  padding: 1px 6px 1px 7px;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 1px 5px 1px 7px;
   border-radius: 12px;
   background: color-mix(in srgb, var(--primary, #1a73e8) 12%, transparent);
   color: var(--primary, #1a73e8);
-  font-size: 11px; font-weight: 500;
-  white-space: nowrap; max-width: 180px;
-  overflow: hidden; text-overflow: ellipsis;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
+.mail-search-chip__keyword { font-weight: 600; }
+.mail-search-chip__value   { font-weight: 400; opacity: 0.85; }
 .mail-search-chip__remove {
   flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; cursor: pointer;
@@ -1756,6 +1754,39 @@ body {
   transition: opacity 0.1s;
 }
 .mail-search-chip__remove:hover { opacity: 1; }
+
+/* Autocomplete dropdown */
+.mail-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -1px;
+  right: -1px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  z-index: 200;
+  overflow: hidden;
+  padding: 4px 0;
+}
+.mail-search-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  transition: background 0.1s;
+}
+.mail-search-suggestion strong { font-weight: 600; }
+.mail-search-suggestion__suffix { font-weight: 400; opacity: 0.6; }
+.mail-search-suggestion:hover,
+.mail-search-suggestion--active { background: var(--bg-hover); }
 
 /* Thread list toolbar — result count in search mode */
 .mail-thread-toolbar__search-count {
@@ -1825,6 +1856,7 @@ body {
 }
 
 .btn-config:hover { background: var(--bg-hover); color: var(--text); }
+.btn-config--icon-only { padding: 7px 8px; }
 
 /* ── Sidebar ─────────────────────────────────────── */
 .sidebar {

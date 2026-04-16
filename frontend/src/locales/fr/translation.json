@@ -49,7 +49,15 @@
     "collapseGroup": "Réduire le groupe"
   },
   "miniCalendar": {
-    "dayNames": ["L", "M", "M", "J", "V", "S", "D"],
+    "dayNames": [
+      "L",
+      "M",
+      "M",
+      "J",
+      "V",
+      "S",
+      "D"
+    ],
     "prevMonth": "Mois précédent",
     "nextMonth": "Mois suivant"
   },
@@ -291,7 +299,7 @@
       "pasteImage": "Coller une image depuis le presse-papier"
     },
     "search": {
-      "placeholder": "Rechercher… (from:, to:, cc:, in:, date:)",
+      "placeholder": "Rechercher…",
       "label": "Rechercher dans les mails",
       "clear": "Effacer la recherche",
       "removeFilter": "Supprimer le filtre",
@@ -305,7 +313,9 @@
       "in": "Dans",
       "date": "Date",
       "text": "Texte",
-      "hint": "Utilisez from:, to:, cc:, bcc:, subject:, in:, date: pour filtrer"
+      "hint": "Utilisez from:, to:, cc:, bcc:, subject:, in:, date: pour filtrer",
+      "inInbox": "Dans la boîte de réception",
+      "today": "Aujourd'hui"
     }
   },
   "settings": {

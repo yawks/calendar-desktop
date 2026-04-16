@@ -12,7 +12,6 @@ import {
 import {
   useRef,
 } from "react";
-import { ThemeIcon } from "./utils";
 import { ThreadList } from "./components/ThreadList";
 import { ThreadDetail } from "./components/ThreadDetail";
 import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
@@ -30,7 +29,7 @@ import { ComposerAttachment } from './providers/MailProvider';
 
 export default function MailApp() {
   const {
-    t, preference, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
+    t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
     threads, threadsLoading, threadsLoadingMore, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
     contacts, error, deleteToast, downloadToast, sendToast, draftToast, actionToast,
@@ -38,7 +37,7 @@ export default function MailApp() {
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allModeDynamicFolders, attachmentPreview,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
-    setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads,
+    setError, setDownloadToast, cancelDeletion, loadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
@@ -66,18 +65,16 @@ export default function MailApp() {
           <span>{t('tabs.mail', 'Mail')}</span>
         </span>
 
-        <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} />
+        <div className="header-spacer" />
+        <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} />
+        <div className="header-spacer" />
 
         <button className="btn-icon" onClick={loadThreads} disabled={threadsLoading}
           title={t('header.refresh', 'Refresh')}>
           <RefreshCw size={18} className={threadsLoading ? 'spin' : ''} />
         </button>
-        <button className="btn-icon" onClick={cycleTheme}>
-          <ThemeIcon pref={preference} />
-        </button>
-        <Link to="/config" className="btn-config">
+        <Link to="/config" className="btn-config btn-config--icon-only">
           <Settings size={17} />
-          {t('header.calendarsBtn')}
         </Link>
       </header>
 
