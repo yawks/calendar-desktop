@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FromAccount, ComposerRestoreData } from '../types';
 import { ComposerAttachment } from '../providers/MailProvider';
 import { RecipientEntry, RecipientInput } from './RecipientInput';
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel';
-import { Bold, ChevronDown, Italic, List, ListOrdered, Paperclip, Send, Underline, X } from 'lucide-react';
+import { MailEditor, MailEditorHandle } from './MailEditor';
+import { CloseComposerPopover } from './MailComposer';
+import { ChevronDown, Paperclip, Send } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export interface NewMessageComposerProps {
@@ -20,28 +22,26 @@ export interface NewMessageComposerProps {
 
 export function NewMessageComposer({
   contacts, restoreData, onSend, onCancel, onSaveDraft, onDeleteDraft,
-  fromAccounts, fromAccountId, onFromAccountChange
+  fromAccounts, fromAccountId, onFromAccountChange,
 }: NewMessageComposerProps) {
   const { t } = useTranslation();
-  const [toRecipients, setToRecipients] = useState<RecipientEntry[]>(restoreData?.toRecipients ?? []);
-  const [ccRecipients, setCcRecipients] = useState<RecipientEntry[]>(restoreData?.ccRecipients ?? []);
+
+  const [toRecipients,  setToRecipients]  = useState<RecipientEntry[]>(restoreData?.toRecipients ?? []);
+  const [ccRecipients,  setCcRecipients]  = useState<RecipientEntry[]>(restoreData?.ccRecipients ?? []);
   const [bccRecipients, setBccRecipients] = useState<RecipientEntry[]>(restoreData?.bccRecipients ?? []);
-  const [showCc, setShowCc] = useState((restoreData?.showCc) ?? false);
-  const [showBcc, setShowBcc] = useState((restoreData?.showBcc) ?? false);
+  const [showCc,  setShowCc]  = useState(restoreData?.showCc ?? false);
+  const [showBcc, setShowBcc] = useState(restoreData?.showBcc ?? false);
   const [subject, setSubject] = useState(restoreData?.subject ?? '');
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(restoreData?.attachments ?? []);
   const [fromOpen, setFromOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const fromRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (restoreData?.body && bodyRef.current) {
-      bodyRef.current.innerHTML = restoreData.body;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fromRef      = useRef<HTMLDivElement>(null);
+  const editorRef    = useRef<MailEditorHandle>(null);
+
+  // Initial body HTML — evaluated once on mount
+  const initialHTML = useMemo(() => restoreData?.body ?? '', []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close from-dropdown on outside click
   useEffect(() => {
@@ -55,7 +55,6 @@ export function NewMessageComposer({
 
   const doSend = async () => {
     if (toRecipients.length === 0) return;
-    const bodyHtml = bodyRef.current?.innerHTML ?? '';
     setSending(true);
     try {
       await onSend(
@@ -63,7 +62,7 @@ export function NewMessageComposer({
         ccRecipients.map(r => r.email),
         bccRecipients.map(r => r.email),
         subject,
-        bodyHtml,
+        editorRef.current?.getHTML() ?? '',
         attachments,
       );
     } finally {
@@ -72,18 +71,16 @@ export function NewMessageComposer({
   };
 
   const handleClose = () => {
-    if (onSaveDraft) {
-      const bodyHtml = bodyRef.current?.innerHTML ?? '';
-      const hasContent = toRecipients.length > 0 || subject.trim().length > 0 || bodyHtml.trim().length > 0;
-      if (hasContent) {
-        onSaveDraft(
-          toRecipients.map(r => r.email),
-          ccRecipients.map(r => r.email),
-          bccRecipients.map(r => r.email),
-          subject,
-          bodyHtml,
-        );
-      }
+    const bodyHtml   = editorRef.current?.getHTML() ?? '';
+    const hasContent = toRecipients.length > 0 || subject.trim() || bodyHtml.trim();
+    if (hasContent) {
+      onSaveDraft(
+        toRecipients.map(r => r.email),
+        ccRecipients.map(r => r.email),
+        bccRecipients.map(r => r.email),
+        subject,
+        bodyHtml,
+      );
     }
     onCancel();
   };
@@ -94,7 +91,7 @@ export function NewMessageComposer({
     for (let i = 0; i < e.target.files.length; i++) {
       const file = e.target.files[i];
       const reader = new FileReader();
-      const content = await new Promise<string>((resolve) => {
+      const content = await new Promise<string>(resolve => {
         reader.onload = () => resolve((reader.result as string).split(',')[1]);
         reader.readAsDataURL(file);
       });
@@ -104,11 +101,6 @@ export function NewMessageComposer({
     e.target.value = '';
   };
 
-  const exec = (cmd: string) => {
-    document.execCommand(cmd, false, undefined);
-    bodyRef.current?.focus();
-  };
-
   const selectedAccount = fromAccounts.find(a => a.id === fromAccountId) ?? fromAccounts[0];
 
   return (
@@ -116,36 +108,27 @@ export function NewMessageComposer({
       <form
         className="mail-new-composer__form"
         onSubmit={e => { e.preventDefault(); doSend(); }}
-        onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) { e.preventDefault(); doSend(); } }}
       >
-        {/* Toolbar */}
+        {/* ── Top action bar ── */}
         <div className="mail-new-composer__toolbar">
           <button type="submit" className="btn-primary" disabled={sending || toRecipients.length === 0}>
             <Send size={15} />
-            {sending ? t('mail.sending', 'Sending…') : t('mail.send', 'Send')}
+            {sending ? t('mail.sending', 'Envoi…') : t('mail.send', 'Envoyer')}
           </button>
-          <button type="button" className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
+          <button type="button" className="btn-ghost" onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={15} />
             {t('mail.attach', 'Joindre')}
           </button>
           <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleAttachFiles} />
           <div style={{ flex: 1 }} />
-          {/* Close with save-draft popover */}
-          <CloseComposerPopover
-            onSaveDraft={handleClose}
-            onDiscard={onDeleteDraft ?? onCancel}
-          />
+          <CloseComposerPopover onSaveDraft={handleClose} onDiscard={onDeleteDraft ?? onCancel} />
         </div>
 
-        {/* From account selector (multi-account mode only) */}
+        {/* ── From (multi-account only) ── */}
         {fromAccounts.length > 1 && (
           <div className="mail-composer__field" ref={fromRef} style={{ position: 'relative' }}>
-            <span className="mail-composer__label">{t('mail.from', 'From')}:</span>
-            <button
-              type="button"
-              className="from-account-btn"
-              onClick={() => setFromOpen(o => !o)}
-            >
+            <span className="mail-composer__label">{t('mail.from', 'De')}:</span>
+            <button type="button" className="from-account-btn" onClick={() => setFromOpen(o => !o)}>
               <span className="from-account-name" style={{ color: selectedAccount?.color ?? 'var(--primary)' }}>
                 {selectedAccount?.name ?? selectedAccount?.email}
               </span>
@@ -171,21 +154,12 @@ export function NewMessageComposer({
           </div>
         )}
 
-        {/* To */}
+        {/* ── To ── */}
         <div className="mail-composer__field">
-          <span className="mail-composer__label">{t('mail.to', 'To')}</span>
-          <RecipientInput
-            value={toRecipients}
-            onChange={setToRecipients}
-            contacts={contacts}
-            fieldId="to"
-          />
-          {!showCc && (
-            <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>
-          )}
-          {!showBcc && (
-            <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>
-          )}
+          <span className="mail-composer__label">{t('mail.to', 'À')}</span>
+          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} fieldId="to" />
+          {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
+          {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
         </div>
 
         {showCc && (
@@ -202,9 +176,9 @@ export function NewMessageComposer({
           </div>
         )}
 
-        {/* Subject */}
+        {/* ── Subject ── */}
         <div className="mail-composer__field">
-          <span className="mail-composer__label">{t('mail.subject', 'Subject')}</span>
+          <span className="mail-composer__label">{t('mail.subject', 'Objet')}</span>
           <input
             className="mail-composer__input"
             type="text"
@@ -215,78 +189,21 @@ export function NewMessageComposer({
           />
         </div>
 
-        {/* Formatting toolbar */}
-        <div className="mail-composer__toolbar">
-          <button type="button" onClick={() => exec('bold')} title="Gras"><Bold size={16} /></button>
-          <button type="button" onClick={() => exec('italic')} title="Italique"><Italic size={16} /></button>
-          <button type="button" onClick={() => exec('underline')} title="Souligné"><Underline size={16} /></button>
-          <div className="mail-composer__toolbar-sep" />
-          <button type="button" onClick={() => exec('insertUnorderedList')} title="Liste à puces"><List size={16} /></button>
-          <button type="button" onClick={() => exec('insertOrderedList')} title="Liste numérotée"><ListOrdered size={16} /></button>
-        </div>
+        {/* ── Tiptap editor (toolbar + body) ── */}
+        <MailEditor
+          ref={editorRef}
+          initialHTML={initialHTML}
+          placeholder={t('mail.bodyPlaceholder', 'Écrivez votre message…')}
+          onSend={doSend}
+        />
 
+        {/* ── Attachments ── */}
         <ComposerAttachmentPanel
           attachments={attachments}
           onRemove={i => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
-        />
-
-        <div
-          ref={bodyRef}
-          className="mail-composer__body mail-new-composer__body"
-          contentEditable
-          suppressContentEditableWarning
-          spellCheck={false}
-          data-placeholder={t('mail.bodyPlaceholder', 'Écrivez votre message…')}
-          onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) { e.preventDefault(); doSend(); } }}
         />
       </form>
     </div>
   );
 }
 
-function CloseComposerPopover({
-  onSaveDraft,
-  onDiscard,
-}: {
-  readonly onSaveDraft: () => void;
-  readonly onDiscard: () => void | Promise<void>;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: Event) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" className="btn-icon" onClick={() => setOpen(o => !o)}>
-        <X size={16} />
-      </button>
-      {open && (
-        <div className="close-composer-popover">
-          <button
-            type="button"
-            className="close-composer-popover__option"
-            onClick={() => { setOpen(false); onSaveDraft(); }}
-          >
-            {t('mail.saveDraft', 'Enregistrer le brouillon')}
-          </button>
-          <button
-            type="button"
-            className="close-composer-popover__option close-composer-popover__option--danger"
-            onClick={() => { setOpen(false); onDiscard(); }}
-          >
-            {t('mail.discard', 'Supprimer')}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}

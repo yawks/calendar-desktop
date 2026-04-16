@@ -8,7 +8,8 @@ type Action =
   | { type: 'ADD'; payload: ExchangeAccount }
   | { type: 'REMOVE'; payload: string }
   | { type: 'UPDATE_TOKEN'; payload: { id: string; accessToken: string; expiresAt: number } }
-  | { type: 'UPDATE_COLOR'; payload: { id: string; color: string } };
+  | { type: 'UPDATE_COLOR'; payload: { id: string; color: string } }
+  | { type: 'UPDATE_CAPABILITIES'; payload: { id: string; enabledCapabilities: ('calendar' | 'email')[] } };
 
 function reducer(state: ExchangeAccount[], action: Action): ExchangeAccount[] {
   switch (action.type) {
@@ -26,6 +27,10 @@ function reducer(state: ExchangeAccount[], action: Action): ExchangeAccount[] {
       return state.map((a) =>
         a.id === action.payload.id ? { ...a, color: action.payload.color } : a
       );
+    case 'UPDATE_CAPABILITIES':
+      return state.map((a) =>
+        a.id === action.payload.id ? { ...a, enabledCapabilities: action.payload.enabledCapabilities } : a
+      );
   }
 }
 
@@ -34,6 +39,7 @@ interface ExchangeAuthContextValue {
   addAccount: (account: ExchangeAccount) => void;
   removeAccount: (id: string) => void;
   updateAccountColor: (id: string, color: string) => void;
+  updateAccountCapabilities: (id: string, enabledCapabilities: ('calendar' | 'email')[]) => void;
   /** Returns a valid access token, refreshing automatically if expired. */
   getValidToken: (accountId: string) => Promise<string | null>;
   /** Returns the stored refresh token (synchronous, no refresh). Used for Graph API calls. */
@@ -68,6 +74,10 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
     dispatch({ type: 'UPDATE_COLOR', payload: { id, color } });
   }, []);
 
+  const updateAccountCapabilities = useCallback((id: string, enabledCapabilities: ('calendar' | 'email')[]) => {
+    dispatch({ type: 'UPDATE_CAPABILITIES', payload: { id, enabledCapabilities } });
+  }, []);
+
   const getValidToken = useCallback(async (accountId: string): Promise<string | null> => {
     const account = accounts.find((a) => a.id === accountId);
     if (!account) return null;
@@ -92,8 +102,8 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
   }, [accounts]);
 
   const contextValue = useMemo(
-    () => ({ accounts, addAccount, removeAccount, updateAccountColor, getValidToken, getRefreshToken }),
-    [accounts, addAccount, removeAccount, updateAccountColor, getValidToken, getRefreshToken]
+    () => ({ accounts, addAccount, removeAccount, updateAccountColor, updateAccountCapabilities, getValidToken, getRefreshToken }),
+    [accounts, addAccount, removeAccount, updateAccountColor, updateAccountCapabilities, getValidToken, getRefreshToken]
   );
 
   return (

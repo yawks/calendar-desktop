@@ -50,6 +50,8 @@ export interface GoogleAccount {
   expiresAt: number;
   /** UI color for this account (used in mail) */
   color?: string;
+  /** Which capabilities are enabled. Defaults to both if absent (backwards compat). */
+  enabledCapabilities?: ('calendar' | 'email')[];
 }
 
 export interface ExchangeAccount {
@@ -62,6 +64,8 @@ export interface ExchangeAccount {
   expiresAt: number;
   /** UI color for this account (used in mail) */
   color?: string;
+  /** Which capabilities are enabled. Defaults to both if absent (backwards compat). */
+  enabledCapabilities?: ('calendar' | 'email')[];
 }
 
 export interface CreateEventPayload {

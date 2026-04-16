@@ -203,7 +203,11 @@
     "exchangeWaiting": "Waiting for authentication…",
     "exchangeAuthError": "Authentication error",
     "exchangeConnectedCalendars": "Connected calendars",
-    "connecting": "Connecting…"
+    "connecting": "Connecting…",
+    "chooseServices": "Choose services",
+    "chooseServicesDesc": "Select which services you want to use with this account:",
+    "enabledServices": "Enabled services",
+    "continue": "Continue"
   },
   "freeBusy": {
     "title": "Availability",
@@ -259,7 +263,33 @@
     "actions": "Actions",
     "hideHeaders": "Hide headers",
     "showHeaders": "Show headers",
-    "previousMessage": "Previous message"
+    "previousMessage": "Previous message",
+    "originalMessage": "----- Original Message -----",
+    "send": "Send",
+    "sending": "Sending…",
+    "attach": "Attach",
+    "close": "Close",
+    "saveDraft": "Save draft",
+    "discard": "Discard",
+    "cc": "Cc",
+    "bodyPlaceholder": "Write your message…",
+    "subjectPlaceholder": "Subject",
+    "font": {
+      "default": "Default"
+    },
+    "format": {
+      "bold": "Bold (⌘B)",
+      "italic": "Italic (⌘I)",
+      "underline": "Underline (⌘U)",
+      "bulletList": "Bullet list",
+      "orderedList": "Numbered list",
+      "blockquote": "Blockquote",
+      "fontFamily": "Font",
+      "fontSize": "Size",
+      "textColor": "Text color",
+      "bgColor": "Background color",
+      "pasteImage": "Paste image from clipboard"
+    }
   },
   "settings": {
     "language": {

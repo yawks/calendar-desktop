@@ -203,7 +203,11 @@
     "exchangeWaiting": "En attente de l'authentification…",
     "exchangeAuthError": "Erreur d'authentification",
     "exchangeConnectedCalendars": "Calendriers connectés",
-    "connecting": "Connexion…"
+    "connecting": "Connexion…",
+    "chooseServices": "Choisir les services",
+    "chooseServicesDesc": "Sélectionnez les services que vous souhaitez utiliser avec ce compte :",
+    "enabledServices": "Services activés",
+    "continue": "Continuer"
   },
   "freeBusy": {
     "title": "Disponibilités",
@@ -259,7 +263,33 @@
     "actions": "Actions",
     "hideHeaders": "Masquer les en-têtes",
     "showHeaders": "Afficher les en-têtes",
-    "previousMessage": "Message précédent"
+    "previousMessage": "Message précédent",
+    "originalMessage": "----- Message d'origine -----",
+    "send": "Envoyer",
+    "sending": "Envoi…",
+    "attach": "Joindre",
+    "close": "Fermer",
+    "saveDraft": "Enregistrer le brouillon",
+    "discard": "Supprimer",
+    "cc": "Cc",
+    "bodyPlaceholder": "Écrivez votre message…",
+    "subjectPlaceholder": "Objet",
+    "font": {
+      "default": "Défaut"
+    },
+    "format": {
+      "bold": "Gras (⌘B)",
+      "italic": "Italique (⌘I)",
+      "underline": "Souligné (⌘U)",
+      "bulletList": "Liste à puces",
+      "orderedList": "Liste numérotée",
+      "blockquote": "Citation",
+      "fontFamily": "Police",
+      "fontSize": "Taille",
+      "textColor": "Couleur du texte",
+      "bgColor": "Couleur du fond",
+      "pasteImage": "Coller une image depuis le presse-papier"
+    }
   },
   "settings": {
     "language": {

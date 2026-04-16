@@ -125,6 +125,13 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
     }
   };
 
+  const commitPending = () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed) return;
+    const exact = contacts.find(c => c.email.toLowerCase() === trimmed.toLowerCase());
+    addRecipient(exact ?? { email: trimmed });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -139,6 +146,14 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
     } else if (e.key === 'Enter') {
       e.preventDefault();
       handleEnterKey();
+    } else if (e.key === 'Tab') {
+      if (inputValue.trim()) {
+        e.preventDefault();
+        commitPending();
+      }
+    } else if (e.key === ',' || e.key === ';') {
+      e.preventDefault();
+      commitPending();
     } else if (e.key === 'Escape') {
       setOpen(false);
     } else if (e.key === 'Backspace' && inputValue === '' && value.length > 0) {
@@ -191,6 +206,7 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
           value={inputValue}
           onChange={e => { setInputValue(e.target.value); setOpen(e.target.value.length > 0); }}
           onKeyDown={handleKeyDown}
+          onBlur={commitPending}
           placeholder={value.length === 0 ? 'email@example.com' : ''}
           autoComplete="off"
           spellCheck={false}

@@ -9,7 +9,8 @@ type Action =
   | { type: 'ADD'; payload: GoogleAccount }
   | { type: 'REMOVE'; payload: string }
   | { type: 'UPDATE_TOKEN'; payload: { id: string; accessToken: string; expiresAt: number } }
-  | { type: 'UPDATE_COLOR'; payload: { id: string; color: string } };
+  | { type: 'UPDATE_COLOR'; payload: { id: string; color: string } }
+  | { type: 'UPDATE_CAPABILITIES'; payload: { id: string; enabledCapabilities: ('calendar' | 'email')[] } };
 
 function reducer(state: GoogleAccount[], action: Action): GoogleAccount[] {
   switch (action.type) {
@@ -27,6 +28,10 @@ function reducer(state: GoogleAccount[], action: Action): GoogleAccount[] {
       return state.map((a) =>
         a.id === action.payload.id ? { ...a, color: action.payload.color } : a
       );
+    case 'UPDATE_CAPABILITIES':
+      return state.map((a) =>
+        a.id === action.payload.id ? { ...a, enabledCapabilities: action.payload.enabledCapabilities } : a
+      );
   }
 }
 
@@ -35,6 +40,7 @@ interface GoogleAuthContextValue {
   addAccount: (account: Omit<GoogleAccount, 'id'>) => GoogleAccount;
   removeAccount: (id: string) => void;
   updateAccountColor: (id: string, color: string) => void;
+  updateAccountCapabilities: (id: string, enabledCapabilities: ('calendar' | 'email')[]) => void;
   /** Returns a valid access token, refreshing it automatically if expired. */
   getValidToken: (accountId: string) => Promise<string | null>;
   /** Opens Google OAuth (Tauri: system browser + PKCE; Web: popup + proxy). */
@@ -69,6 +75,10 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
 
   const updateAccountColor = useCallback((id: string, color: string) => {
     dispatch({ type: 'UPDATE_COLOR', payload: { id, color } });
+  }, []);
+
+  const updateAccountCapabilities = useCallback((id: string, enabledCapabilities: ('calendar' | 'email')[]) => {
+    dispatch({ type: 'UPDATE_CAPABILITIES', payload: { id, enabledCapabilities } });
   }, []);
 
   const getValidToken = useCallback(async (accountId: string): Promise<string | null> => {
@@ -148,8 +158,8 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
   }, [addAccount]);
 
   const contextValue = useMemo(
-    () => ({ accounts, addAccount, removeAccount, updateAccountColor, getValidToken, connectGoogle }),
-    [accounts, addAccount, removeAccount, updateAccountColor, getValidToken, connectGoogle]
+    () => ({ accounts, addAccount, removeAccount, updateAccountColor, updateAccountCapabilities, getValidToken, connectGoogle }),
+    [accounts, addAccount, removeAccount, updateAccountColor, updateAccountCapabilities, getValidToken, connectGoogle]
   );
 
   return (

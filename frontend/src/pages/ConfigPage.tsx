@@ -407,8 +407,17 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const { removeAccount, getValidToken } = useGoogleAuth();
+  const { removeAccount, getValidToken, updateAccountCapabilities } = useGoogleAuth();
   const { addCalendar, removeCalendar } = useCalendars();
+  const [capabilities, setCapabilities] = useState<('calendar' | 'email')[]>(
+    account.enabledCapabilities ?? ['calendar', 'email']
+  );
+
+  const handleCapabilityChange = (cap: 'calendar' | 'email', enabled: boolean) => {
+    const next = enabled ? [...capabilities, cap] : capabilities.filter((c) => c !== cap);
+    setCapabilities(next);
+    updateAccountCapabilities(account.id, next);
+  };
   const [gCals, setGCals] = useState<GoogleCalEntry[] | null>(null);
   const [loadingCals, setLoadingCals] = useState(false);
   const [calError, setCalError] = useState('');
@@ -533,6 +542,25 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
               ))}
             </div>
           )}
+
+          {/* Capabilities */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{t('config.enabledServices')}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(['calendar', 'email'] as const).map((cap) => (
+                <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.includes(cap)}
+                    onChange={(e) => handleCapabilityChange(cap, e.target.checked)}
+                    disabled={capabilities.length === 1 && capabilities.includes(cap)}
+                  />
+                  <CapBadge cap={cap} />
+                  <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
 
           {/* Footer: disconnect + OAuth */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
@@ -902,8 +930,17 @@ function ExchangeAccountManageModal({ account, existingCalendars, onClose }: {
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const { removeAccount } = useExchangeAuth();
+  const { removeAccount, updateAccountCapabilities } = useExchangeAuth();
   const { removeCalendar } = useCalendars();
+  const [capabilities, setCapabilities] = useState<('calendar' | 'email')[]>(
+    account.enabledCapabilities ?? ['calendar', 'email']
+  );
+
+  const handleCapabilityChange = (cap: 'calendar' | 'email', enabled: boolean) => {
+    const next = enabled ? [...capabilities, cap] : capabilities.filter((c) => c !== cap);
+    setCapabilities(next);
+    updateAccountCapabilities(account.id, next);
+  };
 
   const accountCals = existingCalendars.filter(
     (c) => c.type === 'exchange' && c.exchangeAccountId === account.id
@@ -942,6 +979,25 @@ function ExchangeAccountManageModal({ account, existingCalendars, onClose }: {
               </div>
             ))}
           </div>
+          {/* Capabilities */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{t('config.enabledServices')}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(['calendar', 'email'] as const).map((cap) => (
+                <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.includes(cap)}
+                    onChange={(e) => handleCapabilityChange(cap, e.target.checked)}
+                    disabled={capabilities.length === 1 && capabilities.includes(cap)}
+                  />
+                  <CapBadge cap={cap} />
+                  <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
             <button
               type="button"
@@ -969,11 +1025,13 @@ function NewCalendarModal({
 }) {
   const { t } = useTranslation();
   const { addCalendar, calendars } = useCalendars();
-  const { connectGoogle } = useGoogleAuth();
+  const { connectGoogle, updateAccountCapabilities: updateGoogleCapabilities } = useGoogleAuth();
   const { addAccount } = useExchangeAuth();
 
-  const [step, setStep] = useState<'pick' | 'configure' | 'google' | 'exchange'>('pick');
+  const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange'>('pick');
   const [selectedType, setSelectedType] = useState<'ics' | 'nextcloud' | null>(null);
+  const [pendingProviderType, setPendingProviderType] = useState<'google' | 'exchange' | null>(null);
+  const [pendingCapabilities, setPendingCapabilities] = useState<('calendar' | 'email')[]>(['calendar', 'email']);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
 
@@ -1034,6 +1092,7 @@ function NewCalendarModal({
     const account = await connectGoogle();
     setConnecting(false);
     if (account) {
+      updateGoogleCapabilities(account.id, pendingCapabilities);
       onClose();
     } else {
       setConnectError(t('config.googleConnectionError'));
@@ -1042,10 +1101,19 @@ function NewCalendarModal({
 
   const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange') => {
     if (type === 'eventkit') { onOpenEventKit(); return; }
-    if (type === 'google') { setStep('google'); return; }
-    if (type === 'exchange') { setStep('exchange'); return; }
+    if (type === 'google' || type === 'exchange') {
+      setPendingProviderType(type);
+      setPendingCapabilities(['calendar', 'email']);
+      setStep('capabilities');
+      return;
+    }
     setSelectedType(type);
     setStep('configure');
+  };
+
+  const handleCapabilitiesContinue = () => {
+    if (pendingProviderType === 'google') setStep('google');
+    else if (pendingProviderType === 'exchange') setStep('exchange');
   };
 
   const startExchangeAuth = async () => {
@@ -1089,17 +1157,20 @@ function NewCalendarModal({
           accessToken: res.access_token,
           refreshToken: res.refresh_token ?? '',
           expiresAt: Date.now() + res.expires_in * 1000,
+          enabledCapabilities: pendingCapabilities,
         };
         addAccount(account);
-        addCalendar({
-          name: exCalName.trim() || 'Exchange Calendar',
-          url: '',
-          color: exColor,
-          visible: true,
-          type: 'exchange',
-          ownerEmail: email,
-          exchangeAccountId: email,
-        });
+        if (pendingCapabilities.includes('calendar')) {
+          addCalendar({
+            name: exCalName.trim() || 'Exchange Calendar',
+            url: '',
+            color: exColor,
+            visible: true,
+            type: 'exchange',
+            ownerEmail: email,
+            exchangeAccountId: email,
+          });
+        }
         onClose();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1110,7 +1181,7 @@ function NewCalendarModal({
       }
     }, exInterval * 1000);
     return () => clearInterval(timer);
-  }, [exPolling, exDeviceCode, exInterval, exCalName, exColor, addAccount, addCalendar, onClose, t]);
+  }, [exPolling, exDeviceCode, exInterval, exCalName, exColor, pendingCapabilities, addAccount, addCalendar, onClose, t]);
 
   const handleAddICS = (e: FormEvent) => {
     e.preventDefault();
@@ -1194,13 +1265,15 @@ function NewCalendarModal({
 
   const modalTitle = step === 'pick'
     ? t('config.connectProvider')
-    : step === 'google'
-      ? t('config.googleAgenda')
-      : step === 'exchange'
-        ? 'Exchange / Office 365'
-        : selectedType === 'ics'
-          ? t('config.addICSCalendar')
-          : t('config.addNextcloudCalendar');
+    : step === 'capabilities'
+      ? t('config.chooseServices')
+      : step === 'google'
+        ? t('config.googleAgenda')
+        : step === 'exchange'
+          ? 'Exchange / Office 365'
+          : selectedType === 'ics'
+            ? t('config.addICSCalendar')
+            : t('config.addNextcloudCalendar');
 
   return (
     <div
@@ -1214,7 +1287,11 @@ function NewCalendarModal({
               <button
                 type="button"
                 className="nc-modal-back"
-                onClick={() => { setStep('pick'); setSelectedType(null); setConnectError(''); setExUserCode(''); setExDeviceCode(''); setExPolling(false); }}
+                onClick={() => {
+                  if (step === 'capabilities') { setStep('pick'); setPendingProviderType(null); return; }
+                  if (step === 'google' || step === 'exchange') { setStep('capabilities'); setConnectError(''); return; }
+                  setStep('pick'); setSelectedType(null); setConnectError(''); setExUserCode(''); setExDeviceCode(''); setExPolling(false);
+                }}
                 title={t('config.back')}
               >
                 ←
@@ -1254,6 +1331,46 @@ function NewCalendarModal({
                 ))}
               </div>
             </>
+          )}
+
+          {/* Step: capabilities selection */}
+          {step === 'capabilities' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>
+                {t('config.chooseServicesDesc')}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(['calendar', 'email'] as const).map((cap) => (
+                  <label
+                    key={cap}
+                    style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={pendingCapabilities.includes(cap)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setPendingCapabilities((prev) => [...prev, cap]);
+                        } else {
+                          setPendingCapabilities((prev) => prev.filter((c) => c !== cap));
+                        }
+                      }}
+                    />
+                    <CapBadge cap={cap} />
+                    <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleCapabilitiesContinue}
+                disabled={pendingCapabilities.length === 0}
+                style={{ width: '100%', justifyContent: 'center' }}
+              >
+                {t('config.continue')}
+              </button>
+            </div>
           )}
 
           {/* Step: Google */}
@@ -1756,7 +1873,7 @@ export default function ConfigPage() {
                         )
                     }
                     onEdit={() => setEditModal({ type: 'google', accountId: account.id })}
-                    caps={['calendar', 'email']}
+                    caps={account.enabledCapabilities ?? ['calendar', 'email']}
                     color={account.color}
                     onColorChange={(c) => updateGoogleColor(account.id, c)}
                   >
@@ -1768,8 +1885,7 @@ export default function ConfigPage() {
                 ))}
 
                 {/* Exchange — one group per account */}
-                {exchangeGroups.map(({ account, cals }) =>
-                  cals.length > 0 ? (
+                {exchangeGroups.map(({ account, cals }) => (
                     <GroupSection
                       key={account.id}
                       title={account.email}
@@ -1780,13 +1896,16 @@ export default function ConfigPage() {
                         </svg>
                       }
                       onEdit={() => setEditModal({ type: 'exchange', accountId: account.id })}
-                      caps={['calendar', 'email']}
+                      caps={account.enabledCapabilities ?? ['calendar', 'email']}
                       color={account.color}
                       onColorChange={(c) => updateExchangeColor(account.id, c)}
                     >
-                      {cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
+                      {cals.length > 0
+                        ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
+                        : <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>{t('config.noCalendarsLinked')}</div>
+                      }
                     </GroupSection>
-                  ) : null
+                  )
                 )}
 
                 {/* ICS */}

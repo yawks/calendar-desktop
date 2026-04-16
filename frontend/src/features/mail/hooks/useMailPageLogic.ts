@@ -21,27 +21,36 @@ export function useMailPageLogic() {
 
   const onInboxRefreshedRef = useRef<OnInboxRefreshed | null>(null);
 
+  const mailEwsAccounts = useMemo(
+    () => ewsAccounts.filter(a => !a.enabledCapabilities || a.enabledCapabilities.includes('email')),
+    [ewsAccounts]
+  );
+  const mailGoogleAccounts = useMemo(
+    () => googleAccounts.filter(a => !a.enabledCapabilities || a.enabledCapabilities.includes('email')),
+    [googleAccounts]
+  );
+
   const allMailAccounts = useMemo(() => [
-    ...ewsAccounts.map(a => ({ id: a.id, email: a.email, name: a.displayName, providerType: 'ews' as const, color: a.color })),
-    ...googleAccounts.map(a => ({ id: a.id, email: a.email, name: a.name, providerType: 'gmail' as const, color: a.color })),
-  ], [ewsAccounts, googleAccounts]);
+    ...mailEwsAccounts.map(a => ({ id: a.id, email: a.email, name: a.displayName, providerType: 'ews' as const, color: a.color })),
+    ...mailGoogleAccounts.map(a => ({ id: a.id, email: a.email, name: a.name, providerType: 'gmail' as const, color: a.color })),
+  ], [mailEwsAccounts, mailGoogleAccounts]);
 
   const allProviders = useMemo<Map<string, MailProvider>>(() => {
     const map = new Map<string, MailProvider>();
-    for (const a of ewsAccounts) {
+    for (const a of mailEwsAccounts) {
       map.set(a.id, new CachedMailProvider(
         new EwsMailProvider(a.id, getEwsToken),
         (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
       ));
     }
-    for (const a of googleAccounts) {
+    for (const a of mailGoogleAccounts) {
       map.set(a.id, new CachedMailProvider(
         new GmailMailProvider(a.id, getGoogleToken),
         (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
       ));
     }
     return map;
-  }, [ewsAccounts, googleAccounts, getEwsToken, getGoogleToken]);
+  }, [mailEwsAccounts, mailGoogleAccounts, getEwsToken, getGoogleToken]);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
     () => allMailAccounts.length > 1 ? ALL_ACCOUNTS_ID : (allMailAccounts[0]?.id ?? ALL_ACCOUNTS_ID)
@@ -849,9 +858,19 @@ export function useMailPageLogic() {
     const thread = selectedThread;
     const savedMessages = messages;
     const unreadToDecrement = thread.unread_count;
+
+    const idx = threads.findIndex(th => th.conversation_id === thread.conversation_id);
+    const nextThread: MailThread | null = idx !== -1
+      ? (threads[idx + 1] ?? threads[idx - 1] ?? null)
+      : null;
+
     setThreads(prev => prev.filter(t => t.conversation_id !== thread.conversation_id));
-    setSelectedThread(null);
     setMessages([]);
+    if (nextThread) {
+      openThread(nextThread);
+    } else {
+      setSelectedThread(null);
+    }
     if (unreadToDecrement > 0) {
       setFolderUnreadCounts(prev => ({
         ...prev,
@@ -881,7 +900,7 @@ export function useMailPageLogic() {
         }));
       }
     }
-  }, [resolveProvider, messages, selectedThread, selectedFolder]);
+  }, [resolveProvider, messages, selectedThread, selectedFolder, threads, openThread]);
 
   const showActionToast = useCallback((label: string) => {
     if (actionToastTimerRef.current) clearTimeout(actionToastTimerRef.current);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MailThread, MailMessage, MailAttachment, ComposerRestoreData } from '../types';
 import {
   Archive, Clock, FolderInput, Forward, MoreHorizontal, ShieldAlert, Trash2
@@ -80,11 +80,21 @@ export function ThreadDetail({
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const composerAnchorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const unread = messages.filter(m => !m.is_read);
     if (unread.length > 0) onMarkRead(unread);
   }, [messages, onMarkRead]);
+
+  useEffect(() => {
+    if (!replyingTo) return;
+    // Defer until the browser has painted the newly mounted composer
+    const raf = requestAnimationFrame(() => {
+      composerAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [replyingTo]);
 
   const [middleExpanded, setMiddleExpanded] = useState(false);
 
@@ -261,7 +271,7 @@ export function ThreadDetail({
         )}
 
         {replyingTo && (
-          <div className="mail-thread-detail__composer-anchor">
+          <div ref={composerAnchorRef} className="mail-thread-detail__composer-anchor">
             <MailComposer
               replyTo={replyingTo}
               mode={replyMode}
