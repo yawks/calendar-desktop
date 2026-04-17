@@ -87,10 +87,10 @@ export class ImapMailProvider implements MailProvider {
     for (const f of folders) {
       const lower = f.display_name.toLowerCase();
       if (lower === 'inbox') this.folderMapping['inbox'] = f.folder_id;
-      else if (lower.includes('sent')) this.folderMapping['sentitems'] = f.folder_id;
-      else if (lower.includes('trash') || lower.includes('corbeille')) this.folderMapping['deleteditems'] = f.folder_id;
+      else if (lower.includes('sent') || lower.includes('envoyé')) this.folderMapping['sentitems'] = f.folder_id;
+      else if (lower.includes('trash') || lower.includes('corbeille') || lower.includes('supprimé')) this.folderMapping['deleteditems'] = f.folder_id;
       else if (lower.includes('draft') || lower.includes('brouillon')) this.folderMapping['drafts'] = f.folder_id;
-      else if (lower.includes('junk') || lower.includes('spam')) this.folderMapping['spam'] = f.folder_id;
+      else if (lower.includes('junk') || lower.includes('spam') || lower.includes('indésirable')) this.folderMapping['spam'] = f.folder_id;
     }
 
     return folders;

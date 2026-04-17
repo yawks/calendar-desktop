@@ -1,7 +1,6 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use tauri::command;
-use urlencoding;
 
 use crate::ews::{xml_all_ns, xml_attr, xml_content, xml_content_ns};
 
@@ -427,7 +426,7 @@ pub async fn mail_search_threads(
 ) -> Result<Vec<MailThread>, String> {
     let thread_limit = max_count.unwrap_or(50) as usize;
     // Fetch up to 5× more messages than threads requested so we can aggregate properly.
-    let msg_limit = (thread_limit * 5).max(200);
+    let _msg_limit = (thread_limit * 5).max(200);
 
     // ── Build AQS / KQL query string ──────────────────────────────────────────
     let mut aqs_parts: Vec<String> = Vec::new();

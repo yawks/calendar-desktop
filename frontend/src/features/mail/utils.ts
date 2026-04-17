@@ -115,12 +115,17 @@ export const DISPLAY_TO_STATIC: Record<string, string> = {
   'boîte de réception': 'inbox',
   'sent': 'sentitems',
   'sent items': 'sentitems',
+  'envoyés': 'sentitems',
   'éléments envoyés': 'sentitems',
   'trash': 'deleteditems',
   'deleted items': 'deleteditems',
+  'corbeille': 'deleteditems',
+  'supprimés': 'deleteditems',
   'éléments supprimés': 'deleteditems',
   'drafts': 'drafts',
   'brouillons': 'drafts',
+  'spam': 'spam',
+  'indésirables': 'spam',
 };
 
 export function buildUnreadCounts(folders: import('./types').MailFolder[]): Record<string, number> {

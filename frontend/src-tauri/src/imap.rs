@@ -138,9 +138,11 @@ async fn get_imap_session(config: &ImapConfig) -> Result<async_imap::Session<Ima
 }
 
 fn decode_maybe_encoded(s: &str) -> String {
-    mailparse::decode_header(s)
-        .map(|v| v.to_string())
-        .unwrap_or_else(|_| s.to_string())
+    let fake_header = format!("Subject: {}", s);
+    if let Ok((header, _)) = mailparse::parse_header(fake_header.as_bytes()) {
+        return header.get_value();
+    }
+    s.to_string()
 }
 
 fn parse_recipient(s: &str) -> ImapRecipient {
@@ -274,7 +276,7 @@ pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Op
     let range = &ids[..limit];
     let query = range.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
 
-    let fetches_stream = session.fetch(query, "(FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODY.PEEK[TEXT]<0.200>)")
+    let fetches_stream = session.fetch(query, "(FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODY.PEEK[1]<0.200>)")
         .await
         .map_err(|e| format!("IMAP fetch error: {}", e))?;
     let fetches: Vec<_> = fetches_stream.collect().await;
@@ -296,9 +298,16 @@ pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Op
                 .or_else(|| a.mailbox.as_ref().map(|m| String::from_utf8_lossy(m).to_string()))
         });
 
-        let snippet = fetch.text()
-            .map(|t| String::from_utf8_lossy(t).trim().replace('\n', " ").replace('\r', ""))
-            .unwrap_or_default();
+        let snippet = fetch.attrs().iter().find_map(|attr| {
+            if let async_imap::types::AttributeValue::BodySection(bs) = attr {
+                bs.data
+            } else {
+                None
+            }
+        })
+        .or_else(|| fetch.text())
+        .map(|t| String::from_utf8_lossy(t).trim().replace('\n', " ").replace('\r', ""))
+        .unwrap_or_default();
 
         threads.push(ImapThread {
             conversation_id: uid.clone(),
@@ -550,7 +559,7 @@ pub async fn imap_get_attachment_data(config: ImapConfig, folder: String, messag
     let fetches_stream = session.fetch(&message_id, "RFC822")
         .await
         .map_err(|e| format!("IMAP fetch error: {}", e))?;
-    let mut fetches: Vec<_> = fetches_stream.collect().await;
+    let fetches: Vec<_> = fetches_stream.collect().await;
 
     let fetch = fetches.into_iter().next()
         .ok_or("Message not found")?

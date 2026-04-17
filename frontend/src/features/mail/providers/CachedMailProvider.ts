@@ -53,7 +53,7 @@ export class CachedMailProvider implements MailProvider {
   // ── Threads ────────────────────────────────────────────────────────────────
 
   async listThreads(folder: string, maxCount = 50, offset = 0): Promise<MailThread[]> {
-    if (folder !== 'inbox') {
+    if (folder.toLowerCase() !== 'inbox') {
       return this.inner.listThreads(folder, maxCount, offset);
     }
 
