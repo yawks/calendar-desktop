@@ -13,6 +13,7 @@ import { GmailMailProvider } from '../providers/GmailMailProvider';
 import { ImapMailProvider } from '../providers/ImapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery } from '../types';
 import { ALL_ACCOUNTS_ID, THEME_CYCLE, buildUnreadCounts } from '../utils';
+import { getAccountFolders, setAccountFolders } from '../providers/mailCache';
 import { RecipientEntry } from '../components/RecipientInput';
 
 export function useMailPageLogic() {
@@ -88,6 +89,8 @@ export function useMailPageLogic() {
   selectedThreadRef.current = selectedThread;
   const messagesRef = useRef<MailMessage[]>([]);
   messagesRef.current = messages;
+  const threadsRef = useRef<MailThread[]>([]);
+  threadsRef.current = threads;
   const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward'>('reply');
   const [composing, setComposing] = useState(false);
@@ -160,6 +163,24 @@ export function useMailPageLogic() {
   const [allFolders, setAllFolders] = useState<import('../types').MailFolder[]>([]);
   const [allAccountFolders, setAllAccountFolders] = useState<Map<string, import('../types').MailFolder[]>>(new Map());
   const [folderUnreadCounts, setFolderUnreadCounts] = useState<Record<string, number>>({});
+
+  // Pre-populate allAccountFolders from IndexedDB so folders appear immediately on app start.
+  useEffect(() => {
+    (async () => {
+      const entries = await Promise.all(
+        allMailAccounts.map(async a => [a.id, await getAccountFolders(a.id)] as [string, import('../types').MailFolder[]])
+      );
+      const withData = entries.filter(([, folders]) => folders.length > 0);
+      if (withData.length > 0) {
+        setAllAccountFolders(prev => {
+          const next = new Map(prev);
+          for (const [id, folders] of withData) if (!next.has(id)) next.set(id, folders);
+          return next;
+        });
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const snoozedFolderId = allFolders.find(f => f.display_name === 'Snoozed')?.folder_id;
   const isInSnoozedFolder = snoozedFolderId !== undefined && selectedFolder === snoozedFolderId;
 
@@ -169,24 +190,27 @@ export function useMailPageLogic() {
   }, []);
 
   const allModeDynamicFolders = useMemo(() => {
-    if (!isAllMode) return null;
     const STATIC_IDS = new Set(['inbox', 'sentitems', 'deleteditems', 'INBOX', 'SENT', 'TRASH', 'SPAM', 'DRAFT']);
     const WELL_KNOWN_NAMES = new Set([
       'inbox', 'sent', 'sent items', 'deleted items', 'drafts', 'outbox', 'junk email',
       'spam', 'trash', 'boîte de réception', 'éléments envoyés', 'éléments supprimés',
       'courrier indésirable', 'brouillons',
     ]);
-    const result: (import('../types').MailFolder & { accountId: string; accountColor?: string })[] = [];
-    for (const [accountId, folders] of allAccountFolders.entries()) {
+    const result: (import('../types').MailFolder & { accountId?: string; accountColor?: string })[] = [];
+    // In single-account mode only show folders for the selected account.
+    const entries = isAllMode
+      ? Array.from(allAccountFolders.entries())
+      : (allAccountFolders.has(selectedAccountId) ? [[selectedAccountId, allAccountFolders.get(selectedAccountId)!]] as [string, import('../types').MailFolder[]][] : []);
+    for (const [accountId, folders] of entries) {
       const acc = allMailAccounts.find(a => a.id === accountId);
       for (const f of folders) {
         if (STATIC_IDS.has(f.folder_id) || WELL_KNOWN_NAMES.has(f.display_name.toLowerCase())) continue;
-        result.push({ ...f, accountId, accountColor: acc?.color });
+        result.push({ ...f, accountId: isAllMode ? accountId : undefined, accountColor: isAllMode ? acc?.color : undefined });
       }
     }
     result.sort((a, b) => a.display_name.localeCompare(b.display_name));
     return result;
-  }, [isAllMode, allAccountFolders, allMailAccounts]);
+  }, [isAllMode, allAccountFolders, allMailAccounts, selectedAccountId]);
 
   useEffect(() => () => {
     if (pendingDeletionRef.current) clearTimeout(pendingDeletionRef.current.timerId);
@@ -237,9 +261,13 @@ export function useMailPageLogic() {
   }, [allMailAccounts, selectedAccountId]);
 
   const loadThreads = useCallback(async () => {
-    setThreadsLoading(true);
     setError(null);
     folderAccountedRef.current.clear();
+    const pendingDeleteCid = pendingDeletionRef.current?.conversationId;
+    // Show spinner only after a short grace period so IndexedDB cache hits (<80ms) skip it.
+    const spinnerTimer = window.setTimeout(() => {
+      if (threadsRef.current.length === 0) setThreadsLoading(true);
+    }, 80);
     try {
       if (isAllMode) {
         const [threadResults, folderResults] = await Promise.all([
@@ -267,6 +295,7 @@ export function useMailPageLogic() {
         ]);
         const merged = threadResults
           .flatMap(r => r.status === 'fulfilled' ? r.value : [])
+          .filter(t => !pendingDeleteCid || t.conversation_id !== pendingDeleteCid)
           .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
         setThreads(merged);
         setHasMoreThreads(merged.length >= 50);
@@ -283,24 +312,42 @@ export function useMailPageLogic() {
         }
         setFolderUnreadCounts(mergedCounts);
         setAllAccountFolders(newAccountFolders);
+        for (const [aid, flds] of newAccountFolders.entries()) setAccountFolders(aid, flds).catch(() => {});
       } else {
         if (!provider) return;
-        const result = await provider.listThreads(selectedFolder, 50, 0);
+        const [result, folders] = await Promise.all([
+          provider.listThreads(selectedFolder, 50, 0),
+          provider.listFolders(),
+        ]);
+        const filtered = pendingDeleteCid
+          ? result.filter(t => t.conversation_id !== pendingDeleteCid)
+          : result;
         if (selectedFolder === 'drafts') {
           const acc = allMailAccounts.find(a => a.id === provider.accountId);
           const accountFrom = acc?.name ?? acc?.email ?? null;
-          setThreads(result.map(t => ({ ...t, from_name: t.from_name ?? accountFrom })));
+          setThreads(filtered.map(t => ({ ...t, from_name: t.from_name ?? accountFrom })));
         } else {
-          setThreads(result);
+          setThreads(filtered);
         }
         setHasMoreThreads(result.length >= 50);
+        setAllFolders(folders);
+        setFolderUnreadCounts(buildUnreadCounts(folders));
+        setAllAccountFolders(prev => { const next = new Map(prev); next.set(provider.accountId, folders); return next; });
+        setAccountFolders(provider.accountId, folders).catch(() => {});
       }
     } catch (e) {
       setError(String(e));
     } finally {
+      window.clearTimeout(spinnerTimer);
       setThreadsLoading(false);
     }
   }, [isAllMode, allProviders, provider, selectedFolder, allMailAccounts]);
+
+  /** Called by the manual refresh button — always shows the spinner. */
+  const reloadThreads = useCallback(async () => {
+    setThreadsLoading(true);
+    await loadThreads();
+  }, [loadThreads]);
 
   const loadMoreThreads = useCallback(async () => {
     if (threadsLoadingMore || !hasMoreThreads) return;
@@ -496,6 +543,7 @@ export function useMailPageLogic() {
         }
         setFolderUnreadCounts(mergedCounts);
         setAllAccountFolders(newAccountFolders);
+        for (const [aid, flds] of newAccountFolders.entries()) setAccountFolders(aid, flds).catch(() => {});
       } else if (provider) {
         const fetchThreads = selectedFolder === 'inbox'
           ? provider.forceRefreshInbox?.(50) ?? provider.listThreads(selectedFolder, 50, 0)
@@ -514,6 +562,8 @@ export function useMailPageLogic() {
         setThreads(adjustedResult);
         setHasMoreThreads(result.length >= 50);
         setFolderUnreadCounts(buildUnreadCounts(folders));
+        setAllAccountFolders(prev => { const next = new Map(prev); next.set(provider.accountId, folders); return next; });
+        setAccountFolders(provider.accountId, folders).catch(() => {});
         // Auto-refresh currently open conversation if server reports new messages
         const openThread_ = selectedThreadRef.current;
         if (openThread_) {
@@ -1423,7 +1473,7 @@ export function useMailPageLogic() {
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allModeDynamicFolders, attachmentPreview,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
-    setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, loadMoreThreads,
+    setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, reloadThreads, loadMoreThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,

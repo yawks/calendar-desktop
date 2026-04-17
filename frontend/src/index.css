@@ -530,6 +530,21 @@ body {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; line-height: 1.4;
 }
+.mail-thread-item__account-tag {
+  position: absolute;
+  bottom: 7px;
+  right: 10px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.03em;
+  padding: 1px 6px 1px 5px;
+  border-radius: 2px;
+  border-left: 3px solid;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+  /* Opaque background: mix account color (12%) into page bg — hides text beneath */
+  background: color-mix(in srgb, var(--tag-color, var(--primary)) 12%, var(--bg));
+}
+.mail-thread-item:hover .mail-thread-item__account-tag { opacity: 0; }
 .mail-thread-item__account-badge {
   flex-shrink: 0;
   font-size: 10px; line-height: 1.3;

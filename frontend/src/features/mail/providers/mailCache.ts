@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 
-import type { MailMessage, MailThread } from '../types';
+import type { MailFolder, MailMessage, MailThread } from '../types';
 
 // ── Stored types ──────────────────────────────────────────────────────────────
 
@@ -22,6 +22,12 @@ export interface CachedConversation {
   cachedAt: number;
 }
 
+export interface CachedFolders {
+  accountId: string;
+  folders: MailFolder[];
+  cachedAt: number;
+}
+
 // ── Database ──────────────────────────────────────────────────────────────────
 
 const INBOX_LIMIT = 100;
@@ -29,12 +35,18 @@ const INBOX_LIMIT = 100;
 class MailCacheDatabase extends Dexie {
   threads!: Table<CachedThread>;
   conversations!: Table<CachedConversation>;
+  folders!: Table<CachedFolders>;
 
   constructor() {
     super('mail-cache');
     this.version(1).stores({
       threads: '[accountId+folder+conversation_id], [accountId+folder], cachedAt',
       conversations: 'id, [accountId+conversationId], cachedAt',
+    });
+    this.version(2).stores({
+      threads: '[accountId+folder+conversation_id], [accountId+folder], cachedAt',
+      conversations: 'id, [accountId+conversationId], cachedAt',
+      folders: 'accountId, cachedAt',
     });
   }
 }
@@ -97,6 +109,17 @@ export async function evictThread(accountId: string, conversationId: string): Pr
     .where('[accountId+folder+conversation_id]')
     .equals([accountId, 'inbox', conversationId])
     .delete();
+}
+
+/** Persist all folders for one account. */
+export async function setAccountFolders(accountId: string, folders: MailFolder[]): Promise<void> {
+  await mailCacheDb.folders.put({ accountId, folders, cachedAt: Date.now() });
+}
+
+/** Read cached folders for one account, or empty array if not cached. */
+export async function getAccountFolders(accountId: string): Promise<MailFolder[]> {
+  const row = await mailCacheDb.folders.get(accountId);
+  return row?.folders ?? [];
 }
 
 /** Update the is_read flag in the inbox cache for specific message ids. */

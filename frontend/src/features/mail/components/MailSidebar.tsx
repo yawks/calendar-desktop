@@ -200,7 +200,9 @@ export function MailSidebar({
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!provider) { setDynamicFolders([]); return; }
+    // When provider is null (all-accounts mode), overrideDynamicFolders takes over — keep
+    // the last loaded folders so they appear immediately when switching back to single-account.
+    if (!provider) return;
     let cancelled = false;
     (async () => {
       try {

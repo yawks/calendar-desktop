@@ -37,7 +37,7 @@ export default function MailApp() {
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allModeDynamicFolders, attachmentPreview,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
-    setError, setDownloadToast, cancelDeletion, loadThreads,
+    setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
@@ -69,7 +69,7 @@ export default function MailApp() {
         <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} />
         <div className="header-spacer" />
 
-        <button className="btn-icon" onClick={loadThreads} disabled={threadsLoading}
+        <button className="btn-icon" onClick={reloadThreads} disabled={threadsLoading}
           title={t('header.refresh', 'Refresh')}>
           <RefreshCw size={18} className={threadsLoading ? 'spin' : ''} />
         </button>
@@ -148,7 +148,7 @@ export default function MailApp() {
                   provider={isAllMode ? null : provider}
                   onFoldersLoaded={handleFoldersLoaded}
                   folderUnreadCounts={folderUnreadCounts}
-                  overrideDynamicFolders={allModeDynamicFolders ?? undefined}
+                  overrideDynamicFolders={allModeDynamicFolders.length > 0 ? allModeDynamicFolders : undefined}
                 />
               </div>
               <div

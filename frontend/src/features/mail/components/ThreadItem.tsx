@@ -62,7 +62,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
       <div className="mail-thread-item__content">
         <div className="mail-thread-item__top">
           <div className="mail-thread-item__from">
-             <span style={{ color: senderColor(thread.from_name || '', isDark) }}>
+            <span style={{ color: senderColor(thread.from_name || '', isDark) }}>
               {thread.from_name}
             </span>
             {thread.message_count > 1 && (
@@ -72,7 +72,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           <div className="mail-thread-item__top-right">
             {thread.has_attachments && <Paperclip size={12} className="mail-thread-item__clip" />}
             {isSnoozed && (
-              <span className="mail-thread-item__snooze-badge" title={`${t('mail.snoozedUntil', 'Mis en attente jusqu’au')} ${formatDate(snoozeUntil!)}`}>
+              <span className="mail-thread-item__snooze-badge" title={`${t('mail.snoozedUntil', "Mis en attente jusqu'au")} ${formatDate(snoozeUntil!)}`}>
                 <Clock size={10} />
               </span>
             )}
@@ -80,19 +80,32 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           </div>
         </div>
 
-        <div className="mail-thread-item__subject">{thread.topic || t('mail.noSubject', '(Pas d’objet)')}</div>
+        <div className="mail-thread-item__subject">{thread.topic || t('mail.noSubject', "(Pas d'objet)")}</div>
         <div className="mail-thread-item__snippet">
           <span className="mail-thread-item__snippet-text">{decodeHtmlEntities(thread.snippet)}</span>
         </div>
 
         {isInSnoozedFolder && isSnoozed && (
-           <div className="mail-thread-item__badges">
-             <div className="mail-thread-item__badge mail-thread-item__badge--snooze-folder">
-                <BellOff size={12} />
-             </div>
+          <div className="mail-thread-item__badges">
+            <div className="mail-thread-item__badge mail-thread-item__badge--snooze-folder">
+              <BellOff size={12} />
+            </div>
           </div>
         )}
       </div>
+
+      {thread.accountLabel && (
+        <span
+          className="mail-thread-item__account-tag"
+          style={thread.accountColor ? {
+            color: thread.accountColor,
+            borderLeftColor: thread.accountColor,
+            ['--tag-color' as string]: thread.accountColor,
+          } : undefined}
+        >
+          {thread.accountLabel}
+        </span>
+      )}
 
       <div className="mail-thread-item__actions">
         <button
