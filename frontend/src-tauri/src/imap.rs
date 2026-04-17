@@ -7,6 +7,7 @@ use mailparse::{parse_mail, MailHeaderMap, ParsedMail};
 use serde::{Deserialize, Serialize};
 use tauri::command;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use rustls_pki_types::ServerName;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 #[derive(Deserialize, Debug, Clone)]
@@ -86,7 +87,9 @@ pub struct ComposerAttachment {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async fn get_imap_client(config: &ImapConfig) -> Result<async_imap::Client<tokio_rustls::client::TlsStream<tokio::net::TcpStream>>, String> {
+type ImapStream = tokio_rustls::client::TlsStream<tokio::net::TcpStream>;
+
+async fn get_imap_session(config: &ImapConfig) -> Result<async_imap::Session<ImapStream>, String> {
     let mut root_store = RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let tls_config = ClientConfig::builder()
@@ -94,34 +97,39 @@ async fn get_imap_client(config: &ImapConfig) -> Result<async_imap::Client<tokio
         .with_no_client_auth();
     let tls_connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
 
-    let domain = config.imap_server.as_str();
+    let domain = config.imap_server.clone();
     let port = config.imap_port;
+    let server_name = ServerName::try_from(domain.as_str())
+        .map_err(|_| format!("Invalid server name: {}", domain))?
+        .to_owned();
 
-    if config.imap_use_ssl {
-        let client = async_imap::connect((domain, port), domain, tls_connector)
+    let stream = tokio::net::TcpStream::connect((domain.as_str(), port))
+        .await
+        .map_err(|e| format!("TCP connection error: {}", e))?;
+
+    let client = if config.imap_use_ssl {
+        let tls_stream = tls_connector.connect(server_name, stream)
             .await
             .map_err(|e| format!("IMAP SSL connection error: {}", e))?;
-        Ok(client)
+        async_imap::Client::new(tls_stream)
     } else {
-        // Handle STARTTLS or plain (though plain is discouraged)
-        let stream = tokio::net::TcpStream::connect((domain, port))
-            .await
-            .map_err(|e| format!("TCP connection error: {}", e))?;
-        let client = async_imap::Client::new(stream);
+        let mut client = async_imap::Client::new(stream);
+        let _greeting = client.read_response().await.map_err(|e| format!("IMAP greeting error: {}", e))?;
 
         if config.imap_use_starttls {
-            let client = client.starttls(domain, tls_connector)
+            client.run_command_and_check_ok("STARTTLS", None)
                 .await
-                .map_err(|e| format!("IMAP STARTTLS error: {}", e))?;
-            Ok(client)
+                .map_err(|e| format!("IMAP STARTTLS command error: {}", e))?;
+            let stream = client.into_inner();
+            let tls_stream = tls_connector.connect(server_name, stream)
+                .await
+                .map_err(|e| format!("IMAP STARTTLS handshake error: {}", e))?;
+            async_imap::Client::new(tls_stream)
         } else {
             return Err("Plain IMAP without SSL/STARTTLS is not supported for now".to_string());
         }
-    }
-}
+    };
 
-async fn get_imap_session(config: &ImapConfig) -> Result<async_imap::Session<tokio_rustls::client::TlsStream<tokio::net::TcpStream>>, String> {
-    let client = get_imap_client(config).await?;
     let session = client.login(&config.imap_username, &config.imap_password)
         .await
         .map_err(|(e, _)| format!("IMAP login error: {}", e))?;

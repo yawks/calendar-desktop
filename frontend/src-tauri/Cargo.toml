@@ -22,11 +22,12 @@ webbrowser = "0.8"
 urlencoding = "2.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-async-imap = { version = "0.9", default-features = false, features = ["tokio-rustls"] }
+async-imap = { version = "0.9", default-features = false }
 lettre = { version = "0.11", features = ["tokio-rustls-tls", "hostname"] }
 mailparse = "0.15"
 tokio-rustls = "0.26"
 rustls = "0.23"
+rustls-pki-types = "1.0"
 webpki-roots = "0.26"
 
 [target.'cfg(target_os = "macos")'.dependencies]
