@@ -137,20 +137,26 @@ async fn get_imap_session(config: &ImapConfig) -> Result<async_imap::Session<Ima
     Ok(session)
 }
 
+fn decode_maybe_encoded(s: &str) -> String {
+    mailparse::decode_header(s)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| s.to_string())
+}
+
 fn parse_recipient(s: &str) -> ImapRecipient {
     if let Ok(addr) = mailparse::addrparse(s) {
         if let Some(first) = addr.iter().next() {
             match first {
                 MailAddr::Single(info) => {
                     return ImapRecipient {
-                        name: info.display_name.clone(),
+                        name: info.display_name.as_ref().map(|n| decode_maybe_encoded(n)),
                         email: info.addr.clone(),
                     };
                 }
                 MailAddr::Group(group) => {
                     if let Some(m) = group.addrs.first() {
                         return ImapRecipient {
-                            name: m.display_name.clone(),
+                            name: m.display_name.as_ref().map(|n| decode_maybe_encoded(n)),
                             email: m.addr.clone(),
                         };
                     }
@@ -161,16 +167,24 @@ fn parse_recipient(s: &str) -> ImapRecipient {
     ImapRecipient { name: None, email: s.to_string() }
 }
 
-fn extract_body(mail: &ParsedMail) -> String {
-    if mail.ctype.mimetype == "text/html" {
-        return mail.get_body().unwrap_or_default();
+fn find_text_part(mail: &ParsedMail, mimetype: &str) -> Option<String> {
+    if mail.ctype.mimetype == mimetype {
+        return mail.get_body().ok();
     }
     for sub in &mail.subparts {
-        let b = extract_body(sub);
-        if !b.is_empty() { return b; }
+        if let Some(body) = find_text_part(sub, mimetype) {
+            return Some(body);
+        }
     }
-    if mail.ctype.mimetype == "text/plain" {
-        return format!("<pre>{}</pre>", mail.get_body().unwrap_or_default());
+    None
+}
+
+fn extract_body(mail: &ParsedMail) -> String {
+    if let Some(html) = find_text_part(mail, "text/html") {
+        return html;
+    }
+    if let Some(plain) = find_text_part(mail, "text/plain") {
+        return format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", plain);
     }
     String::new()
 }
@@ -205,7 +219,7 @@ fn collect_attachments(mail: &ParsedMail, attachments: &mut Vec<ImapAttachment>,
 #[command]
 pub async fn imap_list_folders(config: ImapConfig) -> Result<Vec<ImapFolder>, String> {
     let mut session = get_imap_session(&config).await?;
-    let names_stream = session.list(None, Some("*"))
+    let names_stream = session.list(Some(""), Some("*"))
         .await
         .map_err(|e| format!("IMAP list error: {}", e))?;
     let names: Vec<_> = names_stream.collect().await;
@@ -217,15 +231,18 @@ pub async fn imap_list_folders(config: ImapConfig) -> Result<Vec<ImapFolder>, St
             continue;
         }
         let folder_name = name.name().to_string();
-        let status = session.status(&folder_name, "(MESSAGES UNSEEN)")
-            .await
-            .map_err(|e| format!("IMAP status error for {}: {}", folder_name, e))?;
+
+        // Wrap status in a Result to handle cases where a folder might be listable but not statusable
+        let (total, unread) = match session.status(&folder_name, "(MESSAGES UNSEEN)").await {
+            Ok(status) => (status.exists, status.unseen.unwrap_or(0)),
+            Err(_) => (0, 0),
+        };
 
         folders.push(ImapFolder {
             folder_id: folder_name.clone(),
             display_name: folder_name,
-            total_count: status.exists,
-            unread_count: status.unseen.unwrap_or(0),
+            total_count: total,
+            unread_count: unread,
         });
     }
 
@@ -233,9 +250,9 @@ pub async fn imap_list_folders(config: ImapConfig) -> Result<Vec<ImapFolder>, St
 }
 
 #[command]
-pub async fn imap_get_inbox_unread(config: ImapConfig) -> Result<u32, String> {
+pub async fn imap_get_inbox_unread(config: ImapConfig, folder: String) -> Result<u32, String> {
     let mut session = get_imap_session(&config).await?;
-    let status = session.status("INBOX", "(UNSEEN)")
+    let status = session.status(&folder, "(UNSEEN)")
         .await
         .map_err(|e| format!("IMAP status error: {}", e))?;
     Ok(status.unseen.unwrap_or(0))
@@ -257,7 +274,7 @@ pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Op
     let range = &ids[..limit];
     let query = range.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
 
-    let fetches_stream = session.fetch(query, "(FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODY[HEADER.FIELDS (SUBJECT FROM DATE MESSAGE-ID)])")
+    let fetches_stream = session.fetch(query, "(FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODY.PEEK[TEXT]<0.200>)")
         .await
         .map_err(|e| format!("IMAP fetch error: {}", e))?;
     let fetches: Vec<_> = fetches_stream.collect().await;
@@ -268,19 +285,25 @@ pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Op
         let uid = fetch.message.to_string();
         let envelope = fetch.envelope().ok_or("No envelope")?;
 
-        let subject = envelope.subject.as_ref().map(|s| String::from_utf8_lossy(s).to_string()).unwrap_or_default();
+        let subject = envelope.subject.as_ref()
+            .map(|s| decode_maybe_encoded(&String::from_utf8_lossy(s)))
+            .unwrap_or_default();
         let date = fetch.internal_date().map(|d| d.to_rfc3339()).unwrap_or_default();
         let unread = !fetch.flags().any(|f| f == async_imap::types::Flag::Seen);
 
         let from_name = envelope.from.as_ref().and_then(|f| f.first()).and_then(|a| {
-            a.name.as_ref().map(|n| String::from_utf8_lossy(n).to_string())
+            a.name.as_ref().map(|n| decode_maybe_encoded(&String::from_utf8_lossy(n)))
                 .or_else(|| a.mailbox.as_ref().map(|m| String::from_utf8_lossy(m).to_string()))
         });
+
+        let snippet = fetch.text()
+            .map(|t| String::from_utf8_lossy(t).trim().replace('\n', " ").replace('\r', ""))
+            .unwrap_or_default();
 
         threads.push(ImapThread {
             conversation_id: uid.clone(),
             topic: subject,
-            snippet: String::new(),
+            snippet,
             last_delivery_time: date,
             message_count: 1,
             unread_count: if unread { 1 } else { 0 },
@@ -288,6 +311,9 @@ pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Op
             has_attachments: false,
         });
     }
+
+    // Sort by date descending
+    threads.sort_by(|a, b| b.last_delivery_time.cmp(&a.last_delivery_time));
 
     Ok(threads)
 }
@@ -308,7 +334,9 @@ pub async fn imap_get_thread(config: ImapConfig, conversation_id: String, folder
         let body = fetch.body().ok_or("No body")?;
         let mail = parse_mail(body).map_err(|e| format!("Mail parse error: {}", e))?;
 
-        let subject = mail.headers.get_first_value("Subject").unwrap_or_default();
+        let subject = mail.headers.get_first_value("Subject")
+            .map(|s| decode_maybe_encoded(&s))
+            .unwrap_or_default();
         let from = mail.headers.get_first_value("From").unwrap_or_default();
         let from_rec = parse_recipient(&from);
 

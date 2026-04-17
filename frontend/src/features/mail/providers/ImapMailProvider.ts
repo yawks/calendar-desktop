@@ -7,10 +7,25 @@ export class ImapMailProvider implements MailProvider {
   readonly providerType: ProviderType = 'imap' as ProviderType;
   readonly accountId: string;
   private config: ImapAccount;
+  private folderMapping: Record<string, string> = {};
 
   constructor(config: ImapAccount) {
     this.accountId = config.id;
     this.config = config;
+  }
+
+  private resolveFolder(folder: string): string {
+    const staticMap: Record<string, string> = {
+      inbox: 'INBOX',
+      drafts: 'Drafts',
+      sentitems: 'Sent',
+      deleteditems: 'Trash',
+      spam: 'Junk',
+    };
+
+    const key = folder.toLowerCase();
+    // Return the mapped folder if found, otherwise return the original (handles dynamic folders)
+    return this.folderMapping[key] || staticMap[key] || folder;
   }
 
   private getBackendConfig() {
@@ -31,16 +46,17 @@ export class ImapMailProvider implements MailProvider {
     };
   }
 
-  async listThreads(folder: string, maxCount?: number, offset?: number): Promise<MailThread[]> {
+  async listThreads(folder: string, maxCount?: number, _offset?: number): Promise<MailThread[]> {
+    const targetFolder = this.resolveFolder(folder);
     const threads = await invoke<MailThread[]>('imap_list_threads', {
       config: this.getBackendConfig(),
-      folder,
+      folder: targetFolder,
       maxCount,
     });
     // For IMAP, we encode the folder in the conversation_id because UIDs are folder-specific
     return threads.map(t => ({
       ...t,
-      conversation_id: `${folder}:${t.conversation_id}`
+      conversation_id: `${targetFolder}:${t.conversation_id}`
     }));
   }
 
@@ -63,9 +79,21 @@ export class ImapMailProvider implements MailProvider {
   }
 
   async listFolders(): Promise<MailFolder[]> {
-    return invoke<MailFolder[]>('imap_list_folders', {
+    const folders = await invoke<MailFolder[]>('imap_list_folders', {
       config: this.getBackendConfig(),
     });
+
+    // Update mapping based on common folder names if they are not already mapped
+    for (const f of folders) {
+      const lower = f.display_name.toLowerCase();
+      if (lower === 'inbox') this.folderMapping['inbox'] = f.folder_id;
+      else if (lower.includes('sent')) this.folderMapping['sentitems'] = f.folder_id;
+      else if (lower.includes('trash') || lower.includes('corbeille')) this.folderMapping['deleteditems'] = f.folder_id;
+      else if (lower.includes('draft') || lower.includes('brouillon')) this.folderMapping['drafts'] = f.folder_id;
+      else if (lower.includes('junk') || lower.includes('spam')) this.folderMapping['spam'] = f.folder_id;
+    }
+
+    return folders;
   }
 
   async sendMail(params: SendMailParams): Promise<void> {
@@ -156,7 +184,7 @@ export class ImapMailProvider implements MailProvider {
     return 'Snoozed';
   }
 
-  async moveToFolder(itemId: string, folderId: string): Promise<void> {
+  async moveToFolder(_itemId: string, _folderId: string): Promise<void> {
     // Basic move logic would go here
   }
 
@@ -165,8 +193,10 @@ export class ImapMailProvider implements MailProvider {
   }
 
   async getInboxUnread(): Promise<number> {
+    const inbox = this.resolveFolder('inbox');
     return invoke<number>('imap_get_inbox_unread', {
       config: this.getBackendConfig(),
+      folder: inbox,
     });
   }
 }

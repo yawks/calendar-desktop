@@ -269,9 +269,9 @@ export default function MailApp() {
                     : allMailAccounts.find(a => a.id === selectedAccountId)?.email
                 }
                 mailProviderType={
-                  isAllMode
+                  (isAllMode
                     ? allMailAccounts.find(a => a.id === selectedThread.accountId)?.providerType
-                    : allMailAccounts.find(a => a.id === selectedAccountId)?.providerType
+                    : allMailAccounts.find(a => a.id === selectedAccountId)?.providerType) as any
                 }
                 onMarkRead={markRead}
                 onTrash={moveToTrash}

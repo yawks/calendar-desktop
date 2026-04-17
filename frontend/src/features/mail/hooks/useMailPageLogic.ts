@@ -6,7 +6,7 @@ import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { useImapAuth } from '../../../shared/store/ImapAuthStore';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useContactSuggestions } from './useContactSuggestions';
-import { MailProvider, ComposerAttachment } from '../providers/MailProvider';
+import { MailProvider, ComposerAttachment, ProviderType } from '../providers/MailProvider';
 import { CachedMailProvider, OnInboxRefreshed } from '../providers/CachedMailProvider';
 import { EwsMailProvider } from '../providers/EwsMailProvider';
 import { GmailMailProvider } from '../providers/GmailMailProvider';
@@ -921,7 +921,7 @@ export function useMailPageLogic() {
     try {
       await p.snooze(lastMsg.item_id);
       const key = 'mail-snoozed-items';
-      const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string; providerType?: 'ews' | 'gmail' }[] =
+      const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string; providerType?: ProviderType }[] =
         JSON.parse(localStorage.getItem(key) ?? '[]');
       stored.push({ itemId: lastMsg.item_id, accountId: p.accountId, snoozeUntil, conversationId: selectedThread.conversation_id, providerType: p.providerType });
       localStorage.setItem(key, JSON.stringify(stored));
@@ -1072,7 +1072,7 @@ export function useMailPageLogic() {
         if (!lastMsg) continue;
         await p.snooze(lastMsg.item_id);
         const key = 'mail-snoozed-items';
-        const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string; providerType?: 'ews' | 'gmail' }[] =
+        const stored: { itemId: string; accountId: string; snoozeUntil: string; conversationId?: string; providerType?: ProviderType }[] =
           JSON.parse(localStorage.getItem(key) ?? '[]');
         stored.push({ itemId: lastMsg.item_id, accountId: p.accountId, snoozeUntil, conversationId: thread.conversation_id, providerType: p.providerType });
         localStorage.setItem(key, JSON.stringify(stored));
