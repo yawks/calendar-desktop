@@ -1,6 +1,6 @@
 import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
 
-export type ProviderType = 'ews' | 'gmail' | 'imap';
+export type ProviderType = 'ews' | 'gmail' | 'imap' | 'jmap';
 
 export interface MailItemRef {
   item_id: string;

@@ -26,6 +26,7 @@ async-imap = { version = "0.9", default-features = false, features = ["runtime-t
 futures = "0.3"
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "hostname", "smtp-transport", "builder"] }
 mailparse = "0.15"
+jmap-client = "0.2"
 tokio-rustls = "0.26"
 rustls = "0.23"
 rustls-pki-types = "1.0"

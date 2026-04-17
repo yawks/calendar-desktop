@@ -3,6 +3,7 @@ mod ews;
 mod gmail;
 mod http;
 mod imap;
+mod jmap;
 mod mail;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -160,6 +161,17 @@ pub fn run() {
                     imap::imap_permanently_delete,
                     imap::imap_send,
                     imap::imap_get_attachment_data,
+                    jmap::jmap_list_folders,
+                    jmap::jmap_get_inbox_unread,
+                    jmap::jmap_list_threads,
+                    jmap::jmap_get_thread,
+                    jmap::jmap_mark_read,
+                    jmap::jmap_mark_unread,
+                    jmap::jmap_move_to_trash,
+                    jmap::jmap_permanently_delete,
+                    jmap::jmap_send,
+                    jmap::jmap_get_attachment_data,
+                    jmap::jmap_search_threads,
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,
@@ -214,6 +226,17 @@ pub fn run() {
                     imap::imap_permanently_delete,
                     imap::imap_send,
                     imap::imap_get_attachment_data,
+                    jmap::jmap_list_folders,
+                    jmap::jmap_get_inbox_unread,
+                    jmap::jmap_list_threads,
+                    jmap::jmap_get_thread,
+                    jmap::jmap_mark_read,
+                    jmap::jmap_mark_unread,
+                    jmap::jmap_move_to_trash,
+                    jmap::jmap_permanently_delete,
+                    jmap::jmap_send,
+                    jmap::jmap_get_attachment_data,
+                    jmap::jmap_search_threads,
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,

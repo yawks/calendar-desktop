@@ -36,7 +36,7 @@ import { useExchangeAuth, parseExchangeToken } from '../shared/store/ExchangeAut
 import { useImapAuth } from '../shared/store/ImapAuthStore';
 import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../shared/store/googleClientConfig';
 import { listCalendars } from '../features/calendar/utils/googleCalendarApi';
-import { CalendarConfig, GoogleAccount, ExchangeAccount, ImapAccount } from '../shared/types';
+import { CalendarConfig, GoogleAccount, ExchangeAccount, ImapAccount, JmapAccount } from '../shared/types';
 import { useDefaultCalendar } from '../features/calendar/store/defaultCalendarStore';
 import { ImapAccountManageModal } from './ImapAccountManageModal';
 
@@ -1031,7 +1031,7 @@ function NewCalendarModal({
   const { addAccount } = useExchangeAuth();
   const { addAccount: addImapAccount } = useImapAuth();
 
-  const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange' | 'imap'>('pick');
+  const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange' | 'imap' | 'jmap'>('pick');
   const [selectedType, setSelectedType] = useState<'ics' | 'nextcloud' | null>(null);
   const [pendingProviderType, setPendingProviderType] = useState<'google' | 'exchange' | null>(null);
   const [pendingCapabilities, setPendingCapabilities] = useState<('calendar' | 'email')[]>(['calendar', 'email']);
@@ -1085,6 +1085,13 @@ function NewCalendarModal({
   const [smtpPassword, setSmtpPassword] = useState('');
   const [imapColor, setImapColor] = useState(() => nextColor(calendars));
 
+  // JMAP form
+  const [jmapEmail, setJmapEmail] = useState('');
+  const [jmapDisplayName, setJmapDisplayName] = useState('');
+  const [jmapSessionUrl, setJmapSessionUrl] = useState('https://api.fastmail.com/jmap/session');
+  const [jmapToken, setJmapToken] = useState('');
+  const [jmapColor, setJmapColor] = useState(() => nextColor(calendars));
+
   const handleNcTest = async () => {
     setNcTesting(true);
     setNcTestResult(null);
@@ -1119,7 +1126,7 @@ function NewCalendarModal({
     }
   };
 
-  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap') => {
+  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap' | 'jmap') => {
     if (type === 'eventkit') { onOpenEventKit(); return; }
     if (type === 'google' || type === 'exchange') {
       setPendingProviderType(type);
@@ -1129,6 +1136,10 @@ function NewCalendarModal({
     }
     if (type === 'imap') {
         setStep('imap');
+        return;
+    }
+    if (type === 'jmap') {
+        setStep('jmap');
         return;
     }
     setSelectedType(type);
@@ -1261,7 +1272,21 @@ function NewCalendarModal({
     onClose();
   };
 
-  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap'; icon: React.ReactNode; label: string; desc: string; caps: ('calendar' | 'email')[] }[] = [
+  const handleAddJmap = (e: FormEvent) => {
+    e.preventDefault();
+    if (!jmapEmail.trim() || !jmapSessionUrl.trim() || !jmapToken.trim()) return;
+    addJmapAccount({
+      id: jmapEmail.trim(),
+      email: jmapEmail.trim(),
+      displayName: jmapDisplayName.trim() || jmapEmail.trim(),
+      sessionUrl: jmapSessionUrl.trim(),
+      token: jmapToken.trim(),
+      color: jmapColor,
+    });
+    onClose();
+  };
+
+  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap' | 'jmap'; icon: React.ReactNode; label: string; desc: string; caps: ('calendar' | 'email')[] }[] = [
     {
       type: 'eventkit',
       icon: <Laptop size={28} />,
@@ -1316,6 +1341,13 @@ function NewCalendarModal({
       desc: t('config.imapDesc', 'Generic IMAP/SMTP account'),
       caps: ['email'],
     },
+    {
+      type: 'jmap',
+      icon: <Mail size={28} />,
+      label: 'JMAP',
+      desc: t('config.jmapDesc', 'JMAP account (Fastmail, Stalwart, ...)'),
+      caps: ['email'],
+    },
   ];
 
   const modalTitle = step === 'pick'
@@ -1328,6 +1360,8 @@ function NewCalendarModal({
           ? 'Exchange / Office 365'
         : step === 'imap'
           ? 'IMAP / SMTP'
+        : step === 'jmap'
+          ? 'JMAP'
           : selectedType === 'ics'
             ? t('config.addICSCalendar')
             : t('config.addNextcloudCalendar');
@@ -1546,6 +1580,53 @@ function NewCalendarModal({
                 <div style={{ fontSize: 13, color: 'var(--color-error, #d93025)' }}>{connectError}</div>
               )}
             </div>
+          )}
+
+          {/* Step: JMAP form */}
+          {step === 'jmap' && (
+            <form onSubmit={handleAddJmap} className="config-form">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
+                  <div className="form-row">
+                    <label>{t('config.email', 'Email')}</label>
+                    <input type="email" value={jmapEmail} onChange={(e) => setJmapEmail(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.displayName', 'Display Name')}</label>
+                    <input type="text" value={jmapDisplayName} onChange={(e) => setJmapDisplayName(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <ColorSwatches colors={DEFAULT_COLORS} selected={jmapColor} onSelect={setJmapColor} />
+                    <input type="color" value={jmapColor} onChange={(e) => setJmapColor(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <h3 style={{ fontSize: 14, marginBottom: 12 }}>JMAP Configuration</h3>
+                <div className="form-row">
+                  <label>Session URL</label>
+                  <input type="text" value={jmapSessionUrl} onChange={(e) => setJmapSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
+                </div>
+                <div className="form-row">
+                  <label>API Token</label>
+                  <input type="password" value={jmapToken} onChange={(e) => setJmapToken(e.target.value)} required />
+                </div>
+              </div>
+
+              <div className="form-actions" style={{ marginTop: 24 }}>
+                <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
+                  {t('config.add', 'Ajouter')}
+                </button>
+                <button type="button" className="btn-cancel" onClick={onClose}>
+                  {t('config.cancel', 'Annuler')}
+                </button>
+              </div>
+            </form>
           )}
 
           {/* Step: IMAP form */}
@@ -1897,6 +1978,7 @@ type EditModalState =
   | { type: 'google'; accountId: string }
   | { type: 'exchange'; accountId: string }
   | { type: 'imap'; accountId: string }
+  | { type: 'jmap'; accountId: string }
   | { type: 'ics' }
   | { type: 'nextcloud' }
   | null;
@@ -1908,7 +1990,8 @@ export default function ConfigPage() {
   const { calendars } = useCalendars();
   const { accounts, updateAccountColor: updateGoogleColor } = useGoogleAuth();
   const { accounts: exchangeAccounts, updateAccountColor: updateExchangeColor } = useExchangeAuth();
-  const { accounts: imapAccounts, updateAccountColor: updateImapColor, removeAccount: removeImapAccount, updateAccount: updateImapAccount } = useImapAuth();
+  const { accounts: imapAccounts, updateAccountColor: updateImapColor } = useImapAuth();
+  const { accounts: jmapAccounts, updateAccountColor: updateJmapColor } = useJmapAuth();
   const { defaultCalendarId, setDefaultCalendar } = useDefaultCalendar();
 
   const [activeSection, setActiveSection] = useState<SectionType>('providers');
@@ -1934,6 +2017,7 @@ export default function ConfigPage() {
     accounts.length > 0 ||
     exchangeAccounts.length > 0 ||
     imapAccounts.length > 0 ||
+    jmapAccounts.length > 0 ||
     icsCals.length > 0 ||
     nextcloudCals.length > 0;
 
@@ -2082,6 +2166,23 @@ export default function ConfigPage() {
                   </GroupSection>
                 ))}
 
+                {/* JMAP */}
+                {jmapAccounts.map((account) => (
+                  <GroupSection
+                    key={account.id}
+                    title={account.email}
+                    icon={<Mail size={13} />}
+                    onEdit={() => setEditModal({ type: 'jmap', accountId: account.id })}
+                    caps={['email']}
+                    color={account.color}
+                    onColorChange={(c) => updateJmapColor(account.id, c)}
+                  >
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>
+                      {account.sessionUrl}
+                    </div>
+                  </GroupSection>
+                ))}
+
                 {/* ICS */}
                 {icsCals.length > 0 && (
                   <GroupSection
@@ -2147,6 +2248,15 @@ export default function ConfigPage() {
           <ExchangeAccountManageModal
             account={acc}
             existingCalendars={calendars}
+            onClose={() => setEditModal(null)}
+          />
+        ) : null;
+      })()}
+      {editModal?.type === 'jmap' && (() => {
+        const acc = jmapAccounts.find((a) => a.id === (editModal as { type: 'jmap'; accountId: string }).accountId);
+        return acc ? (
+          <JmapAccountManageModal
+            account={acc}
             onClose={() => setEditModal(null)}
           />
         ) : null;

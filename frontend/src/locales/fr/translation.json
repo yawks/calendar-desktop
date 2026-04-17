@@ -217,6 +217,7 @@
     "enabledServices": "Services activés",
     "continue": "Continuer",
     "imapDesc": "Compte IMAP / SMTP générique",
+    "jmapDesc": "Compte JMAP (Fastmail, Stalwart, ...)",
     "generalInfo": "Général",
     "email": "E-mail",
     "displayName": "Nom d'affichage",
