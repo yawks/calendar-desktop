@@ -276,7 +276,7 @@ pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Op
     let range = &ids[..limit];
     let query = range.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
 
-    let fetches_stream = session.fetch(query, "(FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODY.PEEK[1]<0.200>)")
+    let fetches_stream = session.fetch(query, "(FLAGS INTERNALDATE RFC822.SIZE ENVELOPE)")
         .await
         .map_err(|e| format!("IMAP fetch error: {}", e))?;
     let fetches: Vec<_> = fetches_stream.collect().await;
@@ -298,16 +298,7 @@ pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Op
                 .or_else(|| a.mailbox.as_ref().map(|m| String::from_utf8_lossy(m).to_string()))
         });
 
-        let snippet = fetch.attrs().iter().find_map(|attr| {
-            if let async_imap::types::AttributeValue::BodySection(bs) = attr {
-                bs.data
-            } else {
-                None
-            }
-        })
-        .or_else(|| fetch.text())
-        .map(|t| String::from_utf8_lossy(t).trim().replace('\n', " ").replace('\r', ""))
-        .unwrap_or_default();
+        let snippet = String::new();
 
         threads.push(ImapThread {
             conversation_id: uid.clone(),
