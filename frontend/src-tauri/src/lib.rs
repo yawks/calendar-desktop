@@ -94,6 +94,10 @@ fn set_badge_count(app: tauri::AppHandle, count: u32) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let oauth_state = auth::OAuthState { rx: std::sync::Mutex::new(None) };
 
     #[cfg(target_os = "macos")]
