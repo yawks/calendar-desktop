@@ -74,6 +74,16 @@ export interface ImapAccount {
   color?: string;
 }
 
+export interface JmapAccount {
+  id: string;
+  email: string;
+  displayName: string;
+  sessionUrl: string;
+  token: string;
+  /** UI color for this account (used in mail) */
+  color?: string;
+}
+
 export interface ExchangeAccount {
   id: string;
   email: string;

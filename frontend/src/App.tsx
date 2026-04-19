@@ -50,7 +50,7 @@ export default function App() {
             </TagProvider>
             </CalendarGroupProvider>
             </CalendarProvider>
-          </ImapAuthProvider>
+          </JmapAuthProvider>
           </ExchangeAuthProvider>
           </GoogleAuthProvider>
         </LayoutProvider>
