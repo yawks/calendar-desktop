@@ -1,0 +1,122 @@
+// ── Mail domain types ──────────────────────────────────────────────────────────
+
+export interface MailThread {
+  conversation_id: string;
+  topic: string;
+  snippet: string;
+  last_delivery_time: string;
+  message_count: number;
+  unread_count: number;
+  from_name: string | null;
+  has_attachments: boolean;
+  /** Set when loaded in All-accounts mode to route actions to the correct provider. */
+  accountId?: string;
+  /** Display label for the account badge (domain part of email). Only set in All-accounts mode. */
+  accountLabel?: string;
+  /** Account color for the badge. Only set in All-accounts mode. */
+  accountColor?: string;
+}
+
+export interface MailMessage {
+  item_id: string;
+  change_key: string;
+  subject: string;
+  from_name: string | null;
+  from_email: string | null;
+  to_recipients: MailRecipient[];
+  cc_recipients: MailRecipient[];
+  body_html: string;
+  date_time_received: string;
+  is_read: boolean;
+  has_attachments: boolean;
+  attachments: MailAttachment[];
+  /** Optional — not yet returned by the EWS backend */
+  size?: number;
+  /** ICS text extracted from a text/calendar MIME part (Teams invitations, etc.) */
+  ics_mime?: string;
+}
+
+export interface MailRecipient {
+  name: string | null;
+  email: string;
+}
+
+export interface MailAttachment {
+  attachment_id: string;
+  name: string;
+  content_type: string;
+  size: number;
+  is_inline: boolean;
+}
+
+/** Distinguished folder IDs or an arbitrary EWS FolderId for dynamic folders. */
+export type Folder = string;
+
+export interface MailFolder {
+  folder_id: string;
+  display_name: string;
+  total_count: number;
+  unread_count: number;
+}
+
+export interface ComposerRestoreData {
+  toRecipients: import('./components/RecipientInput').RecipientEntry[];
+  ccRecipients: import('./components/RecipientInput').RecipientEntry[];
+  bccRecipients: import('./components/RecipientInput').RecipientEntry[];
+  subject: string;
+  body: string;
+  attachments: import('./providers/MailProvider').ComposerAttachment[];
+  showCc: boolean;
+  showBcc: boolean;
+  isNewMessage: boolean;
+  isForward?: boolean;
+  replyingToMsg: MailMessage | null;
+}
+
+export interface FromAccount {
+  id: string;
+  email: string;
+  name?: string;
+  color?: string;
+  providerType: 'ews' | 'gmail' | 'imap' | 'jmap';
+}
+
+export interface MailIdentity {
+  id: string;
+  name: string;
+  email: string;
+  mayDelete: boolean;
+}
+
+export type ThreadFilter = 'all' | 'unread';
+
+/**
+ * Structured search query for mail. All fields are optional and combined with AND logic.
+ * Provider implementations translate this into their native query language
+ * (Gmail q-parameter, EWS AQS QueryString, etc.).
+ */
+export interface MailSearchQuery {
+  /** Free-text search (matches subject and body). */
+  text?: string;
+  /** Filter by sender email or name. */
+  from?: string;
+  /** Filter by recipient email or name. */
+  to?: string;
+  /** Filter by CC email or name. */
+  cc?: string;
+  /** Filter by BCC email or name. */
+  bcc?: string;
+  /** Filter by subject text. */
+  subject?: string;
+  /**
+   * Limit search to a specific folder.
+   * Accepts well-known folder keys ('inbox', 'sentitems', 'drafts', …)
+   * or a provider-specific folder/label ID.
+   */
+  folder?: string;
+  /**
+   * Date filter: 'today', 'yesterday', or an ISO date string 'YYYY-MM-DD'.
+   * The provider resolves relative values to the correct date range.
+   */
+  date?: string;
+}

@@ -1,0 +1,129 @@
+.det-container {
+  display: flex;
+  flex-direction: column;
+  width: 200px;
+  min-width: 160px;
+  height: 100%;
+  min-height: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  padding-left: 10px;
+}
+
+.det-container--loading {
+  justify-content: center;
+  align-items: center;
+}
+
+.det-skeleton {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--border) 25%, transparent 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: det-shimmer 1.4s infinite;
+  border-radius: 6px;
+}
+
+@keyframes det-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.det-date-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: capitalize;
+  margin-bottom: 6px;
+  padding-left: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.det-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.det-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.det-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.det-inner {
+  position: relative;
+  width: 100%;
+}
+
+.det-hours {
+  display: flex;
+  flex-direction: column;
+}
+
+.det-hour-row {
+  display: flex;
+  align-items: flex-start;
+  height: 32px;
+  position: relative;
+}
+
+.det-hour-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 24px;
+  flex-shrink: 0;
+  line-height: 1;
+  padding-top: 1px;
+  text-align: right;
+  margin-right: 4px;
+}
+
+.det-hour-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  margin-top: 6px;
+  opacity: 0.5;
+}
+
+.det-events-layer {
+  position: absolute;
+  top: 0;
+  /* align with the content area to the right of hour labels */
+  left: 28px;
+  right: 0;
+  /* total height = nb hours * row height */
+  height: 100%;
+}
+
+.det-event {
+  position: absolute;
+  border-radius: 4px;
+  padding: 2px 4px;
+  overflow: hidden;
+  cursor: default;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  min-height: 18px;
+}
+
+.det-event--highlighted {
+  border-style: dashed;
+  border-width: 2px;
+}
+
+.det-event-title {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}

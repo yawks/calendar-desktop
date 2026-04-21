@@ -1,0 +1,1 @@
+Les libellés doivent être traduits en utilisant i18n et il y a 2 fichiers translation.json dans frontend/src/locales/ (en et fr).

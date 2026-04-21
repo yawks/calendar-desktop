@@ -1,10 +1,12 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star } from 'lucide-react';
+import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star, LayoutPanelTop, Columns2, Sun, Moon, Monitor, CalendarDays, Mail } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
-import { useLanguage } from '../store/LanguageStore';
+import { useLanguage } from '../shared/store/LanguageStore';
 import { LanguagePreference } from '../i18n';
+import { useLayout, AppLayout } from '../shared/store/LayoutStore';
+import { useTheme, ThemePreference } from '../shared/store/ThemeStore';
 
 // ── CalDAV connection test ────────────────────────────────────────────────────
 
@@ -28,13 +30,17 @@ async function testNextcloudConnection(url: string, username: string, password: 
   }
 }
 
-import { useCalendars } from '../store/CalendarStore';
-import { useGoogleAuth } from '../store/GoogleAuthStore';
-import { useExchangeAuth, parseExchangeToken } from '../store/ExchangeAuthStore';
-import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../store/googleClientConfig';
-import { listCalendars } from '../utils/googleCalendarApi';
-import { CalendarConfig, GoogleAccount, ExchangeAccount } from '../types';
-import { useDefaultCalendar } from '../store/defaultCalendarStore';
+import { useCalendars } from '../features/calendar/store/CalendarStore';
+import { useGoogleAuth } from '../shared/store/GoogleAuthStore';
+import { useExchangeAuth, parseExchangeToken } from '../shared/store/ExchangeAuthStore';
+import { useImapAuth } from '../shared/store/ImapAuthStore';
+import { useJmapAuth } from '../shared/store/JmapAuthStore';
+import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../shared/store/googleClientConfig';
+import { listCalendars } from '../features/calendar/utils/googleCalendarApi';
+import { CalendarConfig, GoogleAccount, ExchangeAccount, ImapAccount, JmapAccount } from '../shared/types';
+import { useDefaultCalendar } from '../features/calendar/store/defaultCalendarStore';
+import { ImapAccountManageModal } from './ImapAccountManageModal';
+import { JmapAccountManageModal } from './JmapAccountManageModal';
 
 const DEFAULT_COLORS = [
   '#1a73e8', '#34a853', '#ea4335', '#fbbc04',
@@ -45,7 +51,33 @@ function nextColor(calendars: CalendarConfig[]) {
   return DEFAULT_COLORS[calendars.length % DEFAULT_COLORS.length];
 }
 
-type SectionType = 'calendars' | 'preferences';
+type SectionType = 'providers' | 'preferences';
+
+// ── Capability badge ──────────────────────────────────────────────────────────
+
+function CapBadge({ cap }: { cap: 'calendar' | 'email' }) {
+  const { t } = useTranslation();
+  const isCalendar = cap === 'calendar';
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 3,
+      padding: '2px 6px',
+      borderRadius: 4,
+      fontSize: 10,
+      fontWeight: 600,
+      letterSpacing: '0.03em',
+      textTransform: 'uppercase' as const,
+      background: isCalendar ? 'rgba(26, 115, 232, 0.12)' : 'rgba(156, 39, 176, 0.12)',
+      color: isCalendar ? '#1a73e8' : '#9c27b0',
+      flexShrink: 0,
+    }}>
+      {isCalendar ? <CalendarDays size={9} /> : <Mail size={9} />}
+      {t(`config.cap.${cap}`)}
+    </span>
+  );
+}
 
 // ── Color swatches ────────────────────────────────────────────────────────────
 
@@ -116,26 +148,59 @@ function CalendarItem({ cal, isDefault, onSetDefault }: {
 // ── Group section with hover edit icon ────────────────────────────────────────
 
 function GroupSection({
-  title, icon, onEdit, children,
+  title, icon, onEdit, children, caps, color, onColorChange,
 }: {
   title: string;
   icon: React.ReactNode;
   onEdit: () => void;
   children: React.ReactNode;
+  caps?: ('calendar' | 'email')[];
+  color?: string;
+  onColorChange?: (c: string) => void;
 }) {
   const { t } = useTranslation();
   return (
     <div className="config-group">
       <div className="config-group-header">
-        <div className="config-group-title">{icon}{title}</div>
-        <button
-          type="button"
-          className="config-group-edit-btn"
-          onClick={onEdit}
-          title={t('config.edit')}
-        >
-          <Settings2 size={13} />
-        </button>
+        <div className="config-group-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {icon}{title}
+          {caps && caps.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, marginLeft: 2 }}>
+              {caps.map((cap) => <CapBadge key={cap} cap={cap} />)}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {onColorChange && (
+            <label
+              title={t('config.accountColor', 'Account color')}
+              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative' }}
+            >
+              <span style={{
+                width: 14, height: 14, borderRadius: '50%',
+                background: color ?? '#888',
+                border: '2px solid var(--border)',
+                display: 'inline-block',
+                flexShrink: 0,
+              }} />
+              <input
+                type="color"
+                value={color ?? '#888888'}
+                onChange={(e) => onColorChange(e.target.value)}
+                style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+                tabIndex={-1}
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            className="config-group-edit-btn"
+            onClick={onEdit}
+            title={t('config.edit')}
+          >
+            <Settings2 size={13} />
+          </button>
+        </div>
       </div>
       <div className="config-group-body">{children}</div>
     </div>
@@ -346,8 +411,17 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const { removeAccount, getValidToken } = useGoogleAuth();
+  const { removeAccount, getValidToken, updateAccountCapabilities } = useGoogleAuth();
   const { addCalendar, removeCalendar } = useCalendars();
+  const [capabilities, setCapabilities] = useState<('calendar' | 'email')[]>(
+    account.enabledCapabilities ?? ['calendar', 'email']
+  );
+
+  const handleCapabilityChange = (cap: 'calendar' | 'email', enabled: boolean) => {
+    const next = enabled ? [...capabilities, cap] : capabilities.filter((c) => c !== cap);
+    setCapabilities(next);
+    updateAccountCapabilities(account.id, next);
+  };
   const [gCals, setGCals] = useState<GoogleCalEntry[] | null>(null);
   const [loadingCals, setLoadingCals] = useState(false);
   const [calError, setCalError] = useState('');
@@ -472,6 +546,25 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
               ))}
             </div>
           )}
+
+          {/* Capabilities */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{t('config.enabledServices')}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(['calendar', 'email'] as const).map((cap) => (
+                <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.includes(cap)}
+                    onChange={(e) => handleCapabilityChange(cap, e.target.checked)}
+                    disabled={capabilities.length === 1 && capabilities.includes(cap)}
+                  />
+                  <CapBadge cap={cap} />
+                  <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
 
           {/* Footer: disconnect + OAuth */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
@@ -841,8 +934,17 @@ function ExchangeAccountManageModal({ account, existingCalendars, onClose }: {
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const { removeAccount } = useExchangeAuth();
+  const { removeAccount, updateAccountCapabilities } = useExchangeAuth();
   const { removeCalendar } = useCalendars();
+  const [capabilities, setCapabilities] = useState<('calendar' | 'email')[]>(
+    account.enabledCapabilities ?? ['calendar', 'email']
+  );
+
+  const handleCapabilityChange = (cap: 'calendar' | 'email', enabled: boolean) => {
+    const next = enabled ? [...capabilities, cap] : capabilities.filter((c) => c !== cap);
+    setCapabilities(next);
+    updateAccountCapabilities(account.id, next);
+  };
 
   const accountCals = existingCalendars.filter(
     (c) => c.type === 'exchange' && c.exchangeAccountId === account.id
@@ -881,6 +983,25 @@ function ExchangeAccountManageModal({ account, existingCalendars, onClose }: {
               </div>
             ))}
           </div>
+          {/* Capabilities */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{t('config.enabledServices')}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(['calendar', 'email'] as const).map((cap) => (
+                <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.includes(cap)}
+                    onChange={(e) => handleCapabilityChange(cap, e.target.checked)}
+                    disabled={capabilities.length === 1 && capabilities.includes(cap)}
+                  />
+                  <CapBadge cap={cap} />
+                  <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
             <button
               type="button"
@@ -908,11 +1029,15 @@ function NewCalendarModal({
 }) {
   const { t } = useTranslation();
   const { addCalendar, calendars } = useCalendars();
-  const { connectGoogle } = useGoogleAuth();
+  const { connectGoogle, updateAccountCapabilities: updateGoogleCapabilities } = useGoogleAuth();
   const { addAccount } = useExchangeAuth();
+  const { addAccount: addImapAccount } = useImapAuth();
+  const { addAccount: addJmapAccount } = useJmapAuth();
 
-  const [step, setStep] = useState<'pick' | 'configure' | 'google' | 'exchange'>('pick');
+  const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange' | 'imap' | 'jmap'>('pick');
   const [selectedType, setSelectedType] = useState<'ics' | 'nextcloud' | null>(null);
+  const [pendingProviderType, setPendingProviderType] = useState<'google' | 'exchange' | null>(null);
+  const [pendingCapabilities, setPendingCapabilities] = useState<('calendar' | 'email')[]>(['calendar', 'email']);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
 
@@ -946,6 +1071,31 @@ function NewCalendarModal({
   const [ncTestResult, setNcTestResult] = useState<TestResult | null>(null);
   const [ncTesting, setNcTesting] = useState(false);
 
+  // IMAP form
+  const [imapEmail, setImapEmail] = useState('');
+  const [imapDisplayName, setImapDisplayName] = useState('');
+  const [imapServer, setImapServer] = useState('');
+  const [imapPort, setImapPort] = useState(993);
+  const [imapUseSsl, setImapUseSsl] = useState(true);
+  const [imapUseStarttls, setImapUseStarttls] = useState(false);
+  const [imapUsername, setImapUsername] = useState('');
+  const [imapPassword, setImapPassword] = useState('');
+  const [smtpServer, setSmtpServer] = useState('');
+  const [smtpPort, setSmtpPort] = useState(465);
+  const [smtpUseSsl, setSmtpUseSsl] = useState(true);
+  const [smtpUseStarttls, setSmtpUseStarttls] = useState(false);
+  const [smtpUsername, setSmtpUsername] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [imapColor, setImapColor] = useState(() => nextColor(calendars));
+
+  // JMAP form
+  const [jmapEmail, setJmapEmail] = useState('');
+  const [jmapDisplayName, setJmapDisplayName] = useState('');
+  const [jmapSessionUrl, setJmapSessionUrl] = useState('https://api.fastmail.com/jmap/session');
+  const [jmapToken, setJmapToken] = useState('');
+  const [jmapAuthType, setJmapAuthType] = useState<'bearer' | 'basic'>('bearer');
+  const [jmapColor, setJmapColor] = useState(() => nextColor(calendars));
+
   const handleNcTest = async () => {
     setNcTesting(true);
     setNcTestResult(null);
@@ -973,18 +1123,36 @@ function NewCalendarModal({
     const account = await connectGoogle();
     setConnecting(false);
     if (account) {
+      updateGoogleCapabilities(account.id, pendingCapabilities);
       onClose();
     } else {
       setConnectError(t('config.googleConnectionError'));
     }
   };
 
-  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange') => {
+  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap' | 'jmap') => {
     if (type === 'eventkit') { onOpenEventKit(); return; }
-    if (type === 'google') { setStep('google'); return; }
-    if (type === 'exchange') { setStep('exchange'); return; }
+    if (type === 'google' || type === 'exchange') {
+      setPendingProviderType(type);
+      setPendingCapabilities(['calendar', 'email']);
+      setStep('capabilities');
+      return;
+    }
+    if (type === 'imap') {
+        setStep('imap');
+        return;
+    }
+    if (type === 'jmap') {
+        setStep('jmap');
+        return;
+    }
     setSelectedType(type);
     setStep('configure');
+  };
+
+  const handleCapabilitiesContinue = () => {
+    if (pendingProviderType === 'google') setStep('google');
+    else if (pendingProviderType === 'exchange') setStep('exchange');
   };
 
   const startExchangeAuth = async () => {
@@ -1028,17 +1196,20 @@ function NewCalendarModal({
           accessToken: res.access_token,
           refreshToken: res.refresh_token ?? '',
           expiresAt: Date.now() + res.expires_in * 1000,
+          enabledCapabilities: pendingCapabilities,
         };
         addAccount(account);
-        addCalendar({
-          name: exCalName.trim() || 'Exchange Calendar',
-          url: '',
-          color: exColor,
-          visible: true,
-          type: 'exchange',
-          ownerEmail: email,
-          exchangeAccountId: email,
-        });
+        if (pendingCapabilities.includes('calendar')) {
+          addCalendar({
+            name: exCalName.trim() || 'Exchange Calendar',
+            url: '',
+            color: exColor,
+            visible: true,
+            type: 'exchange',
+            ownerEmail: email,
+            exchangeAccountId: email,
+          });
+        }
         onClose();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1049,7 +1220,7 @@ function NewCalendarModal({
       }
     }, exInterval * 1000);
     return () => clearInterval(timer);
-  }, [exPolling, exDeviceCode, exInterval, exCalName, exColor, addAccount, addCalendar, onClose, t]);
+  }, [exPolling, exDeviceCode, exInterval, exCalName, exColor, pendingCapabilities, addAccount, addCalendar, onClose, t]);
 
   const handleAddICS = (e: FormEvent) => {
     e.preventDefault();
@@ -1081,18 +1252,59 @@ function NewCalendarModal({
     onClose();
   };
 
-  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange'; icon: React.ReactNode; label: string; desc: string }[] = [
+  const handleAddImap = (e: FormEvent) => {
+    e.preventDefault();
+    if (!imapEmail.trim() || !imapServer.trim() || !smtpServer.trim()) return;
+    addImapAccount({
+      id: imapEmail.trim(),
+      email: imapEmail.trim(),
+      displayName: imapDisplayName.trim() || imapEmail.trim(),
+      imapServer: imapServer.trim(),
+      imapPort,
+      imapUseSsl,
+      imapUseStarttls,
+      imapUsername: imapUsername.trim(),
+      imapPassword,
+      smtpServer: smtpServer.trim(),
+      smtpPort,
+      smtpUseSsl,
+      smtpUseStarttls,
+      smtpUsername: smtpUsername.trim(),
+      smtpPassword,
+      color: imapColor,
+    });
+    onClose();
+  };
+
+  const handleAddJmap = (e: FormEvent) => {
+    e.preventDefault();
+    if (!jmapEmail.trim() || !jmapSessionUrl.trim() || !jmapToken.trim()) return;
+    addJmapAccount({
+      id: jmapEmail.trim(),
+      email: jmapEmail.trim(),
+      displayName: jmapDisplayName.trim() || jmapEmail.trim(),
+      sessionUrl: jmapSessionUrl.trim(),
+      token: jmapToken.trim(),
+      authType: jmapAuthType,
+      color: jmapColor,
+    });
+    onClose();
+  };
+
+  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap' | 'jmap'; icon: React.ReactNode; label: string; desc: string; caps: ('calendar' | 'email')[] }[] = [
     {
       type: 'eventkit',
       icon: <Laptop size={28} />,
       label: t('config.macosCalendar'),
       desc: t('config.macosCalendarDesc'),
+      caps: ['calendar'],
     },
     {
       type: 'ics',
       icon: <Rss size={28} />,
       label: 'ICS / iCal',
       desc: t('config.icsFluxDesc'),
+      caps: ['calendar'],
     },
     {
       type: 'google',
@@ -1106,12 +1318,14 @@ function NewCalendarModal({
       ),
       label: t('config.googleAgenda'),
       desc: t('config.googleDesc'),
+      caps: ['calendar', 'email'],
     },
     {
       type: 'nextcloud',
       icon: <Cloud size={28} />,
       label: 'Nextcloud',
       desc: t('config.nextcloudCalDAV'),
+      caps: ['calendar'],
     },
     {
       type: 'exchange',
@@ -1123,18 +1337,39 @@ function NewCalendarModal({
       ),
       label: 'Exchange / Office 365',
       desc: t('config.exchangeDesc'),
+      caps: ['calendar', 'email'],
+    },
+    {
+      type: 'imap',
+      icon: <Mail size={28} />,
+      label: 'IMAP / SMTP',
+      desc: t('config.imapDesc', 'Generic IMAP/SMTP account'),
+      caps: ['email'],
+    },
+    {
+      type: 'jmap',
+      icon: <Mail size={28} />,
+      label: 'JMAP',
+      desc: t('config.jmapDesc', 'JMAP account (Fastmail, Stalwart, ...)'),
+      caps: ['email'],
     },
   ];
 
   const modalTitle = step === 'pick'
-    ? t('config.newCalendar')
-    : step === 'google'
-      ? t('config.googleAgenda')
-      : step === 'exchange'
-        ? 'Exchange / Office 365'
-        : selectedType === 'ics'
-          ? t('config.addICSCalendar')
-          : t('config.addNextcloudCalendar');
+    ? t('config.connectProvider')
+    : step === 'capabilities'
+      ? t('config.chooseServices')
+      : step === 'google'
+        ? t('config.googleAgenda')
+        : step === 'exchange'
+          ? 'Exchange / Office 365'
+        : step === 'imap'
+          ? 'IMAP / SMTP'
+        : step === 'jmap'
+          ? 'JMAP'
+          : selectedType === 'ics'
+            ? t('config.addICSCalendar')
+            : t('config.addNextcloudCalendar');
 
   return (
     <div
@@ -1148,7 +1383,11 @@ function NewCalendarModal({
               <button
                 type="button"
                 className="nc-modal-back"
-                onClick={() => { setStep('pick'); setSelectedType(null); setConnectError(''); setExUserCode(''); setExDeviceCode(''); setExPolling(false); }}
+                onClick={() => {
+                  if (step === 'capabilities') { setStep('pick'); setPendingProviderType(null); return; }
+                  if (step === 'google' || step === 'exchange') { setStep('capabilities'); setConnectError(''); return; }
+                  setStep('pick'); setSelectedType(null); setConnectError(''); setExUserCode(''); setExDeviceCode(''); setExPolling(false);
+                }}
                 title={t('config.back')}
               >
                 ←
@@ -1161,15 +1400,15 @@ function NewCalendarModal({
           </button>
         </div>
 
-        <div className="nc-modal-body">
+        <div className="nc-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
           {/* Step 1: pick type */}
           {step === 'pick' && (
             <>
               <p style={{ margin: '0 0 20px', fontSize: 14, color: 'var(--text-muted)' }}>
-                {t('config.chooseCalendarType')}
+                {t('config.chooseProviderType')}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {typeCards.map(({ type, icon, label, desc }) => (
+                {typeCards.map(({ type, icon, label, desc, caps }) => (
                   <button
                     key={type}
                     type="button"
@@ -1177,14 +1416,57 @@ function NewCalendarModal({
                     onClick={() => handleTypeSelect(type)}
                   >
                     <span className="calendar-type-card-icon">{icon}</span>
-                    <div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="calendar-type-card-label">{label}</div>
                       <div className="calendar-type-card-desc">{desc}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      {caps.map((cap) => <CapBadge key={cap} cap={cap} />)}
                     </div>
                   </button>
                 ))}
               </div>
             </>
+          )}
+
+          {/* Step: capabilities selection */}
+          {step === 'capabilities' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>
+                {t('config.chooseServicesDesc')}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(['calendar', 'email'] as const).map((cap) => (
+                  <label
+                    key={cap}
+                    style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={pendingCapabilities.includes(cap)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setPendingCapabilities((prev) => [...prev, cap]);
+                        } else {
+                          setPendingCapabilities((prev) => prev.filter((c) => c !== cap));
+                        }
+                      }}
+                    />
+                    <CapBadge cap={cap} />
+                    <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleCapabilitiesContinue}
+                disabled={pendingCapabilities.length === 0}
+                style={{ width: '100%', justifyContent: 'center' }}
+              >
+                {t('config.continue')}
+              </button>
+            </div>
           )}
 
           {/* Step: Google */}
@@ -1303,6 +1585,157 @@ function NewCalendarModal({
                 <div style={{ fontSize: 13, color: 'var(--color-error, #d93025)' }}>{connectError}</div>
               )}
             </div>
+          )}
+
+          {/* Step: JMAP form */}
+          {step === 'jmap' && (
+            <form onSubmit={handleAddJmap} className="config-form">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
+                  <div className="form-row">
+                    <label>{t('config.email', 'Email')}</label>
+                    <input type="email" value={jmapEmail} onChange={(e) => setJmapEmail(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.displayName', 'Display Name')}</label>
+                    <input type="text" value={jmapDisplayName} onChange={(e) => setJmapDisplayName(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <ColorSwatches colors={DEFAULT_COLORS} selected={jmapColor} onSelect={setJmapColor} />
+                    <input type="color" value={jmapColor} onChange={(e) => setJmapColor(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <h3 style={{ fontSize: 14, marginBottom: 12 }}>JMAP Configuration</h3>
+                <div className="form-row">
+                  <label>Session URL</label>
+                  <input type="text" value={jmapSessionUrl} onChange={(e) => setJmapSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
+                </div>
+                <div className="form-row">
+                  <label>{t('config.jmapAuthType', 'Auth type')}</label>
+                  <select value={jmapAuthType} onChange={(e) => setJmapAuthType(e.target.value as 'bearer' | 'basic')}>
+                    <option value="bearer">{t('config.jmapAuthBearer', 'Bearer token')}</option>
+                    <option value="basic">{t('config.jmapAuthBasic', 'Basic (email + app password)')}</option>
+                  </select>
+                </div>
+                <div className="form-row">
+                  <label>{jmapAuthType === 'basic' ? t('config.jmapAppPassword', 'App password') : t('config.jmapApiToken', 'API token')}</label>
+                  <input type="password" value={jmapToken} onChange={(e) => setJmapToken(e.target.value)} required />
+                </div>
+              </div>
+
+              <div className="form-actions" style={{ marginTop: 24 }}>
+                <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
+                  {t('config.add', 'Ajouter')}
+                </button>
+                <button type="button" className="btn-cancel" onClick={onClose}>
+                  {t('config.cancel', 'Annuler')}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Step: IMAP form */}
+          {step === 'imap' && (
+            <form onSubmit={handleAddImap} className="config-form">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
+                  <div className="form-row">
+                    <label>{t('config.email', 'Email')}</label>
+                    <input type="email" value={imapEmail} onChange={(e) => setImapEmail(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.displayName', 'Display Name')}</label>
+                    <input type="text" value={imapDisplayName} onChange={(e) => setImapDisplayName(e.target.value)} />
+                  </div>
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <ColorSwatches colors={DEFAULT_COLORS} selected={imapColor} onSelect={setImapColor} />
+                    <input type="color" value={imapColor} onChange={(e) => setImapColor(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>IMAP (Incoming)</h3>
+                  <div className="form-row">
+                    <label>{t('config.server', 'Server')}</label>
+                    <input type="text" value={imapServer} onChange={(e) => setImapServer(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.port', 'Port')}</label>
+                    <input type="number" value={imapPort} onChange={(e) => setImapPort(Number(e.target.value))} required />
+                  </div>
+                  <div className="form-row--inline" style={{ display: 'flex', gap: 15, margin: '8px 0' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={imapUseSsl} onChange={(e) => { setImapUseSsl(e.target.checked); if (e.target.checked) setImapUseStarttls(false); }} />
+                      SSL / TLS
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={imapUseStarttls} onChange={(e) => { setImapUseStarttls(e.target.checked); if (e.target.checked) setImapUseSsl(false); }} />
+                      STARTTLS
+                    </label>
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.username', 'Username')}</label>
+                    <input type="text" value={imapUsername} onChange={(e) => setImapUsername(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.password', 'Password')}</label>
+                    <input type="password" value={imapPassword} onChange={(e) => setImapPassword(e.target.value)} required />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>SMTP (Outgoing)</h3>
+                  <div className="form-row">
+                    <label>{t('config.server', 'Server')}</label>
+                    <input type="text" value={smtpServer} onChange={(e) => setSmtpServer(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.port', 'Port')}</label>
+                    <input type="number" value={smtpPort} onChange={(e) => setSmtpPort(Number(e.target.value))} required />
+                  </div>
+                  <div className="form-row--inline" style={{ display: 'flex', gap: 15, margin: '8px 0' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={smtpUseSsl} onChange={(e) => { setSmtpUseSsl(e.target.checked); if (e.target.checked) setSmtpUseStarttls(false); }} />
+                      SSL / TLS
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                      <input type="checkbox" checked={smtpUseStarttls} onChange={(e) => { setSmtpUseStarttls(e.target.checked); if (e.target.checked) setSmtpUseSsl(false); }} />
+                      STARTTLS
+                    </label>
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.username', 'Username')}</label>
+                    <input type="text" value={smtpUsername} onChange={(e) => setSmtpUsername(e.target.value)} required />
+                  </div>
+                  <div className="form-row">
+                    <label>{t('config.password', 'Password')}</label>
+                    <input type="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} required />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-actions" style={{ marginTop: 24 }}>
+                <button type="submit" className="btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
+                  {t('config.add', 'Ajouter')}
+                </button>
+                <button type="button" className="btn-cancel" onClick={onClose}>
+                  {t('config.cancel', 'Annuler')}
+                </button>
+              </div>
+            </form>
           )}
 
           {/* Step 2: ICS form */}
@@ -1449,55 +1882,103 @@ function NewCalendarModal({
 function SettingsSection() {
   const { t } = useTranslation();
   const { preference, setPreference } = useLanguage();
+  const { layout, setLayout } = useLayout();
+  const { preference: themePref, setPreference: setThemePref } = useTheme();
 
-  const options: { value: LanguagePreference; label: string; flag: string }[] = [
+  const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
     { value: 'system', label: t('settings.language.system'), flag: '🖥' },
     { value: 'fr', label: t('settings.language.fr'), flag: '🇫🇷' },
     { value: 'en', label: t('settings.language.en'), flag: '🇬🇧' },
   ];
 
+  const themeOptions: { value: ThemePreference; label: string; icon: React.ReactNode }[] = [
+    { value: 'system', label: t('settings.theme.system'), icon: <Monitor size={15} /> },
+    { value: 'light', label: t('settings.theme.light'), icon: <Sun size={15} /> },
+    { value: 'dark', label: t('settings.theme.dark'), icon: <Moon size={15} /> },
+  ];
+
+  const layoutOptions: { value: AppLayout; label: string; icon: React.ReactNode }[] = [
+    { value: 'tabbed', label: t('settings.layout.tabbed', 'Onglets'), icon: <LayoutPanelTop size={15} /> },
+    { value: 'windows', label: t('settings.layout.windows', 'Fenêtres séparées'), icon: <Columns2 size={15} /> },
+  ];
+
+  const segmentStyle = {
+    display: 'inline-flex' as const,
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    overflow: 'hidden' as const,
+    background: 'var(--bg-secondary, var(--bg))',
+  };
+
+  const btnStyle = (active: boolean, isFirst: boolean) => ({
+    display: 'flex' as const,
+    alignItems: 'center' as const,
+    gap: 7,
+    padding: '8px 16px',
+    border: 'none',
+    borderLeft: isFirst ? 'none' : '1px solid var(--border)',
+    background: active ? 'var(--color-primary, #1a73e8)' : 'transparent',
+    color: active ? '#fff' : 'var(--text)',
+    fontWeight: active ? 600 : 400,
+    cursor: 'pointer',
+    fontSize: 14,
+    transition: 'background 0.15s, color 0.15s',
+  });
+
   return (
     <div style={{ maxWidth: 480 }}>
+
+      {/* Langue */}
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Languages size={16} />
           {t('settings.language.sectionTitle')}
         </h3>
-        <div style={{
-          display: 'inline-flex',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          overflow: 'hidden',
-          background: 'var(--bg-secondary, var(--bg))',
-        }}>
-          {options.map((opt, i) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setPreference(opt.value)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '8px 16px',
-                border: 'none',
-                borderLeft: i > 0 ? '1px solid var(--border)' : 'none',
-                background: preference === opt.value
-                  ? 'var(--color-primary, #1a73e8)'
-                  : 'transparent',
-                color: preference === opt.value ? '#fff' : 'var(--text)',
-                fontWeight: preference === opt.value ? 600 : 400,
-                cursor: 'pointer',
-                fontSize: 14,
-                transition: 'background 0.15s, color 0.15s',
-              }}
-            >
+        <div style={segmentStyle}>
+          {langOptions.map((opt, i) => (
+            <button key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
               <span style={{ fontSize: 16, lineHeight: 1 }}>{opt.flag}</span>
               {opt.label}
             </button>
           ))}
         </div>
       </div>
+
+      {/* Thème */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Sun size={16} />
+          {t('settings.theme.sectionTitle')}
+        </h3>
+        <div style={segmentStyle}>
+          {themeOptions.map((opt, i) => (
+            <button key={opt.value} type="button" onClick={() => setThemePref(opt.value)} style={btnStyle(themePref === opt.value, i === 0)}>
+              {opt.icon}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Layout */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <LayoutPanelTop size={16} />
+          {t('settings.layout.sectionTitle', 'Interface')}
+        </h3>
+        <div style={segmentStyle}>
+          {layoutOptions.map((opt, i) => (
+            <button key={opt.value} type="button" onClick={() => setLayout(opt.value)} style={btnStyle(layout === opt.value, i === 0)}>
+              {opt.icon}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted, var(--text))', opacity: 0.6 }}>
+          {t('settings.layout.hint', 'Redémarrez l\'application pour appliquer le mode Fenêtres séparées.')}
+        </p>
+      </div>
+
     </div>
   );
 }
@@ -1508,6 +1989,8 @@ type EditModalState =
   | { type: 'eventkit' }
   | { type: 'google'; accountId: string }
   | { type: 'exchange'; accountId: string }
+  | { type: 'imap'; accountId: string }
+  | { type: 'jmap'; accountId: string }
   | { type: 'ics' }
   | { type: 'nextcloud' }
   | null;
@@ -1517,11 +2000,13 @@ type EditModalState =
 export default function ConfigPage() {
   const { t } = useTranslation();
   const { calendars } = useCalendars();
-  const { accounts } = useGoogleAuth();
-  const { accounts: exchangeAccounts } = useExchangeAuth();
+  const { accounts, updateAccountColor: updateGoogleColor } = useGoogleAuth();
+  const { accounts: exchangeAccounts, updateAccountColor: updateExchangeColor } = useExchangeAuth();
+  const { accounts: imapAccounts, updateAccountColor: updateImapColor } = useImapAuth();
+  const { accounts: jmapAccounts, updateAccountColor: updateJmapColor } = useJmapAuth();
   const { defaultCalendarId, setDefaultCalendar } = useDefaultCalendar();
 
-  const [activeSection, setActiveSection] = useState<SectionType>('calendars');
+  const [activeSection, setActiveSection] = useState<SectionType>('providers');
   const [showNewCalModal, setShowNewCalModal] = useState(false);
   const [editModal, setEditModal] = useState<EditModalState>(null);
 
@@ -1539,15 +2024,17 @@ export default function ConfigPage() {
     cals: calendars.filter((c) => c.type === 'exchange' && c.exchangeAccountId === account.id),
   }));
 
-  const hasAnyCalendar =
+  const hasAnyProvider =
     ekCals.length > 0 ||
-    googleGroups.some((g) => g.cals.length > 0) ||
-    exchangeGroups.some((g) => g.cals.length > 0) ||
+    accounts.length > 0 ||
+    exchangeAccounts.length > 0 ||
+    imapAccounts.length > 0 ||
+    jmapAccounts.length > 0 ||
     icsCals.length > 0 ||
     nextcloudCals.length > 0;
 
   const sections: { id: SectionType; label: string; icon: React.ReactNode }[] = [
-    { id: 'calendars', label: t('config.sectCalendars'), icon: <SlidersHorizontal size={15} /> },
+    { id: 'providers', label: t('config.sectProviders'), icon: <SlidersHorizontal size={15} /> },
     { id: 'preferences', label: t('config.sectPreferences'), icon: <Languages size={15} /> },
   ];
 
@@ -1588,10 +2075,10 @@ export default function ConfigPage() {
           {/* ── Content ── */}
           <div className="config-content">
 
-            {activeSection === 'calendars' && (
+            {activeSection === 'providers' && (
               <>
                 <div className="config-section-header">
-                  <h2 className="config-section-title">{t('config.sectCalendars')}</h2>
+                  <h2 className="config-section-title">{t('config.sectProviders')}</h2>
                   <button
                     type="button"
                     className="btn-primary"
@@ -1599,13 +2086,13 @@ export default function ConfigPage() {
                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                   >
                     <Plus size={15} />
-                    {t('config.newCalendar')}
+                    {t('config.connectProvider')}
                   </button>
                 </div>
 
-                {!hasAnyCalendar && (
+                {!hasAnyProvider && (
                   <div className="empty-state" style={{ marginTop: 32 }}>
-                    {t('config.noCalendarsConfigured')}
+                    {t('config.noProvidersConfigured')}
                   </div>
                 )}
 
@@ -1615,39 +2102,43 @@ export default function ConfigPage() {
                     title="macOS"
                     icon={<Laptop size={13} />}
                     onEdit={() => setEditModal({ type: 'eventkit' })}
+                    caps={['calendar']}
                   >
                     {ekCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
                 )}
 
-                {/* Google — one group per account */}
-                {googleGroups.map(({ account, cals }) =>
-                  cals.length > 0 ? (
-                    <GroupSection
-                      key={account.id}
-                      title={account.email}
-                      icon={
-                        account.picture
-                          ? <img src={account.picture} alt="" style={{ width: 14, height: 14, borderRadius: '50%' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                          : (
-                            <svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true">
-                              <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
-                              <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-                              <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
-                              <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z"/>
-                            </svg>
-                          )
-                      }
-                      onEdit={() => setEditModal({ type: 'google', accountId: account.id })}
-                    >
-                      {cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
-                    </GroupSection>
-                  ) : null
-                )}
+                {/* Google — one group per account (shown even with no calendars) */}
+                {googleGroups.map(({ account, cals }) => (
+                  <GroupSection
+                    key={account.id}
+                    title={account.email}
+                    icon={
+                      account.picture
+                        ? <img src={account.picture} alt="" style={{ width: 14, height: 14, borderRadius: '50%' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        : (
+                          <svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true">
+                            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+                            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+                            <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
+                            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z"/>
+                          </svg>
+                        )
+                    }
+                    onEdit={() => setEditModal({ type: 'google', accountId: account.id })}
+                    caps={account.enabledCapabilities ?? ['calendar', 'email']}
+                    color={account.color}
+                    onColorChange={(c) => updateGoogleColor(account.id, c)}
+                  >
+                    {cals.length > 0
+                      ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
+                      : <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>{t('config.noCalendarsLinked')}</div>
+                    }
+                  </GroupSection>
+                ))}
 
                 {/* Exchange — one group per account */}
-                {exchangeGroups.map(({ account, cals }) =>
-                  cals.length > 0 ? (
+                {exchangeGroups.map(({ account, cals }) => (
                     <GroupSection
                       key={account.id}
                       title={account.email}
@@ -1658,11 +2149,51 @@ export default function ConfigPage() {
                         </svg>
                       }
                       onEdit={() => setEditModal({ type: 'exchange', accountId: account.id })}
+                      caps={account.enabledCapabilities ?? ['calendar', 'email']}
+                      color={account.color}
+                      onColorChange={(c) => updateExchangeColor(account.id, c)}
                     >
-                      {cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
+                      {cals.length > 0
+                        ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
+                        : <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>{t('config.noCalendarsLinked')}</div>
+                      }
                     </GroupSection>
-                  ) : null
+                  )
                 )}
+
+                {/* IMAP */}
+                {imapAccounts.map((account) => (
+                  <GroupSection
+                    key={account.id}
+                    title={account.email}
+                    icon={<Mail size={13} />}
+                    onEdit={() => setEditModal({ type: 'imap', accountId: account.id })}
+                    caps={['email']}
+                    color={account.color}
+                    onColorChange={(c) => updateImapColor(account.id, c)}
+                  >
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>
+                      {account.imapServer}
+                    </div>
+                  </GroupSection>
+                ))}
+
+                {/* JMAP */}
+                {jmapAccounts.map((account) => (
+                  <GroupSection
+                    key={account.id}
+                    title={account.email}
+                    icon={<Mail size={13} />}
+                    onEdit={() => setEditModal({ type: 'jmap', accountId: account.id })}
+                    caps={['email']}
+                    color={account.color}
+                    onColorChange={(c) => updateJmapColor(account.id, c)}
+                  >
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>
+                      {account.sessionUrl}
+                    </div>
+                  </GroupSection>
+                ))}
 
                 {/* ICS */}
                 {icsCals.length > 0 && (
@@ -1670,6 +2201,7 @@ export default function ConfigPage() {
                     title="ICS / iCal"
                     icon={<Rss size={13} />}
                     onEdit={() => setEditModal({ type: 'ics' })}
+                    caps={['calendar']}
                   >
                     {icsCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
@@ -1681,6 +2213,7 @@ export default function ConfigPage() {
                     title="Nextcloud / CalDAV"
                     icon={<Cloud size={13} />}
                     onEdit={() => setEditModal({ type: 'nextcloud' })}
+                    caps={['calendar']}
                   >
                     {nextcloudCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
@@ -1727,6 +2260,24 @@ export default function ConfigPage() {
           <ExchangeAccountManageModal
             account={acc}
             existingCalendars={calendars}
+            onClose={() => setEditModal(null)}
+          />
+        ) : null;
+      })()}
+      {editModal?.type === 'jmap' && (() => {
+        const acc = jmapAccounts.find((a) => a.id === (editModal as { type: 'jmap'; accountId: string }).accountId);
+        return acc ? (
+          <JmapAccountManageModal
+            account={acc}
+            onClose={() => setEditModal(null)}
+          />
+        ) : null;
+      })()}
+      {editModal?.type === 'imap' && (() => {
+        const acc = imapAccounts.find((a) => a.id === (editModal as { type: 'imap'; accountId: string }).accountId);
+        return acc ? (
+          <ImapAccountManageModal
+            account={acc}
             onClose={() => setEditModal(null)}
           />
         ) : null;

@@ -20,7 +20,17 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 tokio = { version = "1", features = ["full"] }
 webbrowser = "0.8"
 urlencoding = "2.1"
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+async-imap = { version = "0.9", default-features = false, features = ["runtime-tokio"] }
+futures = "0.3"
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "hostname", "smtp-transport", "builder"] }
+mailparse = "0.15"
+jmap-client = "0.2"
+tokio-rustls = "0.26"
+rustls = "0.23"
+rustls-pki-types = "1.0"
+webpki-roots = "0.26"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
@@ -32,8 +42,11 @@ objc2-event-kit = { version = "0.3", default-features = false, features = [
   "EKParticipant", "EKSource", "EKTypes",
   "block2", "objc2-app-kit",
 ] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["NSColor"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSColor", "NSApplication", "NSDockTile"] }
 block2 = "0.6"
+
+[patch.crates-io]
+jmap-client = { path = "vendor/jmap-client" }
 
 [profile.dev]
 incremental = true
