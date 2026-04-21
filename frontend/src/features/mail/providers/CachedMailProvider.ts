@@ -1,4 +1,4 @@
-import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
+import type { MailAttachment, MailFolder, MailIdentity, MailMessage, MailSearchQuery, MailThread } from '../types';
 import {
   evictConversation,
   evictThread,
@@ -155,6 +155,10 @@ export class CachedMailProvider implements MailProvider {
     return this.inner.getInboxUnread();
   }
 
+  listIdentities(): Promise<MailIdentity[]> {
+    return this.inner.listIdentities?.() ?? Promise.resolve([]);
+  }
+
   // ── Send / draft ───────────────────────────────────────────────────────────
 
   sendMail(params: SendMailParams): Promise<void> {
@@ -169,38 +173,34 @@ export class CachedMailProvider implements MailProvider {
 
   async markRead(items: MailItemRef[]): Promise<void> {
     await this.inner.markRead(items);
-    // Patch conversation cache
-    for (const item of items) {
-      const cached = await getConversation(this.accountId, item.change_key);
+    const readIds = new Set(items.map(i => i.item_id));
+    const conversationIds = [...new Set(items.map(i => i.conversation_id).filter(Boolean))] as string[];
+    for (const cid of conversationIds) {
+      const cached = await getConversation(this.accountId, cid);
       if (cached) {
         await setConversation(
           this.accountId,
-          item.change_key,
-          cached.map(m => m.item_id === item.item_id ? { ...m, is_read: true } : m),
+          cid,
+          cached.map(m => readIds.has(m.item_id) ? { ...m, is_read: true } : m),
         );
       }
-    }
-    // Patch thread unread count in inbox cache (best-effort per thread)
-    const conversationIds = [...new Set(items.map(i => i.change_key).filter(Boolean))];
-    for (const cid of conversationIds) {
       await patchThreadUnread(this.accountId, cid, true);
     }
   }
 
   async markUnread(items: MailItemRef[]): Promise<void> {
     await this.inner.markUnread(items);
-    for (const item of items) {
-      const cached = await getConversation(this.accountId, item.change_key);
+    const unreadIds = new Set(items.map(i => i.item_id));
+    const conversationIds = [...new Set(items.map(i => i.conversation_id).filter(Boolean))] as string[];
+    for (const cid of conversationIds) {
+      const cached = await getConversation(this.accountId, cid);
       if (cached) {
         await setConversation(
           this.accountId,
-          item.change_key,
-          cached.map(m => m.item_id === item.item_id ? { ...m, is_read: false } : m),
+          cid,
+          cached.map(m => unreadIds.has(m.item_id) ? { ...m, is_read: false } : m),
         );
       }
-    }
-    const conversationIds = [...new Set(items.map(i => i.change_key).filter(Boolean))];
-    for (const cid of conversationIds) {
       await patchThreadUnread(this.accountId, cid, false);
     }
   }

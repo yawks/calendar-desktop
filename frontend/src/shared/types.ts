@@ -79,7 +79,10 @@ export interface JmapAccount {
   email: string;
   displayName: string;
   sessionUrl: string;
+  /** Bearer API token OR app password (used with Basic auth when authType='basic') */
   token: string;
+  /** 'bearer' (default) or 'basic' (email + app password) */
+  authType?: 'bearer' | 'basic';
   /** UI color for this account (used in mail) */
   color?: string;
 }

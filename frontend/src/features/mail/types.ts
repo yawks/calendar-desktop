@@ -69,6 +69,7 @@ export interface ComposerRestoreData {
   showCc: boolean;
   showBcc: boolean;
   isNewMessage: boolean;
+  isForward?: boolean;
   replyingToMsg: MailMessage | null;
 }
 
@@ -77,7 +78,14 @@ export interface FromAccount {
   email: string;
   name?: string;
   color?: string;
-  providerType: 'ews' | 'gmail' | 'imap';
+  providerType: 'ews' | 'gmail' | 'imap' | 'jmap';
+}
+
+export interface MailIdentity {
+  id: string;
+  name: string;
+  email: string;
+  mayDelete: boolean;
 }
 
 export type ThreadFilter = 'all' | 'unread';

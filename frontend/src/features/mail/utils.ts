@@ -126,6 +126,7 @@ export const DISPLAY_TO_STATIC: Record<string, string> = {
   'brouillons': 'drafts',
   'spam': 'spam',
   'indésirables': 'spam',
+  'snoozed': 'snoozed',
 };
 
 export function buildUnreadCounts(folders: import('./types').MailFolder[]): Record<string, number> {

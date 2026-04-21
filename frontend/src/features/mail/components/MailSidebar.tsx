@@ -1,4 +1,4 @@
-import { ChevronRight, FileText, Folder as FolderIcon, Inbox, Pencil, Send, Trash2 } from 'lucide-react';
+import { ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, Trash2 } from 'lucide-react';
 import { Folder, MailFolder } from '../types';
 import { useEffect, useState } from 'react';
 
@@ -25,10 +25,10 @@ interface MailSidebarProps {
   readonly overrideDynamicFolders?: DynamicFolderEntry[];
 }
 
-const STATIC_IDS = new Set(['inbox', 'sentitems', 'deleteditems', 'INBOX', 'SENT', 'TRASH', 'SPAM', 'DRAFT']);
+const STATIC_IDS = new Set(['inbox', 'sentitems', 'deleteditems', 'INBOX', 'SENT', 'TRASH', 'SPAM', 'DRAFT', 'snoozed']);
 const WELL_KNOWN_NAMES = new Set([
   'inbox', 'sent', 'sent items', 'deleted items', 'drafts', 'outbox', 'junk email',
-  'spam', 'trash', 'boîte de réception', 'éléments envoyés', 'éléments supprimés',
+  'spam', 'trash', 'snoozed', 'boîte de réception', 'éléments envoyés', 'éléments supprimés',
   'courrier indésirable', 'brouillons',
 ]);
 
@@ -241,6 +241,7 @@ export function MailSidebar({
     { id: 'drafts', label: t('mail.drafts', 'Drafts'), Icon: FileText },
     { id: 'sentitems', label: t('mail.sent', 'Sent'), Icon: Send },
     { id: 'deleteditems', label: t('mail.trash', 'Trash'), Icon: Trash2 },
+    { id: 'snoozed', label: t('mail.snoozed', 'Snoozed'), Icon: Clock },
   ];
 
   return (

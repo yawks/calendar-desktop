@@ -9,9 +9,8 @@ import {
   Settings,
   X,
 } from 'lucide-react';
-import {
-  useRef,
-} from "react";
+import { useRef, useState, useEffect } from "react";
+import type { MailIdentity } from './types';
 import { ThreadList } from "./components/ThreadList";
 import { ThreadDetail } from "./components/ThreadDetail";
 import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
@@ -49,6 +48,27 @@ export default function MailApp() {
   } = useMailPageLogic();
 
   const threadListRef = useRef<HTMLDivElement>(null);
+
+  // JMAP identity selection — fetched eagerly when the provider changes
+  const [accountIdentities, setAccountIdentities] = useState<MailIdentity[]>([]);
+  const [selectedIdentityId, setSelectedIdentityId] = useState('');
+
+  useEffect(() => {
+    if (!provider) { setAccountIdentities([]); setSelectedIdentityId(''); return; }
+    provider.listIdentities?.().then(identities => {
+      setAccountIdentities(identities);
+      const primary = identities.find(i => !i.mayDelete) ?? identities[0];
+      setSelectedIdentityId(primary?.id ?? '');
+    }).catch(() => {});
+  }, [provider]);
+
+  // When a reply is opened, pre-select the identity that matches a "to" recipient
+  useEffect(() => {
+    if (!replyingTo || accountIdentities.length === 0) return;
+    const toEmails = replyingTo.to_recipients.map(r => r.email.toLowerCase());
+    const match = accountIdentities.find(i => toEmails.includes(i.email.toLowerCase()));
+    if (match) setSelectedIdentityId(match.id);
+  }, [replyingTo, accountIdentities]);
 
   return (
     <div className="mail-app">
@@ -223,7 +243,7 @@ export default function MailApp() {
               <NewMessageComposer
                 contacts={contacts}
                 restoreData={composerRestoreData}
-                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[]) =>
+                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) =>
                   scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: true,
                     toRecipients: to.map(email => ({ email })),
@@ -235,7 +255,7 @@ export default function MailApp() {
                     showCc: cc.length > 0,
                     showBcc: bcc.length > 0,
                     replyingToMsg: null,
-                  }, attachments, composingAccountId || undefined)
+                  }, attachments, composingAccountId || undefined, fromIdentityId)
                 }
                 onCancel={() => { setComposing(false); }}
                 onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) =>
@@ -247,6 +267,9 @@ export default function MailApp() {
                 fromAccounts={isAllMode ? allMailAccounts as any : []}
                 fromAccountId={composingAccountId}
                 onFromAccountChange={setComposingAccountId}
+                identities={!isAllMode ? accountIdentities : undefined}
+                selectedIdentityId={!isAllMode ? selectedIdentityId : undefined}
+                onIdentityChange={!isAllMode ? setSelectedIdentityId : undefined}
               />
             ) : selectedThread === null ? (
               <div className="mail-detail-empty">
@@ -289,9 +312,13 @@ export default function MailApp() {
                 }
                 onDeleteThread={() => handleDeleteThread(selectedThread)}
                 onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
-                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[]) =>
+                identities={accountIdentities}
+                selectedIdentityId={selectedIdentityId}
+                onIdentityChange={setSelectedIdentityId}
+                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) =>
                   scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: false,
+                    isForward: replyMode === 'forward',
                     toRecipients: to.map(email => ({ email })),
                     ccRecipients: cc.map(email => ({ email })),
                     bccRecipients: bcc.map(email => ({ email })),
@@ -301,7 +328,7 @@ export default function MailApp() {
                     showCc: cc.length > 0,
                     showBcc: bcc.length > 0,
                     replyingToMsg: replyingTo,
-                  }, attachments)
+                  }, attachments, undefined, fromIdentityId)
                 }
                 composerRestoreData={composerRestoreData}
                 supportsSnooze={true}

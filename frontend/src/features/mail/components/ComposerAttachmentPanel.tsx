@@ -8,16 +8,23 @@ export interface ComposerAttachmentPanelProps {
 }
 
 export function ComposerAttachmentPanel({ attachments, onRemove }: ComposerAttachmentPanelProps) {
+  if (attachments.length === 0) return null;
   return (
-    <div className="mail-composer__attachments">
+    <div className="mail-attachments">
       {attachments.map((att, idx) => (
-        <div key={idx} className="mail-composer__attachment-tile">
-          <FileTypeIcon name={att.name} size={20} />
-          <span className="mail-composer__attachment-name" title={att.name}>{att.name}</span>
-          <span className="mail-composer__attachment-size">({formatSize(att.size)})</span>
-          <button className="mail-composer__attachment-remove" onClick={() => onRemove(idx)}>
-            <X size={14} />
-          </button>
+        <div key={idx} className="mail-view-att-card" title={att.name}>
+          <div className="mail-view-att-card__icon">
+            <FileTypeIcon name={att.name} size={20} />
+          </div>
+          <div className="mail-view-att-card__info">
+            <span className="mail-view-att-card__name">{att.name}</span>
+            <span className="mail-view-att-card__size">{formatSize(att.size)}</span>
+          </div>
+          <div className="mail-view-att-card__actions">
+            <button type="button" className="mail-view-att-card__btn" onClick={() => onRemove(idx)} title="Supprimer">
+              <X size={14} />
+            </button>
+          </div>
         </div>
       ))}
     </div>

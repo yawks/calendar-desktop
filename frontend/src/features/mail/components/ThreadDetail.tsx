@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MailThread, MailMessage, MailAttachment, ComposerRestoreData } from '../types';
+import { MailThread, MailMessage, MailAttachment, MailIdentity, ComposerRestoreData } from '../types';
 import {
   Archive, Clock, FolderInput, Forward, MoreHorizontal, ShieldAlert, Trash2
 } from 'lucide-react';
@@ -30,7 +30,10 @@ export interface ThreadDetailProps {
   readonly replyMode: 'reply' | 'replyAll' | 'forward';
   readonly onCancelReply: () => void;
   readonly onSaveDraft?: (to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) => void;
-  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[]) => Promise<void>;
+  readonly identities?: MailIdentity[];
+  readonly selectedIdentityId?: string;
+  readonly onIdentityChange?: (id: string) => void;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) => Promise<void>;
   readonly composerRestoreData?: ComposerRestoreData | null;
   readonly onDeleteThread: () => void;
   readonly onToggleThreadRead: () => void;
@@ -68,6 +71,7 @@ function computeSnoozeOptions() {
 
 export function ThreadDetail({
   thread, messages, replyingTo, contacts, currentUserEmail, mailProviderType,
+  identities, selectedIdentityId, onIdentityChange,
   onMarkRead, onTrash,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData,
   onReply, onReplyAll, onForward, onToggleRead,
@@ -278,6 +282,10 @@ export function ThreadDetail({
               contacts={contacts}
               currentUserEmail={currentUserEmail}
               restoreData={composerRestoreData}
+              identities={identities}
+              selectedIdentityId={selectedIdentityId}
+              onIdentityChange={onIdentityChange}
+              onGetAttachmentData={onGetAttachmentData}
               onSend={onSend}
               onCancel={onCancelReply}
               onSaveDraft={onSaveDraft}

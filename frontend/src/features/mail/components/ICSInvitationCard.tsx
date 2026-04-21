@@ -450,23 +450,28 @@ export function ICSInvitationCard({
     return byOwner?.id ?? writableCalendars[0]?.id ?? '';
   }, [currentUserEmail, mailProviderType, writableCalendars]);
 
-  const [selectedCalId, setSelectedCalId] = useState<string>('');
-
-  // Initialise once default is known
-  useEffect(() => {
-    if (defaultCalendarId && !selectedCalId) setSelectedCalId(defaultCalendarId);
-  }, [defaultCalendarId, selectedCalId]);
-
-  const selectedCal = useMemo(
-    () => writableCalendars.find(c => c.id === selectedCalId) ?? null,
-    [writableCalendars, selectedCalId],
-  );
-
   // Match the ICS event against known calendar events
   const matchedEvent = useMemo(() => {
     if (!icsData) return null;
     return matchEvent(icsData.title, icsData.start, allEvents);
   }, [icsData, allEvents]);
+
+  const [selectedCalId, setSelectedCalId] = useState<string>('');
+  const [userChangedCalendar, setUserChangedCalendar] = useState(false);
+
+  // Auto-select the calendar containing the matched event; fall back to the
+  // default calendar derived from the mail account. Once the user explicitly
+  // picks a calendar we stop overriding their choice.
+  useEffect(() => {
+    if (userChangedCalendar) return;
+    const id = matchedEvent?.calendarId ?? defaultCalendarId;
+    if (id) setSelectedCalId(id);
+  }, [defaultCalendarId, matchedEvent, userChangedCalendar]);
+
+  const selectedCal = useMemo(
+    () => writableCalendars.find(c => c.id === selectedCalId) ?? null,
+    [writableCalendars, selectedCalId],
+  );
 
   // Matched event for the selected calendar specifically
   const matchedInSelected = useMemo(() => {
@@ -661,7 +666,7 @@ export function ICSInvitationCard({
             <CalendarSelector
               calendars={writableCalendars}
               selectedId={selectedCalId}
-              onChange={setSelectedCalId}
+              onChange={id => { setSelectedCalId(id); setUserChangedCalendar(true); }}
             />
           </div>
         )}
@@ -696,6 +701,10 @@ export function ICSInvitationCard({
                 <X size={13} /> Refuser
               </button>
             </>
+          ) : isInCalendar ? (
+            <span className={`ics-status ${statusClass(currentStatus)}`}>
+              {currentStatus ? statusLabel(currentStatus) : 'Dans le calendrier'}
+            </span>
           ) : (
             <button
               className="ics-btn ics-btn--add"

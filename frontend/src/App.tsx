@@ -1,17 +1,19 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { CalendarProvider } from './features/calendar/store/CalendarStore';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
+
+import AppTabs from './shared/components/AppTabs';
 import { CalendarGroupProvider } from './features/calendar/store/CalendarGroupStore';
+import CalendarPage from './features/calendar/CalendarPage';
+import { CalendarProvider } from './features/calendar/store/CalendarStore';
+import ConfigPage from './pages/ConfigPage';
+import { ExchangeAuthProvider } from './shared/store/ExchangeAuthStore';
+import { GoogleAuthProvider } from './shared/store/GoogleAuthStore';
+import { ImapAuthProvider } from './shared/store/ImapAuthStore';
+import { JmapAuthProvider } from './shared/store/JmapAuthStore';
+import { LanguageProvider } from './shared/store/LanguageStore';
+import MailApp from './features/mail/MailPage';
 import { TagProvider } from './features/calendar/store/TagStore';
 import { ThemeProvider } from './shared/store/ThemeStore';
-import { LanguageProvider } from './shared/store/LanguageStore';
-import { GoogleAuthProvider } from './shared/store/GoogleAuthStore';
-import { ExchangeAuthProvider } from './shared/store/ExchangeAuthStore';
-import { ImapAuthProvider } from './shared/store/ImapAuthStore';
-import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
-import CalendarPage from './features/calendar/CalendarPage';
-import ConfigPage from './pages/ConfigPage';
-import MailApp from './features/mail/MailPage';
-import AppTabs from './shared/components/AppTabs';
 
 function RootView() {
   const { layout, activeTab, setActiveTab } = useLayout();
@@ -35,23 +37,25 @@ export default function App() {
       <LanguageProvider>
         <LayoutProvider>
           <GoogleAuthProvider>
-          <ExchangeAuthProvider>
-          <ImapAuthProvider>
-            <CalendarProvider>
-            <CalendarGroupProvider>
-            <TagProvider>
-              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-                <Routes>
-                  <Route path="/" element={<RootView />} />
-                  <Route path="/mail" element={<MailApp />} />
-                  <Route path="/config" element={<ConfigPage />} />
-                </Routes>
-              </BrowserRouter>
-            </TagProvider>
-            </CalendarGroupProvider>
-            </CalendarProvider>
-          </JmapAuthProvider>
-          </ExchangeAuthProvider>
+            <ExchangeAuthProvider>
+              <JmapAuthProvider>
+                <ImapAuthProvider>
+                  <CalendarProvider>
+                    <CalendarGroupProvider>
+                      <TagProvider>
+                        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                          <Routes>
+                            <Route path="/" element={<RootView />} />
+                            <Route path="/mail" element={<MailApp />} />
+                            <Route path="/config" element={<ConfigPage />} />
+                          </Routes>
+                        </BrowserRouter>
+                      </TagProvider>
+                    </CalendarGroupProvider>
+                  </CalendarProvider>
+                </ImapAuthProvider>
+              </JmapAuthProvider>
+            </ExchangeAuthProvider>
           </GoogleAuthProvider>
         </LayoutProvider>
       </LanguageProvider>

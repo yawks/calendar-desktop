@@ -41,6 +41,7 @@ export function JmapAccountManageModal({ account, onClose }: {
   const [displayName, setDisplayName] = useState(account.displayName);
   const [sessionUrl, setSessionUrl] = useState(account.sessionUrl);
   const [token, setToken] = useState(account.token);
+  const [authType, setAuthType] = useState<'bearer' | 'basic'>(account.authType ?? 'bearer');
   const [color, setColor] = useState(account.color || DEFAULT_COLORS[0]);
 
   const handleSave = (e: FormEvent) => {
@@ -51,6 +52,7 @@ export function JmapAccountManageModal({ account, onClose }: {
       displayName,
       sessionUrl,
       token,
+      authType,
       color,
     });
     onClose();
@@ -102,7 +104,14 @@ export function JmapAccountManageModal({ account, onClose }: {
                   <input type="text" value={sessionUrl} onChange={(e) => setSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
                 </div>
                 <div className="form-row">
-                  <label>API Token</label>
+                  <label>{t('config.jmapAuthType', 'Auth type')}</label>
+                  <select value={authType} onChange={(e) => setAuthType(e.target.value as 'bearer' | 'basic')}>
+                    <option value="bearer">{t('config.jmapAuthBearer', 'Bearer token')}</option>
+                    <option value="basic">{t('config.jmapAuthBasic', 'Basic (email + app password)')}</option>
+                  </select>
+                </div>
+                <div className="form-row">
+                  <label>{authType === 'basic' ? t('config.jmapAppPassword', 'App password') : t('config.jmapApiToken', 'API token')}</label>
                   <input type="password" value={token} onChange={(e) => setToken(e.target.value)} required />
                 </div>
               </div>

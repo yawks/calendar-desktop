@@ -90,6 +90,7 @@ pub struct MailItemRef {
 
 /// A file attachment supplied by the frontend composer (base64-encoded content).
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct ComposerAttachment {
     pub name: String,
     pub content_type: String,
@@ -756,8 +757,9 @@ fn build_recipients_blocks(to: &[String], cc: &[String], bcc: &[String]) -> (Str
     (to_block, cc_block, bcc_block)
 }
 
-/// If `reply_to_item_id` + `reply_to_change_key` are provided a `ReplyAllToItem`
-/// is created; otherwise a brand-new `Message` is created.
+/// Builds the EWS XML for a reply, replyAll, or forward operation.
+/// When `is_forward` is true, uses `ForwardItem` with explicit recipients.
+/// Otherwise uses `ReplyAllToItem` (EWS auto-determines reply recipients).
 /// When `attachments` is non-empty, a three-step flow is used:
 ///   1. CreateItem (SaveOnly) to get an ItemId
 ///   2. CreateAttachment for each file
@@ -773,12 +775,33 @@ pub async fn mail_send(
     reply_to_item_id: Option<String>,
     reply_to_change_key: Option<String>,
     attachments: Option<Vec<ComposerAttachment>>,
+    is_forward: Option<bool>,
 ) -> Result<(), String> {
     let atts = attachments.unwrap_or_default();
+    let forward = is_forward.unwrap_or(false);
 
     // ── Simple path: no attachments ────────────────────────────────────────────
     if atts.is_empty() {
         let soap_body = match (&reply_to_item_id, &reply_to_change_key) {
+            (Some(id), Some(ck)) if forward => {
+                let (to_block, cc_block, bcc_block) = build_recipients_blocks(&to, &cc, &bcc);
+                format!(
+                    r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
+  <m:Items>
+    <t:ForwardItem>
+      <t:ToRecipients>
+        {to_block}
+      </t:ToRecipients>{cc_block}{bcc_block}
+      <t:ReferenceItemId Id="{id}" ChangeKey="{ck}"/>
+      <t:NewBodyContent BodyType="HTML">{body}</t:NewBodyContent>
+    </t:ForwardItem>
+  </m:Items>
+</m:CreateItem>"#,
+                    id = id,
+                    ck = ck,
+                    body = xml_escape(&body_html),
+                )
+            }
             (Some(id), Some(ck)) => format!(
                 r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
   <m:Items>
@@ -822,27 +845,15 @@ pub async fn mail_send(
     }
 
     // ── Step 1: CreateItem (SaveOnly) to obtain an ItemId ─────────────────────
-    let create_body = match (&reply_to_item_id, &reply_to_change_key) {
-        (Some(id), Some(ck)) => format!(
+    // Always use a plain Message here, even for replies and forwards.
+    // Using ForwardItem/ReplyAllToItem with SaveOnly causes Exchange to update
+    // the ChangeKey in the background (ReplyForwardStatus, SentMailEntryId, …)
+    // before we can call SendItem, producing an IrresolvableConflict error.
+    // The body and recipients are already fully constructed by the frontend.
+    let create_body = {
+        let (to_block, cc_block, bcc_block) = build_recipients_blocks(&to, &cc, &bcc);
+        format!(
             r#"<m:CreateItem MessageDisposition="SaveOnly">
-  <m:SavedItemFolderId>
-    <t:DistinguishedFolderId Id="drafts"/>
-  </m:SavedItemFolderId>
-  <m:Items>
-    <t:ReplyAllToItem>
-      <t:ReferenceItemId Id="{id}" ChangeKey="{ck}"/>
-      <t:NewBodyContent BodyType="HTML">{body}</t:NewBodyContent>
-    </t:ReplyAllToItem>
-  </m:Items>
-</m:CreateItem>"#,
-            id = id,
-            ck = ck,
-            body = xml_escape(&body_html),
-        ),
-        _ => {
-            let (to_block, cc_block, bcc_block) = build_recipients_blocks(&to, &cc, &bcc);
-            format!(
-                r#"<m:CreateItem MessageDisposition="SaveOnly">
   <m:SavedItemFolderId>
     <t:DistinguishedFolderId Id="drafts"/>
   </m:SavedItemFolderId>
@@ -856,10 +867,9 @@ pub async fn mail_send(
     </t:Message>
   </m:Items>
 </m:CreateItem>"#,
-                subject = xml_escape(&subject),
-                body = xml_escape(&body_html),
-            )
-        }
+            subject = xml_escape(&subject),
+            body = xml_escape(&body_html),
+        )
     };
 
     let xml = send(&access_token, &create_body).await?;
@@ -899,6 +909,26 @@ pub async fn mail_send(
             item_id = new_id;
             change_key = new_ck;
         }
+    }
+
+    // ── Step 2.5: GetItem to refresh the ChangeKey ───────────────────────────
+    // Exchange's background services (BigFunnel indexing, etc.) may update the
+    // item's ChangeKey between CreateAttachment and SendItem. Fetching the
+    // current ChangeKey just before sending avoids the IrresolvableConflict.
+    let get_body = format!(
+        r#"<m:GetItem>
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+  </m:ItemShape>
+  <m:ItemIds>
+    <t:ItemId Id="{item_id}" ChangeKey="{change_key}"/>
+  </m:ItemIds>
+</m:GetItem>"#,
+    );
+    let get_xml = send(&access_token, &get_body).await?;
+    if let Some((fresh_id, fresh_ck)) = parse_item_id(&get_xml) {
+        item_id = fresh_id;
+        change_key = fresh_ck;
     }
 
     // ── Step 3: SendItem ──────────────────────────────────────────────────────
@@ -1462,12 +1492,12 @@ async fn inject_inline_images(
         eprintln!("[mail] inject_inline_images: no inline attachments found in EWS response");
         return body_html;
     }
-    eprintln!("[mail] inject_inline_images: {} inline attachment(s) to fetch", inline_images.len());
+    //eprintln!("[mail] inject_inline_images: {} inline attachment(s) to fetch", inline_images.len());
 
     // Fetch all inline image data sequentially (avoids the `futures` crate dependency).
     let mut fetch_results: Vec<(InlineImage, Result<String, String>)> = Vec::new();
     for img in inline_images {
-        eprintln!("[mail] fetching inline attachment id={} content_id={:?} type={}", img.attachment_id, img.content_id, img.content_type);
+        //eprintln!("[mail] fetching inline attachment id={} content_id={:?} type={}", img.attachment_id, img.content_id, img.content_type);
         let data = fetch_ews_attachment_base64(access_token, &img.attachment_id).await;
         if let Err(ref e) = data {
             eprintln!("[mail] fetch failed: {}", e);

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { JmapAccount } from '../../../shared/types';
-import { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
+import { MailAttachment, MailFolder, MailIdentity, MailMessage, MailSearchQuery, MailThread } from '../types';
 import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams } from './MailProvider';
 
 export class JmapMailProvider implements MailProvider {
@@ -18,6 +18,7 @@ export class JmapMailProvider implements MailProvider {
       email: this.config.email,
       session_url: this.config.sessionUrl,
       token: this.config.token,
+      auth_type: this.config.authType ?? 'bearer',
     };
   }
 
@@ -50,6 +51,13 @@ export class JmapMailProvider implements MailProvider {
     });
   }
 
+  async listIdentities(): Promise<MailIdentity[]> {
+    const raw = await invoke<Array<{ id: string; name: string; email: string; may_delete: boolean }>>('jmap_list_identities', {
+      config: this.rustConfig,
+    });
+    return raw.map(i => ({ id: i.id, name: i.name, email: i.email, mayDelete: i.may_delete }));
+  }
+
   async sendMail(params: SendMailParams): Promise<void> {
     await invoke('jmap_send', {
       config: this.rustConfig,
@@ -58,6 +66,7 @@ export class JmapMailProvider implements MailProvider {
       bcc: params.bcc ?? [],
       subject: params.subject,
       bodyHtml: params.bodyHtml,
+      identityId: params.fromIdentityId ?? null,
     });
   }
 

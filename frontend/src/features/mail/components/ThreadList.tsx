@@ -135,7 +135,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
         {toolbar}
         {visibleThreads.map((thread) => (
           <ThreadItem
-            key={thread.conversation_id}
+            key={(thread.accountId ?? '') + '_' + thread.conversation_id}
             thread={thread}
             isSelected={thread.conversation_id === selectedId}
             isChecked={selectedThreadIds.has(thread.conversation_id)}

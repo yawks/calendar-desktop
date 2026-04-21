@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FromAccount, ComposerRestoreData } from '../types';
+import { FromAccount, MailIdentity, ComposerRestoreData } from '../types';
 import { ComposerAttachment } from '../providers/MailProvider';
 import { RecipientEntry, RecipientInput } from './RecipientInput';
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel';
@@ -11,18 +11,23 @@ import { useTranslation } from 'react-i18next';
 export interface NewMessageComposerProps {
   readonly contacts: { email: string; name?: string }[];
   readonly restoreData: ComposerRestoreData | null;
-  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[]) => Promise<void>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) => Promise<void>;
   readonly onCancel: () => void;
   readonly onSaveDraft: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => void;
   readonly onDeleteDraft?: () => void;
   readonly fromAccounts: FromAccount[];
   readonly fromAccountId: string;
   readonly onFromAccountChange: (id: string) => void;
+  /** JMAP identities — shown instead of fromAccounts when provided */
+  readonly identities?: MailIdentity[];
+  readonly selectedIdentityId?: string;
+  readonly onIdentityChange?: (id: string) => void;
 }
 
 export function NewMessageComposer({
   contacts, restoreData, onSend, onCancel, onSaveDraft, onDeleteDraft,
   fromAccounts, fromAccountId, onFromAccountChange,
+  identities, selectedIdentityId, onIdentityChange,
 }: NewMessageComposerProps) {
   const { t } = useTranslation();
 
@@ -64,6 +69,7 @@ export function NewMessageComposer({
         subject,
         editorRef.current?.getHTML() ?? '',
         attachments,
+        selectedIdentityId,
       );
     } finally {
       setSending(false);
@@ -124,8 +130,37 @@ export function NewMessageComposer({
           <CloseComposerPopover onSaveDraft={handleClose} onDiscard={onDeleteDraft ?? onCancel} />
         </div>
 
-        {/* ── From (multi-account only) ── */}
-        {fromAccounts.length > 1 && (
+        {/* ── From: JMAP identities ── */}
+        {identities && identities.length >= 1 && (() => {
+          const sel = identities.find(i => i.id === selectedIdentityId) ?? identities[0];
+          return (
+            <div className="mail-composer__field" ref={fromRef} style={{ position: 'relative' }}>
+              <span className="mail-composer__label">{t('mail.from', 'De')}:</span>
+              <button type="button" className="from-account-btn" onClick={() => setFromOpen(o => !o)}>
+                <span className="from-account-name" style={{ color: 'var(--primary)' }}>{sel?.name ?? sel?.email}</span>
+                <span className="from-account-email">{sel?.name ? `<${sel.email}>` : ''}</span>
+                {identities.length > 1 && <ChevronDown size={12} style={{ marginLeft: 'auto', opacity: 0.5 }} />}
+              </button>
+              {fromOpen && identities.length > 1 && (
+                <ul className="from-account-dropdown">
+                  {identities.map(id => (
+                    <li
+                      key={id.id}
+                      className={`from-account-option${id.id === selectedIdentityId ? ' from-account-option--active' : ''}`}
+                      onClick={() => { onIdentityChange?.(id.id); setFromOpen(false); }}
+                    >
+                      <span className="from-account-name">{id.name ?? id.email}</span>
+                      <span className="from-account-email">{id.name ? `<${id.email}>` : ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ── From: multi-account (non-JMAP) ── */}
+        {(!identities || identities.length === 0) && fromAccounts.length > 1 && (
           <div className="mail-composer__field" ref={fromRef} style={{ position: 'relative' }}>
             <span className="mail-composer__label">{t('mail.from', 'De')}:</span>
             <button type="button" className="from-account-btn" onClick={() => setFromOpen(o => !o)}>
@@ -189,18 +224,18 @@ export function NewMessageComposer({
           />
         </div>
 
+        {/* ── Attachments (above formatting toolbar) ── */}
+        <ComposerAttachmentPanel
+          attachments={attachments}
+          onRemove={i => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
+        />
+
         {/* ── Tiptap editor (toolbar + body) ── */}
         <MailEditor
           ref={editorRef}
           initialHTML={initialHTML}
           placeholder={t('mail.bodyPlaceholder', 'Écrivez votre message…')}
           onSend={doSend}
-        />
-
-        {/* ── Attachments ── */}
-        <ComposerAttachmentPanel
-          attachments={attachments}
-          onRemove={i => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
         />
       </form>
     </div>

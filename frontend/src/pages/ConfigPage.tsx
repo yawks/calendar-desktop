@@ -34,11 +34,13 @@ import { useCalendars } from '../features/calendar/store/CalendarStore';
 import { useGoogleAuth } from '../shared/store/GoogleAuthStore';
 import { useExchangeAuth, parseExchangeToken } from '../shared/store/ExchangeAuthStore';
 import { useImapAuth } from '../shared/store/ImapAuthStore';
+import { useJmapAuth } from '../shared/store/JmapAuthStore';
 import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../shared/store/googleClientConfig';
 import { listCalendars } from '../features/calendar/utils/googleCalendarApi';
 import { CalendarConfig, GoogleAccount, ExchangeAccount, ImapAccount, JmapAccount } from '../shared/types';
 import { useDefaultCalendar } from '../features/calendar/store/defaultCalendarStore';
 import { ImapAccountManageModal } from './ImapAccountManageModal';
+import { JmapAccountManageModal } from './JmapAccountManageModal';
 
 const DEFAULT_COLORS = [
   '#1a73e8', '#34a853', '#ea4335', '#fbbc04',
@@ -1030,6 +1032,7 @@ function NewCalendarModal({
   const { connectGoogle, updateAccountCapabilities: updateGoogleCapabilities } = useGoogleAuth();
   const { addAccount } = useExchangeAuth();
   const { addAccount: addImapAccount } = useImapAuth();
+  const { addAccount: addJmapAccount } = useJmapAuth();
 
   const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange' | 'imap' | 'jmap'>('pick');
   const [selectedType, setSelectedType] = useState<'ics' | 'nextcloud' | null>(null);
@@ -1090,6 +1093,7 @@ function NewCalendarModal({
   const [jmapDisplayName, setJmapDisplayName] = useState('');
   const [jmapSessionUrl, setJmapSessionUrl] = useState('https://api.fastmail.com/jmap/session');
   const [jmapToken, setJmapToken] = useState('');
+  const [jmapAuthType, setJmapAuthType] = useState<'bearer' | 'basic'>('bearer');
   const [jmapColor, setJmapColor] = useState(() => nextColor(calendars));
 
   const handleNcTest = async () => {
@@ -1281,6 +1285,7 @@ function NewCalendarModal({
       displayName: jmapDisplayName.trim() || jmapEmail.trim(),
       sessionUrl: jmapSessionUrl.trim(),
       token: jmapToken.trim(),
+      authType: jmapAuthType,
       color: jmapColor,
     });
     onClose();
@@ -1613,7 +1618,14 @@ function NewCalendarModal({
                   <input type="text" value={jmapSessionUrl} onChange={(e) => setJmapSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
                 </div>
                 <div className="form-row">
-                  <label>API Token</label>
+                  <label>{t('config.jmapAuthType', 'Auth type')}</label>
+                  <select value={jmapAuthType} onChange={(e) => setJmapAuthType(e.target.value as 'bearer' | 'basic')}>
+                    <option value="bearer">{t('config.jmapAuthBearer', 'Bearer token')}</option>
+                    <option value="basic">{t('config.jmapAuthBasic', 'Basic (email + app password)')}</option>
+                  </select>
+                </div>
+                <div className="form-row">
+                  <label>{jmapAuthType === 'basic' ? t('config.jmapAppPassword', 'App password') : t('config.jmapApiToken', 'API token')}</label>
                   <input type="password" value={jmapToken} onChange={(e) => setJmapToken(e.target.value)} required />
                 </div>
               </div>

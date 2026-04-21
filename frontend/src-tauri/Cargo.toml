@@ -45,6 +45,9 @@ objc2-event-kit = { version = "0.3", default-features = false, features = [
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSColor", "NSApplication", "NSDockTile"] }
 block2 = "0.6"
 
+[patch.crates-io]
+jmap-client = { path = "vendor/jmap-client" }
+
 [profile.dev]
 incremental = true
 

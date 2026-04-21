@@ -172,6 +172,7 @@ pub fn run() {
                     jmap::jmap_send,
                     jmap::jmap_get_attachment_data,
                     jmap::jmap_search_threads,
+                    jmap::jmap_list_identities,
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,

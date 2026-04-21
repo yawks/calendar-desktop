@@ -47,11 +47,12 @@ export class EwsMailProvider implements MailProvider {
     return invoke<MailFolder[]>('mail_list_folders', { accessToken });
   }
 
-  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, attachments }: SendMailParams): Promise<void> {
+  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, isForward, attachments }: SendMailParams): Promise<void> {
     const accessToken = await this.token();
     return invoke('mail_send', {
       accessToken, to, cc: cc ?? [], bcc: bcc ?? [], subject, bodyHtml,
       replyToItemId, replyToChangeKey,
+      isForward: isForward ?? false,
       attachments: attachments ?? [],
     });
   }

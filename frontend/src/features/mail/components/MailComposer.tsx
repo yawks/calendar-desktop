@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { MailMessage, ComposerRestoreData } from '../types';
+import { MailAttachment, MailIdentity, MailMessage, ComposerRestoreData } from '../types';
 import { Paperclip, Send, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ComposerAttachment } from '../providers/MailProvider';
@@ -51,7 +51,11 @@ export interface MailComposerProps {
   readonly contacts: { email: string; name?: string }[];
   readonly currentUserEmail?: string;
   readonly restoreData?: ComposerRestoreData | null;
-  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[]) => Promise<void>;
+  readonly identities?: MailIdentity[];
+  readonly selectedIdentityId?: string;
+  readonly onIdentityChange?: (id: string) => void;
+  readonly onGetAttachmentData?: (att: MailAttachment) => Promise<string>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) => Promise<void>;
   readonly onCancel: () => void;
   readonly onSaveDraft?: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => void;
 }
@@ -60,7 +64,8 @@ export interface MailComposerProps {
 
 export function MailComposer({
   replyTo, mode, contacts, currentUserEmail,
-  restoreData, onSend, onCancel, onSaveDraft,
+  restoreData, identities, selectedIdentityId, onIdentityChange,
+  onGetAttachmentData, onSend, onCancel, onSaveDraft,
 }: MailComposerProps) {
   const { t } = useTranslation();
 
@@ -101,6 +106,20 @@ export function MailComposer({
       const cc: RecipientEntry[] = [];
       if (mode === 'forward') {
         setSubject(`Fwd: ${replyTo.subject}`);
+        // Fetch and pre-attach the original message's attachments
+        if (onGetAttachmentData && replyTo.attachments?.length) {
+          Promise.allSettled(
+            replyTo.attachments
+              .filter(a => !a.is_inline)
+              .map(async (a) => {
+                const data = await onGetAttachmentData(a);
+                return { name: a.name, contentType: a.content_type, size: a.size, data } satisfies ComposerAttachment;
+              })
+          ).then(results => {
+            const fetched = results.flatMap(r => r.status === 'fulfilled' ? [r.value] : []);
+            if (fetched.length > 0) setAttachments(fetched);
+          });
+        }
       } else {
         setSubject(`Re: ${replyTo.subject}`);
         to.push({ email: replyTo.from_email || '', name: replyTo.from_name || undefined });
@@ -129,6 +148,7 @@ export function MailComposer({
         subject,
         editorRef.current?.getHTML() ?? '',
         attachments,
+        selectedIdentityId,
       );
     } finally {
       setIsSending(false);
@@ -150,8 +170,7 @@ export function MailComposer({
     const files = e.target.files;
     if (!files) return;
     const newAtts: ComposerAttachment[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    for (const file of Array.from(files)) {
       const reader = new FileReader();
       const content = await new Promise<string>(resolve => {
         reader.onload = () => resolve((reader.result as string).split(',')[1]);
@@ -197,9 +216,26 @@ export function MailComposer({
 
       {/* ── Fields ── */}
       <div className="mail-composer__fields">
+        {identities && identities.length >= 1 && (
+          <div className="mail-composer__field">
+            <span className="mail-composer__label">{t('mail.from', 'De')}</span>
+            <select
+              className="mail-composer__input"
+              value={selectedIdentityId}
+              onChange={e => onIdentityChange?.(e.target.value)}
+            >
+              {identities.map(id => (
+                <option key={id.id} value={id.id}>
+                  {id.name ? `${id.name} <${id.email}>` : id.email}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>
-          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} fieldId="to" />
+          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} fieldId="to" autoFocus={mode === 'forward'} />
           <div className="mail-composer__field-actions">
             {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
             {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
@@ -234,21 +270,20 @@ export function MailComposer({
         </div>
       </div>
 
+      {/* ── Attachments (above formatting toolbar) ── */}
+      <ComposerAttachmentPanel
+        attachments={attachments}
+        onRemove={idx => setAttachments(prev => prev.filter((_, i) => i !== idx))}
+      />
+
       {/* ── Tiptap editor (formatting toolbar + body) ── */}
       <MailEditor
         ref={editorRef}
         initialHTML={initialHTML}
         placeholder={t('mail.bodyPlaceholder', 'Écrivez votre réponse…')}
+        disableAutoFocus={mode === 'forward'}
         onSend={handleSend}
       />
-
-      {/* ── Attachments ── */}
-      {attachments.length > 0 && (
-        <ComposerAttachmentPanel
-          attachments={attachments}
-          onRemove={idx => setAttachments(prev => prev.filter((_, i) => i !== idx))}
-        />
-      )}
     </div>
   );
 }

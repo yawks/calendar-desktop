@@ -267,6 +267,7 @@ export interface MailEditorHandle {
 export interface MailEditorProps {
   readonly initialHTML?: string;
   readonly placeholder?: string;
+  readonly disableAutoFocus?: boolean;
   /** Called when the user presses Cmd/Ctrl+Enter */
   readonly onSend?: () => void;
 }
@@ -274,7 +275,7 @@ export interface MailEditorProps {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
-  ({ initialHTML, placeholder, onSend }, ref) => {
+  ({ initialHTML, placeholder, disableAutoFocus, onSend }, ref) => {
     const editor = useEditor({
       extensions: [
         StarterKit,
@@ -331,9 +332,9 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
       focus:   () => { editor?.commands.focus('start'); },
     }), [editor]);
 
-    // Auto-focus the editor body on mount
+    // Auto-focus the editor body on mount (skip when the caller wants focus elsewhere)
     useEffect(() => {
-      if (editor) editor.commands.focus('start');
+      if (editor && !disableAutoFocus) editor.commands.focus('start');
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [!!editor]);
 

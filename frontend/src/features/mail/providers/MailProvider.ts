@@ -1,10 +1,11 @@
-import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
+import type { MailAttachment, MailFolder, MailIdentity, MailMessage, MailSearchQuery, MailThread } from '../types';
 
 export type ProviderType = 'ews' | 'gmail' | 'imap' | 'jmap';
 
 export interface MailItemRef {
   item_id: string;
   change_key: string;
+  conversation_id?: string;
 }
 
 /** A file attached by the user in the composer, ready to be sent. */
@@ -24,7 +25,9 @@ export interface SendMailParams {
   bodyHtml: string;
   replyToItemId?: string | null;
   replyToChangeKey?: string | null;
+  isForward?: boolean;
   attachments?: ComposerAttachment[];
+  fromIdentityId?: string;
 }
 
 export interface SaveDraftParams {
@@ -63,4 +66,5 @@ export interface MailProvider {
   moveToFolder(itemId: string, folderId: string): Promise<void>;
   snooze(itemId: string): Promise<string>;
   getInboxUnread(): Promise<number>;
+  listIdentities?(): Promise<MailIdentity[]>;
 }

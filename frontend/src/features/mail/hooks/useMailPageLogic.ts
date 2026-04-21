@@ -101,6 +101,8 @@ export function useMailPageLogic() {
   messagesRef.current = messages;
   const threadsRef = useRef<MailThread[]>([]);
   threadsRef.current = threads;
+  const pendingRefreshesRef = useRef<Map<string, MailThread[]>>(new Map());
+  const refreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward'>('reply');
   const [composing, setComposing] = useState(false);
@@ -172,6 +174,8 @@ export function useMailPageLogic() {
 
   const [allFolders, setAllFolders] = useState<import('../types').MailFolder[]>([]);
   const [allAccountFolders, setAllAccountFolders] = useState<Map<string, import('../types').MailFolder[]>>(new Map());
+  const allAccountFoldersRef = useRef(allAccountFolders);
+  allAccountFoldersRef.current = allAccountFolders;
   const [folderUnreadCounts, setFolderUnreadCounts] = useState<Record<string, number>>({});
 
   // Pre-populate allAccountFolders from IndexedDB so folders appear immediately on app start.
@@ -191,8 +195,7 @@ export function useMailPageLogic() {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const snoozedFolderId = allFolders.find(f => f.display_name === 'Snoozed')?.folder_id;
-  const isInSnoozedFolder = snoozedFolderId !== undefined && selectedFolder === snoozedFolderId;
+  const isInSnoozedFolder = selectedFolder === 'snoozed';
 
   const handleFoldersLoaded = useCallback((folders: import('../types').MailFolder[]) => {
     setAllFolders(folders);
@@ -200,10 +203,10 @@ export function useMailPageLogic() {
   }, []);
 
   const allModeDynamicFolders = useMemo(() => {
-    const STATIC_IDS = new Set(['inbox', 'sentitems', 'deleteditems', 'INBOX', 'SENT', 'TRASH', 'SPAM', 'DRAFT']);
+    const STATIC_IDS = new Set(['inbox', 'sentitems', 'deleteditems', 'INBOX', 'SENT', 'TRASH', 'SPAM', 'DRAFT', 'snoozed']);
     const WELL_KNOWN_NAMES = new Set([
       'inbox', 'sent', 'sent items', 'deleted items', 'drafts', 'outbox', 'junk email',
-      'spam', 'trash', 'boîte de réception', 'éléments envoyés', 'éléments supprimés',
+      'spam', 'trash', 'snoozed', 'boîte de réception', 'éléments envoyés', 'éléments supprimés',
       'courrier indésirable', 'brouillons',
     ]);
     const result: (import('../types').MailFolder & { accountId?: string; accountColor?: string })[] = [];
@@ -228,6 +231,7 @@ export function useMailPageLogic() {
       clearTimeout(pendingSendRef.current.timerId);
       pendingSendRef.current.execute().catch(() => {});
     }
+    if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
   }, []);
 
   const scheduleDeletion = useCallback((
@@ -288,7 +292,11 @@ export function useMailPageLogic() {
               const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
               const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
               const accountColor = acc?.color;
-              const threads = await p.listThreads(selectedFolder, 50, 0);
+              const resolvedFolder = selectedFolder === 'snoozed'
+                ? (allAccountFoldersRef.current.get(accountId)?.find(f => f.display_name === 'Snoozed')?.folder_id ?? null)
+                : selectedFolder;
+              if (resolvedFolder === null) return [];
+              const threads = await p.listThreads(resolvedFolder, 50, 0);
               const accountFrom = acc?.name ?? acc?.email ?? null;
               return threads.map(t => ({
                 ...t,
@@ -303,10 +311,12 @@ export function useMailPageLogic() {
             Array.from(allProviders.entries()).map(async ([accountId, p]) => ({ accountId, folders: await p.listFolders() }))
           ),
         ]);
+        const seen = new Set<string>();
         const merged = threadResults
           .flatMap(r => r.status === 'fulfilled' ? r.value : [])
           .filter(t => !pendingDeleteCid || t.conversation_id !== pendingDeleteCid)
-          .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
+          .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime())
+          .filter(t => { const k = (t.accountId ?? '') + '_' + t.conversation_id; return !seen.has(k) && !!seen.add(k); });
         setThreads(merged);
         setHasMoreThreads(merged.length >= 50);
         const mergedCounts: Record<string, number> = {};
@@ -325,13 +335,18 @@ export function useMailPageLogic() {
         for (const [aid, flds] of newAccountFolders.entries()) setAccountFolders(aid, flds).catch(() => {});
       } else {
         if (!provider) return;
+        const resolvedFolder = selectedFolder === 'snoozed'
+          ? (allAccountFoldersRef.current.get(provider.accountId)?.find(f => f.display_name === 'Snoozed')?.folder_id ?? null)
+          : selectedFolder;
         const [result, folders] = await Promise.all([
-          provider.listThreads(selectedFolder, 50, 0),
+          resolvedFolder !== null ? provider.listThreads(resolvedFolder, 50, 0) : Promise.resolve([]),
           provider.listFolders(),
         ]);
-        const filtered = pendingDeleteCid
+        const seenIds = new Set<string>();
+        const filtered = (pendingDeleteCid
           ? result.filter(t => t.conversation_id !== pendingDeleteCid)
-          : result;
+          : result
+        ).filter(t => !seenIds.has(t.conversation_id) && !!seenIds.add(t.conversation_id));
         if (selectedFolder === 'drafts') {
           const acc = allMailAccounts.find(a => a.id === provider.accountId);
           const accountFrom = acc?.name ?? acc?.email ?? null;
@@ -377,7 +392,11 @@ export function useMailPageLogic() {
             const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
             const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
             const accountColor = acc?.color;
-            const fetched = await p.listThreads(selectedFolder, 50, offset);
+            const resolvedFolder = selectedFolder === 'snoozed'
+              ? (allAccountFoldersRef.current.get(accountId)?.find(f => f.display_name === 'Snoozed')?.folder_id ?? null)
+              : selectedFolder;
+            if (resolvedFolder === null) return [];
+            const fetched = await p.listThreads(resolvedFolder, 50, offset);
             return fetched.map(t => ({ ...t, accountId, accountLabel, accountColor }));
           })
         );
@@ -397,7 +416,12 @@ export function useMailPageLogic() {
         }
       } else {
         if (!provider) return;
-        const result = await provider.listThreads(selectedFolder, 50, threads.length);
+        const resolvedFolder = selectedFolder === 'snoozed'
+          ? (allAccountFoldersRef.current.get(provider.accountId)?.find(f => f.display_name === 'Snoozed')?.folder_id ?? null)
+          : selectedFolder;
+        const result = resolvedFolder !== null
+          ? await provider.listThreads(resolvedFolder, 50, threads.length)
+          : [];
         if (result.length > 0) {
           setThreads(prev => {
             const seen = new Set(prev.map(t => t.conversation_id));
@@ -441,55 +465,98 @@ export function useMailPageLogic() {
 
   onInboxRefreshedRef.current = (accountId: string, freshThreads: MailThread[]) => {
     if (selectedFolder !== 'inbox') return;
-    const pendingDeleteCid = pendingDeletionRef.current?.conversationId;
-    const filtered = pendingDeleteCid
-      ? freshThreads.filter(t => t.conversation_id !== pendingDeleteCid)
-      : freshThreads;
-    const optimisticCid = pendingSendRef.current?.optimisticConversationId;
-    const applyOptimistic = (t: MailThread) =>
-      optimisticCid && t.conversation_id === optimisticCid
-        ? { ...t, message_count: t.message_count + 1 }
-        : t;
-    if (isAllMode) {
-      const acc = allMailAccounts.find(a => a.id === accountId);
-      const atIdx = (acc?.email ?? '').indexOf('@');
-      const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
-      const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
-      const accountColor = acc?.color;
-      const tagged = filtered.map(t => applyOptimistic({ ...t, accountId, accountLabel, accountColor }));
-      setThreads(prev => {
-        const others = prev.filter(t => t.accountId !== accountId);
-        return [...others, ...tagged].sort((a, b) =>
-          new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime()
-        );
-      });
-    } else if (selectedAccountId === accountId) {
-      setThreads(filtered.map(applyOptimistic));
-    }
-    // Auto-refresh the currently open conversation if the server reports new messages
-    if (selectedThread) {
-      const freshThread = filtered.find(t => t.conversation_id === selectedThread.conversation_id);
-      if (freshThread) {
-        const realCount = messages.filter(m => m.item_id !== '__optimistic__').length;
-        if (freshThread.message_count > realCount) {
-          const p = resolveProvider(selectedThread.accountId);
-          if (p) {
-            p.getThread(selectedThread.conversation_id, false, false)
-              .then(result => {
-                if (result.length > realCount) {
-                  setMessages(result);
-                  setThreads(prev => prev.map(th =>
-                    th.conversation_id === selectedThread.conversation_id
-                      ? { ...th, message_count: result.length }
-                      : th
-                  ));
-                }
-              })
-              .catch(() => {});
+
+    // Accumulate per-account fresh data; apply all at once after a short debounce
+    // so multiple accounts' background refreshes produce a single render (no flicker).
+    pendingRefreshesRef.current.set(accountId, freshThreads);
+
+    if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
+    refreshDebounceRef.current = setTimeout(() => {
+      refreshDebounceRef.current = null;
+      const accumulated = new Map(pendingRefreshesRef.current);
+      pendingRefreshesRef.current.clear();
+
+      const pendingDeleteCid = pendingDeletionRef.current?.conversationId;
+      const optimisticCid = pendingSendRef.current?.optimisticConversationId;
+      const applyOptimistic = (t: MailThread) =>
+        optimisticCid && t.conversation_id === optimisticCid
+          ? { ...t, message_count: t.message_count + 1 }
+          : t;
+
+      if (isAllMode) {
+        setThreads(prev => {
+          let next = [...prev];
+          for (const [accId, threads] of accumulated.entries()) {
+            const acc = allMailAccounts.find(a => a.id === accId);
+            const atIdx = (acc?.email ?? '').indexOf('@');
+            const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
+            const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
+            const accountColor = acc?.color;
+            const filtered = pendingDeleteCid
+              ? threads.filter(t => t.conversation_id !== pendingDeleteCid)
+              : threads;
+            const tagged = filtered.map(t => applyOptimistic({ ...t, accountId: accId, accountLabel, accountColor }));
+            next = next.filter(t => t.accountId !== accId);
+            next = [...next, ...tagged];
+          }
+          const seenMerge = new Set<string>();
+          return next
+            .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime())
+            .filter(t => { const k = (t.accountId ?? '') + '_' + t.conversation_id; return !seenMerge.has(k) && !!seenMerge.add(k); });
+        });
+      } else if (accumulated.has(selectedAccountId)) {
+        const threads = accumulated.get(selectedAccountId)!;
+        const filtered = (pendingDeleteCid
+          ? threads.filter(t => t.conversation_id !== pendingDeleteCid)
+          : threads).map(applyOptimistic);
+        setThreads(filtered);
+      }
+
+      // Update sidebar inbox unread count atomically with thread list update.
+      // Compute from fresh threads for refreshed accounts + current state for others.
+      const refreshedIds = new Set(accumulated.keys());
+      let inboxUnread = 0;
+      for (const [, threads] of accumulated.entries()) {
+        inboxUnread += threads.reduce((sum, t) => sum + t.unread_count, 0);
+      }
+      if (isAllMode) {
+        for (const t of threadsRef.current) {
+          if (!refreshedIds.has(t.accountId ?? '')) inboxUnread += t.unread_count;
+        }
+      }
+      setFolderUnreadCounts(prev => ({ ...prev, inbox: inboxUnread }));
+
+      // Auto-refresh currently open conversation if the server reports new messages
+      const openThread_ = selectedThreadRef.current;
+      const currentMsgs = messagesRef.current;
+      if (openThread_) {
+        for (const [accId, threads] of accumulated.entries()) {
+          if (isAllMode && openThread_.accountId !== accId) continue;
+          const freshThread = threads.find(t => t.conversation_id === openThread_.conversation_id);
+          if (freshThread) {
+            const realCount = currentMsgs.filter(m => m.item_id !== '__optimistic__').length;
+            if (freshThread.message_count > realCount) {
+              const p = resolveProvider(openThread_.accountId);
+              if (p) {
+                p.getThread(openThread_.conversation_id, false, false)
+                  .then(result => {
+                    if (result.length > realCount) {
+                      setMessages(result);
+                      setThreads(prev => prev.map(th =>
+                        th.conversation_id === openThread_.conversation_id
+                          ? { ...th, message_count: result.length }
+                          : th
+                      ));
+                    }
+                  })
+                  .catch(() => {});
+              }
+            }
+            break;
           }
         }
       }
-    }
+    }, 150);
   };
 
   const silentRefresh = useCallback(async () => {
@@ -717,7 +784,7 @@ export function useMailPageLogic() {
   const markRead = useCallback(async (msgs: MailMessage[]) => {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p || msgs.length === 0) return;
-    const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key }));
+    const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key, conversation_id: selectedThread?.conversation_id }));
     const ids = msgs.map(m => m.item_id);
     const unreadCount = msgs.filter(m => !m.is_read).length;
     try {
@@ -748,7 +815,7 @@ export function useMailPageLogic() {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) return;
     try {
-      const items = [{ item_id: msg.item_id, change_key: msg.change_key }];
+      const items = [{ item_id: msg.item_id, change_key: msg.change_key, conversation_id: selectedThread?.conversation_id }];
       if (msg.is_read) {
         await p.markUnread(items);
       } else {
@@ -874,7 +941,7 @@ export function useMailPageLogic() {
 
     try {
       const msgs = await p.getThread(thread.conversation_id, selectedFolder === 'deleteditems');
-      const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key }));
+      const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key, conversation_id: thread.conversation_id }));
       if (shouldMarkRead) {
         await p.markRead(items);
       } else {
@@ -977,7 +1044,16 @@ export function useMailPageLogic() {
   const handleSnooze = useCallback(async (snoozeUntil: string) => {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p || messages.length === 0 || !selectedThread) return;
-    const lastMsg = messages[messages.length - 1];
+    // Flush pending send before snoozing so the last message has a real server ID.
+    if (pendingSendRef.current?.optimisticConversationId === selectedThread.conversation_id) {
+      clearTimeout(pendingSendRef.current.timerId);
+      const { execute } = pendingSendRef.current;
+      pendingSendRef.current = null;
+      setSendToast(null);
+      setComposerRestoreData(null);
+      await execute().catch(() => {});
+    }
+    const lastMsg = messages.filter(m => m.item_id !== '__optimistic__').at(-1) ?? messages[messages.length - 1];
     try {
       await p.snooze(lastMsg.item_id);
       const key = 'mail-snoozed-items';
@@ -1023,7 +1099,23 @@ export function useMailPageLogic() {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p || !selectedThread) return;
     const thread = selectedThread;
-    const savedMessages = messages;
+
+    // Flush any pending send for this conversation first — the optimistic message
+    // has no real server ID yet and would cause ErrorInvalidIdMalformed on move.
+    if (pendingSendRef.current?.optimisticConversationId === thread.conversation_id) {
+      clearTimeout(pendingSendRef.current.timerId);
+      const { execute } = pendingSendRef.current;
+      pendingSendRef.current = null;
+      setSendToast(null);
+      setComposerRestoreData(null);
+      await execute().catch(() => {});
+    }
+
+    // thread.accountId is undefined in single-account mode; fall back to selectedAccountId.
+    const resolvedAccountId = thread.accountId ?? selectedAccountId;
+    const accountEmail = allMailAccounts.find(a => a.id === resolvedAccountId)?.email?.toLowerCase();
+    // Exclude optimistic messages — they have no real server ID yet.
+    const savedMessages = messages.filter(m => m.item_id !== '__optimistic__');
     const unreadToDecrement = thread.unread_count;
 
     const idx = threads.findIndex(th => th.conversation_id === thread.conversation_id);
@@ -1046,6 +1138,8 @@ export function useMailPageLogic() {
     }
     try {
       for (const msg of savedMessages) {
+        // Skip messages sent by the account owner — they live in Sent and should stay there.
+        if (accountEmail && msg.from_email?.toLowerCase() === accountEmail) continue;
         await p.moveToFolder(msg.item_id, targetFolderId);
       }
       (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
@@ -1067,7 +1161,7 @@ export function useMailPageLogic() {
         }));
       }
     }
-  }, [resolveProvider, messages, selectedThread, selectedFolder, threads, openThread]);
+  }, [resolveProvider, messages, selectedThread, selectedFolder, threads, openThread, allMailAccounts, selectedAccountId]);
 
   const showActionToast = useCallback((label: string) => {
     if (actionToastTimerRef.current) clearTimeout(actionToastTimerRef.current);
@@ -1161,15 +1255,19 @@ export function useMailPageLogic() {
     for (const thread of toMove) {
       const p = resolveProvider(thread.accountId);
       if (!p) continue;
+      const accountEmail = allMailAccounts.find(a => a.id === thread.accountId)?.email?.toLowerCase();
       try {
         const msgs = await p.getThread(thread.conversation_id, false);
-        for (const msg of msgs) await p.moveToFolder(msg.item_id, targetFolderId);
+        for (const msg of msgs) {
+          if (accountEmail && msg.from_email?.toLowerCase() === accountEmail) continue;
+          await p.moveToFolder(msg.item_id, targetFolderId);
+        }
         (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
       } catch (e) {
         setError(String(e));
       }
     }
-  }, [threads, selectedThreadIds, selectedThread, resolveProvider, showActionToast]);
+  }, [threads, selectedThreadIds, selectedThread, resolveProvider, showActionToast, allMailAccounts]);
 
   const handleBulkToggleRead = useCallback(async (markAsRead: boolean) => {
     const toUpdate = threads.filter(t => selectedThreadIds.has(t.conversation_id));
@@ -1191,7 +1289,7 @@ export function useMailPageLogic() {
       if (!p) continue;
       try {
         const msgs = await p.getThread(thread.conversation_id, selectedFolder === 'deleteditems');
-        const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key }));
+        const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key, conversation_id: thread.conversation_id }));
         if (markAsRead) await p.markRead(items);
         else await p.markUnread(items);
       } catch (e) {
@@ -1249,6 +1347,7 @@ export function useMailPageLogic() {
     restoreData: ComposerRestoreData,
     attachments?: ComposerAttachment[],
     fromAccountId?: string,
+    fromIdentityId?: string,
   ) => {
     const p = fromAccountId
       ? (allProviders.get(fromAccountId) ?? null)
@@ -1269,7 +1368,7 @@ export function useMailPageLogic() {
       : undefined;
 
     if (optimisticConversationId) {
-      const senderAccountId = fromAccountId ?? selectedThread?.accountId;
+      const senderAccountId = fromAccountId ?? selectedThread?.accountId ?? selectedAccountId;
       const senderAccount = allMailAccounts.find(a => a.id === senderAccountId);
       const optimisticMsg: MailMessage = {
         item_id: '__optimistic__',
@@ -1295,7 +1394,7 @@ export function useMailPageLogic() {
 
     const execute = async () => {
       try {
-        await p.sendMail({ to, cc, bcc, subject, bodyHtml: body, replyToItemId, replyToChangeKey, attachments });
+        await p.sendMail({ to, cc, bcc, subject, bodyHtml: body, replyToItemId, replyToChangeKey, isForward: restoreData?.isForward, attachments, fromIdentityId });
         if (!restoreData?.isNewMessage && selectedThread) {
           // Evict cache so the next getThread() fetches fresh data from the server.
           // We intentionally do NOT call openThread() here: the server may not have

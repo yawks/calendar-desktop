@@ -31,7 +31,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   };
 
   const isUnread = thread.unread_count > 0;
-  const isSnoozed = !!snoozeUntil && new Date(snoozeUntil) > new Date();
+  const isSnoozed = isInSnoozedFolder || (!!snoozeUntil && new Date(snoozeUntil) > new Date());
 
   return (
     <div
@@ -72,7 +72,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           <div className="mail-thread-item__top-right">
             {thread.has_attachments && <Paperclip size={12} className="mail-thread-item__clip" />}
             {isSnoozed && (
-              <span className="mail-thread-item__snooze-badge" title={`${t('mail.snoozedUntil', "Mis en attente jusqu'au")} ${formatDate(snoozeUntil!)}`}>
+              <span className="mail-thread-item__snooze-badge" title={snoozeUntil ? `${t('mail.snoozedUntil', "Mis en attente jusqu'au")} ${formatDate(snoozeUntil)}` : t('mail.snoozed', 'Mis en attente')}>
                 <Clock size={10} />
               </span>
             )}
