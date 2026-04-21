@@ -49,8 +49,6 @@ export interface MailProvider {
   listThreads(folder: string, maxCount?: number, offset?: number): Promise<MailThread[]>;
   /** Search threads using a structured query. Results are not cached. */
   searchThreads(query: MailSearchQuery, maxCount?: number): Promise<MailThread[]>;
-  /** Force a network fetch for inbox, bypassing any local cache. Optional — only implemented by CachedMailProvider. */
-  forceRefreshInbox?(maxCount?: number): Promise<MailThread[]>;
   getThread(conversationId: string, includeTrash?: boolean, isDraft?: boolean): Promise<MailMessage[]>;
   listFolders(): Promise<MailFolder[]>;
   sendMail(params: SendMailParams): Promise<void>;

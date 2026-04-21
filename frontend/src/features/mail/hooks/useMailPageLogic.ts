@@ -8,14 +8,12 @@ import { useJmapAuth } from '../../../shared/store/JmapAuthStore';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useContactSuggestions } from './useContactSuggestions';
 import { MailProvider, ComposerAttachment, ProviderType } from '../providers/MailProvider';
-import { CachedMailProvider, OnInboxRefreshed } from '../providers/CachedMailProvider';
 import { EwsMailProvider } from '../providers/EwsMailProvider';
 import { GmailMailProvider } from '../providers/GmailMailProvider';
 import { ImapMailProvider } from '../providers/ImapMailProvider';
 import { JmapMailProvider } from '../providers/JmapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery } from '../types';
 import { ALL_ACCOUNTS_ID, THEME_CYCLE, buildUnreadCounts } from '../utils';
-import { getAccountFolders, setAccountFolders } from '../providers/mailCache';
 import { RecipientEntry } from '../components/RecipientInput';
 
 export function useMailPageLogic() {
@@ -25,8 +23,6 @@ export function useMailPageLogic() {
   const { accounts: imapAccounts } = useImapAuth();
   const { accounts: jmapAccounts } = useJmapAuth();
   const { preference, setPreference } = useTheme();
-
-  const onInboxRefreshedRef = useRef<OnInboxRefreshed | null>(null);
 
   const mailEwsAccounts = useMemo(
     () => ewsAccounts.filter(a => !a.enabledCapabilities || a.enabledCapabilities.includes('email')),
@@ -46,30 +42,10 @@ export function useMailPageLogic() {
 
   const allProviders = useMemo<Map<string, MailProvider>>(() => {
     const map = new Map<string, MailProvider>();
-    for (const a of mailEwsAccounts) {
-      map.set(a.id, new CachedMailProvider(
-        new EwsMailProvider(a.id, getEwsToken),
-        (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
-      ));
-    }
-    for (const a of mailGoogleAccounts) {
-      map.set(a.id, new CachedMailProvider(
-        new GmailMailProvider(a.id, getGoogleToken),
-        (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
-      ));
-    }
-    for (const a of imapAccounts) {
-      map.set(a.id, new CachedMailProvider(
-        new ImapMailProvider(a),
-        (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
-      ));
-    }
-    for (const a of jmapAccounts) {
-      map.set(a.id, new CachedMailProvider(
-        new JmapMailProvider(a),
-        (aid, threads) => onInboxRefreshedRef.current?.(aid, threads),
-      ));
-    }
+    for (const a of mailEwsAccounts) map.set(a.id, new EwsMailProvider(a.id, getEwsToken));
+    for (const a of mailGoogleAccounts) map.set(a.id, new GmailMailProvider(a.id, getGoogleToken));
+    for (const a of imapAccounts) map.set(a.id, new ImapMailProvider(a));
+    for (const a of jmapAccounts) map.set(a.id, new JmapMailProvider(a));
     return map;
   }, [mailEwsAccounts, mailGoogleAccounts, imapAccounts, jmapAccounts, getEwsToken, getGoogleToken]);
 
@@ -101,8 +77,6 @@ export function useMailPageLogic() {
   messagesRef.current = messages;
   const threadsRef = useRef<MailThread[]>([]);
   threadsRef.current = threads;
-  const pendingRefreshesRef = useRef<Map<string, MailThread[]>>(new Map());
-  const refreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward'>('reply');
   const [composing, setComposing] = useState(false);
@@ -178,23 +152,6 @@ export function useMailPageLogic() {
   allAccountFoldersRef.current = allAccountFolders;
   const [folderUnreadCounts, setFolderUnreadCounts] = useState<Record<string, number>>({});
 
-  // Pre-populate allAccountFolders from IndexedDB so folders appear immediately on app start.
-  useEffect(() => {
-    (async () => {
-      const entries = await Promise.all(
-        allMailAccounts.map(async a => [a.id, await getAccountFolders(a.id)] as [string, import('../types').MailFolder[]])
-      );
-      const withData = entries.filter(([, folders]) => folders.length > 0);
-      if (withData.length > 0) {
-        setAllAccountFolders(prev => {
-          const next = new Map(prev);
-          for (const [id, folders] of withData) if (!next.has(id)) next.set(id, folders);
-          return next;
-        });
-      }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const isInSnoozedFolder = selectedFolder === 'snoozed';
 
   const handleFoldersLoaded = useCallback((folders: import('../types').MailFolder[]) => {
@@ -231,7 +188,6 @@ export function useMailPageLogic() {
       clearTimeout(pendingSendRef.current.timerId);
       pendingSendRef.current.execute().catch(() => {});
     }
-    if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
   }, []);
 
   const scheduleDeletion = useCallback((
@@ -278,7 +234,6 @@ export function useMailPageLogic() {
     setError(null);
     folderAccountedRef.current.clear();
     const pendingDeleteCid = pendingDeletionRef.current?.conversationId;
-    // Show spinner only after a short grace period so IndexedDB cache hits (<80ms) skip it.
     const spinnerTimer = window.setTimeout(() => {
       if (threadsRef.current.length === 0) setThreadsLoading(true);
     }, 80);
@@ -332,7 +287,6 @@ export function useMailPageLogic() {
         }
         setFolderUnreadCounts(mergedCounts);
         setAllAccountFolders(newAccountFolders);
-        for (const [aid, flds] of newAccountFolders.entries()) setAccountFolders(aid, flds).catch(() => {});
       } else {
         if (!provider) return;
         const resolvedFolder = selectedFolder === 'snoozed'
@@ -358,7 +312,6 @@ export function useMailPageLogic() {
         setAllFolders(folders);
         setFolderUnreadCounts(buildUnreadCounts(folders));
         setAllAccountFolders(prev => { const next = new Map(prev); next.set(provider.accountId, folders); return next; });
-        setAccountFolders(provider.accountId, folders).catch(() => {});
       }
     } catch (e) {
       setError(String(e));
@@ -463,102 +416,6 @@ export function useMailPageLogic() {
     } catch { /* Non-critical */ }
   }, [isAllMode, allProviders, provider]);
 
-  onInboxRefreshedRef.current = (accountId: string, freshThreads: MailThread[]) => {
-    if (selectedFolder !== 'inbox') return;
-
-    // Accumulate per-account fresh data; apply all at once after a short debounce
-    // so multiple accounts' background refreshes produce a single render (no flicker).
-    pendingRefreshesRef.current.set(accountId, freshThreads);
-
-    if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
-    refreshDebounceRef.current = setTimeout(() => {
-      refreshDebounceRef.current = null;
-      const accumulated = new Map(pendingRefreshesRef.current);
-      pendingRefreshesRef.current.clear();
-
-      const pendingDeleteCid = pendingDeletionRef.current?.conversationId;
-      const optimisticCid = pendingSendRef.current?.optimisticConversationId;
-      const applyOptimistic = (t: MailThread) =>
-        optimisticCid && t.conversation_id === optimisticCid
-          ? { ...t, message_count: t.message_count + 1 }
-          : t;
-
-      if (isAllMode) {
-        setThreads(prev => {
-          let next = [...prev];
-          for (const [accId, threads] of accumulated.entries()) {
-            const acc = allMailAccounts.find(a => a.id === accId);
-            const atIdx = (acc?.email ?? '').indexOf('@');
-            const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
-            const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
-            const accountColor = acc?.color;
-            const filtered = pendingDeleteCid
-              ? threads.filter(t => t.conversation_id !== pendingDeleteCid)
-              : threads;
-            const tagged = filtered.map(t => applyOptimistic({ ...t, accountId: accId, accountLabel, accountColor }));
-            next = next.filter(t => t.accountId !== accId);
-            next = [...next, ...tagged];
-          }
-          const seenMerge = new Set<string>();
-          return next
-            .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime())
-            .filter(t => { const k = (t.accountId ?? '') + '_' + t.conversation_id; return !seenMerge.has(k) && !!seenMerge.add(k); });
-        });
-      } else if (accumulated.has(selectedAccountId)) {
-        const threads = accumulated.get(selectedAccountId)!;
-        const filtered = (pendingDeleteCid
-          ? threads.filter(t => t.conversation_id !== pendingDeleteCid)
-          : threads).map(applyOptimistic);
-        setThreads(filtered);
-      }
-
-      // Update sidebar inbox unread count atomically with thread list update.
-      // Compute from fresh threads for refreshed accounts + current state for others.
-      const refreshedIds = new Set(accumulated.keys());
-      let inboxUnread = 0;
-      for (const [, threads] of accumulated.entries()) {
-        inboxUnread += threads.reduce((sum, t) => sum + t.unread_count, 0);
-      }
-      if (isAllMode) {
-        for (const t of threadsRef.current) {
-          if (!refreshedIds.has(t.accountId ?? '')) inboxUnread += t.unread_count;
-        }
-      }
-      setFolderUnreadCounts(prev => ({ ...prev, inbox: inboxUnread }));
-
-      // Auto-refresh currently open conversation if the server reports new messages
-      const openThread_ = selectedThreadRef.current;
-      const currentMsgs = messagesRef.current;
-      if (openThread_) {
-        for (const [accId, threads] of accumulated.entries()) {
-          if (isAllMode && openThread_.accountId !== accId) continue;
-          const freshThread = threads.find(t => t.conversation_id === openThread_.conversation_id);
-          if (freshThread) {
-            const realCount = currentMsgs.filter(m => m.item_id !== '__optimistic__').length;
-            if (freshThread.message_count > realCount) {
-              const p = resolveProvider(openThread_.accountId);
-              if (p) {
-                p.getThread(openThread_.conversation_id, false, false)
-                  .then(result => {
-                    if (result.length > realCount) {
-                      setMessages(result);
-                      setThreads(prev => prev.map(th =>
-                        th.conversation_id === openThread_.conversation_id
-                          ? { ...th, message_count: result.length }
-                          : th
-                      ));
-                    }
-                  })
-                  .catch(() => {});
-              }
-            }
-            break;
-          }
-        }
-      }
-    }, 150);
-  };
-
   const silentRefresh = useCallback(async () => {
     try {
       if (isAllMode) {
@@ -570,9 +427,7 @@ export function useMailPageLogic() {
               const domain = atIdx >= 0 ? (acc?.email ?? '').slice(atIdx + 1) : (acc?.email ?? '');
               const accountLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
               const accountColor = acc?.color;
-              const threads = selectedFolder === 'inbox'
-                ? await (p.forceRefreshInbox?.(50) ?? p.listThreads(selectedFolder, 50, 0))
-                : await p.listThreads(selectedFolder, 50, 0);
+              const threads = await p.listThreads(selectedFolder, 50, 0);
               return threads.map(t => ({ ...t, accountId, accountLabel, accountColor }));
             })
           ),
@@ -620,13 +475,9 @@ export function useMailPageLogic() {
         }
         setFolderUnreadCounts(mergedCounts);
         setAllAccountFolders(newAccountFolders);
-        for (const [aid, flds] of newAccountFolders.entries()) setAccountFolders(aid, flds).catch(() => {});
       } else if (provider) {
-        const fetchThreads = selectedFolder === 'inbox'
-          ? provider.forceRefreshInbox?.(50) ?? provider.listThreads(selectedFolder, 50, 0)
-          : provider.listThreads(selectedFolder, 50, 0);
         const [result, folders] = await Promise.all([
-          fetchThreads,
+          provider.listThreads(selectedFolder, 50, 0),
           provider.listFolders(),
         ]);
         const optimisticCidSR = pendingSendRef.current?.optimisticConversationId;
@@ -640,7 +491,6 @@ export function useMailPageLogic() {
         setHasMoreThreads(result.length >= 50);
         setFolderUnreadCounts(buildUnreadCounts(folders));
         setAllAccountFolders(prev => { const next = new Map(prev); next.set(provider.accountId, folders); return next; });
-        setAccountFolders(provider.accountId, folders).catch(() => {});
         // Auto-refresh currently open conversation if server reports new messages
         const openThread_ = selectedThreadRef.current;
         if (openThread_) {
@@ -913,7 +763,6 @@ export function useMailPageLogic() {
         } else {
           await p.moveToTrash(itemId);
         }
-        if (convId) (p as CachedMailProvider).evict?.(convId).catch(() => {});
       },
       convId,
     );
@@ -1035,7 +884,6 @@ export function useMailPageLogic() {
             }
           }
         }
-        (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
       },
       thread.conversation_id,
     );
@@ -1064,7 +912,6 @@ export function useMailPageLogic() {
       setSnoozedMap(prev => ({ ...prev, [selectedThread.conversation_id]: snoozeUntil }));
       setSnoozedByItemId(prev => ({ ...prev, [lastMsg.item_id]: snoozeUntil }));
       setThreads(prev => prev.filter(t => t.conversation_id !== selectedThread.conversation_id));
-      (p as CachedMailProvider).evict?.(selectedThread.conversation_id).catch(() => {});
       setSelectedThread(null);
       setMessages([]);
     } catch (e) { setError(String(e)); }
@@ -1142,7 +989,6 @@ export function useMailPageLogic() {
         if (accountEmail && msg.from_email?.toLowerCase() === accountEmail) continue;
         await p.moveToFolder(msg.item_id, targetFolderId);
       }
-      (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
     } catch (e) {
       setError(String(e));
       setThreads(prev => {
@@ -1197,7 +1043,6 @@ export function useMailPageLogic() {
             else await p.moveToTrash(msg.item_id);
           }
         }
-        (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
       } catch (e) {
         setError(String(e));
       }
@@ -1232,7 +1077,6 @@ export function useMailPageLogic() {
         localStorage.setItem(key, JSON.stringify(stored));
         setSnoozedMap(prev => ({ ...prev, [thread.conversation_id]: snoozeUntil }));
         setSnoozedByItemId(prev => ({ ...prev, [lastMsg.item_id]: snoozeUntil }));
-        (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
       } catch (e) {
         setError(String(e));
       }
@@ -1262,7 +1106,6 @@ export function useMailPageLogic() {
           if (accountEmail && msg.from_email?.toLowerCase() === accountEmail) continue;
           await p.moveToFolder(msg.item_id, targetFolderId);
         }
-        (p as CachedMailProvider).evict?.(thread.conversation_id).catch(() => {});
       } catch (e) {
         setError(String(e));
       }
@@ -1400,9 +1243,8 @@ export function useMailPageLogic() {
           // We intentionally do NOT call openThread() here: the server may not have
           // the sent message in the conversation yet, so fetching immediately would
           // replace the optimistic message with stale data. The background refresh
-          // (onInboxRefreshed / silentRefresh) will auto-refresh messages once the
+          // silentRefresh will auto-refresh messages once the
           // server's message_count reflects the new reply.
-          await (p as CachedMailProvider).evict?.(selectedThread.conversation_id);
         }
       } catch (e) {
         // Roll back the optimistic message on send failure
