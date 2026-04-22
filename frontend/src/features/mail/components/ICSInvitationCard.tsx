@@ -441,7 +441,6 @@ export function ICSInvitationCard({
   }, [currentUserEmail, mailProviderType, writableCalendars]);
 
   // Match the ICS event against known calendar events
-  // Use stringified markers for stable memoization if needed, but matchedEvent is usually fine
   const matchedEvent = useMemo(() => {
     if (!icsData) return null;
     return matchEvent(icsData.title, icsData.start, allEvents);
@@ -450,14 +449,13 @@ export function ICSInvitationCard({
   const [selectedCalId, setSelectedCalId] = useState<string>('');
   const [userChangedCalendar, setUserChangedCalendar] = useState(false);
 
-  // Auto-select the calendar containing the matched event; fall back to the
-  // default calendar derived from the mail account. Once the user explicitly
-  // picks a calendar we stop overriding their choice.
   useEffect(() => {
     if (userChangedCalendar) return;
-    const id = matchedEvent?.calendarId ?? defaultCalendarId;
-    if (id) setSelectedCalId(id);
-  }, [defaultCalendarId, matchedEvent, userChangedCalendar]);
+    const targetId = matchedEvent?.calendarId ?? defaultCalendarId;
+    if (targetId && targetId !== selectedCalId) {
+        setSelectedCalId(targetId);
+    }
+  }, [defaultCalendarId, matchedEvent?.calendarId, userChangedCalendar, selectedCalId]);
 
   const selectedCal = useMemo(
     () => writableCalendars.find(c => c.id === selectedCalId) ?? null,

@@ -15,7 +15,7 @@ import { JmapMailProvider } from '../providers/JmapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery } from '../types';
 import { ALL_ACCOUNTS_ID, THEME_CYCLE, buildUnreadCounts } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
-import { useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch } from './useMailQueries';
+import { useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useMailIdentities } from './useMailQueries';
 import { useMailMutations } from './useMailMutations';
 
 export function useMailPageLogic() {
@@ -42,13 +42,33 @@ export function useMailPageLogic() {
     ...jmapAccounts.map(a => ({ id: a.id, email: a.email, name: a.displayName, providerType: 'jmap' as const, color: a.color })),
   ], [mailEwsAccounts, mailGoogleAccounts, imapAccounts, jmapAccounts]);
 
+  const providersRef = useRef<Map<string, MailProvider>>(new Map());
   const allProviders = useMemo<Map<string, MailProvider>>(() => {
-    const map = new Map<string, MailProvider>();
-    for (const a of mailEwsAccounts) map.set(a.id, new EwsMailProvider(a.id, getEwsToken));
-    for (const a of mailGoogleAccounts) map.set(a.id, new GmailMailProvider(a.id, getGoogleToken));
-    for (const a of imapAccounts) map.set(a.id, new ImapMailProvider(a));
-    for (const a of jmapAccounts) map.set(a.id, new JmapMailProvider(a));
-    return map;
+    const current = providersRef.current;
+    const next = new Map<string, MailProvider>();
+
+    for (const a of mailEwsAccounts) {
+        if (!current.has(a.id) || !(current.get(a.id) instanceof EwsMailProvider)) {
+            next.set(a.id, new EwsMailProvider(a.id, getEwsToken));
+        } else {
+            next.set(a.id, current.get(a.id)!);
+        }
+    }
+    for (const a of mailGoogleAccounts) {
+        if (!current.has(a.id) || !(current.get(a.id) instanceof GmailMailProvider)) {
+            next.set(a.id, new GmailMailProvider(a.id, getGoogleToken));
+        } else {
+            next.set(a.id, current.get(a.id)!);
+        }
+    }
+    for (const a of imapAccounts) {
+        next.set(a.id, new ImapMailProvider(a)); // IMAP provider is usually cheap to recreate or we could stabilize too
+    }
+    for (const a of jmapAccounts) {
+        next.set(a.id, new JmapMailProvider(a));
+    }
+    providersRef.current = next;
+    return next;
   }, [mailEwsAccounts, mailGoogleAccounts, imapAccounts, jmapAccounts, getEwsToken, getGoogleToken]);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
@@ -84,7 +104,7 @@ export function useMailPageLogic() {
   const threadsQuery = useMailThreads(selectedAccountId, selectedFolder, provider, threadLimit, 0);
   const allThreadsQuery = useAllAccountThreads(selectedFolder, allAccountInfo, threadLimit, 0);
 
-  const threads = useMemo(() => isAllMode ? allThreadsQuery.data : (threadsQuery.data ?? []), [isAllMode, allThreadsQuery.data, threadsQuery.data]);
+  const threads = isAllMode ? allThreadsQuery.data : threadsQuery.data;
   const threadsLoading = isAllMode ? allThreadsQuery.isLoading : threadsQuery.isLoading;
   const threadsFetching = isAllMode ? allThreadsQuery.isFetching : threadsQuery.isFetching;
 
@@ -101,14 +121,17 @@ export function useMailPageLogic() {
     allProviders.get(selectedThread?.accountId ?? selectedAccountId) ?? provider
   );
 
-  const messages = conversationQuery.data ?? [];
+  const messages = conversationQuery.data;
   const messagesLoading = conversationQuery.isLoading;
 
   const searchSingleQuery = useMailSearch(selectedAccountId, searchQuery!, isAllMode ? null : provider);
   const searchAllQuery = useAllAccountSearch(searchQuery!, allAccountInfo);
 
-  const searchResults = isAllMode ? searchAllQuery.data : (searchSingleQuery.data ?? []);
+  const searchResults = isAllMode ? searchAllQuery.data : searchSingleQuery.data;
   const searchLoading = isAllMode ? searchAllQuery.isLoading : searchSingleQuery.isLoading;
+
+  const identitiesQuery = useMailIdentities(selectedAccountId, provider);
+  const accountIdentities = identitiesQuery.data;
 
   const allFolders = isAllMode ? [] : (folderQuery.data ?? []);
   const allAccountFolders = allFoldersQuery.allAccountFolders;
@@ -532,6 +555,7 @@ export function useMailPageLogic() {
     setSelectedThreadIds, setAttachmentPreview, provider, setReplyingTo, setReplyMode,
     snoozedByItemId, handleFoldersLoaded, setSelectedThread,
     searchQuery, searchResults, searchLoading, handleSearch,
-    isSending: mutations.isSending
+    isSending: mutations.isSending,
+    accountIdentities
   };
 }

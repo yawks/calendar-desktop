@@ -97,24 +97,31 @@ export function useCalendarEvents(calendars: CalendarConfig[]) {
           if (!token) throw new Error('Unauthorized');
           return await fetchEWSEvents(cal, token);
         }
-        // Fallback for others or stubs for now
         return [];
       },
       enabled: cal.type === 'exchange',
       staleTime: 5 * 60 * 1000,
+      retry: false, // Don't flood on Auth error
     }))
   });
 
   const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
+  const isLoading = results.some(r => r.isLoading);
 
   const allEvents = useMemo(() => {
     return results.flatMap(r => r.data ?? []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataTimestamps]);
 
-  return {
+  const errors = useMemo(() => {
+    return results.map(r => r.error).filter(Boolean);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorTimestamps]);
+
+  return useMemo(() => ({
     events: allEvents,
-    isLoading: results.some(r => r.isLoading),
-    errors: results.map(r => r.error).filter(Boolean),
-  };
+    isLoading,
+    errors,
+  }), [allEvents, isLoading, errors]);
 }

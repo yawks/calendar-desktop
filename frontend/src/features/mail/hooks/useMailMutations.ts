@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { MailProvider, ComposerAttachment } from '../providers/MailProvider';
 import { MAIL_KEYS } from './useMailQueries';
 import { MailThread, MailMessage } from '../types';
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 
 export interface MutationParams {
   accountId: string;
@@ -27,7 +27,6 @@ export function useMailMutations() {
       const allThreadsKey = ['mail', 'all', 'threads'];
       const messagesKey = MAIL_KEYS.thread(accountId, conversationId);
 
-      // Do NOT cancel messagesKey query here to avoid breaking the initial load
       await queryClient.cancelQueries({ queryKey: threadsKey });
       await queryClient.cancelQueries({ queryKey: allThreadsKey });
 
@@ -74,9 +73,6 @@ export function useMailMutations() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      // Avoid immediate global invalidation to prevent cascading refreshes
-      // Rely on optimistic update and background refetchInterval
-      // Only invalidate unread count if necessary
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
     },
   });
@@ -118,9 +114,8 @@ export function useMailMutations() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'folders'] });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
     },
   });
 
@@ -161,9 +156,8 @@ export function useMailMutations() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'folders'] });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
     },
   });
 
@@ -204,9 +198,8 @@ export function useMailMutations() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'folders'] });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
     },
   });
 
@@ -248,9 +241,8 @@ export function useMailMutations() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'folders'] });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
     },
   });
 
@@ -258,7 +250,7 @@ export function useMailMutations() {
     mutationFn: async ({ provider, to, cc, bcc, subject, bodyHtml, attachments, fromIdentityId }: MutationParams & { to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string, attachments?: ComposerAttachment[], fromIdentityId?: string; conversationId?: string }) => {
       await provider.sendMail({ to, cc, bcc, subject, bodyHtml, attachments, fromIdentityId });
     },
-    onMutate: async ({ accountId, conversationId, bodyHtml, subject }: MutationParams & { to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string, attachments?: ComposerAttachment[], fromIdentityId?: string; conversationId?: string }) => {
+    onMutate: async ({ accountId, conversationId, bodyHtml, subject }) => {
       if (!conversationId) return;
 
       const messagesKey = MAIL_KEYS.thread(accountId, conversationId);
@@ -286,30 +278,32 @@ export function useMailMutations() {
     },
     onError: (_err, variables, context: any) => {
       if (context?.previousMessages) {
-        queryClient.setQueryData(MAIL_KEYS.thread(variables.accountId, (variables as any).conversationId || ''), context.previousMessages);
+        queryClient.setQueryData(MAIL_KEYS.thread(variables.accountId, variables.conversationId || ''), context.previousMessages);
       }
     },
     onSettled: (_data, _error, variables) => {
-      const { accountId, conversationId } = variables as any;
+      const { accountId, conversationId } = variables;
       if (conversationId) {
         queryClient.invalidateQueries({ queryKey: MAIL_KEYS.thread(accountId, conversationId) });
       }
     }
   });
 
-  const markRead = useMemo(() => markReadMutation.mutate, [markReadMutation.mutate]);
-  const moveToTrash = useMemo(() => moveToTrashMutation.mutate, [moveToTrashMutation.mutate]);
-  const deletePermanently = useMemo(() => deletePermanentlyMutation.mutate, [deletePermanentlyMutation.mutate]);
-  const moveThread = useMemo(() => moveThreadMutation.mutate, [moveThreadMutation.mutate]);
-  const snoozeThread = useMemo(() => snoozeThreadMutation.mutate, [snoozeThreadMutation.mutate]);
+  // Stabilize all returned functions
+  const markRead = useCallback((args: any) => markReadMutation.mutate(args), [markReadMutation]);
+  const moveToTrash = useCallback((args: any) => moveToTrashMutation.mutate(args), [moveToTrashMutation]);
+  const deletePermanently = useCallback((args: any) => deletePermanentlyMutation.mutate(args), [deletePermanentlyMutation]);
+  const moveThread = useCallback((args: any) => moveThreadMutation.mutate(args), [moveThreadMutation]);
+  const snoozeThread = useCallback((args: any) => snoozeThreadMutation.mutate(args), [snoozeThreadMutation]);
+  const sendMail = useCallback((args: any) => sendMailMutation.mutateAsync(args), [sendMailMutation]);
 
-  return {
+  return useMemo(() => ({
     markRead,
     moveToTrash,
     deletePermanently,
     moveThread,
     snoozeThread,
-    sendMail: (args: MutationParams & { conversationId?: string; to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string, attachments?: ComposerAttachment[], fromIdentityId?: string }) => sendMailMutation.mutateAsync(args),
+    sendMail,
     isSending: sendMailMutation.isPending,
-  };
+  }), [markRead, moveToTrash, deletePermanently, moveThread, snoozeThread, sendMail, sendMailMutation.isPending]);
 }

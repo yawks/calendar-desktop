@@ -9,7 +9,6 @@ import {
   X,
 } from 'lucide-react';
 import { useRef, useState, useEffect } from "react";
-import type { MailIdentity } from './types';
 import { ThreadList } from "./components/ThreadList";
 import { ThreadDetail } from "./components/ThreadDetail";
 import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
@@ -41,25 +40,22 @@ export default function MailApp() {
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
     downloadAttachment, getRawAttachmentData, scheduleSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
-    setSelectedThreadIds, setAttachmentPreview, provider, setReplyingTo, setReplyMode,
+    setSelectedThreadIds, setAttachmentPreview, setReplyingTo, setReplyMode,
     snoozedByItemId, setSelectedThread,
     searchQuery, searchResults, searchLoading, handleSearch,
+    accountIdentities
   } = useMailPageLogic();
 
   const threadListRef = useRef<HTMLDivElement>(null);
 
-  // JMAP identity selection — fetched eagerly when the provider changes
-  const [accountIdentities, setAccountIdentities] = useState<MailIdentity[]>([]);
+  // Identity selection state remains local to the component for UI control
   const [selectedIdentityId, setSelectedIdentityId] = useState('');
 
+  // Sync selected identity when list changes or account changes
   useEffect(() => {
-    if (!provider) { setAccountIdentities([]); setSelectedIdentityId(''); return; }
-    provider.listIdentities?.().then(identities => {
-      setAccountIdentities(identities);
-      const primary = identities.find(i => !i.mayDelete) ?? identities[0];
-      setSelectedIdentityId(primary?.id ?? '');
-    }).catch(() => {});
-  }, [provider]);
+    const primary = accountIdentities.find(i => !i.mayDelete) ?? accountIdentities[0];
+    setSelectedIdentityId(primary?.id ?? '');
+  }, [accountIdentities]);
 
   // When a reply is opened, pre-select the identity that matches a "to" recipient
   useEffect(() => {

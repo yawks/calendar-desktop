@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode, useRef } from 'react';
 import { GoogleAccount } from '../types';
 import { isTauri, tauriConnectGoogle, refreshAccessToken } from '../utils/tauriOAuth';
 import { resolveGoogleCredentials } from './googleClientConfig';
@@ -59,7 +59,9 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
     }
   });
 
+  const accountsRef = useRef(accounts);
   useEffect(() => {
+    accountsRef.current = accounts;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
   }, [accounts]);
 
@@ -81,44 +83,52 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
     dispatch({ type: 'UPDATE_CAPABILITIES', payload: { id, enabledCapabilities } });
   }, []);
 
-  const getValidToken = useCallback(async (accountId: string): Promise<string | null> => {
-    const account = accounts.find((a) => a.id === accountId);
-    if (!account) return null;
-    if (account.expiresAt > Date.now()) return account.accessToken;
+  const refreshPromises = useRef<Record<string, Promise<string | null>>>({});
 
-    // Refresh the token
-    try {
-      if (isTauri()) {
-        // Desktop: PKCE flow — no client_secret, refresh directly with Google
-        const { clientId, clientSecret } = resolveGoogleCredentials();
-        const { accessToken, expiresAt } = await refreshAccessToken(account.refreshToken, clientId, clientSecret);
-        dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken, expiresAt } });
-        return accessToken;
-      } else {
-        // Web: proxy keeps client_secret server-side
-        const res = await fetch('/auth/google/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: account.refreshToken }),
-        });
-        if (!res.ok) return null;
-        const { access_token, expires_at } = await res.json() as { access_token: string; expires_at: number };
-        dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken: access_token, expiresAt: expires_at } });
-        return access_token;
-      }
-    } catch {
-      return null;
-    }
-  }, [accounts]);
+  const getValidToken = useCallback(async (accountId: string): Promise<string | null> => {
+    const account = accountsRef.current.find((a) => a.id === accountId);
+    if (!account) return null;
+    if (account.expiresAt > Date.now() + 60_000) return account.accessToken;
+
+    const existing = refreshPromises.current[accountId];
+    if (existing) return existing;
+
+    const performRefresh = async () => {
+        try {
+          if (isTauri()) {
+            const { clientId, clientSecret } = resolveGoogleCredentials();
+            const { accessToken, expiresAt } = await refreshAccessToken(account.refreshToken, clientId, clientSecret);
+            dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken, expiresAt } });
+            return accessToken;
+          } else {
+            const res = await fetch('/auth/google/refresh', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refresh_token: account.refreshToken }),
+            });
+            if (!res.ok) return null;
+            const { access_token, expires_at } = await res.json() as { access_token: string; expires_at: number };
+            dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken: access_token, expiresAt: expires_at } });
+            return access_token;
+          }
+        } catch (err) {
+          console.error('[GoogleAuthStore] refresh failed', err);
+          return null;
+        } finally {
+            delete refreshPromises.current[accountId];
+        }
+    };
+
+    refreshPromises.current[accountId] = performRefresh();
+    return refreshPromises.current[accountId];
+  }, []);
 
   const connectGoogle = useCallback(async (): Promise<GoogleAccount | null> => {
     if (isTauri()) {
-      // Native flow: system browser + local HTTP server + PKCE
       const accountData = await tauriConnectGoogle();
       if (!accountData) return null;
       return addAccount(accountData);
     } else {
-      // Web flow: OAuth popup via proxy
       return new Promise((resolve) => {
         const width = 500;
         const height = 650;
