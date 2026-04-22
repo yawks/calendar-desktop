@@ -13,7 +13,7 @@ import { GmailMailProvider } from '../providers/GmailMailProvider';
 import { ImapMailProvider } from '../providers/ImapMailProvider';
 import { JmapMailProvider } from '../providers/JmapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery } from '../types';
-import { ALL_ACCOUNTS_ID, THEME_CYCLE } from '../utils';
+import { ALL_ACCOUNTS_ID, THEME_CYCLE, buildUnreadCounts } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
 import { useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation } from './useMailQueries';
 import { useMailMutations } from './useMailMutations';
@@ -89,17 +89,25 @@ export function useMailPageLogic() {
 
   const allFolders = isAllMode ? [] : (folderQuery.data ?? []);
   const allAccountFolders = allFoldersQuery.allAccountFolders;
-  const folderUnreadCounts = isAllMode ? allFoldersQuery.mergedCounts : (folderQuery.data ? {} : {});
+
+  const folderUnreadCounts = useMemo(() => {
+    if (isAllMode) return allFoldersQuery.mergedCounts;
+    if (folderQuery.data) return buildUnreadCounts(folderQuery.data);
+    return {};
+  }, [isAllMode, allFoldersQuery.mergedCounts, folderQuery.data]);
+
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const allErrors = [...(isAllMode ? allThreadsQuery.errors : (threadsQuery.error ? [threadsQuery.error] : [])), ...allFoldersQuery.errors] as Error[];
     if (allErrors.length > 0) {
-      setError(allErrors[0].message);
+      const msg = allErrors[0].message;
+      setError(prev => prev === msg ? prev : msg);
     }
   }, [isAllMode, allThreadsQuery.errors, threadsQuery.error, allFoldersQuery.errors]);
 
   // --- MUTATIONS ---
-  const mutations = useMailMutations(selectedThread?.accountId ?? selectedAccountId, allProviders.get(selectedThread?.accountId ?? selectedAccountId) ?? provider);
+  const mutations = useMailMutations();
 
   const [threadsLoadingMore] = useState(false);
   const [hasMoreThreads] = useState(true);
@@ -109,8 +117,7 @@ export function useMailPageLogic() {
   const [composingAccountId, setComposingAccountId] = useState<string>(() => allMailAccounts[0]?.id ?? '');
   const [mailContacts] = useState<RecipientEntry[]>([]);
   const contacts = useContactSuggestions(mailContacts);
-  const [error, setError] = useState<string | null>(null);
-  const [deleteToast, setDeleteToast] = useState<{ label: string } | null>(null);
+  const [deleteToast] = useState<{ label: string } | null>(null);
   const [downloadToast, setDownloadToast] = useState<{ name: string; path: string } | null>(null);
   const downloadToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sendToast, setSendToast] = useState<{ label: string } | null>(null);
@@ -158,16 +165,16 @@ export function useMailPageLogic() {
   const openThread = useCallback((thread: MailThread) => {
     setSelectedThread(thread);
     if (thread.unread_count > 0) {
-      mutations.markRead.mutate({ conversationId: thread.conversation_id, read: true });
+      const p = allProviders.get(thread.accountId ?? selectedAccountId);
+      if (p) mutations.markRead.mutate({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: thread.conversation_id, read: true });
     }
-  }, [mutations.markRead]);
+  }, [allProviders, selectedAccountId, mutations.markRead]);
 
   const cancelDeletion = useCallback(() => {
     if (!pendingDeletionRef.current) return;
     clearTimeout(pendingDeletionRef.current.timerId);
     pendingDeletionRef.current.revert();
     pendingDeletionRef.current = null;
-    setDeleteToast(null);
   }, []);
 
   const cycleTheme = useCallback(() => {
@@ -189,63 +196,79 @@ export function useMailPageLogic() {
 
   const markRead = useCallback((_msgs: MailMessage[]) => {
     if (!selectedThread) return;
-    mutations.markRead.mutate({ conversationId: selectedThread.conversation_id, read: true });
-  }, [mutations.markRead, selectedThread]);
+    const p = resolveProvider(selectedThread.accountId);
+    if (p) mutations.markRead.mutate({ accountId: selectedThread.accountId ?? selectedAccountId, provider: p, conversationId: selectedThread.conversation_id, read: true });
+  }, [mutations.markRead, selectedThread, resolveProvider, selectedAccountId]);
 
   const toggleRead = useCallback((msg: MailMessage) => {
     if (!selectedThread) return;
-    mutations.markRead.mutate({ conversationId: selectedThread.conversation_id, read: !msg.is_read });
-  }, [mutations.markRead, selectedThread]);
+    const p = resolveProvider(selectedThread.accountId);
+    if (p) mutations.markRead.mutate({ accountId: selectedThread.accountId ?? selectedAccountId, provider: p, conversationId: selectedThread.conversation_id, read: !msg.is_read });
+  }, [mutations.markRead, selectedThread, resolveProvider, selectedAccountId]);
 
   const moveToTrash = useCallback((id: string) => {
-    mutations.moveToTrash.mutate(selectedThread?.conversation_id || id);
-  }, [mutations, selectedThread]);
+    const thread = selectedThread ?? threads.find(t => t.conversation_id === id);
+    if (!thread) return;
+    const p = resolveProvider(thread.accountId);
+    if (p) mutations.moveToTrash.mutate({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: thread.conversation_id });
+  }, [mutations.moveToTrash, selectedThread, threads, resolveProvider, selectedAccountId]);
 
   const handleToggleThreadRead = useCallback((thread: MailThread) => {
-    mutations.markRead.mutate({ conversationId: thread.conversation_id, read: thread.unread_count === 0 });
-  }, [mutations]);
+    const p = resolveProvider(thread.accountId);
+    if (p) mutations.markRead.mutate({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: thread.conversation_id, read: thread.unread_count === 0 });
+  }, [mutations.markRead, resolveProvider, selectedAccountId]);
 
   const handleDeleteThread = useCallback((thread: MailThread) => {
-    mutations.moveToTrash.mutate(thread.conversation_id);
-  }, [mutations]);
+    const p = resolveProvider(thread.accountId);
+    if (p) mutations.moveToTrash.mutate({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: thread.conversation_id });
+  }, [mutations.moveToTrash, resolveProvider, selectedAccountId]);
 
-  const handleSnooze = useCallback(async (_snoozeUntil: string) => {
-    const p = resolveProvider(selectedThread?.accountId);
-    if (!p || messages.length === 0 || !selectedThread) return;
-    const lastMsg = messages[messages.length - 1];
-    try {
-      await p.snooze(lastMsg.item_id);
-      mutations.moveToTrash.mutate(selectedThread.conversation_id);
-    } catch (e) { setError(String(e)); }
-  }, [resolveProvider, messages, selectedThread, mutations]);
+  const handleSnooze = useCallback(async (snoozeUntil: string) => {
+    if (!selectedThread) return;
+    const p = resolveProvider(selectedThread.accountId);
+    if (p) mutations.snoozeThread.mutate({ accountId: selectedThread.accountId ?? selectedAccountId, provider: p, conversationId: selectedThread.conversation_id, until: snoozeUntil });
+  }, [mutations.snoozeThread, selectedThread, resolveProvider, selectedAccountId]);
 
   const handleUnsnooze = useCallback(async () => {}, []);
 
   const handleMove = useCallback(async (targetFolderId: string) => {
     if (!selectedThread) return;
-    mutations.moveThread.mutate({ conversationId: selectedThread.conversation_id, targetFolderId });
-  }, [selectedThread, mutations]);
+    const p = resolveProvider(selectedThread.accountId);
+    if (p) mutations.moveThread.mutate({ accountId: selectedThread.accountId ?? selectedAccountId, provider: p, conversationId: selectedThread.conversation_id, targetFolderId });
+  }, [selectedThread, mutations.moveThread, resolveProvider, selectedAccountId]);
 
   const handleBulkDelete = useCallback(async () => {
     for (const id of selectedThreadIds) {
-      mutations.moveToTrash.mutate(id);
+      const thread = threads.find(t => t.conversation_id === id);
+      if (thread) {
+        const p = resolveProvider(thread.accountId);
+        if (p) mutations.moveToTrash.mutate({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id });
+      }
     }
     setSelectedThreadIds(new Set());
-  }, [selectedThreadIds, mutations]);
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations.moveToTrash]);
 
   const handleBulkSnooze = useCallback(async (_until: string) => {}, []);
   const handleBulkMove = useCallback(async (targetFolderId: string) => {
     for (const id of selectedThreadIds) {
-      mutations.moveThread.mutate({ conversationId: id, targetFolderId });
+      const thread = threads.find(t => t.conversation_id === id);
+      if (thread) {
+        const p = resolveProvider(thread.accountId);
+        if (p) mutations.moveThread.mutate({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, targetFolderId });
+      }
     }
     setSelectedThreadIds(new Set());
-  }, [selectedThreadIds, mutations]);
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations.moveThread]);
 
   const handleBulkToggleRead = useCallback(async (read: boolean) => {
     for (const id of selectedThreadIds) {
-      mutations.markRead.mutate({ conversationId: id, read });
+      const thread = threads.find(t => t.conversation_id === id);
+      if (thread) {
+        const p = resolveProvider(thread.accountId);
+        if (p) mutations.markRead.mutate({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, read });
+      }
     }
-  }, [selectedThreadIds, mutations]);
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations.markRead]);
 
   const previewAttachment = useCallback(async (att: MailAttachment) => {
     const p = resolveProvider(selectedThread?.accountId);
@@ -309,7 +332,7 @@ export function useMailPageLogic() {
     clearTimeout(pendingSendRef.current.timerId);
     pendingSendRef.current = null;
     setSendToast(null);
-  }, []);
+  }, [t]);
 
   const handleSaveDraft = useCallback((accountId: string | undefined, to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) => {
     const p = resolveProvider(accountId);
@@ -317,7 +340,10 @@ export function useMailPageLogic() {
     p.saveDraft({ to, cc, bcc, subject, bodyHtml }).catch(e => setError(String(e)));
     if (draftToastTimerRef.current) clearTimeout(draftToastTimerRef.current);
     setDraftToast({ label: t('mail.savedToDrafts', 'Brouillon enregistré') });
-    draftToastTimerRef.current = setTimeout(() => setDraftToast(null), 3000);
+    draftToastTimerRef.current = setTimeout(() => {
+      setDraftToast(null);
+      draftToastTimerRef.current = null;
+    }, 3000);
   }, [resolveProvider, t]);
 
   const handleSearch = useCallback(async (query: MailSearchQuery | null) => {

@@ -2,13 +2,18 @@ import { useMutation, useQueryClient, QueryKey } from '@tanstack/react-query';
 import { MailProvider } from '../providers/MailProvider';
 import { MAIL_KEYS } from './useMailQueries';
 import { MailThread, MailMessage } from '../types';
+import { useMemo } from 'react';
 
-export function useMailMutations(accountId: string, provider: MailProvider | null) {
+export interface MutationParams {
+  accountId: string;
+  provider: MailProvider;
+}
+
+export function useMailMutations() {
   const queryClient = useQueryClient();
 
   const markRead = useMutation({
-    mutationFn: async ({ conversationId, read }: { conversationId: string; read: boolean }) => {
-      if (!provider) throw new Error('No provider');
+    mutationFn: async ({ provider, conversationId, read }: MutationParams & { conversationId: string; read: boolean }) => {
       const msgs = await provider.getThread(conversationId, false);
       const items = msgs.map(m => ({ item_id: m.item_id, change_key: m.change_key, conversation_id: conversationId }));
       if (read) {
@@ -17,33 +22,33 @@ export function useMailMutations(accountId: string, provider: MailProvider | nul
         await provider.markUnread(items);
       }
     },
-    onMutate: async ({ conversationId, read }: { conversationId: string; read: boolean }) => {
+    onMutate: async ({ accountId, conversationId, read }) => {
       await queryClient.cancelQueries({ queryKey: MAIL_KEYS.all });
+      const previousQueries = queryClient.getQueriesData({ queryKey: MAIL_KEYS.all });
 
-      const previousQueries = queryClient.getQueriesData<MailThread[]>({ queryKey: MAIL_KEYS.all });
-
-      // Target only thread lists, not folders
-      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old: MailThread[] | undefined) => {
-        if (!old) return old;
-        return old.map((t: MailThread) => {
-          if (t.conversation_id === conversationId) {
-            return { ...t, unread_count: read ? 0 : t.message_count };
-          }
-          return t;
-        });
+      // 1. Update threads list(s)
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map(t => t.conversation_id === conversationId ? { ...t, unread_count: read ? 0 : t.message_count } : t);
       });
 
-      // Also update messages if open
-      queryClient.setQueriesData<MailMessage[]>({ queryKey: [...MAIL_KEYS.all, accountId, 'thread', conversationId] }, (old: MailMessage[] | undefined) => {
-        if (!old) return old;
-        return old.map((m: MailMessage) => ({ ...m, is_read: read }));
+      // 2. Update all-accounts thread list if it exists
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', 'all', 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map(t => t.conversation_id === conversationId ? { ...t, unread_count: read ? 0 : t.message_count } : t);
+      });
+
+      // 3. Update specific conversation messages
+      queryClient.setQueryData<MailMessage[]>(MAIL_KEYS.thread(accountId, conversationId), (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map(m => ({ ...m, is_read: read }));
       });
 
       return { previousQueries };
     },
-    onError: (_err: any, _newVal: any, context: any) => {
+    onError: (_err, _variables, context: any) => {
       if (context?.previousQueries) {
-        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, MailThread[] | undefined]) => {
+        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, any]) => {
           queryClient.setQueryData(queryKey, oldData);
         });
       }
@@ -54,27 +59,30 @@ export function useMailMutations(accountId: string, provider: MailProvider | nul
   });
 
   const moveToTrash = useMutation({
-    mutationFn: async (conversationId: string) => {
-      if (!provider) throw new Error('No provider');
+    mutationFn: async ({ provider, conversationId }: MutationParams & { conversationId: string }) => {
       const msgs = await provider.getThread(conversationId, false);
       for (const msg of msgs) {
         await provider.moveToTrash(msg.item_id);
       }
     },
-    onMutate: async (conversationId: string) => {
+    onMutate: async ({ accountId, conversationId }) => {
       await queryClient.cancelQueries({ queryKey: MAIL_KEYS.all });
-      const previousQueries = queryClient.getQueriesData<MailThread[]>({ queryKey: MAIL_KEYS.all });
+      const previousQueries = queryClient.getQueriesData({ queryKey: MAIL_KEYS.all });
 
-      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old: MailThread[] | undefined) => {
-        if (!old) return old;
-        return old.filter((t: MailThread) => t.conversation_id !== conversationId);
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(t => t.conversation_id !== conversationId);
+      });
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', 'all', 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(t => t.conversation_id !== conversationId);
       });
 
       return { previousQueries };
     },
-    onError: (_err: any, _newVal: any, context: any) => {
+    onError: (_err, _variables, context: any) => {
       if (context?.previousQueries) {
-        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, MailThread[] | undefined]) => {
+        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, any]) => {
           queryClient.setQueryData(queryKey, oldData);
         });
       }
@@ -85,27 +93,30 @@ export function useMailMutations(accountId: string, provider: MailProvider | nul
   });
 
   const deletePermanently = useMutation({
-    mutationFn: async (conversationId: string) => {
-      if (!provider) throw new Error('No provider');
+    mutationFn: async ({ provider, conversationId }: MutationParams & { conversationId: string }) => {
       const msgs = await provider.getThread(conversationId, true);
       for (const msg of msgs) {
         await provider.permanentlyDelete(msg.item_id);
       }
     },
-    onMutate: async (conversationId: string) => {
+    onMutate: async ({ accountId, conversationId }) => {
       await queryClient.cancelQueries({ queryKey: MAIL_KEYS.all });
-      const previousQueries = queryClient.getQueriesData<MailThread[]>({ queryKey: MAIL_KEYS.all });
+      const previousQueries = queryClient.getQueriesData({ queryKey: MAIL_KEYS.all });
 
-      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old: MailThread[] | undefined) => {
-        if (!old) return old;
-        return old.filter((t: MailThread) => t.conversation_id !== conversationId);
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(t => t.conversation_id !== conversationId);
+      });
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', 'all', 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(t => t.conversation_id !== conversationId);
       });
 
       return { previousQueries };
     },
-    onError: (_err: any, _newVal: any, context: any) => {
+    onError: (_err, _variables, context: any) => {
       if (context?.previousQueries) {
-        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, MailThread[] | undefined]) => {
+        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, any]) => {
           queryClient.setQueryData(queryKey, oldData);
         });
       }
@@ -116,27 +127,30 @@ export function useMailMutations(accountId: string, provider: MailProvider | nul
   });
 
   const moveThread = useMutation({
-    mutationFn: async ({ conversationId, targetFolderId }: { conversationId: string; targetFolderId: string }) => {
-      if (!provider) throw new Error('No provider');
+    mutationFn: async ({ provider, conversationId, targetFolderId }: MutationParams & { conversationId: string; targetFolderId: string }) => {
       const msgs = await provider.getThread(conversationId, false);
       for (const msg of msgs) {
         await provider.moveToFolder(msg.item_id, targetFolderId);
       }
     },
-    onMutate: async ({ conversationId }: { conversationId: string }) => {
+    onMutate: async ({ accountId, conversationId }) => {
       await queryClient.cancelQueries({ queryKey: MAIL_KEYS.all });
-      const previousQueries = queryClient.getQueriesData<MailThread[]>({ queryKey: MAIL_KEYS.all });
+      const previousQueries = queryClient.getQueriesData({ queryKey: MAIL_KEYS.all });
 
-      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old: MailThread[] | undefined) => {
-        if (!old) return old;
-        return old.filter((t: MailThread) => t.conversation_id !== conversationId);
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(t => t.conversation_id !== conversationId);
+      });
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', 'all', 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(t => t.conversation_id !== conversationId);
       });
 
       return { previousQueries };
     },
-    onError: (_err: any, _newVal: any, context: any) => {
+    onError: (_err, _variables, context: any) => {
       if (context?.previousQueries) {
-        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, MailThread[] | undefined]) => {
+        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, any]) => {
           queryClient.setQueryData(queryKey, oldData);
         });
       }
@@ -147,28 +161,31 @@ export function useMailMutations(accountId: string, provider: MailProvider | nul
   });
 
   const snoozeThread = useMutation({
-    mutationFn: async ({ conversationId, until: _until }: { conversationId: string; until: string }) => {
-      if (!provider) throw new Error('No provider');
+    mutationFn: async ({ provider, conversationId, until: _until }: MutationParams & { conversationId: string; until: string }) => {
       const msgs = await provider.getThread(conversationId, false);
       if (msgs.length > 0) {
         const lastMsg = msgs[msgs.length - 1];
         await provider.snooze(lastMsg.item_id);
       }
     },
-    onMutate: async ({ conversationId }: { conversationId: string }) => {
+    onMutate: async ({ accountId, conversationId }) => {
       await queryClient.cancelQueries({ queryKey: MAIL_KEYS.all });
-      const previousQueries = queryClient.getQueriesData<MailThread[]>({ queryKey: MAIL_KEYS.all });
+      const previousQueries = queryClient.getQueriesData({ queryKey: MAIL_KEYS.all });
 
-      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old: MailThread[] | undefined) => {
-        if (!old) return old;
-        return old.filter((t: MailThread) => t.conversation_id !== conversationId);
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(t => t.conversation_id !== conversationId);
+      });
+      queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', 'all', 'threads'] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter(t => t.conversation_id !== conversationId);
       });
 
       return { previousQueries };
     },
-    onError: (_err: any, _newVal: any, context: any) => {
+    onError: (_err, _variables, context: any) => {
       if (context?.previousQueries) {
-        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, MailThread[] | undefined]) => {
+        context.previousQueries.forEach(([queryKey, oldData]: [QueryKey, any]) => {
           queryClient.setQueryData(queryKey, oldData);
         });
       }
@@ -178,11 +195,11 @@ export function useMailMutations(accountId: string, provider: MailProvider | nul
     },
   });
 
-  return {
+  return useMemo(() => ({
     markRead,
     moveToTrash,
     deletePermanently,
     moveThread,
     snoozeThread,
-  };
+  }), [markRead, moveToTrash, deletePermanently, moveThread, snoozeThread]);
 }

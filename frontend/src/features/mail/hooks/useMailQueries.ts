@@ -38,6 +38,9 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
     })),
   });
 
+  const dataDeps = useMemo(() => results.map(r => r.data), [results]);
+  const errorDeps = useMemo(() => results.map(r => r.error), [results]);
+
   return useMemo(() => {
     const allAccountFolders = new Map<string, any[]>();
     const mergedCounts: Record<string, number> = {};
@@ -63,7 +66,8 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
       errors,
       isLoading: results.some((r) => r.isLoading),
     };
-  }, [results, accounts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataDeps, errorDeps, accounts]);
 }
 
 export function useMailThreads(accountId: string, folder: Folder, provider: MailProvider | null) {
@@ -71,11 +75,10 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
     queryKey: MAIL_KEYS.threads(accountId, folder),
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
-      // For now, sticking to 50 threads like original code
       return await provider.listThreads(folder, 50, 0);
     },
     enabled: !!provider,
-    refetchInterval: 60 * 1000, // 60s silent refresh equivalent
+    refetchInterval: 60 * 1000,
   });
 }
 
@@ -98,6 +101,9 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
     })),
   });
 
+  const dataDeps = useMemo(() => results.map(r => r.data), [results]);
+  const errorDeps = useMemo(() => results.map(r => r.error), [results]);
+
   return useMemo(() => {
     const merged = results
       .flatMap((r) => (r.data ? r.data : []))
@@ -107,15 +113,16 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
       data: merged,
       isLoading: results.some((r) => r.isLoading),
       isFetching: results.some((r) => r.isFetching),
-      errors: results.map(r => r.error).filter(Boolean),
+      errors: results.map(r => r.error).filter((e): e is Error => !!e),
       refetch: () => results.forEach(r => r.refetch()),
     };
-  }, [results]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataDeps, errorDeps, folder]);
 }
 
 export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null) {
   return useQuery({
-    queryKey: MAIL_KEYS.thread(accountId, conversationId!),
+    queryKey: MAIL_KEYS.thread(accountId, conversationId ?? 'null'),
     queryFn: async () => {
       if (!provider || !conversationId) throw new Error('Invalid params');
       return await provider.getThread(conversationId, false, false);
