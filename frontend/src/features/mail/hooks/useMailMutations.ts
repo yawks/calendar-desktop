@@ -74,8 +74,10 @@ export function useMailMutations() {
       }
     },
     onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'threads'] });
-      queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads'] });
+      // Avoid immediate global invalidation to prevent cascading refreshes
+      // Rely on optimistic update and background refetchInterval
+      // Only invalidate unread count if necessary
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
     },
   });
 

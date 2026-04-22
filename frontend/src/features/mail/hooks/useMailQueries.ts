@@ -38,8 +38,8 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
     })),
   });
 
-  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
-  const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
+  const dataTimestamps = useMemo(() => results.map(r => r.dataUpdatedAt).join(','), [results]);
+  const errorTimestamps = useMemo(() => results.map(r => r.errorUpdatedAt).join(','), [results]);
   const loadingState = results.some(r => r.isLoading);
 
   const allAccountFolders = useMemo(() => {
@@ -120,8 +120,8 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
     })),
   });
 
-  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
-  const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
+  const dataTimestamps = useMemo(() => results.map(r => r.dataUpdatedAt).join(','), [results]);
+  const errorTimestamps = useMemo(() => results.map(r => r.errorUpdatedAt).join(','), [results]);
   const loadingState = results.some(r => r.isLoading);
   const fetchingState = results.some(r => r.isFetching);
 
@@ -159,6 +159,7 @@ export function useMailConversation(accountId: string, conversationId: string | 
       return await provider.getThread(conversationId, false, false);
     },
     enabled: !!provider && !!conversationId,
+    staleTime: 60 * 1000, // Keep messages fresh for 1 minute
   });
 }
 
@@ -173,6 +174,7 @@ export function useMailSearch(accountId: string, query: MailSearchQuery, provide
       return await provider.searchThreads(query);
     },
     enabled: !!provider && hasQuery,
+    staleTime: 2 * 60 * 1000, // Search results can stay fresh for 2 minutes
   });
 }
 
@@ -197,7 +199,7 @@ export function useAllAccountSearch(query: MailSearchQuery, accounts: { id: stri
     })),
   });
 
-  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  const dataTimestamps = useMemo(() => results.map(r => r.dataUpdatedAt).join(','), [results]);
   const loadingState = results.some(r => r.isLoading);
 
   const data = useMemo(() => {

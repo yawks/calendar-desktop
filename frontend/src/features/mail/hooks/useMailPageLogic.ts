@@ -278,7 +278,7 @@ export function useMailPageLogic() {
 
   const handleToggleThreadRead = useCallback((thread: MailThread) => {
     const p = resolveProvider(thread.accountId);
-    if (p) mutations.markRead({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: thread.conversation_id, read: thread.unread_count === 0 });
+    if (p) mutations.markRead({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: thread.conversation_id, read: thread.unread_count > 0 });
   }, [mutations, resolveProvider, selectedAccountId]);
 
   const handleDeleteThread = useCallback((thread: MailThread) => {
@@ -370,7 +370,16 @@ export function useMailPageLogic() {
     setSelectedThreadIds(new Set());
   }, [selectedThreadIds, allThreads, resolveProvider, selectedAccountId, mutations]);
 
-  const handleBulkSnooze = useCallback(async (_until: string) => {}, []);
+  const handleBulkSnooze = useCallback(async (until: string) => {
+    for (const id of selectedThreadIds) {
+      const thread = allThreads.find(t => t.conversation_id === id);
+      if (thread) {
+        const p = resolveProvider(thread.accountId);
+        if (p) mutations.snoozeThread({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, until });
+      }
+    }
+    setSelectedThreadIds(new Set());
+  }, [selectedThreadIds, allThreads, resolveProvider, selectedAccountId, mutations]);
   const handleBulkMove = useCallback(async (targetFolderId: string) => {
     for (const id of selectedThreadIds) {
       const thread = allThreads.find(t => t.conversation_id === id);
