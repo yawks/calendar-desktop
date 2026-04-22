@@ -25,7 +25,7 @@ export function useMailFolders(accountId: string, provider: MailProvider | null)
   });
 }
 
-export function useAllAccountFolders(accounts: { id: string; provider: MailProvider | null }[]) {
+export function useAllAccountFolders(accounts: { id: string; provider: MailProvider | null; color?: string }[]) {
   const results = useQueries({
     queries: accounts.map((acc) => ({
       queryKey: MAIL_KEYS.folders(acc.id),
@@ -38,6 +38,10 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
     })),
   });
 
+  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
+  const loadingState = results.some(r => r.isLoading);
+
   const allAccountFolders = useMemo(() => {
     const map = new Map<string, any[]>();
     results.forEach((res, idx) => {
@@ -45,7 +49,7 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
     });
     return map;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results.map(r => !!r.data).join(','), accounts]);
+  }, [dataTimestamps, accounts]);
 
   const mergedCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -59,19 +63,30 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
     });
     return counts;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results.map(r => r.dataUpdatedAt).join(',')]);
+  }, [dataTimestamps]);
 
   const errors = useMemo(() =>
     results.map(r => r.error).filter((e): e is Error => !!e),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [results.map(r => r.errorUpdatedAt).join(',')]);
+  [errorTimestamps]);
+
+  const allModeDynamicFolders = useMemo(() => {
+    return accounts.flatMap((acc, idx) => {
+      const folders = results[idx].data ?? [];
+      return folders
+        .filter(f => !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed'].includes(f.folder_id))
+        .map(f => ({ ...f, accountId: acc.id, accountColor: acc.color }));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataTimestamps, accounts]);
 
   return useMemo(() => ({
     allAccountFolders,
     mergedCounts,
     errors,
-    isLoading: results.some((r) => r.isLoading),
-  }), [allAccountFolders, mergedCounts, errors, results.map(r => r.isLoading).join(',')]);
+    allModeDynamicFolders,
+    isLoading: loadingState,
+  }), [allAccountFolders, mergedCounts, errors, allModeDynamicFolders, loadingState]);
 }
 
 export function useMailThreads(accountId: string, folder: Folder, provider: MailProvider | null) {
@@ -105,17 +120,22 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
     })),
   });
 
+  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
+  const loadingState = results.some(r => r.isLoading);
+  const fetchingState = results.some(r => r.isFetching);
+
   const data = useMemo(() => {
     return results
       .flatMap((r) => (r.data ? r.data : []))
       .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results.map(r => r.dataUpdatedAt).join(',')]);
+  }, [dataTimestamps]);
 
   const errors = useMemo(() =>
     results.map(r => r.error).filter((e): e is Error => !!e),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [results.map(r => r.errorUpdatedAt).join(',')]);
+  [errorTimestamps]);
 
   const refetch = useCallback(() => {
     results.forEach(r => r.refetch());
@@ -124,11 +144,11 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
 
   return useMemo(() => ({
     data,
-    isLoading: results.some((r) => r.isLoading),
-    isFetching: results.some((r) => r.isFetching),
+    isLoading: loadingState,
+    isFetching: fetchingState,
     errors,
     refetch,
-  }), [data, errors, results.map(r => r.isLoading).join(','), results.map(r => r.isFetching).join(','), refetch]);
+  }), [data, loadingState, fetchingState, errors, refetch]);
 }
 
 export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null) {

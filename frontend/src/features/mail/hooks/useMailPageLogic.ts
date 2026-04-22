@@ -61,12 +61,18 @@ export function useMailPageLogic() {
   const [selectedThread, setSelectedThread] = useState<MailThread | null>(null);
 
   // --- QUERIES ---
-  const allAccountInfo = useMemo(() => allMailAccounts.map(a => ({
-    id: a.id,
-    provider: allProviders.get(a.id) ?? null,
-    label: a.name ?? a.email,
-    color: a.color
-  })), [allMailAccounts, allProviders]);
+  const allAccountInfo = useMemo(() => allMailAccounts.map(a => {
+    const atIdx = a.email.indexOf('@');
+    const domain = atIdx >= 0 ? a.email.slice(atIdx + 1) : a.email;
+    const label = domain.charAt(0).toUpperCase() + domain.slice(1);
+
+    return {
+      id: a.id,
+      provider: allProviders.get(a.id) ?? null,
+      label,
+      color: a.color
+    };
+  }), [allMailAccounts, allProviders]);
 
   const folderQuery = useMailFolders(selectedAccountId, provider);
   const allFoldersQuery = useAllAccountFolders(allAccountInfo);
@@ -88,12 +94,21 @@ export function useMailPageLogic() {
 
   const allFolders = isAllMode ? [] : (folderQuery.data ?? []);
   const allAccountFolders = allFoldersQuery.allAccountFolders;
+  const allModeDynamicFolders = allFoldersQuery.allModeDynamicFolders;
 
   const folderUnreadCounts = useMemo(() => {
     if (isAllMode) return allFoldersQuery.mergedCounts;
     if (folderQuery.data) return buildUnreadCounts(folderQuery.data);
     return {};
   }, [isAllMode, allFoldersQuery.mergedCounts, folderQuery.data]);
+
+  const sidebarDynamicFolders = useMemo(() => {
+    if (isAllMode) return allModeDynamicFolders;
+    const info = allAccountInfo.find(a => a.id === selectedAccountId);
+    return (folderQuery.data ?? [])
+      .filter(f => !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed'].includes(f.folder_id))
+      .map(f => ({ ...f, accountId: selectedAccountId, accountColor: info?.color, accountLabel: info?.label }));
+  }, [isAllMode, allModeDynamicFolders, folderQuery.data, selectedAccountId, allAccountInfo]);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -119,10 +134,6 @@ export function useMailPageLogic() {
   const [deleteToast] = useState<{ label: string } | null>(null);
   const [downloadToast, setDownloadToast] = useState<{ name: string; path: string } | null>(null);
   const downloadToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [sendToast, setSendToast] = useState<{ label: string } | null>(null);
-  const [draftToast, setDraftToast] = useState<{ label: string } | null>(null);
-  const draftToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [actionToast, setActionToast] = useState<{ label: string } | null>(null);
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('mail-sidebar-collapsed') === 'true');
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('mail-sidebar-width') || 220));
@@ -153,7 +164,6 @@ export function useMailPageLogic() {
   } | null>(null);
 
   const isInSnoozedFolder = selectedFolder === 'snoozed';
-  const allModeDynamicFolders = useMemo(() => [], []);
 
   const resolveProvider = useCallback((accountId: string | undefined): MailProvider | null => {
     if (accountId) return allProviders.get(accountId) ?? null;
@@ -317,33 +327,24 @@ export function useMailPageLogic() {
     };
     const timerId = setTimeout(async () => {
       pendingSendRef.current = null;
-      setSendToast(null);
       execute().catch(e => setError(String(e)));
     }, 5000);
     pendingSendRef.current = { execute, timerId, restoreData };
-    setSendToast({ label: t('mail.messageSent', 'Message envoyé') });
     setReplyingTo(null);
     setComposing(false);
-  }, [allProviders, resolveProvider, selectedThread, t]);
+  }, [allProviders, resolveProvider, selectedThread]);
 
   const cancelSend = useCallback(() => {
     if (!pendingSendRef.current) return;
     clearTimeout(pendingSendRef.current.timerId);
     pendingSendRef.current = null;
-    setSendToast(null);
   }, []);
 
   const handleSaveDraft = useCallback((accountId: string | undefined, to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) => {
     const p = resolveProvider(accountId);
     if (!p) return;
     p.saveDraft({ to, cc, bcc, subject, bodyHtml }).catch(e => setError(String(e)));
-    if (draftToastTimerRef.current) clearTimeout(draftToastTimerRef.current);
-    setDraftToast({ label: t('mail.savedToDrafts', 'Brouillon enregistré') });
-    draftToastTimerRef.current = setTimeout(() => {
-      setDraftToast(null);
-      draftToastTimerRef.current = null;
-    }, 3000);
-  }, [resolveProvider, t]);
+  }, [resolveProvider]);
 
   const handleSearch = useCallback(async (query: MailSearchQuery | null) => {
     if (!query || Object.values(query).every(v => !v)) {
@@ -387,19 +388,14 @@ export function useMailPageLogic() {
     document.addEventListener('mouseup', handleMouseUp);
   }, [threadListWidth]);
 
-  const showActionToast = useCallback((label: string) => {
-    setActionToast({ label });
-    setTimeout(() => setActionToast(null), 3000);
-  }, []);
-
   return {
     t, preference, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
     threads, threadsLoading: threadsLoading, threadsLoadingMore, hasMoreThreads, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
-    contacts, error, deleteToast, downloadToast, sendToast, draftToast, actionToast,
+    contacts, error, deleteToast, downloadToast, actionToast: null,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
-    allAccountFolders, folderUnreadCounts, allModeDynamicFolders, attachmentPreview,
+    allAccountFolders, folderUnreadCounts, sidebarDynamicFolders, attachmentPreview,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, reloadThreads, loadMoreThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
@@ -409,6 +405,6 @@ export function useMailPageLogic() {
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, provider, setReplyingTo, setReplyMode,
     snoozedByItemId, handleFoldersLoaded, setSelectedThread,
-    searchQuery, searchResults, searchLoading, handleSearch, showActionToast,
+    searchQuery, searchResults, searchLoading, handleSearch,
   };
 }
