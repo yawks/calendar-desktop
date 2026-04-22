@@ -89,25 +89,25 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
   }), [allAccountFolders, mergedCounts, errors, allModeDynamicFolders, loadingState]);
 }
 
-export function useMailThreads(accountId: string, folder: Folder, provider: MailProvider | null) {
+export function useMailThreads(accountId: string, folder: Folder, provider: MailProvider | null, limit = 50, offset = 0) {
   return useQuery({
-    queryKey: MAIL_KEYS.threads(accountId, folder),
+    queryKey: [...MAIL_KEYS.threads(accountId, folder), limit, offset],
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
-      return await provider.listThreads(folder, 50, 0);
+      return await provider.listThreads(folder, limit, offset);
     },
     enabled: !!provider,
     refetchInterval: 60 * 1000,
   });
 }
 
-export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[]) {
+export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[], limit = 50, offset = 0) {
   const results = useQueries({
     queries: accounts.map((acc) => ({
-      queryKey: MAIL_KEYS.threads(acc.id, folder),
+      queryKey: [...MAIL_KEYS.threads(acc.id, folder), limit, offset],
       queryFn: async () => {
         if (!acc.provider) throw new Error('No provider');
-        const threads = await acc.provider.listThreads(folder, 50, 0);
+        const threads = await acc.provider.listThreads(folder, limit, offset);
         return threads.map(t => ({
           ...t,
           accountId: acc.id,
@@ -164,12 +164,52 @@ export function useMailConversation(accountId: string, conversationId: string | 
 
 export function useMailSearch(accountId: string, query: MailSearchQuery, provider: MailProvider | null) {
   const queryStr = JSON.stringify(query);
+  const hasQuery = !!query && Object.values(query).some(Boolean);
+
   return useQuery({
     queryKey: MAIL_KEYS.search(accountId, queryStr),
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
       return await provider.searchThreads(query);
     },
-    enabled: !!provider && !!query && Object.values(query).some(Boolean),
+    enabled: !!provider && hasQuery,
   });
+}
+
+export function useAllAccountSearch(query: MailSearchQuery, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[]) {
+  const queryStr = JSON.stringify(query);
+  const hasQuery = !!query && Object.values(query).some(Boolean);
+
+  const results = useQueries({
+    queries: accounts.map((acc) => ({
+      queryKey: MAIL_KEYS.search(acc.id, queryStr),
+      queryFn: async () => {
+        if (!acc.provider) throw new Error('No provider');
+        const threads = await acc.provider.searchThreads(query);
+        return threads.map(t => ({
+          ...t,
+          accountId: acc.id,
+          accountLabel: acc.label,
+          accountColor: acc.color
+        }));
+      },
+      enabled: !!acc.provider && hasQuery,
+    })),
+  });
+
+  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  const loadingState = results.some(r => r.isLoading);
+
+  const data = useMemo(() => {
+    if (!hasQuery) return [];
+    return results
+      .flatMap((r) => (r.data ? r.data : []))
+      .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataTimestamps, hasQuery]);
+
+  return {
+    data,
+    isLoading: loadingState,
+  };
 }

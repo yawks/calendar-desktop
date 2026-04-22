@@ -30,7 +30,7 @@ export default function MailApp() {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
     threads, threadsLoading, threadsLoadingMore, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
-    contacts, error, deleteToast, downloadToast,
+    contacts, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
     allAccountFolders, folderUnreadCounts, sidebarDynamicFolders, attachmentPreview,
@@ -354,6 +354,13 @@ export default function MailApp() {
           <button className="mail-delete-toast__undo" onClick={cancelDeletion}>
             {t('mail.undo', 'Annuler')}
           </button>
+        </div>,
+        document.body
+      )}
+
+      {actionToast && createPortal(
+        <div className="mail-delete-toast">
+          <span>{actionToast.label}</span>
         </div>,
         document.body
       )}
