@@ -115,7 +115,7 @@ export class JmapMailProvider implements MailProvider {
     });
   }
 
-  async saveDraft(params: SaveDraftParams): Promise<void> {
+  async saveDraft(_params: SaveDraftParams): Promise<void> {
       // Not yet implemented on backend
   }
 
@@ -123,11 +123,11 @@ export class JmapMailProvider implements MailProvider {
     return 'snoozed';
   }
 
-  async moveToFolder(itemId: string, folderId: string): Promise<void> {
+  async moveToFolder(_itemId: string, _folderId: string): Promise<void> {
       // Not yet implemented on backend
   }
 
-  async snooze(itemId: string): Promise<string> {
+  async snooze(_itemId: string): Promise<string> {
     return 'snoozed';
   }
 

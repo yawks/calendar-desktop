@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 
 import { EwsMailProvider } from './EwsMailProvider';
 import { GmailMailProvider } from './GmailMailProvider';
-import { ImapMailProvider } from './ImapMailProvider';
 import type { MailProvider, ProviderType } from './MailProvider';
 
 /**
@@ -16,7 +15,7 @@ export function useMailProvider(
   providerType: ProviderType | null,
   getValidToken: (id: string) => Promise<string | null>,
 ): MailProvider | null {
-  return useMemo(() => {
+  return useMemo<MailProvider | null>(() => {
     if (!accountId || !providerType) return null;
     switch (providerType) {
       case 'ews':
@@ -26,6 +25,8 @@ export function useMailProvider(
       case 'imap':
         // ImapMailProvider needs config, not just token.
         // This might need a different approach if we want to support it here.
+        return null;
+      default:
         return null;
     }
   // getValidToken is intentionally excluded: it's a stable store function,

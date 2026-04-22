@@ -1,11 +1,9 @@
 import { ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, Trash2 } from 'lucide-react';
 import { Folder, MailFolder } from '../types';
-import { useEffect, useState } from 'react';
-
-import type { MailProvider } from '../providers/MailProvider';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-type DynamicFolderEntry = MailFolder & { accountId?: string; accountColor?: string };
+export type DynamicFolderEntry = MailFolder & { accountId?: string; accountColor?: string; accountLabel?: string };
 
 interface FolderNode {
   entry: DynamicFolderEntry;
@@ -18,23 +16,12 @@ interface MailSidebarProps {
   readonly selectedFolder: Folder;
   readonly onSelectFolder: (f: Folder) => void;
   readonly onCompose: () => void;
-  readonly provider: MailProvider | null;
-  readonly onFoldersLoaded?: (folders: MailFolder[]) => void;
   readonly folderUnreadCounts?: Record<string, number>;
-  /** In All-accounts mode, replaces the provider-loaded dynamic folders. */
-  readonly overrideDynamicFolders?: DynamicFolderEntry[];
+  /** The folders to display in the sidebar (excluding static ones). */
+  readonly dynamicFolders: DynamicFolderEntry[];
 }
 
-const STATIC_IDS = new Set(['inbox', 'sentitems', 'deleteditems', 'INBOX', 'SENT', 'TRASH', 'SPAM', 'DRAFT', 'snoozed']);
-const WELL_KNOWN_NAMES = new Set([
-  'inbox', 'sent', 'sent items', 'deleted items', 'drafts', 'outbox', 'junk email',
-  'spam', 'trash', 'snoozed', 'boîte de réception', 'éléments envoyés', 'éléments supprimés',
-  'courrier indésirable', 'brouillons',
-]);
-
 function buildFolderTree(folders: DynamicFolderEntry[]): FolderNode[] {
-  //console.log('[MailSidebar] buildFolderTree input:', folders.map(f => `${f.display_name} (${f.folder_id})`));
-
   // Pass 1 – collect all names that need a node (real + implied parents)
   const allNames = new Set<string>();
   for (const f of folders) {
@@ -44,10 +31,6 @@ function buildFolderTree(folders: DynamicFolderEntry[]): FolderNode[] {
     }
   }
 
-  // Pass 2 – create one node per name
-  // For names that match a real folder, use the real entry; otherwise create a virtual one.
-  // When multiple accounts share the same display_name, group them under the same key but keep
-  // each account's entry as a separate child so nothing is lost.
   const nodeMap = new Map<string, FolderNode>();
 
   for (const name of allNames) {
@@ -68,7 +51,12 @@ function buildFolderTree(folders: DynamicFolderEntry[]): FolderNode[] {
       };
       const parentNode: FolderNode = { entry: virtualEntry, label: parts[parts.length - 1], children: [], isVirtual: true };
       for (const f of realFolders) {
-        parentNode.children.push({ entry: f, label: f.accountId ?? name, children: [], isVirtual: false });
+        parentNode.children.push({
+          entry: f,
+          label: f.accountLabel ?? f.accountId ?? name,
+          children: [],
+          isVirtual: false
+        });
       }
       nodeMap.set(name, parentNode);
     } else {
@@ -96,7 +84,6 @@ function buildFolderTree(folders: DynamicFolderEntry[]): FolderNode[] {
       if (parent && !parent.children.includes(node)) {
         parent.children.push(node);
       } else if (!parent) {
-        console.warn('[MailSidebar] no parent found for', name, '– adding to root');
         roots.push(node);
       }
     }
@@ -109,7 +96,6 @@ function buildFolderTree(folders: DynamicFolderEntry[]): FolderNode[] {
   }
   sortChildren(roots);
 
-  //console.log('[MailSidebar] buildFolderTree roots:', roots.map(r => `${r.entry.display_name} (${r.children.length} children)`));
   return roots;
 }
 
@@ -190,43 +176,13 @@ export function MailSidebar({
   selectedFolder,
   onSelectFolder,
   onCompose,
-  provider,
-  onFoldersLoaded,
   folderUnreadCounts = {},
-  overrideDynamicFolders,
+  dynamicFolders,
 }: MailSidebarProps) {
   const { t } = useTranslation();
-  const [dynamicFolders, setDynamicFolders] = useState<DynamicFolderEntry[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    // When provider is null (all-accounts mode), overrideDynamicFolders takes over — keep
-    // the last loaded folders so they appear immediately when switching back to single-account.
-    if (!provider) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const folders = await provider.listFolders();
-        if (cancelled) return;
-        const filtered = folders.filter(
-          f => !STATIC_IDS.has(f.folder_id) &&
-               !WELL_KNOWN_NAMES.has(f.display_name.toLowerCase())
-        );
-        console.log('[MailSidebar] provider.listFolders() total:', folders.length, '/ after filter:', filtered.length);
-        console.log('[MailSidebar] filtered folders:', filtered.map(f => f.display_name));
-        setDynamicFolders(filtered);
-        onFoldersLoaded?.(folders);
-      } catch (e) {
-        console.error('[MailSidebar] list folders error:', e);
-      }
-    })();
-    return () => { cancelled = true; };
-  // provider.accountId is the stable identity
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider?.accountId, onFoldersLoaded]);
-
-  const displayedDynamic = overrideDynamicFolders ?? dynamicFolders;
-  const folderTree = buildFolderTree(displayedDynamic);
+  const folderTree = buildFolderTree(dynamicFolders);
 
   const handleToggleExpand = (id: string) => {
     setExpandedFolders(prev => {

@@ -1,5 +1,4 @@
 import {
-  Check,
   Download,
   Inbox,
   Layers,
@@ -31,19 +30,19 @@ export default function MailApp() {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
     threads, threadsLoading, threadsLoadingMore, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
-    contacts, error, deleteToast, downloadToast, sendToast, draftToast, actionToast,
+    contacts, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
-    allAccountFolders, folderUnreadCounts, allModeDynamicFolders, attachmentPreview,
+    allAccountFolders, folderUnreadCounts, sidebarDynamicFolders, attachmentPreview,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
-    downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
+    downloadAttachment, getRawAttachmentData, scheduleSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, provider, setReplyingTo, setReplyMode,
-    snoozedByItemId, handleFoldersLoaded, setSelectedThread,
+    snoozedByItemId, setSelectedThread,
     searchQuery, searchResults, searchLoading, handleSearch,
   } = useMailPageLogic();
 
@@ -165,10 +164,8 @@ export default function MailApp() {
                     setSelectedThread(null);
                     setComposingAccountId(isAllMode ? (allMailAccounts[0]?.id ?? '') : selectedAccountId);
                   }}
-                  provider={isAllMode ? null : provider}
-                  onFoldersLoaded={handleFoldersLoaded}
                   folderUnreadCounts={folderUnreadCounts}
-                  overrideDynamicFolders={allModeDynamicFolders.length > 0 ? allModeDynamicFolders : undefined}
+                  dynamicFolders={sidebarDynamicFolders}
                 />
               </div>
               <div
@@ -361,6 +358,13 @@ export default function MailApp() {
         document.body
       )}
 
+      {actionToast && createPortal(
+        <div className="mail-delete-toast">
+          <span>{actionToast.label}</span>
+        </div>,
+        document.body
+      )}
+
       {downloadToast && createPortal(
         <div className="mail-download-toast">
           <Download size={13} />
@@ -386,31 +390,6 @@ export default function MailApp() {
           data={attachmentPreview.data}
           onClose={() => setAttachmentPreview(null)}
         />
-      )}
-
-      {sendToast && createPortal(
-        <div className="mail-delete-toast">
-          <span>{sendToast.label}</span>
-          <button className="mail-delete-toast__undo" onClick={cancelSend}>
-            {t('mail.undo', 'Annuler')}
-          </button>
-        </div>,
-        document.body
-      )}
-
-      {draftToast && createPortal(
-        <div className="mail-delete-toast mail-draft-toast">
-          <span>{draftToast.label}</span>
-        </div>,
-        document.body
-      )}
-
-      {actionToast && createPortal(
-        <div className="mail-action-toast">
-          <Check size={14} />
-          <span>{actionToast.label}</span>
-        </div>,
-        document.body
       )}
     </div>
   );

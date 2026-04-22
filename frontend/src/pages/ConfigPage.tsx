@@ -37,7 +37,7 @@ import { useImapAuth } from '../shared/store/ImapAuthStore';
 import { useJmapAuth } from '../shared/store/JmapAuthStore';
 import { getGoogleClientConfig, setGoogleClientConfig, clearGoogleClientConfig } from '../shared/store/googleClientConfig';
 import { listCalendars } from '../features/calendar/utils/googleCalendarApi';
-import { CalendarConfig, GoogleAccount, ExchangeAccount, ImapAccount, JmapAccount } from '../shared/types';
+import { CalendarConfig, GoogleAccount, ExchangeAccount } from '../shared/types';
 import { useDefaultCalendar } from '../features/calendar/store/defaultCalendarStore';
 import { ImapAccountManageModal } from './ImapAccountManageModal';
 import { JmapAccountManageModal } from './JmapAccountManageModal';
