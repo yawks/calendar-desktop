@@ -38,8 +38,8 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
     })),
   });
 
-  const dataTimestamps = useMemo(() => results.map(r => r.dataUpdatedAt).join(','), [results]);
-  const errorTimestamps = useMemo(() => results.map(r => r.errorUpdatedAt).join(','), [results]);
+  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
   const loadingState = results.some(r => r.isLoading);
 
   const allAccountFolders = useMemo(() => {
@@ -120,8 +120,8 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
     })),
   });
 
-  const dataTimestamps = useMemo(() => results.map(r => r.dataUpdatedAt).join(','), [results]);
-  const errorTimestamps = useMemo(() => results.map(r => r.errorUpdatedAt).join(','), [results]);
+  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
   const loadingState = results.some(r => r.isLoading);
   const fetchingState = results.some(r => r.isFetching);
 
@@ -199,7 +199,7 @@ export function useAllAccountSearch(query: MailSearchQuery, accounts: { id: stri
     })),
   });
 
-  const dataTimestamps = useMemo(() => results.map(r => r.dataUpdatedAt).join(','), [results]);
+  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
   const loadingState = results.some(r => r.isLoading);
 
   const data = useMemo(() => {

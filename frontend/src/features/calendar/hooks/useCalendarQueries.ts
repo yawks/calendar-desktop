@@ -105,7 +105,7 @@ export function useCalendarEvents(calendars: CalendarConfig[]) {
     }))
   });
 
-  const dataTimestamps = useMemo(() => results.map(r => r.dataUpdatedAt).join(','), [results]);
+  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
 
   const allEvents = useMemo(() => {
     return results.flatMap(r => r.data ?? []);

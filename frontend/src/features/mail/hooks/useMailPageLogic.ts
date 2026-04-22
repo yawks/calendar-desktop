@@ -61,10 +61,7 @@ export function useMailPageLogic() {
   const [selectedThread, setSelectedThread] = useState<MailThread | null>(null);
 
   // --- STATE ---
-  const [threadOffset, setThreadOffset] = useState(0);
-  const [allThreads, setAllThreads] = useState<MailThread[]>([]);
-  const [hasMoreThreads, setHasMoreThreads] = useState(true);
-  const [threadsLoadingMore, setThreadsLoadingMore] = useState(false);
+  const [threadLimit, setThreadLimit] = useState(50);
   const [searchQuery, setSearchQuery] = useState<MailSearchQuery | null>(null);
 
   // --- QUERIES ---
@@ -84,28 +81,18 @@ export function useMailPageLogic() {
   const folderQuery = useMailFolders(selectedAccountId, provider);
   const allFoldersQuery = useAllAccountFolders(allAccountInfo);
 
-  const threadsQuery = useMailThreads(selectedAccountId, selectedFolder, provider, 50, threadOffset);
-  const allThreadsQuery = useAllAccountThreads(selectedFolder, allAccountInfo, 50, threadOffset);
+  const threadsQuery = useMailThreads(selectedAccountId, selectedFolder, provider, threadLimit, 0);
+  const allThreadsQuery = useAllAccountThreads(selectedFolder, allAccountInfo, threadLimit, 0);
 
-  const currentBatch = useMemo(() => isAllMode ? allThreadsQuery.data : (threadsQuery.data ?? []), [isAllMode, allThreadsQuery.data, threadsQuery.data]);
+  const threads = useMemo(() => isAllMode ? allThreadsQuery.data : (threadsQuery.data ?? []), [isAllMode, allThreadsQuery.data, threadsQuery.data]);
   const threadsLoading = isAllMode ? allThreadsQuery.isLoading : threadsQuery.isLoading;
+  const threadsFetching = isAllMode ? allThreadsQuery.isFetching : threadsQuery.isFetching;
+
+  const hasMoreThreads = threads.length >= threadLimit;
+  const threadsLoadingMore = threadsFetching && threads.length > 0;
 
   useEffect(() => {
-    if (threadOffset === 0) {
-      setAllThreads(currentBatch);
-    } else {
-      setAllThreads(prev => {
-        const existingIds = new Set(prev.map(t => t.conversation_id));
-        const newThreads = currentBatch.filter(t => !existingIds.has(t.conversation_id));
-        return [...prev, ...newThreads];
-      });
-    }
-    setHasMoreThreads(currentBatch.length >= 50);
-    setThreadsLoadingMore(false);
-  }, [currentBatch, threadOffset]);
-
-  useEffect(() => {
-    setThreadOffset(0);
+    setThreadLimit(50);
   }, [selectedAccountId, selectedFolder, searchQuery]);
 
   const conversationQuery = useMailConversation(
@@ -220,15 +207,14 @@ export function useMailPageLogic() {
   }, [isAllMode, threadsQuery, allThreadsQuery]);
 
   const reloadThreads = useCallback(async () => {
-    setThreadOffset(0);
+    setThreadLimit(50);
     loadThreads();
   }, [loadThreads]);
 
   const loadMoreThreads = useCallback(async () => {
-    if (threadsLoadingMore || !hasMoreThreads) return;
-    setThreadsLoadingMore(true);
-    setThreadOffset(prev => prev + 50);
-  }, [threadsLoadingMore, hasMoreThreads]);
+    if (threadsFetching || !hasMoreThreads) return;
+    setThreadLimit(prev => prev + 50);
+  }, [threadsFetching, hasMoreThreads]);
 
   const markRead = useCallback((_msgs: MailMessage[]) => {
     if (!selectedThread) return;
@@ -243,19 +229,19 @@ export function useMailPageLogic() {
   }, [mutations, selectedThread, resolveProvider, selectedAccountId]);
 
   const selectNextThread = useCallback((threadId: string) => {
-    const currentIndex = allThreads.findIndex(t => t.conversation_id === threadId);
+    const currentIndex = threads.findIndex(t => t.conversation_id === threadId);
     if (currentIndex !== -1 && selectedThread?.conversation_id === threadId) {
-        const nextThread = allThreads[currentIndex + 1] ?? allThreads[currentIndex - 1] ?? null;
+        const nextThread = threads[currentIndex + 1] ?? threads[currentIndex - 1] ?? null;
         if (nextThread) {
             openThread(nextThread);
         } else {
             setSelectedThread(null);
         }
     }
-  }, [allThreads, selectedThread, openThread]);
+  }, [threads, selectedThread, openThread]);
 
   const moveToTrash = useCallback((id: string) => {
-    const thread = selectedThread ?? allThreads.find(t => t.conversation_id === id);
+    const thread = selectedThread ?? threads.find(t => t.conversation_id === id);
     if (!thread) return;
     const p = resolveProvider(thread.accountId);
     if (p) {
@@ -274,7 +260,7 @@ export function useMailPageLogic() {
         execute
       };
     }
-  }, [mutations, selectedThread, allThreads, resolveProvider, selectedAccountId, selectNextThread, t, cancelDeletion]);
+  }, [mutations, selectedThread, threads, resolveProvider, selectedAccountId, selectNextThread, t, cancelDeletion]);
 
   const handleToggleThreadRead = useCallback((thread: MailThread) => {
     const p = resolveProvider(thread.accountId);
@@ -361,45 +347,45 @@ export function useMailPageLogic() {
 
   const handleBulkDelete = useCallback(async () => {
     for (const id of selectedThreadIds) {
-      const thread = allThreads.find(t => t.conversation_id === id);
+      const thread = threads.find(t => t.conversation_id === id);
       if (thread) {
         const p = resolveProvider(thread.accountId);
         if (p) mutations.moveToTrash({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id });
       }
     }
     setSelectedThreadIds(new Set());
-  }, [selectedThreadIds, allThreads, resolveProvider, selectedAccountId, mutations]);
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations]);
 
   const handleBulkSnooze = useCallback(async (until: string) => {
     for (const id of selectedThreadIds) {
-      const thread = allThreads.find(t => t.conversation_id === id);
+      const thread = threads.find(t => t.conversation_id === id);
       if (thread) {
         const p = resolveProvider(thread.accountId);
         if (p) mutations.snoozeThread({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, until });
       }
     }
     setSelectedThreadIds(new Set());
-  }, [selectedThreadIds, allThreads, resolveProvider, selectedAccountId, mutations]);
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations]);
   const handleBulkMove = useCallback(async (targetFolderId: string) => {
     for (const id of selectedThreadIds) {
-      const thread = allThreads.find(t => t.conversation_id === id);
+      const thread = threads.find(t => t.conversation_id === id);
       if (thread) {
         const p = resolveProvider(thread.accountId);
         if (p) mutations.moveThread({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, targetFolderId });
       }
     }
     setSelectedThreadIds(new Set());
-  }, [selectedThreadIds, allThreads, resolveProvider, selectedAccountId, mutations]);
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations]);
 
   const handleBulkToggleRead = useCallback(async (read: boolean) => {
     for (const id of selectedThreadIds) {
-      const thread = allThreads.find(t => t.conversation_id === id);
+      const thread = threads.find(t => t.conversation_id === id);
       if (thread) {
         const p = resolveProvider(thread.accountId);
         if (p) mutations.markRead({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, read });
       }
     }
-  }, [selectedThreadIds, allThreads, resolveProvider, selectedAccountId, mutations]);
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations]);
 
   const previewAttachment = useCallback(async (att: MailAttachment) => {
     const p = resolveProvider(selectedThread?.accountId);
@@ -530,7 +516,7 @@ export function useMailPageLogic() {
 
   return {
     t, preference, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
-    threads: allThreads, threadsLoading: threadsLoading && threadOffset === 0, threadsLoadingMore, hasMoreThreads, selectedThread,
+    threads, threadsLoading: threadsLoading && threadLimit === 50, threadsLoadingMore, hasMoreThreads, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
     contacts, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
