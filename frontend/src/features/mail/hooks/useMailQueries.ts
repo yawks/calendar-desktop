@@ -2,7 +2,7 @@ import { useQuery, useQueries } from '@tanstack/react-query';
 import { MailProvider } from '../providers/MailProvider';
 import { Folder, MailSearchQuery } from '../types';
 import { buildUnreadCounts } from '../utils';
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 
 export const MAIL_KEYS = {
   all: ['mail'] as const,
@@ -21,7 +21,7 @@ export function useMailFolders(accountId: string, provider: MailProvider | null)
       return await provider.listFolders();
     },
     enabled: !!provider,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -38,36 +38,40 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
     })),
   });
 
-  const dataDeps = useMemo(() => results.map(r => r.data), [results]);
-  const errorDeps = useMemo(() => results.map(r => r.error), [results]);
-
-  return useMemo(() => {
-    const allAccountFolders = new Map<string, any[]>();
-    const mergedCounts: Record<string, number> = {};
-    const errors: Error[] = [];
-
+  const allAccountFolders = useMemo(() => {
+    const map = new Map<string, any[]>();
     results.forEach((res, idx) => {
-      const accountId = accounts[idx].id;
+      if (res.data) map.set(accounts[idx].id, res.data);
+    });
+    return map;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results.map(r => !!r.data).join(','), accounts]);
+
+  const mergedCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    results.forEach((res) => {
       if (res.data) {
-        allAccountFolders.set(accountId, res.data);
-        const counts = buildUnreadCounts(res.data);
-        for (const [key, val] of Object.entries(counts)) {
-          mergedCounts[key] = (mergedCounts[key] ?? 0) + (val as number);
+        const c = buildUnreadCounts(res.data);
+        for (const [k, v] of Object.entries(c)) {
+          counts[k] = (counts[k] ?? 0) + (v as number);
         }
       }
-      if (res.error) {
-        errors.push(res.error as Error);
-      }
     });
-
-    return {
-      allAccountFolders,
-      mergedCounts,
-      errors,
-      isLoading: results.some((r) => r.isLoading),
-    };
+    return counts;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataDeps, errorDeps, accounts]);
+  }, [results.map(r => r.dataUpdatedAt).join(',')]);
+
+  const errors = useMemo(() =>
+    results.map(r => r.error).filter((e): e is Error => !!e),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [results.map(r => r.errorUpdatedAt).join(',')]);
+
+  return useMemo(() => ({
+    allAccountFolders,
+    mergedCounts,
+    errors,
+    isLoading: results.some((r) => r.isLoading),
+  }), [allAccountFolders, mergedCounts, errors, results.map(r => r.isLoading).join(',')]);
 }
 
 export function useMailThreads(accountId: string, folder: Folder, provider: MailProvider | null) {
@@ -101,23 +105,30 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
     })),
   });
 
-  const dataDeps = useMemo(() => results.map(r => r.data), [results]);
-  const errorDeps = useMemo(() => results.map(r => r.error), [results]);
-
-  return useMemo(() => {
-    const merged = results
+  const data = useMemo(() => {
+    return results
       .flatMap((r) => (r.data ? r.data : []))
       .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
-
-    return {
-      data: merged,
-      isLoading: results.some((r) => r.isLoading),
-      isFetching: results.some((r) => r.isFetching),
-      errors: results.map(r => r.error).filter((e): e is Error => !!e),
-      refetch: () => results.forEach(r => r.refetch()),
-    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataDeps, errorDeps, folder]);
+  }, [results.map(r => r.dataUpdatedAt).join(',')]);
+
+  const errors = useMemo(() =>
+    results.map(r => r.error).filter((e): e is Error => !!e),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [results.map(r => r.errorUpdatedAt).join(',')]);
+
+  const refetch = useCallback(() => {
+    results.forEach(r => r.refetch());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results.length]);
+
+  return useMemo(() => ({
+    data,
+    isLoading: results.some((r) => r.isLoading),
+    isFetching: results.some((r) => r.isFetching),
+    errors,
+    refetch,
+  }), [data, errors, results.map(r => r.isLoading).join(','), results.map(r => r.isFetching).join(','), refetch]);
 }
 
 export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null) {
