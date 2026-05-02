@@ -15,8 +15,9 @@ import { useCalendars } from '../../calendar/store/CalendarStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
 import { useCalendarEvents } from '../../calendar/hooks/useCalendarQueries';
-import { patchGoogleCachedRsvp } from '../../calendar/hooks/useGoogleEvents';
-import { patchNextcloudCachedRsvp } from '../../calendar/hooks/useNextcloudEvents';
+import { useGoogleEvents, patchGoogleCachedRsvp } from '../../calendar/hooks/useGoogleEvents';
+import { useNextcloudEvents, patchNextcloudCachedRsvp } from '../../calendar/hooks/useNextcloudEvents';
+import { useEventKitEvents } from '../../calendar/hooks/useEventKitEvents';
 import { patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
 import { DayEventsTimeline } from '../../calendar/components/DayEventsTimeline';
 import { respondToGoogleEvent, createEvent as createGoogleEvent } from '../../calendar/utils/googleCalendarApi';
@@ -51,18 +52,25 @@ function normTitle(t: string): string {
 function matchEvent(
   icsTitle: string,
   icsStart: string,
+  icsEnd: string,
   allEvents: CalendarEvent[],
 ): CalendarEvent | null {
   const title = normTitle(icsTitle);
+  const icsStartDay = new Date(icsStart);
+  const icsEndDay = new Date(icsEnd);
+  // Strict: same title + within 5 min on start + same end day
   for (const ev of allEvents) {
-    if (normTitle(ev.title) === title && dateAreSimilar(ev.start, icsStart)) {
+    if (normTitle(ev.title) === title
+      && dateAreSimilar(ev.start, icsStart)
+      && isSameDay(new Date(ev.end), icsEndDay)) {
       return ev;
     }
   }
-  // Relax: same title + same day
-  const icsDay = new Date(icsStart);
+  // Relax: same title + same start day + same end day
   for (const ev of allEvents) {
-    if (normTitle(ev.title) === title && isSameDay(new Date(ev.start), icsDay)) {
+    if (normTitle(ev.title) === title
+      && isSameDay(new Date(ev.start), icsStartDay)
+      && isSameDay(new Date(ev.end), icsEndDay)) {
       return ev;
     }
   }
@@ -411,8 +419,15 @@ export function ICSInvitationCard({
     [allCalendars],
   );
 
-  // Load events using React Query unified hook
-  const { events: allEvents } = useCalendarEvents(allCalendars);
+  // Load events from all providers and combine them
+  const { events: googleEvents } = useGoogleEvents(allCalendars);
+  const { events: ncEvents }     = useNextcloudEvents(allCalendars);
+  const { events: ekEvents }     = useEventKitEvents(allCalendars);
+  const { events: ewsEvents }    = useCalendarEvents(allCalendars);
+  const allEvents = useMemo(
+    () => [...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents],
+    [googleEvents, ncEvents, ekEvents, ewsEvents],
+  );
 
   // Default calendar: match the mail account email with a calendar account
   const defaultCalendarId = useMemo(() => {
@@ -440,11 +455,13 @@ export function ICSInvitationCard({
     return byOwner?.id ?? writableCalendars[0]?.id ?? '';
   }, [currentUserEmail, mailProviderType, writableCalendars]);
 
-  // Match the ICS event against known calendar events
+  // Match the ICS event against known calendar events (writable calendars only)
+  const writableCalIds = useMemo(() => new Set(writableCalendars.map(c => c.id)), [writableCalendars]);
   const matchedEvent = useMemo(() => {
     if (!icsData) return null;
-    return matchEvent(icsData.title, icsData.start, allEvents);
-  }, [icsData, allEvents]);
+    const writableEvents = allEvents.filter(ev => writableCalIds.has(ev.calendarId));
+    return matchEvent(icsData.title, icsData.start, icsData.end, writableEvents);
+  }, [icsData, allEvents, writableCalIds]);
 
   const [selectedCalId, setSelectedCalId] = useState<string>('');
   const [userChangedCalendar, setUserChangedCalendar] = useState(false);

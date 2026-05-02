@@ -203,12 +203,12 @@ export function useMailIdentities(accountId: string, provider: MailProvider | nu
   );
 }
 
-export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null, isDraft = false) {
+export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null, isDraft = false, includeTrash = false) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), isDraft],
+    queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), isDraft, includeTrash],
     queryFn: async () => {
       if (!provider || !conversationId) throw new Error('Invalid params');
-      return await provider.getThread(conversationId, false, isDraft, /* includeDrafts */ !isDraft);
+      return await provider.getThread(conversationId, includeTrash, isDraft, /* includeDrafts */ !isDraft);
     },
     enabled: !!provider && !!conversationId,
     staleTime: 60 * 1000,
