@@ -5,6 +5,7 @@ import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams } from './Ma
 
 export class JmapMailProvider implements MailProvider {
   readonly providerType = 'jmap';
+  readonly supportsSnooze = true;
   readonly accountId: string;
   private readonly config: JmapAccount;
 
@@ -67,6 +68,8 @@ export class JmapMailProvider implements MailProvider {
       subject: params.subject,
       bodyHtml: params.bodyHtml,
       identityId: params.fromIdentityId ?? null,
+      inReplyTo: params.inReplyTo ?? null,
+      references: params.references ?? null,
     });
   }
 
@@ -98,6 +101,21 @@ export class JmapMailProvider implements MailProvider {
     });
   }
 
+  async bulkMoveToTrash(conversationIds: string[]): Promise<void> {
+    if (!conversationIds.length) return;
+    await invoke('jmap_bulk_move_to_trash', { config: this.rustConfig, threadIds: conversationIds });
+  }
+
+  async bulkPermanentlyDelete(conversationIds: string[]): Promise<void> {
+    if (!conversationIds.length) return;
+    await invoke('jmap_bulk_permanently_delete', { config: this.rustConfig, threadIds: conversationIds });
+  }
+
+  async bulkMoveToFolder(conversationIds: string[], folderId: string): Promise<void> {
+    if (!conversationIds.length) return;
+    await invoke('jmap_bulk_move_to_folder', { config: this.rustConfig, threadIds: conversationIds, folderId });
+  }
+
   async openAttachment(attachment: MailAttachment): Promise<void> {
     const data = await this.getAttachmentData(attachment);
     await invoke('open_file_path', {
@@ -115,20 +133,25 @@ export class JmapMailProvider implements MailProvider {
     });
   }
 
-  async saveDraft(params: SaveDraftParams): Promise<void> {
-      // Not yet implemented on backend
+  async saveDraft(_params: SaveDraftParams): Promise<string> {
+    // Not yet implemented on backend
+    return '';
   }
 
   async findOrCreateSnoozedFolder(): Promise<string> {
-    return 'snoozed';
+    return invoke<string>('jmap_find_or_create_snoozed_folder', { config: this.rustConfig });
   }
 
   async moveToFolder(itemId: string, folderId: string): Promise<void> {
-      // Not yet implemented on backend
+    await invoke('jmap_move_to_folder', {
+      config: this.rustConfig,
+      id: itemId,
+      folderId,
+    });
   }
 
   async snooze(itemId: string): Promise<string> {
-    return 'snoozed';
+    return invoke<string>('jmap_snooze', { config: this.rustConfig, id: itemId });
   }
 
   async getInboxUnread(): Promise<number> {

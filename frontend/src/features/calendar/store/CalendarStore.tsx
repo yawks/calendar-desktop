@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useReducer, useEffect, ReactNode, useMemo } from 'react';
 import { CalendarConfig } from '../../../shared/types';
 
 const STORAGE_KEY = 'calendar-desktop-calendars';
@@ -40,10 +40,14 @@ interface CalendarContextValue {
 
 const CalendarContext = createContext<CalendarContextValue | null>(null);
 
-export function CalendarProvider({ children }: { children: ReactNode }) {
+export function CalendarProvider({ children }: { readonly children: ReactNode }) {
   const [calendars, dispatch] = useReducer(reducer, [], () => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as CalendarConfig[]) : [];
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored ? (JSON.parse(stored) as CalendarConfig[]) : [];
+    } catch {
+      return [];
+    }
   });
 
   useEffect(() => {
@@ -63,10 +67,12 @@ export function CalendarProvider({ children }: { children: ReactNode }) {
   const reorderCalendars = (newCalendars: CalendarConfig[]) =>
     dispatch({ type: 'REORDER', payload: newCalendars });
 
+  const contextValue = useMemo(() => ({
+    calendars, addCalendar, removeCalendar, toggleCalendar, updateCalendar, reorderCalendars
+  }), [calendars]);
+
   return (
-    <CalendarContext.Provider
-      value={{ calendars, addCalendar, removeCalendar, toggleCalendar, updateCalendar, reorderCalendars }}
-    >
+    <CalendarContext.Provider value={contextValue}>
       {children}
     </CalendarContext.Provider>
   );

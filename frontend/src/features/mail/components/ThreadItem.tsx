@@ -12,13 +12,14 @@ export interface ThreadItemProps {
   readonly isChecked: boolean;
   readonly snoozeUntil?: string;
   readonly isInSnoozedFolder: boolean;
+  readonly hasDraft?: boolean;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
   readonly onToggleCheck: (t: MailThread) => void;
 }
 
-export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
+export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, hasDraft, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const { preference } = useTheme();
   const isDark = preference === 'dark';
@@ -82,6 +83,9 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
 
         <div className="mail-thread-item__subject">{thread.topic || t('mail.noSubject', "(Pas d'objet)")}</div>
         <div className="mail-thread-item__snippet">
+          {hasDraft && (
+            <span className="mail-thread-item__draft-badge">{t('mail.draftBadge', 'Brouillon')}</span>
+          )}
           <span className="mail-thread-item__snippet-text">{decodeHtmlEntities(thread.snippet)}</span>
         </div>
 

@@ -76,6 +76,9 @@ export function formatDate(iso: string): string {
     }
     const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
     if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
+    if (d.getFullYear() !== now.getFullYear()) {
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+    }
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   } catch {
     return iso;

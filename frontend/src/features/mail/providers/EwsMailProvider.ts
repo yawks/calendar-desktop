@@ -9,6 +9,7 @@ import type { MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from 
  */
 export class EwsMailProvider implements MailProvider {
   readonly providerType = 'ews' as const;
+  readonly supportsSnooze = true;
   readonly accountId: string;
 
   private readonly getValidToken: (id: string) => Promise<string | null>;
@@ -37,9 +38,9 @@ export class EwsMailProvider implements MailProvider {
     return results;
   }
 
-  async getThread(conversationId: string, includeTrash = false, isDraft = false): Promise<MailMessage[]> {
+  async getThread(conversationId: string, includeTrash = false, isDraft = false, includeDrafts = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
-    return invoke<MailMessage[]>('mail_get_thread', { accessToken, conversationId, includeTrash, isDraft });
+    return invoke<MailMessage[]>('mail_get_thread', { accessToken, conversationId, includeTrash, isDraft, includeDrafts });
   }
 
   async listFolders(): Promise<MailFolder[]> {
@@ -77,6 +78,43 @@ export class EwsMailProvider implements MailProvider {
     return invoke('mail_permanently_delete', { accessToken, itemId });
   }
 
+  private async collectItemIds(conversationIds: string[], includeTrash = false): Promise<string[]> {
+    const CONCURRENCY = 5;
+    const itemIds: string[] = [];
+    for (let i = 0; i < conversationIds.length; i += CONCURRENCY) {
+      const batch = conversationIds.slice(i, i + CONCURRENCY);
+      const batchMsgs = await Promise.all(
+        batch.map(id => this.getThread(id, includeTrash).catch(() => [])),
+      );
+      for (const msgs of batchMsgs) itemIds.push(...msgs.map(m => m.item_id));
+    }
+    return itemIds;
+  }
+
+  async bulkMoveToTrash(conversationIds: string[]): Promise<void> {
+    if (!conversationIds.length) return;
+    const accessToken = await this.token();
+    const itemIds = await this.collectItemIds(conversationIds);
+    if (!itemIds.length) return;
+    return invoke('mail_bulk_move_to_trash', { accessToken, itemIds });
+  }
+
+  async bulkPermanentlyDelete(conversationIds: string[]): Promise<void> {
+    if (!conversationIds.length) return;
+    const accessToken = await this.token();
+    const itemIds = await this.collectItemIds(conversationIds, true);
+    if (!itemIds.length) return;
+    return invoke('mail_bulk_permanently_delete', { accessToken, itemIds });
+  }
+
+  async bulkMoveToFolder(conversationIds: string[], folderId: string): Promise<void> {
+    if (!conversationIds.length) return;
+    const accessToken = await this.token();
+    const itemIds = await this.collectItemIds(conversationIds);
+    if (!itemIds.length) return;
+    return invoke('mail_bulk_move_to_folder', { accessToken, itemIds, folderId });
+  }
+
   async openAttachment(attachment: MailAttachment): Promise<void> {
     const accessToken = await this.token();
     return invoke('mail_open_attachment', {
@@ -94,9 +132,9 @@ export class EwsMailProvider implements MailProvider {
     });
   }
 
-  async saveDraft({ to, cc, bcc, subject, bodyHtml }: SaveDraftParams): Promise<void> {
+  async saveDraft({ to, cc, bcc, subject, bodyHtml }: SaveDraftParams): Promise<string> {
     const accessToken = await this.token();
-    return invoke('mail_save_draft', {
+    return invoke<string>('mail_save_draft', {
       accessToken, to, cc: cc ?? [], bcc: bcc ?? [], subject, bodyHtml,
     });
   }

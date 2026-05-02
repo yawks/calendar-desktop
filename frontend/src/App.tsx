@@ -1,4 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 
 import AppTabs from './shared/components/AppTabs';
@@ -33,32 +36,38 @@ function RootView() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <LanguageProvider>
-        <LayoutProvider>
-          <GoogleAuthProvider>
-            <ExchangeAuthProvider>
-              <JmapAuthProvider>
-                <ImapAuthProvider>
-                  <CalendarProvider>
-                    <CalendarGroupProvider>
-                      <TagProvider>
-                        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-                          <Routes>
-                            <Route path="/" element={<RootView />} />
-                            <Route path="/mail" element={<MailApp />} />
-                            <Route path="/config" element={<ConfigPage />} />
-                          </Routes>
-                        </BrowserRouter>
-                      </TagProvider>
-                    </CalendarGroupProvider>
-                  </CalendarProvider>
-                </ImapAuthProvider>
-              </JmapAuthProvider>
-            </ExchangeAuthProvider>
-          </GoogleAuthProvider>
-        </LayoutProvider>
-      </LanguageProvider>
-    </ThemeProvider>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{ persister: indexedDBPersister }}
+    >
+      <ThemeProvider>
+        <LanguageProvider>
+          <LayoutProvider>
+            <GoogleAuthProvider>
+              <ExchangeAuthProvider>
+                <JmapAuthProvider>
+                  <ImapAuthProvider>
+                    <CalendarProvider>
+                      <CalendarGroupProvider>
+                        <TagProvider>
+                          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                            <Routes>
+                              <Route path="/" element={<RootView />} />
+                              <Route path="/mail" element={<MailApp />} />
+                              <Route path="/config" element={<ConfigPage />} />
+                            </Routes>
+                          </BrowserRouter>
+                        </TagProvider>
+                      </CalendarGroupProvider>
+                    </CalendarProvider>
+                  </ImapAuthProvider>
+                </JmapAuthProvider>
+              </ExchangeAuthProvider>
+            </GoogleAuthProvider>
+          </LayoutProvider>
+        </LanguageProvider>
+      </ThemeProvider>
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
+    </PersistQueryClientProvider>
   );
 }

@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode, useRef } from 'react';
 import { ExchangeAccount } from '../types';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -40,9 +40,7 @@ interface ExchangeAuthContextValue {
   removeAccount: (id: string) => void;
   updateAccountColor: (id: string, color: string) => void;
   updateAccountCapabilities: (id: string, enabledCapabilities: ('calendar' | 'email')[]) => void;
-  /** Returns a valid access token, refreshing automatically if expired. */
   getValidToken: (accountId: string) => Promise<string | null>;
-  /** Returns the stored refresh token (synchronous, no refresh). Used for Graph API calls. */
   getRefreshToken: (accountId: string) => string | null;
 }
 
@@ -58,7 +56,9 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
     }
   });
 
+  const accountsRef = useRef(accounts);
   useEffect(() => {
+    accountsRef.current = accounts;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
   }, [accounts]);
 
@@ -78,28 +78,50 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
     dispatch({ type: 'UPDATE_CAPABILITIES', payload: { id, enabledCapabilities } });
   }, []);
 
-  const getValidToken = useCallback(async (accountId: string): Promise<string | null> => {
-    const account = accounts.find((a) => a.id === accountId);
-    if (!account) return null;
-    if (account.expiresAt > Date.now() + 60_000) return account.accessToken;
+  const refreshPromises = useRef<Record<string, Promise<string | null>>>({});
+  const lastFailure = useRef<Record<string, number>>({});
 
-    // Refresh the token
-    try {
-      const result = await invoke<{ access_token: string; refresh_token?: string; expires_in: number }>(
-        'ews_refresh_access_token',
-        { refreshToken: account.refreshToken }
-      );
-      const expiresAt = Date.now() + result.expires_in * 1000;
-      dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken: result.access_token, expiresAt } });
-      return result.access_token;
-    } catch {
-      return null;
+  const getValidToken = useCallback(async (accountId: string): Promise<string | null> => {
+    const account = accountsRef.current.find((a) => a.id === accountId);
+    if (!account) return null;
+
+    // Check if token is still valid (using a 10s buffer instead of 60s)
+    if (account.expiresAt > Date.now() + 10_000) return account.accessToken;
+
+    // Deduplicate concurrent refreshes
+    const existing = refreshPromises.current[accountId];
+    if (existing) return existing;
+
+    // Throttle failures (don't retry more than once every 10 seconds)
+    if (lastFailure.current[accountId] && Date.now() - lastFailure.current[accountId] < 10_000) {
+        return null;
     }
-  }, [accounts]);
+
+    const performRefresh = async () => {
+        try {
+          const result = await invoke<{ access_token: string; refresh_token?: string; expires_in: number }>(
+            'ews_refresh_access_token',
+            { refreshToken: account.refreshToken }
+          );
+          const expiresAt = Date.now() + result.expires_in * 1000;
+          dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken: result.access_token, expiresAt } });
+          return result.access_token;
+        } catch (err) {
+          console.error('[ExchangeAuthStore] refresh failed', err);
+          lastFailure.current[accountId] = Date.now();
+          return null;
+        } finally {
+            delete refreshPromises.current[accountId];
+        }
+    };
+
+    refreshPromises.current[accountId] = performRefresh();
+    return refreshPromises.current[accountId];
+  }, []);
 
   const getRefreshToken = useCallback((accountId: string): string | null => {
-    return accounts.find((a) => a.id === accountId)?.refreshToken ?? null;
-  }, [accounts]);
+    return accountsRef.current.find((a) => a.id === accountId)?.refreshToken ?? null;
+  }, []);
 
   const contextValue = useMemo(
     () => ({ accounts, addAccount, removeAccount, updateAccountColor, updateAccountCapabilities, getValidToken, getRefreshToken }),
@@ -119,7 +141,6 @@ export function useExchangeAuth() {
   return ctx;
 }
 
-/** Decode the email and display name from an EWS JWT access token. */
 export function parseExchangeToken(accessToken: string): { email: string; displayName: string } {
   try {
     const b64 = accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');

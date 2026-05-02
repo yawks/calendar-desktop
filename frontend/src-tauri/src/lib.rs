@@ -100,12 +100,14 @@ pub fn run() {
         .expect("Failed to install rustls crypto provider");
 
     let oauth_state = auth::OAuthState { rx: std::sync::Mutex::new(None) };
+    let jmap_state = jmap::JmapClientState::new();
 
     #[cfg(target_os = "macos")]
     let ek_state = eventkit::EventKitState::new();
 
     let builder = tauri::Builder::default()
-        .manage(oauth_state);
+        .manage(oauth_state)
+        .manage(jmap_state);
 
     #[cfg(target_os = "macos")]
     let builder = builder.manage(ek_state);
@@ -141,6 +143,9 @@ pub fn run() {
                     mail::mail_mark_unread,
                     mail::mail_move_to_trash,
                     mail::mail_permanently_delete,
+                    mail::mail_bulk_move_to_trash,
+                    mail::mail_bulk_permanently_delete,
+                    mail::mail_bulk_move_to_folder,
                     mail::mail_open_attachment,
                     mail::mail_get_attachment_data,
                     mail::mail_get_inbox_unread,
@@ -159,6 +164,8 @@ pub fn run() {
                     imap::imap_mark_unread,
                     imap::imap_move_to_trash,
                     imap::imap_permanently_delete,
+                    imap::imap_bulk_move_to_trash,
+                    imap::imap_bulk_permanently_delete,
                     imap::imap_send,
                     imap::imap_get_attachment_data,
                     jmap::jmap_list_folders,
@@ -168,11 +175,17 @@ pub fn run() {
                     jmap::jmap_mark_read,
                     jmap::jmap_mark_unread,
                     jmap::jmap_move_to_trash,
+                    jmap::jmap_move_to_folder,
                     jmap::jmap_permanently_delete,
+                    jmap::jmap_bulk_move_to_trash,
+                    jmap::jmap_bulk_permanently_delete,
+                    jmap::jmap_bulk_move_to_folder,
                     jmap::jmap_send,
                     jmap::jmap_get_attachment_data,
                     jmap::jmap_search_threads,
                     jmap::jmap_list_identities,
+                    jmap::jmap_find_or_create_snoozed_folder,
+                    jmap::jmap_snooze,
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,
@@ -207,6 +220,9 @@ pub fn run() {
                     mail::mail_mark_unread,
                     mail::mail_move_to_trash,
                     mail::mail_permanently_delete,
+                    mail::mail_bulk_move_to_trash,
+                    mail::mail_bulk_permanently_delete,
+                    mail::mail_bulk_move_to_folder,
                     mail::mail_open_attachment,
                     mail::mail_get_attachment_data,
                     mail::mail_get_inbox_unread,
@@ -225,6 +241,8 @@ pub fn run() {
                     imap::imap_mark_unread,
                     imap::imap_move_to_trash,
                     imap::imap_permanently_delete,
+                    imap::imap_bulk_move_to_trash,
+                    imap::imap_bulk_permanently_delete,
                     imap::imap_send,
                     imap::imap_get_attachment_data,
                     jmap::jmap_list_folders,
@@ -234,10 +252,17 @@ pub fn run() {
                     jmap::jmap_mark_read,
                     jmap::jmap_mark_unread,
                     jmap::jmap_move_to_trash,
+                    jmap::jmap_move_to_folder,
                     jmap::jmap_permanently_delete,
+                    jmap::jmap_bulk_move_to_trash,
+                    jmap::jmap_bulk_permanently_delete,
+                    jmap::jmap_bulk_move_to_folder,
                     jmap::jmap_send,
                     jmap::jmap_get_attachment_data,
                     jmap::jmap_search_threads,
+                    jmap::jmap_list_identities,
+                    jmap::jmap_find_or_create_snoozed_folder,
+                    jmap::jmap_snooze,
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,

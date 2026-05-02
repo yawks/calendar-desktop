@@ -1,4 +1,4 @@
-import { forwardRef, useState } from 'react';
+import { forwardRef, useState, useEffect, useRef, useImperativeHandle } from 'react';
 import { MailThread } from '../types';
 import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -8,10 +8,13 @@ export interface ThreadListProps {
   readonly threads: MailThread[];
   readonly loading: boolean;
   readonly loadingMore: boolean;
+  readonly hasMore?: boolean;
+  readonly onLoadMore?: () => void;
   readonly selectedId: string | null;
   readonly snoozedMap: Record<string, string>;
   readonly isInSnoozedFolder: boolean;
   readonly isSearchMode?: boolean;
+  readonly draftConversationIds?: Set<string>;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
@@ -27,10 +30,13 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       threads,
       loading,
       loadingMore,
+      hasMore = false,
+      onLoadMore,
       selectedId,
       snoozedMap,
       isInSnoozedFolder,
       isSearchMode = false,
+      draftConversationIds,
       onSelect,
       onToggleRead,
       onDelete,
@@ -44,6 +50,25 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     const { t } = useTranslation();
     const [filter, setFilter] = useState<'all' | 'unread'>('all');
     const [filterOpen, setFilterOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useImperativeHandle(ref, () => containerRef.current!);
+
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container || !onLoadMore) return;
+
+      const handleScroll = () => {
+        if (!hasMore || loadingMore) return;
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        if (scrollHeight - scrollTop - clientHeight < 200) {
+          onLoadMore();
+        }
+      };
+
+      container.addEventListener('scroll', handleScroll, { passive: true });
+      return () => container.removeEventListener('scroll', handleScroll);
+    }, [onLoadMore, hasMore, loadingMore]);
 
     const allSelected = threads.length > 0 && selectedThreadIds.size === threads.length;
 
@@ -115,43 +140,56 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       );
     }
 
+    const countChip = !isSearchMode && (
+      <div className="mail-thread-list__count-chip">
+        <span>{visibleThreads.length} {t('mail.conversations', 'conversations')}</span>
+      </div>
+    );
+
     if (visibleThreads.length === 0) {
       return (
-        <div className="mail-thread-list" ref={ref} style={{ display: 'flex', flexDirection: 'column' }}>
-          {toolbar}
-          <div className="mail-thread-list--empty" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <p style={{ opacity: 0.4 }}>
-              {isSearchMode
-                ? t('mail.search.noResults', 'No results')
-                : t('mail.empty', 'No messages')}
-            </p>
+        <div className="mail-thread-list-wrapper">
+          <div className="mail-thread-list" ref={containerRef}>
+            {toolbar}
+            <div className="mail-thread-list--empty">
+              <p style={{ opacity: 0.4 }}>
+                {isSearchMode
+                  ? t('mail.search.noResults', 'No results')
+                  : t('mail.empty', 'No messages')}
+              </p>
+            </div>
           </div>
+          {countChip}
         </div>
       );
     }
 
     return (
-      <div className="mail-thread-list" ref={ref}>
-        {toolbar}
-        {visibleThreads.map((thread) => (
-          <ThreadItem
-            key={(thread.accountId ?? '') + '_' + thread.conversation_id}
-            thread={thread}
-            isSelected={thread.conversation_id === selectedId}
-            isChecked={selectedThreadIds.has(thread.conversation_id)}
-            snoozeUntil={snoozedMap[thread.conversation_id]}
-            isInSnoozedFolder={isInSnoozedFolder}
-            onSelect={onSelect}
-            onToggleRead={onToggleRead}
-            onDelete={onDelete}
-            onToggleCheck={onToggleSelect}
-          />
-        ))}
-        {loadingMore && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px', opacity: 0.5 }}>
-            <RefreshCw size={18} className="spin" />
-          </div>
-        )}
+      <div className="mail-thread-list-wrapper">
+        <div className="mail-thread-list" ref={containerRef}>
+          {toolbar}
+          {visibleThreads.map((thread) => (
+            <ThreadItem
+              key={(thread.accountId ?? '') + '_' + thread.conversation_id}
+              thread={thread}
+              isSelected={thread.conversation_id === selectedId}
+              isChecked={selectedThreadIds.has(thread.conversation_id)}
+              snoozeUntil={snoozedMap[thread.conversation_id]}
+              isInSnoozedFolder={isInSnoozedFolder}
+              hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
+              onSelect={onSelect}
+              onToggleRead={onToggleRead}
+              onDelete={onDelete}
+              onToggleCheck={onToggleSelect}
+            />
+          ))}
+          {loadingMore && (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px', opacity: 0.5 }}>
+              <RefreshCw size={18} className="spin" />
+            </div>
+          )}
+        </div>
+        {countChip}
       </div>
     );
   }

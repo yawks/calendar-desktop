@@ -14,11 +14,10 @@ import { MailAttachment } from '../types';
 import { useCalendars } from '../../calendar/store/CalendarStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
-import { useGoogleEvents, patchGoogleCachedRsvp } from '../../calendar/hooks/useGoogleEvents';
-import { useNextcloudEvents, patchNextcloudCachedRsvp } from '../../calendar/hooks/useNextcloudEvents';
-import { useEventKitEvents } from '../../calendar/hooks/useEventKitEvents';
-import { useEWSEvents, patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
-import { useICSEvents } from '../../calendar/hooks/useICSEvents';
+import { useCalendarEvents } from '../../calendar/hooks/useCalendarQueries';
+import { patchGoogleCachedRsvp } from '../../calendar/hooks/useGoogleEvents';
+import { patchNextcloudCachedRsvp } from '../../calendar/hooks/useNextcloudEvents';
+import { patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
 import { DayEventsTimeline } from '../../calendar/components/DayEventsTimeline';
 import { respondToGoogleEvent, createEvent as createGoogleEvent } from '../../calendar/utils/googleCalendarApi';
 import { respondToNextcloudEvent, createNextcloudEvent } from '../../calendar/utils/nextcloudCalendarApi';
@@ -412,17 +411,8 @@ export function ICSInvitationCard({
     [allCalendars],
   );
 
-  // Load events from all providers (they use IndexedDB cache — cheap if already loaded)
-  const { events: googleEvents }    = useGoogleEvents(allCalendars);
-  const { events: ncEvents }        = useNextcloudEvents(allCalendars);
-  const { events: ekEvents }        = useEventKitEvents(allCalendars);
-  const { events: ewsEvents }       = useEWSEvents(allCalendars);
-  const { events: icsEvents }       = useICSEvents(allCalendars);
-
-  const allEvents = useMemo(
-    () => [...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents, ...icsEvents],
-    [googleEvents, ncEvents, ekEvents, ewsEvents, icsEvents],
-  );
+  // Load events using React Query unified hook
+  const { events: allEvents } = useCalendarEvents(allCalendars);
 
   // Default calendar: match the mail account email with a calendar account
   const defaultCalendarId = useMemo(() => {
@@ -459,14 +449,13 @@ export function ICSInvitationCard({
   const [selectedCalId, setSelectedCalId] = useState<string>('');
   const [userChangedCalendar, setUserChangedCalendar] = useState(false);
 
-  // Auto-select the calendar containing the matched event; fall back to the
-  // default calendar derived from the mail account. Once the user explicitly
-  // picks a calendar we stop overriding their choice.
   useEffect(() => {
     if (userChangedCalendar) return;
-    const id = matchedEvent?.calendarId ?? defaultCalendarId;
-    if (id) setSelectedCalId(id);
-  }, [defaultCalendarId, matchedEvent, userChangedCalendar]);
+    const targetId = matchedEvent?.calendarId ?? defaultCalendarId;
+    if (targetId && targetId !== selectedCalId) {
+        setSelectedCalId(targetId);
+    }
+  }, [defaultCalendarId, matchedEvent?.calendarId, userChangedCalendar, selectedCalId]);
 
   const selectedCal = useMemo(
     () => writableCalendars.find(c => c.id === selectedCalId) ?? null,

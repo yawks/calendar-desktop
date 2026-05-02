@@ -1,5 +1,4 @@
 import {
-  Check,
   Download,
   Inbox,
   Layers,
@@ -10,7 +9,6 @@ import {
   X,
 } from 'lucide-react';
 import { useRef, useState, useEffect } from "react";
-import type { MailIdentity } from './types';
 import { ThreadList } from "./components/ThreadList";
 import { ThreadDetail } from "./components/ThreadDetail";
 import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
@@ -25,42 +23,57 @@ import { invoke } from '@tauri-apps/api/core';
 import { ALL_ACCOUNTS_ID } from './utils';
 import { MailThread, MailMessage } from './types';
 import { ComposerAttachment } from './providers/MailProvider';
+import { MailComposerHandle } from './components/MailComposer';
 
 export default function MailApp() {
   const {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
-    threads, threadsLoading, threadsLoadingMore, selectedThread,
+    threads, threadsLoading, threadsRefreshing, threadsLoadingMore, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
-    contacts, error, deleteToast, downloadToast, sendToast, draftToast, actionToast,
+    contacts, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
-    allAccountFolders, folderUnreadCounts, allModeDynamicFolders, attachmentPreview,
+    allAccountFolders, folderUnreadCounts, sidebarDynamicFolders, attachmentPreview,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
-    downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
+    downloadAttachment, getRawAttachmentData, scheduleSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
-    setSelectedThreadIds, setAttachmentPreview, provider, setReplyingTo, setReplyMode,
-    snoozedByItemId, handleFoldersLoaded, setSelectedThread,
+    setSelectedThreadIds, setAttachmentPreview, setReplyingTo, setReplyMode, setActionToast,
+    setSelectedThread, threadSupportsSnooze,
     searchQuery, searchResults, searchLoading, handleSearch,
+    accountIdentities, loadMoreThreads, hasMoreThreads,
+    draftConversationIds, dismissDraftForConversation,
   } = useMailPageLogic();
 
   const threadListRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<MailComposerHandle>(null);
 
-  // JMAP identity selection — fetched eagerly when the provider changes
-  const [accountIdentities, setAccountIdentities] = useState<MailIdentity[]>([]);
+  const handleSelectThread = (thread: MailThread) => {
+    if (replyingTo && composerRef.current) {
+      // Don't auto-save if the composer was pre-filled from a locally-stored draft
+      // (composerRestoreData.draftItemId is set). The original draft is still on the server.
+      if (composerRef.current.isBodyModified() && !composerRestoreData?.draftItemId) {
+        const data = composerRef.current.getDraftData();
+        handleSaveDraft(selectedThread?.accountId, data.to, data.cc, data.bcc, data.subject, data.bodyHtml, selectedThread?.conversation_id);
+        setActionToast({ label: t('mail.draftSaved', 'Brouillon enregistré') });
+        setTimeout(() => setActionToast(null), 3000);
+      }
+      setReplyingTo(null);
+    }
+    openThread(thread);
+  };
+
+  // Identity selection state remains local to the component for UI control
   const [selectedIdentityId, setSelectedIdentityId] = useState('');
 
+  // Sync selected identity when list changes or account changes
   useEffect(() => {
-    if (!provider) { setAccountIdentities([]); setSelectedIdentityId(''); return; }
-    provider.listIdentities?.().then(identities => {
-      setAccountIdentities(identities);
-      const primary = identities.find(i => !i.mayDelete) ?? identities[0];
-      setSelectedIdentityId(primary?.id ?? '');
-    }).catch(() => {});
-  }, [provider]);
+    const primary = accountIdentities.find(i => !i.mayDelete) ?? accountIdentities[0];
+    setSelectedIdentityId(primary?.id ?? '');
+  }, [accountIdentities]);
 
   // When a reply is opened, pre-select the identity that matches a "to" recipient
   useEffect(() => {
@@ -89,9 +102,9 @@ export default function MailApp() {
         <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} />
         <div className="header-spacer" />
 
-        <button className="btn-icon" onClick={reloadThreads} disabled={threadsLoading}
+        <button className="btn-icon" onClick={reloadThreads} disabled={threadsRefreshing}
           title={t('header.refresh', 'Refresh')}>
-          <RefreshCw size={18} className={threadsLoading ? 'spin' : ''} />
+          <RefreshCw size={18} className={threadsRefreshing ? 'spin' : ''} />
         </button>
         <Link to="/config" className="btn-config btn-config--icon-only">
           <Settings size={17} />
@@ -165,10 +178,8 @@ export default function MailApp() {
                     setSelectedThread(null);
                     setComposingAccountId(isAllMode ? (allMailAccounts[0]?.id ?? '') : selectedAccountId);
                   }}
-                  provider={isAllMode ? null : provider}
-                  onFoldersLoaded={handleFoldersLoaded}
                   folderUnreadCounts={folderUnreadCounts}
-                  overrideDynamicFolders={allModeDynamicFolders.length > 0 ? allModeDynamicFolders : undefined}
+                  dynamicFolders={sidebarDynamicFolders}
                 />
               </div>
               <div
@@ -185,10 +196,13 @@ export default function MailApp() {
               threads={searchQuery ? searchResults : threads}
               loading={searchQuery ? searchLoading : threadsLoading}
               loadingMore={searchQuery ? false : threadsLoadingMore}
+              hasMore={!searchQuery && hasMoreThreads}
+              onLoadMore={searchQuery ? undefined : loadMoreThreads}
               isSearchMode={!!searchQuery}
               selectedId={selectedThread?.conversation_id ?? null}
               snoozedMap={snoozedMap}
               isInSnoozedFolder={isInSnoozedFolder}
+              draftConversationIds={draftConversationIds}
               onSelect={(thread: MailThread) => {
                 if (selectedThreadIds.size > 0) {
                   setSelectedThreadIds(prev => {
@@ -198,7 +212,7 @@ export default function MailApp() {
                     return next;
                   });
                 } else {
-                  openThread(thread);
+                  handleSelectThread(thread);
                 }
               }}
               onToggleRead={handleToggleThreadRead}
@@ -237,7 +251,7 @@ export default function MailApp() {
                     ? (allAccountFolders.get(threads.find(t => selectedThreadIds.has(t.conversation_id))?.accountId ?? '') ?? allFolders)
                     : allFolders
                 }
-                supportsSnooze={true}
+                supportsSnooze={allMailAccounts.some(a => a.providerType === 'ews')}
               />
             ) : composing ? (
               <NewMessageComposer
@@ -255,7 +269,9 @@ export default function MailApp() {
                     showCc: cc.length > 0,
                     showBcc: bcc.length > 0,
                     replyingToMsg: null,
-                  }, attachments, composingAccountId || undefined, fromIdentityId)
+                    fromAccountId: composingAccountId || undefined,
+                    fromIdentityId,
+                  }, attachments)
                 }
                 onCancel={() => { setComposing(false); }}
                 onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) =>
@@ -267,9 +283,9 @@ export default function MailApp() {
                 fromAccounts={isAllMode ? allMailAccounts as any : []}
                 fromAccountId={composingAccountId}
                 onFromAccountChange={setComposingAccountId}
-                identities={!isAllMode ? accountIdentities : undefined}
-                selectedIdentityId={!isAllMode ? selectedIdentityId : undefined}
-                onIdentityChange={!isAllMode ? setSelectedIdentityId : undefined}
+                identities={accountIdentities}
+                selectedIdentityId={selectedIdentityId}
+                onIdentityChange={setSelectedIdentityId}
               />
             ) : selectedThread === null ? (
               <div className="mail-detail-empty">
@@ -280,10 +296,60 @@ export default function MailApp() {
               <div className="mail-detail-empty">
                 <RefreshCw size={32} strokeWidth={1.5} className="spin" style={{ opacity: 0.4 }} />
               </div>
-            ) : (
+            ) : selectedFolder === 'drafts' && messages.length > 0 ? (() => {
+              const draft = messages[messages.length - 1];
+              const draftAccountId = selectedThread.accountId ?? (isAllMode ? composingAccountId : selectedAccountId);
+              return (
+                <NewMessageComposer
+                  key={selectedThread.conversation_id}
+                  contacts={contacts}
+                  restoreData={{
+                    toRecipients: (draft.to_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
+                    ccRecipients: (draft.cc_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
+                    bccRecipients: [],
+                    subject: draft.subject ?? '',
+                    body: draft.body_html ?? '',
+                    attachments: [],
+                    showCc: (draft.cc_recipients ?? []).length > 0,
+                    showBcc: false,
+                    isNewMessage: true,
+                    replyingToMsg: null,
+                    fromAccountId: draftAccountId,
+                    draftItemId: draft.item_id,
+                  }}
+                  onSend={(to, cc, bcc, subject, body, attachments, fromIdentityId) =>
+                    scheduleSend(to, cc, bcc, subject, body, {
+                      isNewMessage: true,
+                      toRecipients: to.map(email => ({ email })),
+                      ccRecipients: cc.map(email => ({ email })),
+                      bccRecipients: bcc.map(email => ({ email })),
+                      subject,
+                      body,
+                      attachments,
+                      showCc: cc.length > 0,
+                      showBcc: bcc.length > 0,
+                      replyingToMsg: null,
+                      fromAccountId: draftAccountId,
+                      fromIdentityId,
+                    }, attachments)
+                  }
+                  onCancel={() => setSelectedThread(null)}
+                  onSaveDraft={(to, cc, bcc, subject, bodyHtml) =>
+                    handleSaveDraft(draftAccountId, to, cc, bcc, subject, bodyHtml)
+                  }
+                  onDeleteDraft={() => moveToTrash(selectedThread.conversation_id)}
+                  fromAccounts={isAllMode ? allMailAccounts as any : []}
+                  fromAccountId={draftAccountId}
+                  onFromAccountChange={setComposingAccountId}
+                  identities={accountIdentities}
+                  selectedIdentityId={selectedIdentityId}
+                  onIdentityChange={setSelectedIdentityId}
+                />
+              );
+            })() : (
               <ThreadDetail
                 thread={selectedThread}
-                messages={messages}
+                messages={messages.filter(m => !m.is_draft)}
                 replyingTo={replyingTo}
                 contacts={contacts}
                 currentUserEmail={
@@ -306,9 +372,15 @@ export default function MailApp() {
                 onForward={(msg: MailMessage) => { setReplyMode('forward'); setReplyingTo(msg); }}
                 onToggleRead={toggleRead}
                 replyMode={replyMode}
-                onCancelReply={() => setReplyingTo(null)}
+                onCancelReply={() => {
+                  setReplyingTo(null);
+                  if (composerRestoreData?.isNewMessage === false) {
+                    // Restored draft — dismiss so it doesn't reappear on this conversation.
+                    dismissDraftForConversation(selectedThread.conversation_id);
+                  }
+                }}
                 onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) =>
-                  handleSaveDraft(selectedThread.accountId, to, cc, bcc, subject, bodyHtml)
+                  handleSaveDraft(selectedThread.accountId, to, cc, bcc, subject, bodyHtml, selectedThread.conversation_id)
                 }
                 onDeleteThread={() => handleDeleteThread(selectedThread)}
                 onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
@@ -328,16 +400,14 @@ export default function MailApp() {
                     showCc: cc.length > 0,
                     showBcc: bcc.length > 0,
                     replyingToMsg: replyingTo,
-                  }, attachments, undefined, fromIdentityId)
+                    fromIdentityId,
+                  }, attachments)
                 }
                 composerRestoreData={composerRestoreData}
-                supportsSnooze={true}
+                supportsSnooze={threadSupportsSnooze}
                 onSnooze={handleSnooze}
-                snoozeUntil={
-                  (messages.length > 0 ? (snoozedByItemId as Record<string, string>)[messages[messages.length - 1].item_id] : undefined)
-                  ?? (isInSnoozedFolder ? Object.values(snoozedByItemId as Record<string, string>).find(d => new Date(d) > new Date()) : undefined)
-                  ?? (isInSnoozedFolder ? snoozedMap[selectedThread.conversation_id] : undefined)
-                }
+                snoozeUntil={snoozedMap[selectedThread.conversation_id]}
+                isInSnoozedFolder={isInSnoozedFolder}
                 onUnsnooze={handleUnsnooze}
                 moveFolders={
                   isAllMode
@@ -345,6 +415,7 @@ export default function MailApp() {
                     : allFolders
                 }
                 onMove={handleMove}
+                composerRef={composerRef}
               />
             )}
           </div>
@@ -357,6 +428,18 @@ export default function MailApp() {
           <button className="mail-delete-toast__undo" onClick={cancelDeletion}>
             {t('mail.undo', 'Annuler')}
           </button>
+        </div>,
+        document.body
+      )}
+
+      {actionToast && createPortal(
+        <div className="mail-delete-toast">
+          <span>{actionToast.label}</span>
+          {actionToast.onCancel && (
+            <button className="mail-delete-toast__undo" onClick={actionToast.onCancel}>
+              {t('mail.cancel', 'Cancel')}
+            </button>
+          )}
         </div>,
         document.body
       )}
@@ -386,31 +469,6 @@ export default function MailApp() {
           data={attachmentPreview.data}
           onClose={() => setAttachmentPreview(null)}
         />
-      )}
-
-      {sendToast && createPortal(
-        <div className="mail-delete-toast">
-          <span>{sendToast.label}</span>
-          <button className="mail-delete-toast__undo" onClick={cancelSend}>
-            {t('mail.undo', 'Annuler')}
-          </button>
-        </div>,
-        document.body
-      )}
-
-      {draftToast && createPortal(
-        <div className="mail-delete-toast mail-draft-toast">
-          <span>{draftToast.label}</span>
-        </div>,
-        document.body
-      )}
-
-      {actionToast && createPortal(
-        <div className="mail-action-toast">
-          <Check size={14} />
-          <span>{actionToast.label}</span>
-        </div>,
-        document.body
       )}
     </div>
   );
