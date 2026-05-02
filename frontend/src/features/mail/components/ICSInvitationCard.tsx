@@ -533,13 +533,13 @@ export function ICSInvitationCard({
   }, [allEvents, icsData, matchedInSelected, selectedCalId]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
-  const [actionLoading, setActionLoading] = useState(false);
+  const [loadingAction, setLoadingAction] = useState<'ACCEPTED' | 'DECLINED' | 'TENTATIVE' | 'add' | null>(null);
   const [actionError, setActionError]     = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const handleRsvp = useCallback(async (status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE') => {
     if (!selectedCal || !icsData) return;
-    setActionLoading(true);
+    setLoadingAction(status);
     setActionError(null);
     setActionSuccess(null);
     try {
@@ -568,13 +568,13 @@ export function ICSInvitationCard({
     } catch (e) {
       setActionError(String(e));
     } finally {
-      setActionLoading(false);
+      setLoadingAction(null);
     }
   }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken]);
 
   const handleAddToCalendar = useCallback(async () => {
     if (!selectedCal || !icsData) return;
-    setActionLoading(true);
+    setLoadingAction('add');
     setActionError(null);
     setActionSuccess(null);
     try {
@@ -583,7 +583,7 @@ export function ICSInvitationCard({
     } catch (e) {
       setActionError(String(e));
     } finally {
-      setActionLoading(false);
+      setLoadingAction(null);
     }
   }, [selectedCal, icsData, getGoogleToken, getExchangeToken]);
 
@@ -679,32 +679,31 @@ export function ICSInvitationCard({
 
         {/* Actions — hidden for cancellations */}
         {!isCancelled && (<div className="ics-card__actions">
-          {actionLoading && <Loader2 size={14} className="ics-spinner" />}
           {canRsvp ? (
             <>
               <button
                 className={`ics-btn ics-btn--accept${currentStatus === 'ACCEPTED' ? ' ics-btn--active' : ''}`}
                 onClick={() => handleRsvp('ACCEPTED')}
-                disabled={actionLoading}
+                disabled={loadingAction !== null}
                 type="button"
               >
-                <Check size={13} /> Accepter
+                {loadingAction === 'ACCEPTED' ? <Loader2 size={13} className="ics-spinner" /> : <Check size={13} />} Accepter
               </button>
               <button
                 className={`ics-btn ics-btn--tentative${currentStatus === 'TENTATIVE' ? ' ics-btn--active' : ''}`}
                 onClick={() => handleRsvp('TENTATIVE')}
-                disabled={actionLoading}
+                disabled={loadingAction !== null}
                 type="button"
               >
-                <Minus size={13} /> Peut-être
+                {loadingAction === 'TENTATIVE' ? <Loader2 size={13} className="ics-spinner" /> : <Minus size={13} />} Peut-être
               </button>
               <button
                 className={`ics-btn ics-btn--decline${currentStatus === 'DECLINED' ? ' ics-btn--active' : ''}`}
                 onClick={() => handleRsvp('DECLINED')}
-                disabled={actionLoading}
+                disabled={loadingAction !== null}
                 type="button"
               >
-                <X size={13} /> Refuser
+                {loadingAction === 'DECLINED' ? <Loader2 size={13} className="ics-spinner" /> : <X size={13} />} Refuser
               </button>
             </>
           ) : isInCalendar ? (
@@ -715,10 +714,10 @@ export function ICSInvitationCard({
             <button
               className="ics-btn ics-btn--add"
               onClick={handleAddToCalendar}
-              disabled={actionLoading || actionSuccess !== null}
+              disabled={loadingAction !== null || actionSuccess !== null}
               type="button"
             >
-              <Plus size={13} /> Ajouter au calendrier
+              {loadingAction === 'add' ? <Loader2 size={13} className="ics-spinner" /> : <Plus size={13} />} Ajouter au calendrier
             </button>
           )}
         </div>)}
