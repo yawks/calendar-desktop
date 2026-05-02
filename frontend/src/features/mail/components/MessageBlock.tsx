@@ -10,6 +10,7 @@ export interface MessageBlockProps {
   readonly defaultExpanded?: boolean;
   readonly currentUserEmail?: string;
   readonly mailProviderType?: 'gmail' | 'ews';
+  readonly onMarkRead?: (msg: MailMessage) => void;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
@@ -20,18 +21,44 @@ export interface MessageBlockProps {
   readonly onGetAttachmentData: (att: MailAttachment) => Promise<string>;
 }
 
+function findScrollParent(el: HTMLElement): HTMLElement | null {
+  let current: HTMLElement | null = el.parentElement;
+  while (current && current !== document.body) {
+    const { overflow, overflowY } = getComputedStyle(current);
+    if (/auto|scroll/.test(overflow) || /auto|scroll/.test(overflowY)) return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
 export function MessageBlock({
   message, defaultExpanded = false, currentUserEmail, mailProviderType,
-  onReply, onReplyAll, onForward, onTrash, onToggleRead,
+  onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData,
 }: MessageBlockProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const blockRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);
 
   useEffect(() => {
-    if (message.is_read || markedRef.current || !isExpanded) return;
-    markedRef.current = true;
-  }, [isExpanded, message.is_read]);
+    if (message.is_read || markedRef.current || !isExpanded || !onMarkRead) return;
+    const el = blockRef.current;
+    if (!el) return;
+    const root = findScrollParent(el);
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          observer.disconnect();
+          markedRef.current = true;
+          onMarkRead(message);
+        }
+      },
+      { root, threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpanded, message.is_read, message.item_id]);
 
   const hasAttachments = message.attachments && message.attachments.length > 0;
   const icsAttachments = message.attachments?.filter(
@@ -39,7 +66,7 @@ export function MessageBlock({
   ) ?? [];
 
   return (
-    <div className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}`}>
+    <div ref={blockRef} className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}`}>
       <MessageBlockHeader
         message={message}
         expanded={isExpanded}
@@ -76,7 +103,7 @@ export function MessageBlock({
               mailProviderType={mailProviderType}
             />
           )}
-          <EmailHtmlBody html={message.body_html || ''} />
+          <EmailHtmlBody html={message.body_html || ''} bodyText={message.body_text} />
         </div>
       )}
     </div>

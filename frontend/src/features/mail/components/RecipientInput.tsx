@@ -22,6 +22,48 @@ interface RecipientInputProps {
   readonly onDropFromOtherField?: (entry: RecipientEntry, fromFieldId: string) => void;
 }
 
+/** Parse a raw string like "Name <email>" or plain "email" into a RecipientEntry. */
+function parseRecipientText(raw: string): RecipientEntry | null {
+  const text = raw.trim().replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  if (!text) return null;
+
+  // "Name <email>" or "<email>"
+  const angleMatch = text.match(/^(.*?)\s*<([^>]+)>\s*$/);
+  if (angleMatch) {
+    const name = angleMatch[1].trim().replace(/^["']|["']$/g, '');
+    const email = angleMatch[2].trim();
+    if (email.includes('@')) {
+      return { email, name: name || undefined };
+    }
+  }
+
+  // Plain email address
+  if (text.includes('@')) {
+    return { email: text };
+  }
+
+  return null;
+}
+
+/** Split a pasted/typed string by commas and semicolons, respecting angle-bracket groups. */
+function splitRecipientString(input: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inAngle = false;
+  for (const ch of input) {
+    if (ch === '<') { inAngle = true; current += ch; }
+    else if (ch === '>') { inAngle = false; current += ch; }
+    else if ((ch === ',' || ch === ';') && !inAngle) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
 export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, onDropFromOtherField }: RecipientInputProps) {
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
@@ -66,19 +108,22 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
     onChange(value.filter(r => r.email.toLowerCase() !== email.toLowerCase()));
   };
 
+  /** Click on a chip (not the × button) → put it back in the input for editing. */
+  const editChip = (entry: RecipientEntry) => {
+    removeRecipient(entry.email);
+    const text = entry.name ? `${entry.name} <${entry.email}>` : entry.email;
+    setInputValue(text);
+    setOpen(false);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
   const handleDragStart = (e: React.DragEvent, entry: RecipientEntry) => {
-    console.log('[DnD] dragStart', { entry, fieldId });
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('application/x-recipient', JSON.stringify({ entry, fromFieldId: fieldId ?? '' }));
-    console.log('[DnD] types after setData:', [...e.dataTransfer.types]);
   };
 
   const handleDragEnter = (e: React.DragEvent) => {
-    console.log('[DnD] dragEnter on field', fieldId, 'types:', [...e.dataTransfer.types]);
-    if (!e.dataTransfer.types.includes('application/x-recipient')) {
-      console.log('[DnD] dragEnter ignored — type not found');
-      return;
-    }
+    if (!e.dataTransfer.types.includes('application/x-recipient')) return;
     e.preventDefault();
     dragEnterCount.current += 1;
     setIsDragOver(true);
@@ -92,25 +137,44 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
 
   const handleDragLeave = () => {
     dragEnterCount.current -= 1;
-    console.log('[DnD] dragLeave on field', fieldId, 'count now:', dragEnterCount.current);
     if (dragEnterCount.current === 0) setIsDragOver(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    console.log('[DnD] drop on field', fieldId, 'types:', [...e.dataTransfer.types]);
     e.preventDefault();
     dragEnterCount.current = 0;
     setIsDragOver(false);
     const raw = e.dataTransfer.getData('application/x-recipient');
-    console.log('[DnD] raw data:', raw);
     if (!raw) return;
     try {
       const { entry, fromFieldId } = JSON.parse(raw) as { entry: RecipientEntry; fromFieldId: string };
-      console.log('[DnD] parsed:', { entry, fromFieldId, targetField: fieldId });
-      if (fromFieldId === fieldId) { console.log('[DnD] same field, no-op'); return; }
+      if (fromFieldId === fieldId) return;
       onDropFromOtherField?.(entry, fromFieldId);
-    } catch (err) {
-      console.error('[DnD] parse error:', err);
+    } catch {
+      // ignore malformed drag data
+    }
+  };
+
+  const commitText = (text: string) => {
+    const parts = splitRecipientString(text);
+    let added = false;
+    let currentValue = value;
+    for (const part of parts) {
+      const entry = parseRecipientText(part);
+      if (!entry) continue;
+      // Check against contacts for a name match
+      const known = contacts.find(c => c.email.toLowerCase() === entry.email.toLowerCase());
+      const resolved = known ?? entry;
+      const normalized = resolved.email.toLowerCase();
+      if (!currentValue.some(r => r.email.toLowerCase() === normalized)) {
+        currentValue = [...currentValue, resolved];
+        added = true;
+      }
+    }
+    if (added) {
+      onChange(currentValue);
+      setInputValue('');
+      setOpen(false);
     }
   };
 
@@ -118,18 +182,16 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
     const trimmed = inputValue.trim();
     if (!trimmed) return;
     if (open && filtered.length > 0) {
-      addRecipient(filtered[activeIndex] ?? { email: trimmed });
+      addRecipient(filtered[activeIndex] ?? parseRecipientText(trimmed) ?? { email: trimmed });
     } else {
-      const exact = filtered.find(c => c.email.toLowerCase() === trimmed.toLowerCase());
-      addRecipient(exact ?? { email: trimmed });
+      commitText(trimmed);
     }
   };
 
   const commitPending = () => {
     const trimmed = inputValue.trim();
     if (!trimmed) return;
-    const exact = contacts.find(c => c.email.toLowerCase() === trimmed.toLowerCase());
-    addRecipient(exact ?? { email: trimmed });
+    commitText(trimmed);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -161,6 +223,14 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
     }
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData.getData('text');
+    // Only intercept if the pasted text contains separator characters or angle brackets
+    if (!pasted.includes(',') && !pasted.includes(';') && !pasted.includes('<')) return;
+    e.preventDefault();
+    commitText(pasted);
+  };
+
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -188,7 +258,14 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
             draggable
             onDragStart={e => handleDragStart(e, r)}
           >
-            {r.name ?? r.email}
+            <button
+              type="button"
+              className="recipient-chip__label"
+              onClick={() => editChip(r)}
+              title={r.name ? r.email : undefined}
+            >
+              {r.name ?? r.email}
+            </button>
             <button
               type="button"
               className="recipient-chip__remove"
@@ -207,6 +284,7 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
           onChange={e => { setInputValue(e.target.value); setOpen(e.target.value.length > 0); }}
           onKeyDown={handleKeyDown}
           onBlur={commitPending}
+          onPaste={handlePaste}
           placeholder={value.length === 0 ? 'email@example.com' : ''}
           autoComplete="off"
           spellCheck={false}

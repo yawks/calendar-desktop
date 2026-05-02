@@ -34,6 +34,14 @@ export interface MailMessage {
   size?: number;
   /** ICS text extracted from a text/calendar MIME part (Teams invitations, etc.) */
   ics_mime?: string;
+  /** RFC 5322 Message-ID value (with angle brackets). Used to build In-Reply-To on replies. */
+  message_id?: string;
+  /** RFC 5322 References header value. Used to build the References chain on replies. */
+  references?: string;
+  /** True when the message is an unsent draft (EWS IsDraft). */
+  is_draft?: boolean;
+  /** Plain-text body, used to detect quoted reply boundaries. */
+  body_text?: string;
 }
 
 export interface MailRecipient {
@@ -71,6 +79,12 @@ export interface ComposerRestoreData {
   isNewMessage: boolean;
   isForward?: boolean;
   replyingToMsg: MailMessage | null;
+  /** Account to send from (all-accounts mode or explicit override). */
+  fromAccountId?: string;
+  /** Identity ID to use as sender. */
+  fromIdentityId?: string;
+  /** item_id of the draft to delete after send (drafts folder only). */
+  draftItemId?: string;
 }
 
 export interface FromAccount {

@@ -8,7 +8,27 @@ function parseHexColor(raw: string): [number, number, number] | null {
   return m ? [Number.parseInt(m[1], 16), Number.parseInt(m[2], 16), Number.parseInt(m[3], 16)] : null;
 }
 
-export function EmailHtmlBody({ html }: { readonly html: string }) {
+/**
+ * Find the first line in the plain text body that marks the start of a quoted
+ * reply (Outlook separator, "On … wrote:", "> " prefix, etc.).
+ */
+function findQuoteMarker(bodyText: string): string | null {
+  const DIVIDERS = [
+    /^-{3,}[^\n]{0,40}-{3,}$/,           // -----Original Message-----
+    /^_{5,}$/,                              // ___________
+    /^On\s[\s\S]{10,}wrote:\s*$/,           // On [date] [person] wrote:
+    /^Le\s[\s\S]+a\sécrit\s*:\s*$/,   // Le [date] [person] a écrit :
+  ];
+  for (const line of bodyText.split('\n')) {
+    const t = line.trim();
+    if (t && DIVIDERS.some(re => re.test(t))) return t;
+    // First line that starts with "> " means the whole block is quoted
+    if (t.startsWith('>')) return t;
+  }
+  return null;
+}
+
+export function EmailHtmlBody({ html, bodyText }: { readonly html: string; readonly bodyText?: string }) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
   const isDark = resolved === 'dark';
@@ -51,6 +71,9 @@ export function EmailHtmlBody({ html }: { readonly html: string }) {
   .ew img, .ew video, .ew canvas, .ew iframe, .ew svg, .ew .qt-toggle { filter: url(#dm); }` : '';
 
   const prevMsgLabel = t('mail.previousMessage', 'Previous message');
+
+  // Detect quote boundary from plain text, then pass the marker to the iframe script.
+  const quoteMarker = bodyText ? findQuoteMarker(bodyText) : null;
 
   const safeHtml = html.replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
 
@@ -102,14 +125,40 @@ export function EmailHtmlBody({ html }: { readonly html: string }) {
   (function() {
     var COLORS = ['hsl(210,70%,55%)', 'hsl(145,55%,45%)', 'hsl(35,80%,50%)', 'hsl(300,45%,55%)'];
     var BG_RGBS = [[100,160,220], [60,180,100], [220,150,50], [180,80,200]];
+
+    // Text-based quote divider patterns (Outlook, Exchange, various clients).
+    // Only match lines that ARE the separator itself — not header fields like From:/To:
+    // which follow the separator and should stay inside the collapsible block.
+    var DIVIDER_RE = [
+      /^-{3,}[^\\n]{0,40}-{3,}$/,
+      /^_{5,}$/,
+      /^On\\s[\\s\\S]+wrote:\\s*$/,
+      /^Le\\s[\\s\\S]+a\\s\\u00e9crit\\s*:\\s*$/,
+    ];
+
+    function isDividerText(text) {
+      var t = text.trim();
+      return DIVIDER_RE.some(function(re) { return re.test(t); });
+    }
+
     function isQuote(el) {
       if (!el || el.nodeType !== 1) return false;
       var cls = typeof el.className === 'string' ? el.className : '';
-      return el.tagName === 'BLOCKQUOTE' || cls.indexOf('mail-quoted') >= 0;
+      if (el.tagName !== 'BLOCKQUOTE' && cls.indexOf('mail-quoted') < 0) return false;
+      // Don't individually collapse tiny blockquotes — they are header fields
+      // (From:, To:, Date:…) that appear inside a quoted section and should
+      // stay visible as plain indented text, not become separate toggles.
+      var text = (el.textContent || '').trim();
+      var hasBlockChildren = !!el.querySelector('p,div,blockquote,table,ul,ol');
+      return text.length >= 80 || hasBlockChildren;
     }
-    function wrap(el, depth) {
+
+    // quoteMarker: the first line of the quoted fragment detected from plain text
+    var quoteMarker = ${quoteMarker ? JSON.stringify(quoteMarker) : 'null'};
+
+    function makeToggle(color, depth) {
       var d = depth % 4;
-      var color = COLORS[d];
+      color = COLORS[d];
       var rgb = BG_RGBS[d];
       var w = document.createElement('div');
       w.className = 'qt';
@@ -129,10 +178,8 @@ export function EmailHtmlBody({ html }: { readonly html: string }) {
       var inner = document.createElement('div');
       inner.className = 'qt-inner';
       inner.style.display = 'none';
-      while (el.firstChild) inner.appendChild(el.firstChild);
       w.appendChild(btn);
       w.appendChild(inner);
-      if (el.parentNode) el.parentNode.replaceChild(w, el);
       btn.addEventListener('click', function(e) {
         e.stopPropagation();
         var open = inner.style.display !== 'none';
@@ -140,14 +187,62 @@ export function EmailHtmlBody({ html }: { readonly html: string }) {
         chev.textContent = open ? '\\u25b6' : '\\u25bc';
         window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
       });
-      processEl(inner, depth + 1);
+      return { wrapper: w, inner: inner };
     }
+
+    function wrap(el, depth) {
+      var t = makeToggle(null, depth);
+      while (el.firstChild) t.inner.appendChild(el.firstChild);
+      if (el.parentNode) el.parentNode.replaceChild(t.wrapper, el);
+      processEl(t.inner, depth + 1);
+    }
+
+    // Wrap all siblings AFTER the divider element into one toggle, replacing the
+    // divider itself with the wrapper. The divider is discarded (the toggle button
+    // already says "Previous message"). This avoids infinite recursion: the divider
+    // never ends up inside t.inner so it cannot re-trigger wrapSiblingsFrom.
+    function wrapSiblingsFrom(el, depth) {
+      var parent = el.parentNode;
+      if (!parent) return;
+      var toMove = [];
+      var cur = el.nextSibling;
+      while (cur) { toMove.push(cur); cur = cur.nextSibling; }
+      if (toMove.length === 0) {
+        // Nothing after the divider — just remove the separator line.
+        parent.removeChild(el);
+        return;
+      }
+      var t = makeToggle(null, depth);
+      toMove.forEach(function(node) { t.inner.appendChild(node); });
+      parent.replaceChild(t.wrapper, el);
+      processEl(t.inner, depth + 1);
+    }
+
     function processEl(node, depth) {
-      Array.from(node.children).forEach(function(child) {
-        if (isQuote(child)) wrap(child, depth);
-        else processEl(child, depth);
-      });
+      var children = Array.from(node.children);
+      for (var i = 0; i < children.length; i++) {
+        var child = children[i];
+        if (isQuote(child)) {
+          wrap(child, depth);
+          // Re-read children after DOM mutation
+          children = Array.from(node.children);
+        } else {
+          // Only test leaf-like elements (no deep children) as dividers to avoid
+          // false positives on container divs whose textContent includes "From:".
+          var childText = child.textContent || '';
+          var isLeafLike = child.children.length === 0 || childText.trim().length < 200;
+          var isDiv = isLeafLike && (
+            (quoteMarker && childText.trim() === quoteMarker) || isDividerText(childText)
+          );
+          if (isDiv) {
+            wrapSiblingsFrom(child, depth);
+            return;
+          }
+          processEl(child, depth);
+        }
+      }
     }
+
     processEl(document.querySelector('.ew') || document.body, 0);
   })();
   var ro = new ResizeObserver(function() {

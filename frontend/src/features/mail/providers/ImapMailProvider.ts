@@ -5,8 +5,9 @@ import { MailProvider, ProviderType, SendMailParams, SaveDraftParams, MailItemRe
 
 export class ImapMailProvider implements MailProvider {
   readonly providerType: ProviderType = 'imap' as ProviderType;
+  readonly supportsSnooze = false;
   readonly accountId: string;
-  private config: ImapAccount;
+  private readonly config: ImapAccount;
   private folderMapping: Record<string, string> = {};
 
   constructor(config: ImapAccount) {
@@ -159,6 +160,35 @@ export class ImapMailProvider implements MailProvider {
     });
   }
 
+  private groupConversationsByFolder(conversationIds: string[]): Map<string, string[]> {
+    const map = new Map<string, string[]>();
+    for (const convId of conversationIds) {
+      const [folder, uid] = convId.split(':');
+      const f = folder || 'INBOX';
+      if (!map.has(f)) map.set(f, []);
+      map.get(f)!.push(uid);
+    }
+    return map;
+  }
+
+  async bulkMoveToTrash(conversationIds: string[]): Promise<void> {
+    if (!conversationIds.length) return;
+    for (const [folder, ids] of this.groupConversationsByFolder(conversationIds)) {
+      await invoke<void>('imap_bulk_move_to_trash', { config: this.getBackendConfig(), folder, ids });
+    }
+  }
+
+  async bulkPermanentlyDelete(conversationIds: string[]): Promise<void> {
+    if (!conversationIds.length) return;
+    for (const [folder, ids] of this.groupConversationsByFolder(conversationIds)) {
+      await invoke<void>('imap_bulk_permanently_delete', { config: this.getBackendConfig(), folder, ids });
+    }
+  }
+
+  async bulkMoveToFolder(_conversationIds: string[], _folderId: string): Promise<void> {
+    // IMAP folder move not yet implemented for bulk
+  }
+
   async openAttachment(attachment: MailAttachment): Promise<void> {
     const data = await this.getAttachmentData(attachment);
     const path = await invoke<string>('save_file_to_downloads', { filename: attachment.name, data });
@@ -176,8 +206,9 @@ export class ImapMailProvider implements MailProvider {
     });
   }
 
-  async saveDraft(_params: SaveDraftParams): Promise<void> {
+  async saveDraft(_params: SaveDraftParams): Promise<string> {
     // IMAP Drafts saving not implemented yet
+    return '';
   }
 
   async findOrCreateSnoozedFolder(): Promise<string> {

@@ -17,20 +17,35 @@ export const MAIL_KEYS = {
 const EMPTY_ARRAY: any[] = [];
 
 export function useMailFolders(accountId: string, provider: MailProvider | null) {
-  const query = useQuery({
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: MAIL_KEYS.folders(accountId),
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
       return await provider.listFolders();
     },
     enabled: !!provider,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
     retry: false,
   });
-  return { ...query, data: query.data ?? (EMPTY_ARRAY as MailFolder[]) };
+  return useMemo(
+    () => ({ data: data ?? (EMPTY_ARRAY as MailFolder[]), isLoading, isFetching, error, refetch }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, isLoading, isFetching, error],
+  );
 }
 
 export function useAllAccountFolders(accounts: { id: string; provider: MailProvider | null; color?: string }[]) {
+  // Stable string key derived from account IDs — avoids object reference churn in dep arrays.
+  const accountIds = accounts.map(a => a.id).join(',');
+  // Stable color map so allModeDynamicFolders can read colors without depending on the array ref.
+  const colorMap = useMemo(() => {
+    const m = new Map<string, string | undefined>();
+    for (const a of accounts) m.set(a.id, a.color);
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountIds]);
+
   const results = useQueries({
     queries: accounts.map((acc) => ({
       queryKey: MAIL_KEYS.folders(acc.id),
@@ -39,7 +54,8 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
         return await acc.provider.listFolders();
       },
       enabled: !!acc.provider,
-      staleTime: 5 * 60 * 1000,
+      staleTime: 30 * 1000,
+      refetchInterval: 60 * 1000,
       retry: false,
     })),
   });
@@ -51,11 +67,12 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
   const allAccountFolders = useMemo(() => {
     const map = new Map<string, MailFolder[]>();
     results.forEach((res, idx) => {
-      if (res.data) map.set(accounts[idx].id, res.data);
+      const id = accounts[idx]?.id;
+      if (id && res.data) map.set(id, res.data);
     });
     return map;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataTimestamps, accounts]);
+  }, [dataTimestamps, accountIds]);
 
   const mergedCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -78,13 +95,14 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
 
   const allModeDynamicFolders = useMemo(() => {
     return accounts.flatMap((acc, idx) => {
-      const folders = results[idx].data ?? [];
+      const folders = results[idx]?.data ?? [];
+      const color = colorMap.get(acc.id);
       return folders
         .filter(f => !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed'].includes(f.folder_id))
-        .map(f => ({ ...f, accountId: acc.id, accountColor: acc.color }));
+        .map(f => ({ ...f, accountId: acc.id, accountColor: color }));
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataTimestamps, accounts]);
+  }, [dataTimestamps, accountIds, colorMap]);
 
   return useMemo(() => ({
     allAccountFolders,
@@ -96,17 +114,23 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
 }
 
 export function useMailThreads(accountId: string, folder: Folder, provider: MailProvider | null, limit = 50, offset = 0) {
-  const query = useQuery({
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: [...MAIL_KEYS.threads(accountId, folder), limit, offset],
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
-      return await provider.listThreads(folder, limit, offset);
+      const threads = await provider.listThreads(folder, limit, offset);
+      if (folder === 'sentitems') return threads.map(t => ({ ...t, unread_count: 0 }));
+      return threads;
     },
     enabled: !!provider,
     refetchInterval: 60 * 1000,
     retry: false,
   });
-  return { ...query, data: query.data ?? (EMPTY_ARRAY as MailThread[]) };
+  return useMemo(
+    () => ({ data: data ?? (EMPTY_ARRAY as MailThread[]), isLoading, isFetching, error, refetch }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, isLoading, isFetching, error],
+  );
 }
 
 export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[], limit = 50, offset = 0) {
@@ -118,6 +142,7 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
         const threads = await acc.provider.listThreads(folder, limit, offset);
         return threads.map(t => ({
           ...t,
+          unread_count: folder === 'sentitems' ? 0 : t.unread_count,
           accountId: acc.id,
           accountLabel: acc.label,
           accountColor: acc.color
@@ -161,7 +186,7 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
 }
 
 export function useMailIdentities(accountId: string, provider: MailProvider | null) {
-  const query = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: MAIL_KEYS.identities(accountId),
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
@@ -171,28 +196,36 @@ export function useMailIdentities(accountId: string, provider: MailProvider | nu
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  return { ...query, data: query.data ?? (EMPTY_ARRAY as MailIdentity[]) };
+  return useMemo(
+    () => ({ data: data ?? (EMPTY_ARRAY as MailIdentity[]), isLoading, error, refetch }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, isLoading, error],
+  );
 }
 
-export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null) {
-  const query = useQuery({
-    queryKey: MAIL_KEYS.thread(accountId, conversationId ?? 'null'),
+export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null, isDraft = false) {
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), isDraft],
     queryFn: async () => {
       if (!provider || !conversationId) throw new Error('Invalid params');
-      return await provider.getThread(conversationId, false, false);
+      return await provider.getThread(conversationId, false, isDraft, /* includeDrafts */ !isDraft);
     },
     enabled: !!provider && !!conversationId,
     staleTime: 60 * 1000,
     retry: false,
   });
-  return { ...query, data: query.data ?? (EMPTY_ARRAY as MailMessage[]) };
+  return useMemo(
+    () => ({ data: data ?? (EMPTY_ARRAY as MailMessage[]), isLoading, isFetching, error, refetch }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, isLoading, isFetching, error],
+  );
 }
 
 export function useMailSearch(accountId: string, query: MailSearchQuery, provider: MailProvider | null) {
   const queryStr = JSON.stringify(query);
   const hasQuery = !!query && Object.values(query).some(Boolean);
 
-  const q = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: MAIL_KEYS.search(accountId, queryStr),
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
@@ -202,7 +235,11 @@ export function useMailSearch(accountId: string, query: MailSearchQuery, provide
     staleTime: 2 * 60 * 1000,
     retry: false,
   });
-  return { ...q, data: q.data ?? (EMPTY_ARRAY as MailThread[]) };
+  return useMemo(
+    () => ({ data: data ?? (EMPTY_ARRAY as MailThread[]), isLoading, error, refetch }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, isLoading, error],
+  );
 }
 
 export function useAllAccountSearch(query: MailSearchQuery, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[]) {

@@ -298,13 +298,12 @@ function replaceNextEmptySrc(html: string, dataUri: string): string {
  */
 export class GmailMailProvider implements MailProvider {
   readonly providerType = 'gmail' as const;
+  readonly supportsSnooze = false;
   readonly accountId: string;
 
   private readonly getValidToken: (id: string) => Promise<string | null>;
   /** Page token per label — for load-more pagination. */
   private readonly nextPageTokens = new Map<string, string>();
-  /** Cached Snoozed label ID to avoid repeated lookups. */
-  private snoozedLabelId: string | null = null;
 
   constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>) {
     this.accountId = accountId;
@@ -352,7 +351,11 @@ export class GmailMailProvider implements MailProvider {
     // Reset page token when loading from the beginning
     if (offset === 0) this.nextPageTokens.delete(label);
 
-    const params = new URLSearchParams({ labelIds: label, maxResults: String(maxCount) });
+    // Gmail's SNOOZED system label is not usable as a labelIds filter via the API;
+    // use the search operator instead.
+    const params = folder === 'snoozed'
+      ? new URLSearchParams({ q: 'is:snoozed', maxResults: String(maxCount) })
+      : new URLSearchParams({ labelIds: label, maxResults: String(maxCount) });
     const pageToken = this.nextPageTokens.get(label);
     if (pageToken) params.set('pageToken', pageToken);
 
@@ -609,7 +612,7 @@ export class GmailMailProvider implements MailProvider {
     await this.gPost(token, '/users/me/messages/send', body);
   }
 
-  async saveDraft({ to, cc, bcc, subject, bodyHtml }: SaveDraftParams): Promise<void> {
+  async saveDraft({ to, cc, bcc, subject, bodyHtml }: SaveDraftParams): Promise<string> {
     const token = await this.token();
     const headerLines = [
       `To: ${to.join(', ')}`,
@@ -620,9 +623,10 @@ export class GmailMailProvider implements MailProvider {
       'Content-Type: text/html; charset=UTF-8',
     ];
     const mime = headerLines.join('\r\n') + '\r\n\r\n' + bodyHtml;
-    await this.gPost(token, '/users/me/drafts', {
+    const resp = await this.gPost(token, '/users/me/drafts', {
       message: { raw: encodeBase64Url(mime) },
     });
+    return (resp as any)?.id ?? '';
   }
 
   // ── Read / unread ──────────────────────────────────────────────────────────
@@ -654,8 +658,60 @@ export class GmailMailProvider implements MailProvider {
 
   async permanentlyDelete(itemId: string): Promise<void> {
     const token = await this.token();
-    // Requires https://mail.google.com/ scope (full access)
     await this.gFetch(token, `/users/me/messages/${itemId}`, { method: 'DELETE' });
+  }
+
+  async bulkMoveToTrash(conversationIds: string[]): Promise<void> {
+    if (!conversationIds.length) return;
+    const token = await this.token();
+    // threads.trash() operates at thread level — no need to fetch individual message IDs.
+    const CONCURRENCY = 5;
+    for (let i = 0; i < conversationIds.length; i += CONCURRENCY) {
+      const batch = conversationIds.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map(id => this.gPost(token, `/users/me/threads/${id}/trash`, {})));
+    }
+  }
+
+  async bulkPermanentlyDelete(conversationIds: string[]): Promise<void> {
+    if (!conversationIds.length) return;
+    const token = await this.token();
+    const CONCURRENCY = 5;
+    for (let i = 0; i < conversationIds.length; i += CONCURRENCY) {
+      const batch = conversationIds.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map(id => this.gFetch(token, `/users/me/threads/${id}`, { method: 'DELETE' })));
+    }
+  }
+
+  async bulkMoveToFolder(conversationIds: string[], folderId: string): Promise<void> {
+    if (!conversationIds.length) return;
+    const token = await this.token();
+    const targetLabel = folderToLabel(folderId);
+    const MUTABLE_SYSTEM = ['INBOX', 'TRASH', 'SPAM'];
+    const removeLabelIds = MUTABLE_SYSTEM.includes(targetLabel)
+      ? MUTABLE_SYSTEM.filter(l => l !== targetLabel)
+      : ['INBOX'];
+
+    // Collect all message IDs (needed by batchModify which operates at message level).
+    const allMessageIds: string[] = [];
+    const CONCURRENCY = 5;
+    for (let i = 0; i < conversationIds.length; i += CONCURRENCY) {
+      const batch = conversationIds.slice(i, i + CONCURRENCY);
+      const threads = await Promise.all(
+        batch.map(id =>
+          this.gFetch<GmailThread>(token, `/users/me/threads/${id}?format=metadata&metadataHeaders=Subject`)
+            .catch(() => null),
+        ),
+      );
+      for (const thread of threads) {
+        if (thread?.messages) allMessageIds.push(...thread.messages.map(m => m.id));
+      }
+    }
+    if (!allMessageIds.length) return;
+    await this.gPost(token, '/users/me/messages/batchModify', {
+      ids: allMessageIds,
+      addLabelIds: [targetLabel],
+      removeLabelIds,
+    });
   }
 
   // ── Attachments ────────────────────────────────────────────────────────────
@@ -674,35 +730,6 @@ export class GmailMailProvider implements MailProvider {
     return invoke<string>('gmail_get_attachment_data', { accessToken, messageId, attachmentId });
   }
 
-  // ── Snooze ─────────────────────────────────────────────────────────────────
-
-  async findOrCreateSnoozedFolder(): Promise<string> {
-    if (this.snoozedLabelId) return this.snoozedLabelId;
-    const token = await this.token();
-    const res = await this.gFetch<{ labels?: GmailLabel[] }>(token, '/users/me/labels');
-    const existing = res.labels?.find(l => l.name === 'Snoozed');
-    if (existing) {
-      this.snoozedLabelId = existing.id;
-      return existing.id;
-    }
-    const created = await this.gPost<GmailLabel>(token, '/users/me/labels', {
-      name: 'Snoozed',
-      labelListVisibility: 'labelShowIfUnread',
-      messageListVisibility: 'hide',
-    });
-    this.snoozedLabelId = created.id;
-    return created.id;
-  }
-
-  async snooze(itemId: string): Promise<string> {
-    const token = await this.token();
-    const snoozedLabelId = await this.findOrCreateSnoozedFolder();
-    await this.gPost(token, `/users/me/messages/${itemId}/modify`, {
-      addLabelIds: [snoozedLabelId],
-      removeLabelIds: ['INBOX'],
-    });
-    return snoozedLabelId;
-  }
 
   async moveToFolder(itemId: string, folderId: string): Promise<void> {
 
@@ -720,7 +747,6 @@ export class GmailMailProvider implements MailProvider {
       // Custom label destination: only remove INBOX (archive out of inbox)
       removeLabelIds = ['INBOX'];
     }
-    if (this.snoozedLabelId) removeLabelIds.push(this.snoozedLabelId);
 
     await this.gPost(token, `/users/me/messages/${itemId}/modify`, {
       addLabelIds: [targetLabel],

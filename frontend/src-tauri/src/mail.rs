@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use mailparse::ParsedMail;
 use serde::{Deserialize, Serialize};
 use tauri::command;
 
@@ -129,6 +130,12 @@ pub struct MailMessage {
     /// that are delivered as plain emails rather than Exchange MeetingRequest items).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ics_mime: Option<String>,
+    /// True when the message is a draft (not yet sent).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_draft: Option<bool>,
+    /// Plain-text body, used by the frontend to detect quoted reply boundaries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_text: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -201,6 +208,9 @@ pub async fn mail_list_folders(access_token: String) -> Result<Vec<MailFolder>, 
             .and_then(|v| v.parse().ok())
             .unwrap_or(0u32);
 
+        // Normalise the custom "Snoozed" folder to a stable key so the TypeScript
+        // sidebar filter and navigation work without knowing the real EWS FolderId.
+        let folder_id = if display_name == "Snoozed" { "snoozed".to_string() } else { folder_id };
         folders.push(MailFolder { folder_id, display_name, total_count, unread_count });
     }
 
@@ -293,6 +303,10 @@ pub async fn mail_list_threads(
     let parent_folder_id = match folder.as_str() {
         "inbox" | "sentitems" | "deleteditems" => {
             format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder)
+        }
+        "snoozed" => {
+            let real_id = mail_find_or_create_snoozed_folder(access_token.clone()).await?;
+            format!(r#"<t:FolderId Id="{}"/>"#, real_id)
         }
         id => format!(r#"<t:FolderId Id="{}"/>"#, id),
     };
@@ -595,6 +609,7 @@ pub async fn mail_get_thread(
     conversation_id: String,
     include_trash: Option<bool>,
     is_draft: Option<bool>,
+    include_drafts: Option<bool>,
 ) -> Result<Vec<MailMessage>, String> {
     // Drafts are not real conversations — fetch the item directly by its ItemId.
     if is_draft.unwrap_or(false) {
@@ -629,17 +644,26 @@ pub async fn mail_get_thread(
         return Ok(messages);
     }
 
+    let show_drafts = include_drafts.unwrap_or(false);
     let folders_to_ignore = if include_trash.unwrap_or(false) {
-        // Only ignore Drafts — keep Deleted Items so we can act on trashed messages.
-        r#"<m:FoldersToIgnore>
+        if show_drafts {
+            String::new() // no FoldersToIgnore: include trash and drafts
+        } else {
+            r#"<m:FoldersToIgnore>
     <t:DistinguishedFolderId Id="drafts"/>
-  </m:FoldersToIgnore>"#
+  </m:FoldersToIgnore>"#.to_string()
+        }
+    } else if show_drafts {
+        r#"<m:FoldersToIgnore>
+    <t:DistinguishedFolderId Id="deleteditems"/>
+  </m:FoldersToIgnore>"#.to_string()
     } else {
         r#"<m:FoldersToIgnore>
     <t:DistinguishedFolderId Id="deleteditems"/>
     <t:DistinguishedFolderId Id="drafts"/>
-  </m:FoldersToIgnore>"#
+  </m:FoldersToIgnore>"#.to_string()
     };
+    // IsDraft is part of AllProperties — no need to request it explicitly.
     let soap_body = format!(
         r#"<m:GetConversationItems>
   <m:ItemShape>
@@ -958,7 +982,7 @@ pub async fn mail_save_draft(
     bcc: Vec<String>,
     subject: String,
     body_html: String,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let (to_block, cc_block, bcc_block) = build_recipients_blocks(&to, &cc, &bcc);
     let soap_body = format!(
         r#"<m:CreateItem MessageDisposition="SaveOnly">
@@ -982,7 +1006,16 @@ pub async fn mail_save_draft(
     if xml.contains("ResponseClass=\"Error\"") {
         return Err(ews_err(&xml, "EWS save draft error"));
     }
-    Ok(())
+    // Extract the ItemId of the newly created draft
+    let item_id = xml_all_ns(&xml, "t:Message")
+        .into_iter()
+        .find_map(|msg_xml| {
+            let start = msg_xml.find("<t:ItemId ").or_else(|| msg_xml.find("<ItemId "))?;
+            let end = msg_xml[start..].find("/>")?;
+            xml_attr(&msg_xml[start..start + end], "Id")
+        })
+        .unwrap_or_default();
+    Ok(item_id)
 }
 
 /// Mark a list of messages as read.
@@ -1080,6 +1113,100 @@ pub async fn mail_move_to_trash(
 
     if xml.contains("ResponseClass=\"Error\"") {
         return Err(ews_err(&xml, "EWS move-to-trash error"));
+    }
+    Ok(())
+}
+
+/// Move multiple mail items to Deleted Items in a single SOAP request.
+#[command]
+pub async fn mail_bulk_move_to_trash(
+    access_token: String,
+    item_ids: Vec<String>,
+) -> Result<(), String> {
+    if item_ids.is_empty() {
+        return Ok(());
+    }
+    let items_xml: String = item_ids.iter()
+        .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let soap_body = format!(
+        r#"<m:MoveItem>
+  <m:ToFolderId>
+    <t:DistinguishedFolderId Id="deleteditems"/>
+  </m:ToFolderId>
+  <m:ItemIds>
+{items_xml}
+  </m:ItemIds>
+</m:MoveItem>"#,
+    );
+    let xml = send(&access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS bulk move-to-trash error"));
+    }
+    Ok(())
+}
+
+/// Permanently delete multiple mail items in a single SOAP request.
+#[command]
+pub async fn mail_bulk_permanently_delete(
+    access_token: String,
+    item_ids: Vec<String>,
+) -> Result<(), String> {
+    if item_ids.is_empty() {
+        return Ok(());
+    }
+    let items_xml: String = item_ids.iter()
+        .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let soap_body = format!(
+        r#"<m:DeleteItem DeleteType="HardDelete">
+  <m:ItemIds>
+{items_xml}
+  </m:ItemIds>
+</m:DeleteItem>"#,
+    );
+    let xml = send(&access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS bulk permanently-delete error"));
+    }
+    Ok(())
+}
+
+/// Move multiple mail items to any folder in a single SOAP request.
+#[command]
+pub async fn mail_bulk_move_to_folder(
+    access_token: String,
+    item_ids: Vec<String>,
+    folder_id: String,
+) -> Result<(), String> {
+    if item_ids.is_empty() {
+        return Ok(());
+    }
+    let items_xml: String = item_ids.iter()
+        .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let to_folder = match folder_id.as_str() {
+        "inbox" | "sentitems" | "deleteditems" | "drafts" => {
+            format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder_id)
+        }
+        id => format!(r#"<t:FolderId Id="{}"/>"#, id),
+    };
+    let soap_body = format!(
+        r#"<m:MoveItem>
+  <m:ToFolderId>
+    {to_folder}
+  </m:ToFolderId>
+  <m:ItemIds>
+{items_xml}
+  </m:ItemIds>
+</m:MoveItem>"#,
+    );
+    let xml = send(&access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS bulk move-to-folder error"));
     }
     Ok(())
 }
@@ -1230,15 +1357,21 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
     // Attachments — parse FileAttachment elements (skip inline images)
     let attachments = parse_attachments(msg_xml);
 
+    let mime_content = xml_content_ns(msg_xml, "t:MimeContent");
+
     // Try to extract an ICS from the raw MIME content (for Teams/other invitations
     // that embed text/calendar as a MIME part rather than a FileAttachment).
     let ics_mime = if !has_attachments {
-        xml_content_ns(msg_xml, "t:MimeContent")
-            .as_deref()
-            .and_then(extract_ics_from_mime_base64)
+        mime_content.as_deref().and_then(extract_ics_from_mime_base64)
     } else {
         None
     };
+
+    let body_text = mime_content.as_deref().and_then(extract_plain_text_from_mime_base64);
+
+    let is_draft = xml_content_ns(msg_xml, "t:IsDraft")
+        .map(|v| v == "true")
+        .filter(|&v| v); // only serialize if true
 
     Some(MailMessage {
         item_id,
@@ -1254,7 +1387,28 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
         has_attachments,
         attachments,
         ics_mime,
+        is_draft,
+        body_text,
     })
+}
+
+fn find_text_plain_part(mail: &ParsedMail) -> Option<String> {
+    if mail.ctype.mimetype == "text/plain" {
+        return mail.get_body().ok();
+    }
+    for sub in &mail.subparts {
+        if let Some(t) = find_text_plain_part(sub) {
+            return Some(t);
+        }
+    }
+    None
+}
+
+fn extract_plain_text_from_mime_base64(mime_b64: &str) -> Option<String> {
+    let cleaned: String = mime_b64.chars().filter(|c| !c.is_whitespace()).collect();
+    let raw = BASE64.decode(cleaned.as_bytes()).ok()?;
+    let mail = mailparse::parse_mail(&raw).ok()?;
+    find_text_plain_part(&mail)
 }
 
 /// Extract the first `text/calendar` MIME part from a base64-encoded MIME message

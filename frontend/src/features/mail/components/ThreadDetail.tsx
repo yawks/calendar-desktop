@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MailThread, MailMessage, MailAttachment, MailIdentity, ComposerRestoreData } from '../types';
 import {
-  Archive, Clock, FolderInput, Forward, MoreHorizontal, ShieldAlert, Trash2
+  AlarmClock, Archive, Clock, FolderInput, Forward, MoreHorizontal, ShieldAlert, Trash2
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ComposerAttachment } from '../providers/MailProvider';
-import { formatFullDate } from '../utils';
 import { MessageBlock } from './MessageBlock';
 import { CollapsedMessagesBar } from './CollapsedMessagesBar';
-import { MailComposer } from './MailComposer';
+import { MailComposer, MailComposerHandle } from './MailComposer';
 import { FolderPickerPopover } from './FolderPickerPopover';
 
 export interface ThreadDetailProps {
@@ -40,12 +39,45 @@ export interface ThreadDetailProps {
   readonly supportsSnooze: boolean;
   readonly onSnooze: (snoozeUntil: string) => void;
   readonly snoozeUntil?: string;
+  readonly isInSnoozedFolder?: boolean;
   readonly onUnsnooze: () => void;
   readonly moveFolders: import('../types').MailFolder[];
   readonly onMove: (folderId: string) => void;
+  readonly composerRef?: React.RefObject<MailComposerHandle>;
 }
 
 const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+function formatSnoozeDate(iso: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  const target = new Date(iso);
+  const now = new Date();
+  const diffMs = target.getTime() - now.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+  const diffHours = Math.round(diffMs / 3600000);
+
+  const timeStr = target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (diffMin < 60) {
+    return t('mail.snoozeInMinutes', { count: Math.max(1, diffMin), defaultValue: `in ${Math.max(1, diffMin)} minute(s)` });
+  }
+  if (diffHours < 6) {
+    return t('mail.snoozeInHours', { count: diffHours, defaultValue: `in ${diffHours} hour(s)` });
+  }
+
+  const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart); tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const dayAfterStart = new Date(tomorrowStart); dayAfterStart.setDate(dayAfterStart.getDate() + 1);
+
+  if (target >= todayStart && target < tomorrowStart) {
+    return t('mail.snoozeTodayAt', { time: timeStr, defaultValue: `today at ${timeStr}` });
+  }
+  if (target >= tomorrowStart && target < dayAfterStart) {
+    return t('mail.snoozeTomorrowAt', { time: timeStr, defaultValue: `tomorrow at ${timeStr}` });
+  }
+
+  const dateStr = target.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return t('mail.snoozeDateAt', { date: dateStr, time: timeStr, defaultValue: `${dateStr} at ${timeStr}` });
+}
 
 function computeSnoozeOptions() {
   const now = new Date();
@@ -77,19 +109,23 @@ export function ThreadDetail({
   onReply, onReplyAll, onForward, onToggleRead,
   replyMode, onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
-  supportsSnooze, onSnooze, snoozeUntil, onUnsnooze,
-  moveFolders, onMove,
+  supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, onUnsnooze,
+  moveFolders, onMove, composerRef,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [snoozeMode, setSnoozeMode] = useState<'menu' | 'custom'>('menu');
+  const [customSnoozeValue, setCustomSnoozeValue] = useState('');
   const [moveOpen, setMoveOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [snoozeBannerDismissed, setSnoozeBannerDismissed] = useState(false);
+
+  useEffect(() => { setSnoozeBannerDismissed(false); }, [thread.conversation_id]);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const unread = messages.filter(m => !m.is_read);
-    if (unread.length > 0) onMarkRead(unread);
-  }, [messages, onMarkRead]);
+  const handleMarkSingleRead = useCallback((msg: MailMessage) => {
+    onMarkRead([msg]);
+  }, [onMarkRead]);
 
   useEffect(() => {
     if (!replyingTo) return;
@@ -107,7 +143,7 @@ export function ThreadDetail({
   const nextWeekDayName = FR_DAYS[nextWeek.getDay()];
 
   const isUnread = thread.unread_count > 0;
-  const isSnoozed = !!snoozeUntil && new Date(snoozeUntil) > new Date();
+  const isSnoozed = !snoozeBannerDismissed && (isInSnoozedFolder || (!!snoozeUntil && new Date(snoozeUntil) > new Date()));
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
 
   return (
@@ -134,7 +170,11 @@ export function ThreadDetail({
           <button
             className="mail-detail-action-btn"
             disabled={!supportsSnooze}
-            onClick={() => { if (supportsSnooze) setSnoozeOpen(o => !o); }}
+            onClick={() => {
+              if (!supportsSnooze) return;
+              if (snoozeOpen) { setSnoozeOpen(false); setSnoozeMode('menu'); }
+              else { setSnoozeOpen(true); setSnoozeMode('menu'); }
+            }}
             title={t('mail.snooze', 'Snooze')}
           >
             <Clock size={15} />
@@ -142,20 +182,59 @@ export function ThreadDetail({
           </button>
           {snoozeOpen && supportsSnooze && (
             <>
-              <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => setSnoozeOpen(false)} />
+              <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => { setSnoozeOpen(false); setSnoozeMode('menu'); }} />
               <div className="mail-actions-menu mail-snooze-menu">
-                <button className="mail-actions-menu__item" onClick={() => { onSnooze(laterToday.toISOString()); setSnoozeOpen(false); }}>
-                  Plus tard aujourd'hui · {laterTodayLabel}
-                </button>
-                <button className="mail-actions-menu__item" onClick={() => { onSnooze(tomorrowMorning.toISOString()); setSnoozeOpen(false); }}>
-                  Demain matin · 9:00
-                </button>
-                <button className="mail-actions-menu__item" onClick={() => { onSnooze(tomorrowAfternoon.toISOString()); setSnoozeOpen(false); }}>
-                  Demain après-midi · 14:00
-                </button>
-                <button className="mail-actions-menu__item" onClick={() => { onSnooze(nextWeek.toISOString()); setSnoozeOpen(false); }}>
-                  La semaine prochaine {nextWeekDayName} · 9:00
-                </button>
+                {snoozeMode === 'menu' ? (
+                  <>
+                    <button className="mail-actions-menu__item" onClick={() => { onSnooze(laterToday.toISOString()); setSnoozeOpen(false); setSnoozeMode('menu'); }}>
+                      {t('mail.laterToday', 'Plus tard aujourd\'hui')} · {laterTodayLabel}
+                    </button>
+                    <button className="mail-actions-menu__item" onClick={() => { onSnooze(tomorrowMorning.toISOString()); setSnoozeOpen(false); setSnoozeMode('menu'); }}>
+                      {t('mail.tomorrowMorning', 'Demain matin')} · 9:00
+                    </button>
+                    <button className="mail-actions-menu__item" onClick={() => { onSnooze(tomorrowAfternoon.toISOString()); setSnoozeOpen(false); setSnoozeMode('menu'); }}>
+                      {t('mail.tomorrowAfternoon', 'Demain après-midi')} · 14:00
+                    </button>
+                    <button className="mail-actions-menu__item" onClick={() => { onSnooze(nextWeek.toISOString()); setSnoozeOpen(false); setSnoozeMode('menu'); }}>
+                      {t('mail.nextWeek', 'La semaine prochaine')} {nextWeekDayName} · 9:00
+                    </button>
+                    <div className="mail-actions-menu__separator" />
+                    <button className="mail-actions-menu__item" onClick={() => setSnoozeMode('custom')}>
+                      <Clock size={13} />
+                      {t('mail.snoozeChooseDateTime', 'Choisir une date et une heure')}
+                    </button>
+                  </>
+                ) : (
+                  <div className="mail-snooze-custom">
+                    <div className="mail-snooze-custom__fields">
+                      <input
+                        type="datetime-local"
+                        value={customSnoozeValue}
+                        min={new Date().toISOString().slice(0, 16)}
+                        onChange={e => setCustomSnoozeValue(e.target.value)}
+                      />
+                    </div>
+                    <div className="mail-snooze-custom__actions">
+                      <button onClick={() => { setSnoozeOpen(false); setSnoozeMode('menu'); setCustomSnoozeValue(''); }}>
+                        {t('mail.cancel', 'Annuler')}
+                      </button>
+                      <button
+                        className="mail-snooze-custom__ok"
+                        disabled={!customSnoozeValue}
+                        onClick={() => {
+                          if (customSnoozeValue) {
+                            onSnooze(new Date(customSnoozeValue).toISOString());
+                            setSnoozeOpen(false);
+                            setSnoozeMode('menu');
+                            setCustomSnoozeValue('');
+                          }
+                        }}
+                      >
+                        {t('mail.snoozeOk', 'OK')}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -218,19 +297,21 @@ export function ThreadDetail({
 
       <div className="mail-thread-detail__header">
         <h2 className="mail-thread-detail__subject">{thread.topic || t('mail.noSubject', "(Pas d'objet)")}</h2>
-        {isSnoozed && snoozeUntil && (
-          <div className="mail-snooze-banner">
-            <Clock size={22} className="mail-snooze-banner__icon" />
-            <span className="mail-snooze-banner__text">
-              {t('mail.snoozedUntil', "En attente jusqu'au")}{' '}
-              <strong>{formatFullDate(snoozeUntil)}</strong>
-            </span>
-            <button className="mail-snooze-banner__btn" onClick={onUnsnooze}>
-              {t('mail.clickToUnsnooze', 'Annuler')}
-            </button>
-          </div>
-        )}
       </div>
+
+      {isSnoozed && (
+        <div className="mail-snooze-banner">
+          <AlarmClock size={18} className="mail-snooze-banner__icon" />
+          <span className="mail-snooze-banner__text">
+            {snoozeUntil
+              ? <>{t('mail.snoozedUntilLabel', 'Snoozed until')}{' '}<strong>{formatSnoozeDate(snoozeUntil, t)}</strong></>
+              : t('mail.snoozed', 'Snoozed')}
+          </span>
+          <button className="mail-snooze-banner__btn" onClick={() => { setSnoozeBannerDismissed(true); onUnsnooze(); }}>
+            {t('mail.unsnooze', 'Unsnooze')}
+          </button>
+        </div>
+      )}
 
       <div className="mail-thread-detail__messages">
         {messages.length > 5 && !middleExpanded ? (
@@ -244,6 +325,7 @@ export function ThreadDetail({
               defaultExpanded={true}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
+              onMarkRead={handleMarkSingleRead}
               onReply={onReply}
               onReplyAll={onReplyAll}
               onForward={onForward}
@@ -259,9 +341,10 @@ export function ThreadDetail({
             <MessageBlock
               key={msg.item_id}
               message={msg}
-              defaultExpanded={idx === messages.length - 1}
+              defaultExpanded={!msg.is_read || idx === messages.length - 1}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
+              onMarkRead={handleMarkSingleRead}
               onReply={onReply}
               onReplyAll={onReplyAll}
               onForward={onForward}
@@ -274,10 +357,11 @@ export function ThreadDetail({
           ))
         )}
 
-        {replyingTo && (
+        {(replyingTo || composerRestoreData) && (
           <div ref={composerAnchorRef} className="mail-thread-detail__composer-anchor">
             <MailComposer
-              replyTo={replyingTo}
+              ref={composerRef}
+              replyTo={replyingTo ?? (composerRestoreData?.replyingToMsg ?? undefined)}
               mode={replyMode}
               contacts={contacts}
               currentUserEmail={currentUserEmail}

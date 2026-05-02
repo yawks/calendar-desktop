@@ -60,6 +60,8 @@ pub struct ImapMessage {
     pub is_read: bool,
     pub has_attachments: bool,
     pub attachments: Vec<ImapAttachment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_text: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -598,6 +600,7 @@ pub async fn imap_get_thread(config: ImapConfig, conversation_id: String, folder
         }
 
         let body_html = extract_body(&mail);
+        let body_text = find_text_part(&mail, "text/plain");
         let date = fetch.internal_date().map(|d| d.to_rfc3339()).unwrap_or_default();
         let is_read = fetch.flags().any(|f| f == async_imap::types::Flag::Seen);
 
@@ -619,6 +622,7 @@ pub async fn imap_get_thread(config: ImapConfig, conversation_id: String, folder
             is_read,
             has_attachments: !attachments.is_empty(),
             attachments,
+            body_text,
         });
     }
 
@@ -671,6 +675,51 @@ pub async fn imap_permanently_delete(config: ImapConfig, folder: String, id: Str
     let mut session = get_imap_session(&config).await?;
     session.select(&folder).await.map_err(|e| format!("IMAP select error: {}", e))?;
     session.store(&id, "+FLAGS (\\Deleted)").await.map_err(|e| format!("IMAP store error: {}", e))?
+        .collect::<Vec<_>>().await;
+    session.expunge().await.map_err(|e| format!("IMAP expunge error: {}", e))?
+        .collect::<Vec<_>>().await;
+    Ok(())
+}
+
+/// Move multiple messages to trash in a single IMAP session (UID set).
+#[command]
+pub async fn imap_bulk_move_to_trash(config: ImapConfig, folder: String, ids: Vec<String>) -> Result<(), String> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut session = get_imap_session(&config).await?;
+    session.select(&folder).await.map_err(|e| format!("IMAP select error: {}", e))?;
+
+    let folders_stream = session.list(None, Some("*")).await.map_err(|e| format!("IMAP list error: {}", e))?;
+    let folders: Vec<_> = folders_stream.collect().await;
+    let trash = folders.iter()
+        .filter_map(|f| f.as_ref().ok())
+        .find(|f| {
+            let name = f.name().to_lowercase();
+            name.contains("trash") || name.contains("corbeille")
+        })
+        .map(|f| f.name().to_string())
+        .unwrap_or_else(|| "Trash".to_string());
+
+    let uid_set = ids.join(",");
+    session.copy(&uid_set, &trash).await.map_err(|e| format!("IMAP copy error: {}", e))?;
+    session.store(&uid_set, "+FLAGS (\\Deleted)").await.map_err(|e| format!("IMAP store error: {}", e))?
+        .collect::<Vec<_>>().await;
+    session.expunge().await.map_err(|e| format!("IMAP expunge error: {}", e))?
+        .collect::<Vec<_>>().await;
+    Ok(())
+}
+
+/// Permanently delete multiple messages in a single IMAP session (UID set).
+#[command]
+pub async fn imap_bulk_permanently_delete(config: ImapConfig, folder: String, ids: Vec<String>) -> Result<(), String> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut session = get_imap_session(&config).await?;
+    session.select(&folder).await.map_err(|e| format!("IMAP select error: {}", e))?;
+    let uid_set = ids.join(",");
+    session.store(&uid_set, "+FLAGS (\\Deleted)").await.map_err(|e| format!("IMAP store error: {}", e))?
         .collect::<Vec<_>>().await;
     session.expunge().await.map_err(|e| format!("IMAP expunge error: {}", e))?
         .collect::<Vec<_>>().await;

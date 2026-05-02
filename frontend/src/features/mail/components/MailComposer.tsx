@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { MailAttachment, MailIdentity, MailMessage, ComposerRestoreData } from '../types';
 import { Paperclip, Send, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -45,6 +45,11 @@ function buildReplyHTML(
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+export interface MailComposerHandle {
+  isBodyModified: () => boolean;
+  getDraftData: () => { to: string[]; cc: string[]; bcc: string[]; subject: string; bodyHtml: string };
+}
+
 export interface MailComposerProps {
   readonly replyTo?: MailMessage;
   readonly mode?: 'reply' | 'replyAll' | 'forward';
@@ -62,11 +67,11 @@ export interface MailComposerProps {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export function MailComposer({
+export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(function MailComposer({
   replyTo, mode, contacts, currentUserEmail,
   restoreData, identities, selectedIdentityId, onIdentityChange,
   onGetAttachmentData, onSend, onCancel, onSaveDraft,
-}: MailComposerProps) {
+}: MailComposerProps, ref) {
   const { t } = useTranslation();
 
   const [toRecipients,  setToRecipients]  = useState<RecipientEntry[]>([]);
@@ -137,6 +142,17 @@ export function MailComposer({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    isBodyModified: () => editorRef.current?.isModified() ?? false,
+    getDraftData:   () => ({
+      to:       toRecipients.map(r => r.email),
+      cc:       ccRecipients.map(r => r.email),
+      bcc:      bccRecipients.map(r => r.email),
+      subject,
+      bodyHtml: editorRef.current?.getHTML() ?? '',
+    }),
+  }), [toRecipients, ccRecipients, bccRecipients, subject]);
 
   const handleSend = async () => {
     setIsSending(true);
@@ -286,7 +302,7 @@ export function MailComposer({
       />
     </div>
   );
-}
+});
 
 // ── Close popover (Save draft / Discard) ──────────────────────────────────────
 

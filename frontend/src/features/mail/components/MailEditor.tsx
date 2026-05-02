@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditor, EditorContent, Editor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -262,6 +262,7 @@ function FormattingToolbar({ editor }: { editor: Editor | null }) {
 export interface MailEditorHandle {
   getHTML: () => string;
   focus: () => void;
+  isModified: () => boolean;
 }
 
 export interface MailEditorProps {
@@ -276,6 +277,8 @@ export interface MailEditorProps {
 
 export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
   ({ initialHTML, placeholder, disableAutoFocus, onSend }, ref) => {
+    const isDirtyRef = useRef(false);
+
     const editor = useEditor({
       extensions: [
         StarterKit,
@@ -290,6 +293,7 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
         QuotedBlock,
       ],
       content: initialHTML ?? '',
+      onUpdate: () => { isDirtyRef.current = true; },
       editorProps: {
         handleKeyDown: (_view, event) => {
           const mod = event.metaKey || event.ctrlKey;
@@ -328,8 +332,9 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
     });
 
     useImperativeHandle(ref, () => ({
-      getHTML: () => editor?.getHTML() ?? '',
-      focus:   () => { editor?.commands.focus('start'); },
+      getHTML:    () => editor?.getHTML() ?? '',
+      focus:      () => { editor?.commands.focus('start'); },
+      isModified: () => isDirtyRef.current,
     }), [editor]);
 
     // Auto-focus the editor body on mount (skip when the caller wants focus elsewhere)
