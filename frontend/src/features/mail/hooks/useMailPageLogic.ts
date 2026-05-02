@@ -148,6 +148,12 @@ export function useMailPageLogic() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, selectedFolder, searchQuery]);
 
+  useEffect(() => {
+    setSelectedThread(null);
+    setReplyingTo(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId]);
+
   const conversationQuery = useMailConversation(
     selectedThread?.accountId ?? selectedAccountId,
     selectedThread?.conversation_id ?? null,

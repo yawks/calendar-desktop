@@ -1,6 +1,6 @@
 import { forwardRef, useState, useEffect, useRef, useImperativeHandle } from 'react';
 import { MailThread } from '../types';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, SearchX, Inbox } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThreadItem } from './ThreadItem';
 
@@ -134,8 +134,10 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
 
     if (loading) {
       return (
-        <div className="mail-thread-list mail-thread-list--empty">
-          <RefreshCw size={24} className="spin" style={{ opacity: 0.4 }} />
+        <div className="mail-thread-list-wrapper">
+          <div className="mail-thread-list mail-thread-list--empty">
+            <RefreshCw size={24} className="spin" style={{ opacity: 0.4 }} />
+          </div>
         </div>
       );
     }
@@ -152,6 +154,9 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
           <div className="mail-thread-list" ref={containerRef}>
             {toolbar}
             <div className="mail-thread-list--empty">
+              {isSearchMode
+                ? <SearchX size={40} strokeWidth={1} style={{ opacity: 0.25 }} />
+                : <Inbox size={40} strokeWidth={1} style={{ opacity: 0.25 }} />}
               <p style={{ opacity: 0.4 }}>
                 {isSearchMode
                   ? t('mail.search.noResults', 'No results')
