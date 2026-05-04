@@ -1,4 +1,8 @@
 {
+  "tabs": {
+    "calendar": "Calendrier",
+    "mail": "Mail"
+  },
   "header": {
     "toggleSidebar": "Afficher/masquer la sidebar",
     "appName": "Calendrier",

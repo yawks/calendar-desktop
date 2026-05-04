@@ -5,6 +5,7 @@ import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 
 import AppTabs from './shared/components/AppTabs';
+import WindowSwitcher from './shared/components/WindowSwitcher';
 import { CalendarGroupProvider } from './features/calendar/store/CalendarGroupStore';
 import CalendarPage from './features/calendar/CalendarPage';
 import { CalendarProvider } from './features/calendar/store/CalendarStore';
@@ -18,6 +19,16 @@ import MailApp from './features/mail/MailPage';
 import { TagProvider } from './features/calendar/store/TagStore';
 import { ThemeProvider } from './shared/store/ThemeStore';
 
+// Fenêtre calendrier secondaire (mode windows uniquement, route /calendar)
+function CalendarWindowView() {
+  return (
+    <>
+      <WindowSwitcher target="mail" />
+      <CalendarPage />
+    </>
+  );
+}
+
 function RootView() {
   const { layout, activeTab, setActiveTab } = useLayout();
 
@@ -30,8 +41,13 @@ function RootView() {
     );
   }
 
-  // mode 'windows' : fenêtre dédiée au calendrier (mail via route /mail)
-  return <CalendarPage />;
+  // mode 'windows' : fenêtre principale = Mail, bouton pour ouvrir/focus le Calendrier
+  return (
+    <>
+      <WindowSwitcher target="calendar" />
+      <MailApp />
+    </>
+  );
 }
 
 export default function App() {
@@ -53,7 +69,7 @@ export default function App() {
                           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                             <Routes>
                               <Route path="/" element={<RootView />} />
-                              <Route path="/mail" element={<MailApp />} />
+                              <Route path="/calendar" element={<CalendarWindowView />} />
                               <Route path="/config" element={<ConfigPage />} />
                             </Routes>
                           </BrowserRouter>

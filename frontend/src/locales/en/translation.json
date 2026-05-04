@@ -1,4 +1,8 @@
 {
+  "tabs": {
+    "calendar": "Calendar",
+    "mail": "Mail"
+  },
   "header": {
     "toggleSidebar": "Toggle sidebar",
     "appName": "Calendar",

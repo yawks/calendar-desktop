@@ -256,7 +256,7 @@ body {
 .close-composer-popover__option--danger { color: var(--danger); }
 
 .mail-new-composer { display: flex; flex-direction: column; height: 100%; align-items: flex-start; }
-.mail-new-composer__form { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 800px; }
+.mail-new-composer__form { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: 1000px; }
 .mail-new-composer__toolbar {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 16px; border-bottom: 1px solid var(--border);
@@ -853,7 +853,7 @@ body {
   gap: 12px; color: var(--text-muted); font-size: 14px;
 }
 
-.mail-thread-detail { display: flex; flex-direction: column; width: 100%; max-width: 800px; }
+.mail-thread-detail { display: flex; flex-direction: column; width: 100%; max-width: 1000px; }
 
 .mail-thread-detail__toolbar {
   display: flex; align-items: center; gap: 2px;

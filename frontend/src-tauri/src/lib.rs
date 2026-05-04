@@ -59,6 +59,46 @@ fn open_file_path(path: String) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 mod eventkit;
 
+// ── Window management ─────────────────────────────────────────────────────────
+
+/// Bring a window to the foreground by label.
+/// On macOS, calls activateIgnoringOtherApps(true) first to bypass the
+/// focus-stealing prevention that makes setFocus() unreliable from JS.
+#[tauri::command]
+fn focus_window(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    use tauri::Manager;
+
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("Window '{}' not found", label))?;
+
+    #[cfg(target_os = "macos")]
+    {
+        app.run_on_main_thread(move || {
+            use objc2::MainThreadMarker;
+            use objc2_app_kit::NSApplication;
+            unsafe {
+                let mtm = MainThreadMarker::new_unchecked();
+                let ns_app = NSApplication::sharedApplication(mtm);
+                ns_app.activateIgnoringOtherApps(true);
+            }
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        })
+        .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        window.unminimize().map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 // ── Badge ──────────────────────────────────────────────────────────────────────
 
 /// Set the application dock/taskbar badge count.
@@ -189,6 +229,7 @@ pub fn run() {
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,
+                    focus_window,
                 ]
             }
             #[cfg(target_os = "macos")]
@@ -266,6 +307,7 @@ pub fn run() {
                     save_file_to_downloads,
                     open_file_path,
                     set_badge_count,
+                    focus_window,
                     eventkit::check_eventkit_status,
                     eventkit::request_eventkit_access,
                     eventkit::list_eventkit_calendars,
