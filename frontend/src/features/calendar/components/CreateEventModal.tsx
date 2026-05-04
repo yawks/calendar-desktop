@@ -543,7 +543,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
           </div>
 
           {error && (
-            <div style={{ color: 'var(--color-error, #d93025)', fontSize: 13 }}>{error}</div>
+            <div style={{ color: 'var(--color-error, #d93025)', fontSize: 'calc(13px * var(--font-scale, 1))' }}>{error}</div>
           )}
 
           <div className="config-edit-actions">

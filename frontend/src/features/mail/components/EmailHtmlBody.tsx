@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
+import { useFontSize } from '../../../shared/store/FontSizeStore';
 import { invoke } from '@tauri-apps/api/core';
 
 function parseHexColor(raw: string): [number, number, number] | null {
@@ -31,6 +32,8 @@ function findQuoteMarker(bodyText: string): string | null {
 export function EmailHtmlBody({ html, bodyText }: { readonly html: string; readonly bodyText?: string }) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
+  const { fontSize } = useFontSize();
+  const fontScale = fontSize === 'small' ? 0.85 : fontSize === 'medium' ? 1 : 1.2;
   const isDark = resolved === 'dark';
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeHeight, setIframeHeight] = useState(200);
@@ -88,13 +91,13 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   .ew {
     padding: 4px 0;
     font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
-    font-size: 14px; line-height: 1.6;
+    font-size: ${14 * fontScale}px; line-height: 1.6;
     color: #202124; background: #fff;
     word-break: break-word; overflow-wrap: anywhere;
   }
   img { max-width: 100%; height: auto; }
   a { color: #1a73e8; cursor: pointer; }
-  pre, code { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+  pre, code { white-space: pre-wrap; word-break: break-all; font-size: ${13 * fontScale}px; }
   table { max-width: 100%; }
   blockquote {
     border-left: 3px solid #dadce0;
@@ -106,7 +109,7 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
     background: none; border: none;
     padding: 5px 10px; width: 100%;
     text-align: left; cursor: pointer;
-    font-size: 12px; font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+    font-size: ${12 * fontScale}px; font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
   }
   .qt-toggle:hover { opacity: 0.75; }
   .qt-chevron { font-size: 10px; }

@@ -365,6 +365,18 @@
       "system": "System",
       "light": "Light",
       "dark": "Dark"
+    },
+    "fontSize": {
+      "sectionTitle": "Font Size",
+      "small": "Small",
+      "medium": "Medium",
+      "large": "Large"
+    },
+    "layout": {
+      "sectionTitle": "Interface",
+      "tabbed": "Tabs",
+      "windows": "Separate Windows",
+      "hint": "Restart the application to apply Separate Windows mode."
     }
   }
 }

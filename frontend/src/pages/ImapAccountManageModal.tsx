@@ -86,8 +86,8 @@ export function ImapAccountManageModal({ account, onClose }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Mail size={24} />
             <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{account.displayName}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{account.email}</div>
+              <div style={{ fontWeight: 600, fontSize: 'calc(15px * var(--font-scale, 1))' }}>{account.displayName}</div>
+              <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>{account.email}</div>
             </div>
           </div>
           <button type="button" className="nc-modal-close" onClick={onClose}><X size={20} /></button>
@@ -96,7 +96,7 @@ export function ImapAccountManageModal({ account, onClose }: {
           <form onSubmit={handleSave} className="config-form">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
                     <label>{t('config.email', 'Email')}</label>
                     <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -107,7 +107,7 @@ export function ImapAccountManageModal({ account, onClose }: {
                   </div>
                 </div>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <ColorSwatches colors={DEFAULT_COLORS} selected={color} onSelect={setColor} />
                     <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
@@ -117,7 +117,7 @@ export function ImapAccountManageModal({ account, onClose }: {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>IMAP (Incoming)</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>IMAP (Incoming)</h3>
                   <div className="form-row">
                     <label>{t('config.server', 'Server')}</label>
                     <input type="text" value={imapServer} onChange={(e) => setImapServer(e.target.value)} required />
@@ -127,11 +127,11 @@ export function ImapAccountManageModal({ account, onClose }: {
                     <input type="number" value={imapPort} onChange={(e) => setImapPort(Number(e.target.value))} required />
                   </div>
                   <div className="form-row--inline" style={{ display: 'flex', gap: 15, margin: '8px 0' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                       <input type="checkbox" checked={imapUseSsl} onChange={(e) => { setImapUseSsl(e.target.checked); if (e.target.checked) setImapUseStarttls(false); }} />
                       SSL / TLS
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                       <input type="checkbox" checked={imapUseStarttls} onChange={(e) => { setImapUseStarttls(e.target.checked); if (e.target.checked) setImapUseSsl(false); }} />
                       STARTTLS
                     </label>
@@ -147,7 +147,7 @@ export function ImapAccountManageModal({ account, onClose }: {
                 </div>
 
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>SMTP (Outgoing)</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>SMTP (Outgoing)</h3>
                   <div className="form-row">
                     <label>{t('config.server', 'Server')}</label>
                     <input type="text" value={smtpServer} onChange={(e) => setSmtpServer(e.target.value)} required />
@@ -157,11 +157,11 @@ export function ImapAccountManageModal({ account, onClose }: {
                     <input type="number" value={smtpPort} onChange={(e) => setSmtpPort(Number(e.target.value))} required />
                   </div>
                   <div className="form-row--inline" style={{ display: 'flex', gap: 15, margin: '8px 0' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                       <input type="checkbox" checked={smtpUseSsl} onChange={(e) => { setSmtpUseSsl(e.target.checked); if (e.target.checked) setSmtpUseStarttls(false); }} />
                       SSL / TLS
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                       <input type="checkbox" checked={smtpUseStarttls} onChange={(e) => { setSmtpUseStarttls(e.target.checked); if (e.target.checked) setSmtpUseSsl(false); }} />
                       STARTTLS
                     </label>
@@ -182,7 +182,7 @@ export function ImapAccountManageModal({ account, onClose }: {
                   type="button"
                   className="btn-remove"
                   onClick={() => { removeAccount(account.id); onClose(); }}
-                  style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+                  style={{ fontSize: 'calc(13px * var(--font-scale, 1))', display: 'flex', alignItems: 'center', gap: 6 }}
                 >
                   <Trash2 size={14} /> {t('config.disconnectAccount')}
                 </button>

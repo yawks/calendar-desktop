@@ -1,6 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star, LayoutPanelTop, Columns2, Sun, Moon, Monitor, CalendarDays, Mail } from 'lucide-react';
+import { useFontSize, FontSizePreference } from '../shared/store/FontSizeStore';
+import { Laptop, Rss, Pencil, Trash2, Cloud, Plus, X, Languages, SlidersHorizontal, Settings2, Star, LayoutPanelTop, Columns2, Sun, Moon, Monitor, CalendarDays, Mail, Type } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import { useLanguage } from '../shared/store/LanguageStore';
@@ -65,7 +66,7 @@ function CapBadge({ cap }: { cap: 'calendar' | 'email' }) {
       gap: 3,
       padding: '2px 6px',
       borderRadius: 4,
-      fontSize: 10,
+      fontSize: 'calc(10px * var(--font-scale, 1))',
       fontWeight: 600,
       letterSpacing: '0.03em',
       textTransform: 'uppercase' as const,
@@ -222,13 +223,13 @@ function ConnectionTestRow({ result, testing, onTest }: {
         className="btn-edit"
         onClick={onTest}
         disabled={testing}
-        style={{ fontSize: 13, gap: 6, whiteSpace: 'nowrap' }}
+        style={{ fontSize: 'calc(13px * var(--font-scale, 1))', gap: 6, whiteSpace: 'nowrap' }}
       >
         {testing ? t('config.testing') : t('config.testConnectionBtn')}
       </button>
       {result && (
         <span style={{
-          fontSize: 13,
+          fontSize: 'calc(13px * var(--font-scale, 1))',
           color: result.ok ? 'var(--color-success, #34a853)' : 'var(--color-error, #d93025)',
         }}>
           {result.ok ? '✓ ' : '✗ '}{result.message}
@@ -333,24 +334,24 @@ function EventKitManageModal({ existingCalendars, onClose }: {
         </div>
         <div className="nc-modal-body">
           {status === 'loading' && (
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>{t('config.loading')}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 'calc(14px * var(--font-scale, 1))' }}>{t('config.loading')}</div>
           )}
           {status === 'unavailable' && (
             <div className="empty-state">{t('config.macosUnavailable')}</div>
           )}
           {status === 'not_determined' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
-              <p style={{ margin: 0, fontSize: 14 }}>{t('config.macosNotAuthorized')}</p>
+              <p style={{ margin: 0, fontSize: 'calc(14px * var(--font-scale, 1))' }}>{t('config.macosNotAuthorized')}</p>
               <button type="button" className="btn-primary" onClick={requestAccess} disabled={requesting}>
                 {requesting ? t('config.requestingAccess') : t('config.authorizeAccess')}
               </button>
-              {error && <div style={{ color: 'var(--color-error, #d93025)', fontSize: 13 }}>{error}</div>}
+              {error && <div style={{ color: 'var(--color-error, #d93025)', fontSize: 'calc(13px * var(--font-scale, 1))' }}>{error}</div>}
             </div>
           )}
           {(status === 'denied' || status === 'restricted') && (
             <div style={{
               padding: '12px 16px', background: 'var(--color-error-bg, #fce8e6)',
-              borderRadius: 8, fontSize: 14, color: 'var(--color-error, #d93025)',
+              borderRadius: 8, fontSize: 'calc(14px * var(--font-scale, 1))', color: 'var(--color-error, #d93025)',
             }}>
               {status === 'denied' ? t('config.accessDeniedMsg') : t('config.accessRestricted')}
             </div>
@@ -360,7 +361,7 @@ function EventKitManageModal({ existingCalendars, onClose }: {
               ? <div className="empty-state">{t('config.noCalendarsFound')}</div>
               : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+                  <div style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', marginBottom: 12 }}>
                     {t('config.selectCalendarsToShow')}
                   </div>
                   {ekCals.map((ekCal) => (
@@ -378,8 +379,8 @@ function EventKitManageModal({ existingCalendars, onClose }: {
                         background: ekCal.color, flexShrink: 0, display: 'inline-block',
                       }} />
                       <div>
-                        <div style={{ fontSize: 14 }}>{ekCal.title}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: 'calc(14px * var(--font-scale, 1))' }}>{ekCal.title}</div>
+                        <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>
                           {ekCal.source_title}
                           {!ekCal.is_writable && ` · ${t('config.readOnly')}`}
                         </div>
@@ -500,8 +501,8 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
               />
             )}
             <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{account.name}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{account.email}</div>
+              <div style={{ fontWeight: 600, fontSize: 'calc(15px * var(--font-scale, 1))' }}>{account.name}</div>
+              <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>{account.email}</div>
             </div>
           </div>
           <button type="button" className="nc-modal-close" onClick={onClose}><X size={20} /></button>
@@ -510,14 +511,14 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
 
           {/* Calendar list */}
           {loadingCals && (
-            <div style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 16 }}>{t('config.loading')}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 16 }}>{t('config.loading')}</div>
           )}
           {calError && (
-            <div style={{ color: 'var(--color-error, #d93025)', fontSize: 13, marginBottom: 16 }}>{calError}</div>
+            <div style={{ color: 'var(--color-error, #d93025)', fontSize: 'calc(13px * var(--font-scale, 1))', marginBottom: 16 }}>{calError}</div>
           )}
           {gCals && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+              <div style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', marginBottom: 12 }}>
                 {t('config.selectCalendarsToShow')}
               </div>
               {gCals.map((gCal) => (
@@ -535,11 +536,11 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
                     background: gCal.backgroundColor ?? '#888', flexShrink: 0, display: 'inline-block',
                   }} />
                   <div>
-                    <div style={{ fontSize: 14 }}>
+                    <div style={{ fontSize: 'calc(14px * var(--font-scale, 1))' }}>
                       {gCal.summary}{gCal.primary ? t('config.primaryCalendar') : ''}
                     </div>
                     {gCal.accessRole === 'reader' && (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('config.readOnly')}</div>
+                      <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>{t('config.readOnly')}</div>
                     )}
                   </div>
                 </label>
@@ -549,7 +550,7 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
 
           {/* Capabilities */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{t('config.enabledServices')}</div>
+            <div style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', marginBottom: 10 }}>{t('config.enabledServices')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {(['calendar', 'email'] as const).map((cap) => (
                 <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
@@ -560,7 +561,7 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
                     disabled={capabilities.length === 1 && capabilities.includes(cap)}
                   />
                   <CapBadge cap={cap} />
-                  <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                  <span style={{ fontSize: 'calc(14px * var(--font-scale, 1))' }}>{t(`config.cap.${cap}`)}</span>
                 </label>
               ))}
             </div>
@@ -573,7 +574,7 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
                 type="button"
                 className="btn-remove"
                 onClick={() => { removeAccount(account.id); onClose(); }}
-                style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+                style={{ fontSize: 'calc(13px * var(--font-scale, 1))', display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 <Trash2 size={14} /> {t('config.disconnectAccount')}
               </button>
@@ -581,7 +582,7 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
                 type="button"
                 className="btn-edit"
                 onClick={() => setShowOAuth((v) => !v)}
-                style={{ fontSize: 12 }}
+                style={{ fontSize: 'calc(12px * var(--font-scale, 1))' }}
               >
                 {t('config.oauthCredentials')}
               </button>
@@ -589,7 +590,7 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
 
             {showOAuth && (
               <div style={{ marginTop: 16 }}>
-                <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                <p style={{ margin: '0 0 12px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                   {t('config.oauthDescription')}
                 </p>
                 <form onSubmit={handleSaveCredentials} className="config-form">
@@ -616,7 +617,7 @@ function GoogleAccountManageModal({ account, existingCalendars, onClose }: {
                   <div className="form-actions" style={{ alignItems: 'center', gap: 12 }}>
                     <button type="submit" className="btn-primary">{t('config.save')}</button>
                     {gcSaved && (
-                      <span style={{ fontSize: 13, color: 'var(--color-success, #34a853)' }}>
+                      <span style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--color-success, #34a853)' }}>
                         {t('config.savedConfirmation')}
                       </span>
                     )}
@@ -965,27 +966,27 @@ function ExchangeAccountManageModal({ account, existingCalendars, onClose }: {
         <div className="nc-modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{account.displayName || account.email}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{account.email}</div>
+              <div style={{ fontWeight: 600, fontSize: 'calc(15px * var(--font-scale, 1))' }}>{account.displayName || account.email}</div>
+              <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>{account.email}</div>
             </div>
           </div>
           <button type="button" className="nc-modal-close" onClick={onClose}><X size={20} /></button>
         </div>
         <div className="nc-modal-body">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+            <div style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', marginBottom: 12 }}>
               {t('config.exchangeConnectedCalendars')}
             </div>
             {accountCals.map((cal) => (
               <div key={cal.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
                 <span style={{ width: 12, height: 12, borderRadius: '50%', background: cal.color, flexShrink: 0, display: 'inline-block' }} />
-                <span style={{ fontSize: 14 }}>{cal.name}</span>
+                <span style={{ fontSize: 'calc(14px * var(--font-scale, 1))' }}>{cal.name}</span>
               </div>
             ))}
           </div>
           {/* Capabilities */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>{t('config.enabledServices')}</div>
+            <div style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', marginBottom: 10 }}>{t('config.enabledServices')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {(['calendar', 'email'] as const).map((cap) => (
                 <label key={cap} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
@@ -996,7 +997,7 @@ function ExchangeAccountManageModal({ account, existingCalendars, onClose }: {
                     disabled={capabilities.length === 1 && capabilities.includes(cap)}
                   />
                   <CapBadge cap={cap} />
-                  <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                  <span style={{ fontSize: 'calc(14px * var(--font-scale, 1))' }}>{t(`config.cap.${cap}`)}</span>
                 </label>
               ))}
             </div>
@@ -1007,7 +1008,7 @@ function ExchangeAccountManageModal({ account, existingCalendars, onClose }: {
               type="button"
               className="btn-remove"
               onClick={handleDisconnect}
-              style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+              style={{ fontSize: 'calc(13px * var(--font-scale, 1))', display: 'flex', alignItems: 'center', gap: 6 }}
             >
               <Trash2 size={14} /> {t('config.disconnectAccount')}
             </button>
@@ -1139,12 +1140,12 @@ function NewCalendarModal({
       return;
     }
     if (type === 'imap') {
-        setStep('imap');
-        return;
+      setStep('imap');
+      return;
     }
     if (type === 'jmap') {
-        setStep('jmap');
-        return;
+      setStep('jmap');
+      return;
     }
     setSelectedType(type);
     setStep('configure');
@@ -1168,7 +1169,7 @@ function NewCalendarModal({
       setExVerifUri(res.verification_uri);
       setExInterval(res.interval);
       setExPolling(true);
-      invoke('open_url', { url: res.verification_uri }).catch(() => {});
+      invoke('open_url', { url: res.verification_uri }).catch(() => { });
     } catch (err) {
       setConnectError(err instanceof Error ? err.message : t('config.exchangeAuthError'));
     } finally {
@@ -1310,10 +1311,10 @@ function NewCalendarModal({
       type: 'google',
       icon: (
         <svg width="28" height="28" viewBox="0 0 18 18" aria-hidden="true">
-          <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
-          <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-          <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
-          <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z"/>
+          <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" />
+          <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" />
+          <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" />
+          <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z" />
         </svg>
       ),
       label: t('config.googleAgenda'),
@@ -1331,7 +1332,7 @@ function NewCalendarModal({
       type: 'exchange',
       icon: (
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <rect width="24" height="24" rx="4" fill="#0078d4"/>
+          <rect width="24" height="24" rx="4" fill="#0078d4" />
           <text x="12" y="17" textAnchor="middle" fontSize="13" fontWeight="bold" fill="white" fontFamily="sans-serif">Ex</text>
         </svg>
       ),
@@ -1363,13 +1364,13 @@ function NewCalendarModal({
         ? t('config.googleAgenda')
         : step === 'exchange'
           ? 'Exchange / Office 365'
-        : step === 'imap'
-          ? 'IMAP / SMTP'
-        : step === 'jmap'
-          ? 'JMAP'
-          : selectedType === 'ics'
-            ? t('config.addICSCalendar')
-            : t('config.addNextcloudCalendar');
+          : step === 'imap'
+            ? 'IMAP / SMTP'
+            : step === 'jmap'
+              ? 'JMAP'
+              : selectedType === 'ics'
+                ? t('config.addICSCalendar')
+                : t('config.addNextcloudCalendar');
 
   return (
     <div
@@ -1404,7 +1405,7 @@ function NewCalendarModal({
           {/* Step 1: pick type */}
           {step === 'pick' && (
             <>
-              <p style={{ margin: '0 0 20px', fontSize: 14, color: 'var(--text-muted)' }}>
+              <p style={{ margin: '0 0 20px', fontSize: 'calc(14px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>
                 {t('config.chooseProviderType')}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1432,7 +1433,7 @@ function NewCalendarModal({
           {/* Step: capabilities selection */}
           {step === 'capabilities' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>
+              <p style={{ margin: 0, fontSize: 'calc(14px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>
                 {t('config.chooseServicesDesc')}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1453,7 +1454,7 @@ function NewCalendarModal({
                       }}
                     />
                     <CapBadge cap={cap} />
-                    <span style={{ fontSize: 14 }}>{t(`config.cap.${cap}`)}</span>
+                    <span style={{ fontSize: 'calc(14px * var(--font-scale, 1))' }}>{t(`config.cap.${cap}`)}</span>
                   </label>
                 ))}
               </div>
@@ -1472,7 +1473,7 @@ function NewCalendarModal({
           {/* Step: Google */}
           {step === 'google' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              <p style={{ margin: 0, fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                 {t('config.oauthDescription')}
               </p>
               <form onSubmit={handleSaveCredentials} className="config-form">
@@ -1499,7 +1500,7 @@ function NewCalendarModal({
                 <div className="form-actions" style={{ alignItems: 'center', gap: 12 }}>
                   <button type="submit" className="btn-cancel">{t('config.save')}</button>
                   {gcSaved && (
-                    <span style={{ fontSize: 13, color: 'var(--color-success, #34a853)' }}>
+                    <span style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--color-success, #34a853)' }}>
                       {t('config.savedConfirmation')}
                     </span>
                   )}
@@ -1516,7 +1517,7 @@ function NewCalendarModal({
                   {connecting ? t('config.connectingGoogle') : t('config.connectGoogleAccount')}
                 </button>
                 {connectError && (
-                  <div style={{ marginTop: 10, fontSize: 13, color: 'var(--color-error, #d93025)' }}>
+                  <div style={{ marginTop: 10, fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--color-error, #d93025)' }}>
                     {connectError}
                   </div>
                 )}
@@ -1557,9 +1558,9 @@ function NewCalendarModal({
               )}
               {exUserCode && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <p style={{ margin: 0, fontSize: 14 }}>{t('config.exchangeEnterCode')}</p>
+                  <p style={{ margin: 0, fontSize: 'calc(14px * var(--font-scale, 1))' }}>{t('config.exchangeEnterCode')}</p>
                   <div style={{
-                    fontSize: 28, fontWeight: 700, letterSpacing: 4,
+                    fontSize: 'calc(28px * var(--font-scale, 1))', fontWeight: 700, letterSpacing: 4,
                     textAlign: 'center', padding: '12px 20px',
                     background: 'var(--bg-secondary, #f5f5f5)', borderRadius: 8,
                     border: '1px solid var(--border)', fontFamily: 'monospace',
@@ -1570,19 +1571,19 @@ function NewCalendarModal({
                     type="button"
                     className="btn-edit"
                     onClick={() => { import('@tauri-apps/api/core').then(({ invoke }) => invoke('open_url', { url: exVerifUri })); }}
-                    style={{ fontSize: 13 }}
+                    style={{ fontSize: 'calc(13px * var(--font-scale, 1))' }}
                   >
                     {t('config.exchangeOpenBrowser')} ↗
                   </button>
                   {exPolling && (
-                    <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
+                    <p style={{ margin: 0, fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', textAlign: 'center' }}>
                       {t('config.exchangeWaiting')}
                     </p>
                   )}
                 </div>
               )}
               {connectError && (
-                <div style={{ fontSize: 13, color: 'var(--color-error, #d93025)' }}>{connectError}</div>
+                <div style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--color-error, #d93025)' }}>{connectError}</div>
               )}
             </div>
           )}
@@ -1592,7 +1593,7 @@ function NewCalendarModal({
             <form onSubmit={handleAddJmap} className="config-form">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
                     <label>{t('config.email', 'Email')}</label>
                     <input type="email" value={jmapEmail} onChange={(e) => setJmapEmail(e.target.value)} required />
@@ -1603,7 +1604,7 @@ function NewCalendarModal({
                   </div>
                 </div>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <ColorSwatches colors={DEFAULT_COLORS} selected={jmapColor} onSelect={setJmapColor} />
                     <input type="color" value={jmapColor} onChange={(e) => setJmapColor(e.target.value)} />
@@ -1612,7 +1613,7 @@ function NewCalendarModal({
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <h3 style={{ fontSize: 14, marginBottom: 12 }}>JMAP Configuration</h3>
+                <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>JMAP Configuration</h3>
                 <div className="form-row">
                   <label>Session URL</label>
                   <input type="text" value={jmapSessionUrl} onChange={(e) => setJmapSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
@@ -1646,7 +1647,7 @@ function NewCalendarModal({
             <form onSubmit={handleAddImap} className="config-form">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
                     <label>{t('config.email', 'Email')}</label>
                     <input type="email" value={imapEmail} onChange={(e) => setImapEmail(e.target.value)} required />
@@ -1657,7 +1658,7 @@ function NewCalendarModal({
                   </div>
                 </div>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <ColorSwatches colors={DEFAULT_COLORS} selected={imapColor} onSelect={setImapColor} />
                     <input type="color" value={imapColor} onChange={(e) => setImapColor(e.target.value)} />
@@ -1667,7 +1668,7 @@ function NewCalendarModal({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>IMAP (Incoming)</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>IMAP (Incoming)</h3>
                   <div className="form-row">
                     <label>{t('config.server', 'Server')}</label>
                     <input type="text" value={imapServer} onChange={(e) => setImapServer(e.target.value)} required />
@@ -1677,11 +1678,11 @@ function NewCalendarModal({
                     <input type="number" value={imapPort} onChange={(e) => setImapPort(Number(e.target.value))} required />
                   </div>
                   <div className="form-row--inline" style={{ display: 'flex', gap: 15, margin: '8px 0' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                       <input type="checkbox" checked={imapUseSsl} onChange={(e) => { setImapUseSsl(e.target.checked); if (e.target.checked) setImapUseStarttls(false); }} />
                       SSL / TLS
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                       <input type="checkbox" checked={imapUseStarttls} onChange={(e) => { setImapUseStarttls(e.target.checked); if (e.target.checked) setImapUseSsl(false); }} />
                       STARTTLS
                     </label>
@@ -1697,7 +1698,7 @@ function NewCalendarModal({
                 </div>
 
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>SMTP (Outgoing)</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>SMTP (Outgoing)</h3>
                   <div className="form-row">
                     <label>{t('config.server', 'Server')}</label>
                     <input type="text" value={smtpServer} onChange={(e) => setSmtpServer(e.target.value)} required />
@@ -1707,11 +1708,11 @@ function NewCalendarModal({
                     <input type="number" value={smtpPort} onChange={(e) => setSmtpPort(Number(e.target.value))} required />
                   </div>
                   <div className="form-row--inline" style={{ display: 'flex', gap: 15, margin: '8px 0' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                       <input type="checkbox" checked={smtpUseSsl} onChange={(e) => { setSmtpUseSsl(e.target.checked); if (e.target.checked) setSmtpUseStarttls(false); }} />
                       SSL / TLS
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                       <input type="checkbox" checked={smtpUseStarttls} onChange={(e) => { setSmtpUseStarttls(e.target.checked); if (e.target.checked) setSmtpUseSsl(false); }} />
                       STARTTLS
                     </label>
@@ -1830,7 +1831,7 @@ function NewCalendarModal({
                   onChange={(e) => { setNcCalendarUrl(e.target.value); resetNcTest(); }}
                   required
                 />
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', marginTop: 4 }}>
                   {t('config.caldavHelp')}
                 </div>
               </div>
@@ -1884,6 +1885,7 @@ function SettingsSection() {
   const { preference, setPreference } = useLanguage();
   const { layout, setLayout } = useLayout();
   const { preference: themePref, setPreference: setThemePref } = useTheme();
+  const { fontSize, setFontSize } = useFontSize();
 
   const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
     { value: 'system', label: t('settings.language.system'), flag: '🖥' },
@@ -1921,7 +1923,7 @@ function SettingsSection() {
     color: active ? '#fff' : 'var(--text)',
     fontWeight: active ? 600 : 400,
     cursor: 'pointer',
-    fontSize: 14,
+    fontSize: 'calc(14px * var(--font-scale, 1))',
     transition: 'background 0.15s, color 0.15s',
   });
 
@@ -1930,14 +1932,14 @@ function SettingsSection() {
 
       {/* Langue */}
       <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Languages size={16} />
           {t('settings.language.sectionTitle')}
         </h3>
         <div style={segmentStyle}>
           {langOptions.map((opt, i) => (
             <button key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
-              <span style={{ fontSize: 16, lineHeight: 1 }}>{opt.flag}</span>
+              <span style={{ fontSize: 'calc(16px * var(--font-scale, 1))', lineHeight: 1 }}>{opt.flag}</span>
               {opt.label}
             </button>
           ))}
@@ -1946,7 +1948,7 @@ function SettingsSection() {
 
       {/* Thème */}
       <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Sun size={16} />
           {t('settings.theme.sectionTitle')}
         </h3>
@@ -1962,7 +1964,7 @@ function SettingsSection() {
 
       {/* Layout */}
       <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <LayoutPanelTop size={16} />
           {t('settings.layout.sectionTitle', 'Interface')}
         </h3>
@@ -1974,12 +1976,97 @@ function SettingsSection() {
             </button>
           ))}
         </div>
-        <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted, var(--text))', opacity: 0.6 }}>
+        <p style={{ margin: '8px 0 0', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted, var(--text))', opacity: 0.6 }}>
           {t('settings.layout.hint', 'Redémarrez l\'application pour appliquer le mode Fenêtres séparées.')}
         </p>
       </div>
 
+      {/* Taille de la police */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Type size={16} />
+          {t('settings.fontSize.sectionTitle', 'Taille de la police')}
+        </h3>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <FontSizeOption
+            size="small"
+            label={t('settings.fontSize.small', 'Petite')}
+            active={fontSize === 'small'}
+            onClick={() => setFontSize('small')}
+          />
+          <FontSizeOption
+            size="medium"
+            label={t('settings.fontSize.medium', 'Moyenne')}
+            active={fontSize === 'medium'}
+            onClick={() => setFontSize('medium')}
+          />
+          <FontSizeOption
+            size="large"
+            label={t('settings.fontSize.large', 'Grande')}
+            active={fontSize === 'large'}
+            onClick={() => setFontSize('large')}
+          />
+        </div>
+      </div>
+
     </div>
+  );
+}
+
+function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference, active: boolean, onClick: () => void, label: string }) {
+  const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : 1.2;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 12,
+        padding: 12,
+        borderRadius: 12,
+        border: `2px solid ${active ? 'var(--color-primary, #1a73e8)' : 'var(--border)'}`,
+        background: active ? 'color-mix(in srgb, var(--color-primary, #1a73e8) 8%, var(--bg))' : 'var(--bg)',
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+        flex: 1,
+        outline: 'none',
+      }}
+    >
+      <div style={{
+        width: '100%',
+        height: 70,
+        borderRadius: 8,
+        background: 'var(--bg-hover, #f5f5f5)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        padding: 10,
+        overflow: 'hidden',
+        border: '1px solid var(--border)',
+        position: 'relative',
+      }}>
+        <div style={{ height: 6, width: '40%', background: 'var(--text)', opacity: 0.2, borderRadius: 3 }} />
+        <div style={{
+          fontSize: `calc(${24 * scale}px * var(--font-scale, 1))`,
+          color: 'var(--text)',
+          lineHeight: 1,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 2,
+          margin: '2px 0'
+        }}>
+          Aa
+        </div>
+        <div style={{ height: 4, width: '90%', background: 'var(--text)', opacity: 0.1, borderRadius: 2 }} />
+        <div style={{ height: 4, width: '70%', background: 'var(--text)', opacity: 0.1, borderRadius: 2 }} />
+      </div>
+      <span style={{ fontSize: 'calc(13px * var(--font-scale, 1))', fontWeight: active ? 600 : 500, color: active ? 'var(--color-primary, #1a73e8)' : 'var(--text)' }}>
+        {label}
+      </span>
+    </button>
   );
 }
 
@@ -2051,7 +2138,7 @@ export default function ConfigPage() {
     <div className="app">
       <header className="header">
         <Link to="/" className="btn-config">{t('config.backToCalendar')}</Link>
-        <span style={{ fontSize: 18, fontWeight: 400 }}>{t('config.pageTitle')}</span>
+        <span style={{ fontSize: 'calc(18px * var(--font-scale, 1))', fontWeight: 400 }}>{t('config.pageTitle')}</span>
       </header>
 
       <div className="app-body">
@@ -2118,10 +2205,10 @@ export default function ConfigPage() {
                         ? <img src={account.picture} alt="" style={{ width: 14, height: 14, borderRadius: '50%' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                         : (
                           <svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true">
-                            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
-                            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-                            <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z"/>
-                            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z"/>
+                            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" />
+                            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" />
+                            <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" />
+                            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z" />
                           </svg>
                         )
                     }
@@ -2132,33 +2219,33 @@ export default function ConfigPage() {
                   >
                     {cals.length > 0
                       ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
-                      : <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>{t('config.noCalendarsLinked')}</div>
+                      : <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', padding: '2px 0' }}>{t('config.noCalendarsLinked')}</div>
                     }
                   </GroupSection>
                 ))}
 
                 {/* Exchange — one group per account */}
                 {exchangeGroups.map(({ account, cals }) => (
-                    <GroupSection
-                      key={account.id}
-                      title={account.email}
-                      icon={
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                          <rect width="24" height="24" rx="4" fill="#0078d4"/>
-                          <text x="12" y="17" textAnchor="middle" fontSize="13" fontWeight="bold" fill="white" fontFamily="sans-serif">Ex</text>
-                        </svg>
-                      }
-                      onEdit={() => setEditModal({ type: 'exchange', accountId: account.id })}
-                      caps={account.enabledCapabilities ?? ['calendar', 'email']}
-                      color={account.color}
-                      onColorChange={(c) => updateExchangeColor(account.id, c)}
-                    >
-                      {cals.length > 0
-                        ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
-                        : <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>{t('config.noCalendarsLinked')}</div>
-                      }
-                    </GroupSection>
-                  )
+                  <GroupSection
+                    key={account.id}
+                    title={account.email}
+                    icon={
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <rect width="24" height="24" rx="4" fill="#0078d4" />
+                        <text x="12" y="17" textAnchor="middle" fontSize="13" fontWeight="bold" fill="white" fontFamily="sans-serif">Ex</text>
+                      </svg>
+                    }
+                    onEdit={() => setEditModal({ type: 'exchange', accountId: account.id })}
+                    caps={account.enabledCapabilities ?? ['calendar', 'email']}
+                    color={account.color}
+                    onColorChange={(c) => updateExchangeColor(account.id, c)}
+                  >
+                    {cals.length > 0
+                      ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
+                      : <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', padding: '2px 0' }}>{t('config.noCalendarsLinked')}</div>
+                    }
+                  </GroupSection>
+                )
                 )}
 
                 {/* IMAP */}
@@ -2172,7 +2259,7 @@ export default function ConfigPage() {
                     color={account.color}
                     onColorChange={(c) => updateImapColor(account.id, c)}
                   >
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>
+                    <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', padding: '2px 0' }}>
                       {account.imapServer}
                     </div>
                   </GroupSection>
@@ -2189,7 +2276,7 @@ export default function ConfigPage() {
                     color={account.color}
                     onColorChange={(c) => updateJmapColor(account.id, c)}
                   >
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>
+                    <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', padding: '2px 0' }}>
                       {account.sessionUrl}
                     </div>
                   </GroupSection>

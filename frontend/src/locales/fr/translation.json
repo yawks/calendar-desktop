@@ -365,6 +365,18 @@
       "system": "Système",
       "light": "Clair",
       "dark": "Sombre"
+    },
+    "fontSize": {
+      "sectionTitle": "Taille de la police",
+      "small": "Petite",
+      "medium": "Moyenne",
+      "large": "Grande"
+    },
+    "layout": {
+      "sectionTitle": "Interface",
+      "tabbed": "Onglets",
+      "windows": "Fenêtres séparées",
+      "hint": "Redémarrez l'application pour appliquer le mode Fenêtres séparées."
     }
   }
 }

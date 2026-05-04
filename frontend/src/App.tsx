@@ -3,6 +3,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
+import { FontSizeProvider } from './shared/store/FontSizeStore';
 
 import AppTabs from './shared/components/AppTabs';
 import WindowSwitcher from './shared/components/WindowSwitcher';
@@ -58,7 +59,8 @@ export default function App() {
     >
       <ThemeProvider>
         <LanguageProvider>
-          <LayoutProvider>
+          <FontSizeProvider>
+            <LayoutProvider>
             <GoogleAuthProvider>
               <ExchangeAuthProvider>
                 <JmapAuthProvider>
@@ -81,6 +83,7 @@ export default function App() {
               </ExchangeAuthProvider>
             </GoogleAuthProvider>
           </LayoutProvider>
+          </FontSizeProvider>
         </LanguageProvider>
       </ThemeProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}

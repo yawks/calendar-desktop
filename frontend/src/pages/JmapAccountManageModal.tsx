@@ -68,8 +68,8 @@ export function JmapAccountManageModal({ account, onClose }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Mail size={24} />
             <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{account.displayName}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{account.email}</div>
+              <div style={{ fontWeight: 600, fontSize: 'calc(15px * var(--font-scale, 1))' }}>{account.displayName}</div>
+              <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>{account.email}</div>
             </div>
           </div>
           <button type="button" className="nc-modal-close" onClick={onClose}><X size={20} /></button>
@@ -78,7 +78,7 @@ export function JmapAccountManageModal({ account, onClose }: {
           <form onSubmit={handleSave} className="config-form">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
                     <label>{t('config.email', 'Email')}</label>
                     <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -89,7 +89,7 @@ export function JmapAccountManageModal({ account, onClose }: {
                   </div>
                 </div>
                 <div>
-                  <h3 style={{ fontSize: 14, marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.accountColor', 'Color')}</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <ColorSwatches colors={DEFAULT_COLORS} selected={color} onSelect={setColor} />
                     <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
@@ -98,7 +98,7 @@ export function JmapAccountManageModal({ account, onClose }: {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <h3 style={{ fontSize: 14, marginBottom: 12 }}>JMAP Configuration</h3>
+                <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>JMAP Configuration</h3>
                 <div className="form-row">
                   <label>Session URL</label>
                   <input type="text" value={sessionUrl} onChange={(e) => setSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
@@ -121,7 +121,7 @@ export function JmapAccountManageModal({ account, onClose }: {
                   type="button"
                   className="btn-remove"
                   onClick={() => { removeAccount(account.id); onClose(); }}
-                  style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+                  style={{ fontSize: 'calc(13px * var(--font-scale, 1))', display: 'flex', alignItems: 'center', gap: 6 }}
                 >
                   <Trash2 size={14} /> {t('config.disconnectAccount')}
                 </button>

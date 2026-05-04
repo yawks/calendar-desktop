@@ -161,13 +161,13 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
       </div>
 
       {/* Summary */}
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+      <div style={{ fontSize: 'calc(11px * var(--font-scale, 1))', color: 'var(--text-muted)', marginBottom: 8 }}>
         {eventCount} événement{eventCount !== 1 ? 's' : ''}
         {hasData && <> · {formatDuration(totalMs)} au total</>}
       </div>
 
       {!hasData ? (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+        <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', fontStyle: 'italic' }}>
           Aucun événement
         </div>
       ) : (
@@ -221,7 +221,7 @@ function StatRow({ color, label, durationMs, totalMs, muted }: StatRowProps) {
         />
         <span
           style={{
-            fontSize: 12,
+            fontSize: 'calc(12px * var(--font-scale, 1))',
             flex: 1,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -231,7 +231,7 @@ function StatRow({ color, label, durationMs, totalMs, muted }: StatRowProps) {
         >
           {label}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+        <span style={{ fontSize: 'calc(11px * var(--font-scale, 1))', color: 'var(--text-muted)', flexShrink: 0 }}>
           {formatDuration(durationMs)} <span style={{ opacity: 0.6 }}>({pct}%)</span>
         </span>
       </div>
