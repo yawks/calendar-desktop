@@ -1,7 +1,42 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
-import type { MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
+import type { ComposerAttachment, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
+
+/**
+ * Extracts base64 data-URI images from HTML, replaces them with cid: references,
+ * and returns them as inline ComposerAttachments so EWS can send them properly.
+ */
+function extractInlineImages(html: string): { html: string; inlineImages: ComposerAttachment[] } {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const inlineImages: ComposerAttachment[] = [];
+  let counter = 0;
+
+  for (const img of doc.querySelectorAll('img[src^="data:image/"]')) {
+    const src = img.getAttribute('src') ?? '';
+    const match = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/s.exec(src);
+    if (!match) continue;
+
+    const mimeType = match[1];
+    const base64Data = match[2];
+    const ext = mimeType.split('/')[1]?.split('+')[0] ?? 'png';
+    const contentId = `inline-image-${++counter}`;
+
+    inlineImages.push({
+      name: `image${counter}.${ext}`,
+      contentType: mimeType,
+      size: base64Data.length,
+      data: base64Data,
+      isInline: true,
+      contentId,
+    });
+
+    img.setAttribute('src', `cid:${contentId}`);
+  }
+
+  return { html: doc.body.innerHTML, inlineImages };
+}
 
 /**
  * EWS (Exchange Web Services) implementation of MailProvider.
@@ -50,11 +85,13 @@ export class EwsMailProvider implements MailProvider {
 
   async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, isForward, attachments }: SendMailParams): Promise<void> {
     const accessToken = await this.token();
+    const { html: processedHtml, inlineImages } = extractInlineImages(bodyHtml);
     return invoke('mail_send', {
-      accessToken, to, cc: cc ?? [], bcc: bcc ?? [], subject, bodyHtml,
+      accessToken, to, cc: cc ?? [], bcc: bcc ?? [], subject,
+      bodyHtml: processedHtml,
       replyToItemId, replyToChangeKey,
       isForward: isForward ?? false,
-      attachments: attachments ?? [],
+      attachments: [...inlineImages, ...(attachments ?? [])],
     });
   }
 

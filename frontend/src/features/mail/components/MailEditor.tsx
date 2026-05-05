@@ -1,6 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useEditor, EditorContent, Editor } from '@tiptap/react';
+import { useEditor, EditorContent, Editor, ReactNodeViewRenderer, NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import { TextStyle } from '@tiptap/extension-text-style';
@@ -14,6 +14,77 @@ import {
   Bold as BoldIcon, Highlighter, ImagePlus, Italic as ItalicIcon,
   List, ListOrdered, Quote, Type, Underline as UnderlineIcon,
 } from 'lucide-react';
+
+// ── Resizable image node view ──────────────────────────────────────────────────
+
+function ResizableImageView({ node, updateAttributes, selected }: Readonly<NodeViewProps>) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startXRef.current = e.clientX;
+    startWidthRef.current = imgRef.current?.offsetWidth ?? 200;
+
+    const onMouseMove = (mv: MouseEvent) => {
+      const newWidth = Math.max(50, startWidthRef.current + (mv.clientX - startXRef.current));
+      updateAttributes({ width: newWidth });
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [updateAttributes]);
+
+  return (
+    <NodeViewWrapper as="span" style={{ display: 'inline-block', position: 'relative', lineHeight: 0 }}>
+      <img
+        ref={imgRef}
+        src={node.attrs.src}
+        alt={node.attrs.alt ?? ''}
+        title={node.attrs.title ?? undefined}
+        style={{
+          display: 'block',
+          width: node.attrs.width ? `${node.attrs.width}px` : undefined,
+          maxWidth: '100%',
+          height: 'auto',
+        }}
+      />
+      {selected && (
+        <button
+          type="button"
+          aria-label="Resize image"
+          className="mail-editor__image-resize-handle"
+          onMouseDown={handleMouseDown}
+        />
+      )}
+    </NodeViewWrapper>
+  );
+}
+
+const ResizableImage = TiptapImage.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: el => {
+          const w = el.getAttribute('width') ?? el.style.width;
+          return w ? Number.parseInt(w, 10) : null;
+        },
+        renderHTML: attrs =>
+          attrs.width ? { width: String(attrs.width), style: `width:${attrs.width}px` } : {},
+      },
+    };
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ResizableImageView);
+  },
+});
 
 // ── Custom extensions ──────────────────────────────────────────────────────────
 
@@ -288,7 +359,7 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
         Color,
         Highlight.configure({ multicolor: true }),
         FontFamily,
-        TiptapImage.configure({ inline: true, allowBase64: true }),
+        ResizableImage.configure({ inline: true, allowBase64: true }),
         Placeholder.configure({ placeholder: placeholder ?? '' }),
         QuotedBlock,
       ],

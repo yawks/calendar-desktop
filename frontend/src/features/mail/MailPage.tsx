@@ -8,22 +8,24 @@ import {
   Settings,
   X,
 } from 'lucide-react';
-import { useRef, useState, useEffect } from "react";
-import { ThreadList } from "./components/ThreadList";
-import { ThreadDetail } from "./components/ThreadDetail";
+import { MailMessage, MailThread } from './types';
+import { useEffect, useRef, useState } from "react";
+
+import { ALL_ACCOUNTS_ID } from './utils';
+import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
+import { ComposerAttachment } from './providers/MailProvider';
+import { Link } from 'react-router-dom';
+import { MailComposerHandle } from './components/MailComposer';
+import { MailSearchBar } from './components/MailSearchBar';
+import { MailSidebar } from './components/MailSidebar';
 import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
 import { NewMessageComposer } from "./components/NewMessageComposer";
-import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
-import { useMailPageLogic } from './hooks/useMailPageLogic';
-import { MailSearchBar } from './components/MailSearchBar';
-import { Link } from 'react-router-dom';
-import { MailSidebar } from './components/MailSidebar';
+import { ThreadDetail } from "./components/ThreadDetail";
+import { ThreadList } from "./components/ThreadList";
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { ALL_ACCOUNTS_ID } from './utils';
-import { MailThread, MailMessage } from './types';
-import { ComposerAttachment } from './providers/MailProvider';
-import { MailComposerHandle } from './components/MailComposer';
+import { useDockBadge } from './hooks/useDockBadge';
+import { useMailPageLogic } from './hooks/useMailPageLogic';
 
 export default function MailApp() {
   const {
@@ -47,6 +49,8 @@ export default function MailApp() {
     accountIdentities, loadMoreThreads, hasMoreThreads,
     draftConversationIds, dismissDraftForConversation,
   } = useMailPageLogic();
+
+  useDockBadge(folderUnreadCounts);
 
   const threadListRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<MailComposerHandle>(null);

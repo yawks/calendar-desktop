@@ -1,14 +1,23 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { MailThread, MailMessage, MailAttachment, MailIdentity, ComposerRestoreData } from '../types';
 import {
-  AlarmClock, Archive, Clock, FolderInput, Forward, MoreHorizontal, ShieldAlert, Trash2
+  AlarmClock,
+  Archive,
+  Clock,
+  FolderInput,
+  Forward,
+  MoreHorizontal,
+  ShieldAlert,
+  Trash2
 } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-import { ComposerAttachment } from '../providers/MailProvider';
-import { MessageBlock } from './MessageBlock';
-import { CollapsedMessagesBar } from './CollapsedMessagesBar';
+import { ComposerRestoreData, MailAttachment, MailIdentity, MailMessage, MailThread } from '../types';
 import { MailComposer, MailComposerHandle } from './MailComposer';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+
+import { CollapsedMessagesBar } from './CollapsedMessagesBar';
+import { ComposerAttachment } from '../providers/MailProvider';
 import { FolderPickerPopover } from './FolderPickerPopover';
+import { MessageBlock } from './MessageBlock';
+import { decodeHtmlEntities } from '../utils';
+import { useTranslation } from 'react-i18next';
 
 export interface ThreadDetailProps {
   readonly thread: MailThread;
@@ -296,7 +305,7 @@ export function ThreadDetail({
       </div>
 
       <div className="mail-thread-detail__header">
-        <h2 className="mail-thread-detail__subject">{thread.topic || t('mail.noSubject', "(Pas d'objet)")}</h2>
+        <h2 className="mail-thread-detail__subject">{decodeHtmlEntities(thread.topic) || t('mail.noSubject', "(Pas d'objet)")}</h2>
       </div>
 
       {isSnoozed && (

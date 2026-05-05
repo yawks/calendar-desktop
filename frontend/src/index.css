@@ -1532,6 +1532,18 @@ body {
   outline-offset: 2px;
   border-radius: 4px;
 }
+/* Images: responsive by default, custom width via style attr when resized */
+.mail-editor__content .ProseMirror img {
+  max-width: 100%; height: auto; display: block;
+}
+/* Resize handle shown when the image node is selected */
+.mail-editor__image-resize-handle {
+  position: absolute; right: 0; bottom: 0;
+  width: 10px; height: 10px;
+  background: var(--primary);
+  border: none; padding: 0; border-radius: 2px 0 0 0;
+  cursor: nwse-resize;
+}
 
 /* ── Composer attachment panel ──────────────────── */
 .mail-composer-attachments {

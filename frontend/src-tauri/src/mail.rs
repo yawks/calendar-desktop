@@ -96,6 +96,10 @@ pub struct ComposerAttachment {
     pub name: String,
     pub content_type: String,
     pub data: String, // base64
+    /// True for images embedded inline in the HTML body (referenced via CID).
+    pub is_inline: Option<bool>,
+    /// Content-ID for inline images (without angle brackets).
+    pub content_id: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -905,15 +909,25 @@ pub async fn mail_send(
 
     // ── Step 2: CreateAttachment for each file ────────────────────────────────
     for att in &atts {
+        let is_inline = att.is_inline.unwrap_or(false);
+        let cid_block = if is_inline {
+            att.content_id
+                .as_deref()
+                .map(|cid| format!("\n    <t:ContentId>{cid}</t:ContentId>", cid = xml_escape(cid)))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         let att_block = format!(
             r#"<t:FileAttachment>
     <t:Name>{name}</t:Name>
     <t:ContentType>{ct}</t:ContentType>
-    <t:IsInline>false</t:IsInline>
+    <t:IsInline>{inline}</t:IsInline>{cid_block}
     <t:Content>{data}</t:Content>
   </t:FileAttachment>"#,
             name = xml_escape(&att.name),
             ct = xml_escape(&att.content_type),
+            inline = is_inline,
             data = att.data,
         );
         let attach_body = format!(

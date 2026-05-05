@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { MailThread } from '../types';
 import { Archive, BellOff, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+import React, { useState } from 'react';
+import { avatarColor, decodeHtmlEntities, formatDate, initials, senderColor } from '../utils';
+
+import { MailThread } from '../types';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../../../shared/store/ThemeStore';
-import { avatarColor, formatDate, initials, senderColor, decodeHtmlEntities } from '../utils';
+import { useTranslation } from 'react-i18next';
 
 export interface ThreadItemProps {
   readonly thread: MailThread;
@@ -81,7 +82,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           </div>
         </div>
 
-        <div className="mail-thread-item__subject">{thread.topic || t('mail.noSubject', "(Pas d'objet)")}</div>
+        <div className="mail-thread-item__subject">{decodeHtmlEntities(thread.topic) || t('mail.noSubject', "(Pas d'objet)")}</div>
         <div className="mail-thread-item__snippet">
           {hasDraft && (
             <span className="mail-thread-item__draft-badge">{t('mail.draftBadge', 'Brouillon')}</span>

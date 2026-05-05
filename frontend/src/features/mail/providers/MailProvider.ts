@@ -15,6 +15,10 @@ export interface ComposerAttachment {
   size: number;
   /** Base64-encoded file content (no data URL prefix). */
   data: string;
+  /** True for images embedded inline in the HTML body (referenced via CID). */
+  isInline?: boolean;
+  /** Content-ID for inline images (without angle brackets), matches src="cid:…" in the HTML. */
+  contentId?: string;
 }
 
 export interface SendMailParams {
