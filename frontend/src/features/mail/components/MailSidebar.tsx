@@ -1,4 +1,4 @@
-import { ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, Trash2 } from 'lucide-react';
+import { ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
 import { Folder, MailFolder } from '../types';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -198,6 +198,7 @@ export function MailSidebar({
     { id: 'sentitems', label: t('mail.sent', 'Sent'), Icon: Send },
     { id: 'deleteditems', label: t('mail.trash', 'Trash'), Icon: Trash2 },
     { id: 'snoozed', label: t('mail.snoozed', 'Snoozed'), Icon: Clock },
+    { id: 'spam', label: t('mail.spam', 'Spam'), Icon: ShieldAlert },
   ];
 
   return (

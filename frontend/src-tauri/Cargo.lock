@@ -336,36 +336,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "calendar"
-version = "0.1.0"
-dependencies = [
- "async-imap",
- "base64 0.22.1",
- "block2",
- "chrono",
- "futures",
- "jmap-client",
- "lettre",
- "mailparse",
- "objc2",
- "objc2-app-kit",
- "objc2-event-kit",
- "objc2-foundation",
- "reqwest 0.12.28",
- "rustls 0.23.37",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tokio",
- "tokio-rustls 0.26.4",
- "urlencoding",
- "webbrowser",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
 name = "camino"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -574,6 +544,36 @@ dependencies = [
  "bitflags 2.11.0",
  "core-foundation 0.10.1",
  "libc",
+]
+
+[[package]]
+name = "courrier"
+version = "0.1.0"
+dependencies = [
+ "async-imap",
+ "base64 0.22.1",
+ "block2",
+ "chrono",
+ "futures",
+ "jmap-client",
+ "lettre",
+ "mailparse",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-event-kit",
+ "objc2-foundation",
+ "reqwest 0.12.28",
+ "rustls 0.23.37",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tokio",
+ "tokio-rustls 0.26.4",
+ "urlencoding",
+ "webbrowser",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]

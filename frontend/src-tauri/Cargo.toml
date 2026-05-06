@@ -1,7 +1,7 @@
 [package]
-name = "calendar"
+name = "courrier"
 version = "0.1.0"
-description = "Calendar Desktop App"
+description = "Email and calendar client app"
 authors = []
 edition = "2021"
 

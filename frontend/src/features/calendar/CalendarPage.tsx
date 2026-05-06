@@ -1,10 +1,12 @@
 import '@toast-ui/calendar/dist/toastui-calendar.min.css';
 
 import { CalendarEvent } from '../../shared/types';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import AppHeader from './components/AppHeader';
 import Calendar from '@toast-ui/react-calendar';
+import SearchModal from './components/SearchModal';
+import SearchResultsView from './components/SearchResultsView';
 import CreateEventModal from './components/CreateEventModal';
 import EventModal from './components/EventModal';
 import Sidebar from './components/Sidebar';
@@ -12,6 +14,20 @@ import { useCalendarLogic } from './hooks/useCalendarLogic';
 import { formatDateLabel, DARK_THEME, LIGHT_THEME, toTUIEvents, getViewRange, formatTime } from './utils/calendarUtils';
 
 export default function CalendarPage() {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    globalThis.addEventListener('keydown', handleKeyDown);
+    return () => globalThis.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const {
     calendarRef,
     view,
@@ -75,6 +91,28 @@ export default function CalendarPage() {
       borderColor: c.color,
     })), [calendars]);
 
+  useEffect(() => {
+    if (view === 'month' || searchQuery !== null) return;
+    const timer = setTimeout(() => {
+      const scrollPanel = document.querySelector('.toastui-calendar-panel.toastui-calendar-time') as HTMLElement | null;
+      if (!scrollPanel) return;
+      const range = getViewRange(currentDate, view);
+      const timedEvents = events.filter(ev =>
+        !ev.isAllday &&
+        new Date(ev.start) >= range.start &&
+        new Date(ev.start) <= range.end
+      );
+      if (timedEvents.length === 0) return;
+      const earliest = timedEvents.reduce((min, ev) =>
+        new Date(ev.start) < new Date(min.start) ? ev : min
+      , timedEvents[0]);
+      const d = new Date(earliest.start);
+      const targetMinutes = Math.max(0, d.getHours() * 60 + d.getMinutes() - 60);
+      scrollPanel.scrollTop = (targetMinutes / (24 * 60)) * scrollPanel.scrollHeight;
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [events, view, currentDate, searchQuery]);
+
   const isWorkweek = view === 'workweek';
   const tuiView = isWorkweek ? 'week' : view;
   const writableCalendars = useMemo(() => calendars.filter(
@@ -93,7 +131,7 @@ export default function CalendarPage() {
         dateLabel={formatDateLabel(currentDate, view)}
         loading={loading}
         onToggleSidebar={handleCollapseToggle}
-        onSearch={() => {}}
+        onSearch={() => setSearchOpen(true)}
       />
 
       <div className="app-body">
@@ -131,7 +169,7 @@ export default function CalendarPage() {
         )}
 
         <div className="calendar-container">
-          <Calendar
+          {searchQuery === null ? <Calendar
             ref={calendarRef as any}
             height="100%"
             view={tuiView}
@@ -181,7 +219,15 @@ export default function CalendarPage() {
               eventView: ['allday', 'time'],
             }}
             month={{ startDayOfWeek: 1 }}
-          />
+          /> : (
+            <SearchResultsView
+              query={searchQuery}
+              events={events}
+              calendars={calendars}
+              onClose={() => setSearchQuery(null)}
+              onEventClick={(ev) => { setSearchQuery(null); setSelectedEvent(ev); }}
+            />
+          )}
         </div>
       </div>
 
@@ -224,6 +270,14 @@ export default function CalendarPage() {
           getExchangeRefreshToken={getExchangeRefreshToken}
         />
       )}
+
+      <SearchModal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        events={events}
+        calendars={calendars}
+        onSearch={(q) => { setSearchQuery(q); setSearchOpen(false); }}
+      />
 
       {editEvent && writableCalendars.length > 0 && (
         <CreateEventModal

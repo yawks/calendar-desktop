@@ -170,6 +170,10 @@ pub struct MailAttachment {
 /// List the subfolders of the Inbox (shallow traversal).
 #[command]
 pub async fn mail_list_folders(access_token: String) -> Result<Vec<MailFolder>, String> {
+    // Resolve the real EWS FolderId for the junkemail distinguished folder so we
+    // can normalise it to the stable "spam" key regardless of display language.
+    let junkemail_id = get_distinguished_folder_id(&access_token, "junkemail").await;
+
     let soap_body = r#"<m:FindFolder Traversal="Shallow">
   <m:FolderShape>
     <t:BaseShape>AllProperties</t:BaseShape>
@@ -212,13 +216,42 @@ pub async fn mail_list_folders(access_token: String) -> Result<Vec<MailFolder>, 
             .and_then(|v| v.parse().ok())
             .unwrap_or(0u32);
 
-        // Normalise the custom "Snoozed" folder to a stable key so the TypeScript
-        // sidebar filter and navigation work without knowing the real EWS FolderId.
-        let folder_id = if display_name == "Snoozed" { "snoozed".to_string() } else { folder_id };
+        // Normalise well-known folders to stable keys so TypeScript sidebar
+        // filter and navigation work without knowing the real EWS FolderId.
+        let folder_id = if display_name == "Snoozed" {
+            "snoozed".to_string()
+        } else if junkemail_id.as_deref() == Some(folder_id.as_str()) {
+            "spam".to_string()
+        } else {
+            folder_id
+        };
         folders.push(MailFolder { folder_id, display_name, total_count, unread_count });
     }
 
     Ok(folders)
+}
+
+/// Returns the real EWS FolderId for a distinguished folder (e.g. "junkemail").
+async fn get_distinguished_folder_id(access_token: &str, distinguished_id: &str) -> Option<String> {
+    let soap_body = format!(
+        r#"<m:GetFolder>
+  <m:FolderShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+  </m:FolderShape>
+  <m:FolderIds>
+    <t:DistinguishedFolderId Id="{distinguished_id}"/>
+  </m:FolderIds>
+</m:GetFolder>"#
+    );
+    let xml = send(access_token, &soap_body).await.ok()?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return None;
+    }
+    let id_elem = xml
+        .find("<t:FolderId ")
+        .or_else(|| xml.find("<FolderId "))
+        .and_then(|s| xml[s..].find("/>").map(|e| &xml[s..s + e]))?;
+    xml_attr(id_elem, "Id").map(|s| s.to_string())
 }
 
 /// List conversation threads in a folder.
@@ -308,6 +341,7 @@ pub async fn mail_list_threads(
         "inbox" | "sentitems" | "deleteditems" => {
             format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder)
         }
+        "spam" => format!(r#"<t:DistinguishedFolderId Id="junkemail"/>"#),
         "snoozed" => {
             let real_id = mail_find_or_create_snoozed_folder(access_token.clone()).await?;
             format!(r#"<t:FolderId Id="{}"/>"#, real_id)
@@ -1206,6 +1240,7 @@ pub async fn mail_bulk_move_to_folder(
         "inbox" | "sentitems" | "deleteditems" | "drafts" => {
             format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder_id)
         }
+        "spam" => format!(r#"<t:DistinguishedFolderId Id="junkemail"/>"#),
         id => format!(r#"<t:FolderId Id="{}"/>"#, id),
     };
     let soap_body = format!(
@@ -1876,6 +1911,7 @@ pub async fn mail_move_to_folder(
         "inbox" | "sentitems" | "deleteditems" | "drafts" => {
             format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder_id)
         }
+        "spam" => format!(r#"<t:DistinguishedFolderId Id="junkemail"/>"#),
         id => format!(r#"<t:FolderId Id="{}"/>"#, id),
     };
 

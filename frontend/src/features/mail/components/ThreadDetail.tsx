@@ -52,6 +52,8 @@ export interface ThreadDetailProps {
   readonly onUnsnooze: () => void;
   readonly moveFolders: import('../types').MailFolder[];
   readonly onMove: (folderId: string) => void;
+  readonly isInSpamFolder?: boolean;
+  readonly onMarkAsSpam?: () => void;
   readonly composerRef?: React.RefObject<MailComposerHandle>;
 }
 
@@ -119,7 +121,7 @@ export function ThreadDetail({
   replyMode, onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
   supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, onUnsnooze,
-  moveFolders, onMove, composerRef,
+  moveFolders, onMove, isInSpamFolder, onMarkAsSpam, composerRef,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -173,6 +175,27 @@ export function ThreadDetail({
           <Trash2 size={15} />
           <span>{t('mail.delete', 'Delete')}</span>
         </button>
+
+        {/* Spam / Not spam */}
+        {isInSpamFolder ? (
+          <button
+            className="mail-detail-action-btn"
+            onClick={() => onMove('inbox')}
+            title={t('mail.notSpam', 'Not spam')}
+          >
+            <ShieldAlert size={15} />
+            <span>{t('mail.notSpam', 'Not spam')}</span>
+          </button>
+        ) : (
+          <button
+            className="mail-detail-action-btn"
+            onClick={onMarkAsSpam}
+            title={t('mail.reportSpam', 'Report spam')}
+          >
+            <ShieldAlert size={15} />
+            <span>{t('mail.reportSpam', 'Report spam')}</span>
+          </button>
+        )}
 
         {/* Snooze */}
         <div className="mail-actions-dropdown">
@@ -292,11 +315,6 @@ export function ThreadDetail({
                 <button className="mail-actions-menu__item" onClick={() => { if (lastMsg) onForward(lastMsg); setMoreOpen(false); }}>
                   <Forward size={13} />
                   {t('mail.forward', 'Forward')}
-                </button>
-                <div className="mail-actions-menu__separator" />
-                <button className="mail-actions-menu__item mail-actions-menu__item--danger" onClick={() => setMoreOpen(false)}>
-                  <ShieldAlert size={13} />
-                  {t('mail.reportSpam', 'Report spam')}
                 </button>
               </div>
             </>

@@ -34,7 +34,7 @@ export default function MailApp() {
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
     contacts, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
-    sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
+    sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, sidebarDynamicFolders, attachmentPreview,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
@@ -128,7 +128,7 @@ export default function MailApp() {
           <p style={{ opacity: 0.5 }}>
             {t('mail.noAccount', 'No mail account configured. Add an Exchange or Google account in Settings.')}
           </p>
-          <Link to="/config" className="btn-primary">{t('header.calendarsBtn')}</Link>
+          <Link to="/config" className="btn-primary">{t('header.configureBtn')}</Link>
         </div>
       ) : (
         <div className="mail-body">
@@ -413,6 +413,8 @@ export default function MailApp() {
                 snoozeUntil={snoozedMap[selectedThread.conversation_id]}
                 isInSnoozedFolder={isInSnoozedFolder}
                 onUnsnooze={handleUnsnooze}
+                isInSpamFolder={isInSpamFolder}
+                onMarkAsSpam={() => handleMove('spam')}
                 moveFolders={
                   isAllMode
                     ? (allAccountFolders.get(selectedThread.accountId ?? '') ?? [])

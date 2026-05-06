@@ -11,7 +11,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 TAURI_DIR="$FRONTEND_DIR/src-tauri"
-DMG_NAME="${DMG_NAME:-Calendar}"
+DMG_NAME="${DMG_NAME:-Courrier}"
 DMG_OUTPUT="${DMG_OUTPUT:-$HOME/Desktop/${DMG_NAME}.dmg}"
 
 show_help() {
@@ -19,8 +19,8 @@ show_help() {
 Usage: $0 [--dmg-name NAME] [--output PATH] [--help]
 
 Options:
-  --dmg-name NAME   App name for DMG (default: Calendar).
-  --output PATH     Output path for the DMG (default: ~/Desktop/Calendar.dmg).
+  --dmg-name NAME   App name for DMG (default: Courrier).
+  --output PATH     Output path for the DMG (default: ~/Desktop/Courrier.dmg).
   --help            Show this help.
 
 Examples:

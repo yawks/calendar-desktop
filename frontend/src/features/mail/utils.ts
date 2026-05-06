@@ -128,6 +128,8 @@ export const DISPLAY_TO_STATIC: Record<string, string> = {
   'drafts': 'drafts',
   'brouillons': 'drafts',
   'spam': 'spam',
+  'junk': 'spam',
+  'junk e-mail': 'spam',
   'indésirables': 'spam',
   'snoozed': 'snoozed',
 };

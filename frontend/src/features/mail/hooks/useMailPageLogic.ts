@@ -13,7 +13,7 @@ import { GmailMailProvider } from '../providers/GmailMailProvider';
 import { ImapMailProvider } from '../providers/ImapMailProvider';
 import { JmapMailProvider } from '../providers/JmapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery } from '../types';
-import { ALL_ACCOUNTS_ID, THEME_CYCLE, buildUnreadCounts } from '../utils';
+import { ALL_ACCOUNTS_ID, DISPLAY_TO_STATIC, THEME_CYCLE, buildUnreadCounts } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
 import { useQueryClient } from '@tanstack/react-query';
 import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useMailIdentities } from './useMailQueries';
@@ -206,7 +206,10 @@ export function useMailPageLogic() {
     if (isAllMode) return allModeDynamicFolders;
     const info = allAccountInfo.find(a => a.id === selectedAccountId);
     return (folderQuery.data ?? [])
-      .filter(f => !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed'].includes(f.folder_id))
+      .filter(f => {
+        const normalized = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
+        return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed', 'spam'].includes(normalized);
+      })
       .map(f => ({ ...f, accountId: selectedAccountId, accountColor: info?.color, accountLabel: info?.label }));
   }, [isAllMode, allModeDynamicFolders, folderQuery.data, selectedAccountId, allAccountInfo]);
 
@@ -342,6 +345,7 @@ export function useMailPageLogic() {
   } | null>(null);
 
   const isInSnoozedFolder = selectedFolder === 'snoozed';
+  const isInSpamFolder = selectedFolder === 'spam';
 
   const resolveProvider = useCallback((accountId: string | undefined): MailProvider | null => {
     if (accountId) return allProviders.get(accountId) ?? null;
@@ -902,7 +906,7 @@ export function useMailPageLogic() {
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
     contacts, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
-    sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, allFolders,
+    sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, sidebarDynamicFolders, attachmentPreview,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, reloadThreads, loadMoreThreads,

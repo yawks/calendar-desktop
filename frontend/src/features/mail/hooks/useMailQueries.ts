@@ -1,7 +1,7 @@
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { MailProvider } from '../providers/MailProvider';
 import { Folder, MailSearchQuery, MailThread, MailMessage, MailFolder, MailIdentity } from '../types';
-import { buildUnreadCounts } from '../utils';
+import { buildUnreadCounts, DISPLAY_TO_STATIC } from '../utils';
 import { useMemo, useCallback } from 'react';
 
 export const MAIL_KEYS = {
@@ -98,7 +98,10 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
       const folders = results[idx]?.data ?? [];
       const color = colorMap.get(acc.id);
       return folders
-        .filter(f => !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed'].includes(f.folder_id))
+        .filter(f => {
+          const normalized = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
+          return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed', 'spam'].includes(normalized);
+        })
         .map(f => ({ ...f, accountId: acc.id, accountColor: color }));
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps

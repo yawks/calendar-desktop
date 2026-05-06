@@ -229,10 +229,11 @@ async fn get_folder_ids(
     for m in mailboxes.list() {
         let Some(id) = m.id() else { continue };
         match m.role() {
-            Role::Inbox  => { folders.insert("inbox".to_string(),       id.to_string()); }
-            Role::Sent   => { folders.insert("sentitems".to_string(),   id.to_string()); }
+            Role::Inbox  => { folders.insert("inbox".to_string(),        id.to_string()); }
+            Role::Sent   => { folders.insert("sentitems".to_string(),    id.to_string()); }
             Role::Trash  => { folders.insert("deleteditems".to_string(), id.to_string()); }
-            Role::Drafts => { folders.insert("drafts".to_string(),      id.to_string()); }
+            Role::Drafts => { folders.insert("drafts".to_string(),       id.to_string()); }
+            Role::Junk   => { folders.insert("spam".to_string(),         id.to_string()); }
             _ => {}
         }
         if let Some(name) = m.name() {
@@ -282,8 +283,15 @@ pub async fn jmap_list_folders(
 
     let mut folders = Vec::new();
     for mailbox in mailboxes.list() {
+        let raw_id = mailbox.id().unwrap_or_default().to_string();
+        // Normalise well-known roles to stable keys so TypeScript sidebar
+        // filter and unread counts work without knowing the real JMAP mailbox ID.
+        let folder_id = match mailbox.role() {
+            Role::Junk => "spam".to_string(),
+            _ => raw_id,
+        };
         folders.push(JmapFolder {
-            folder_id: mailbox.id().unwrap_or_default().to_string(),
+            folder_id,
             display_name: mailbox.name().unwrap_or_default().to_string(),
             total_count: mailbox.total_emails() as u32,
             unread_count: mailbox.unread_emails() as u32,
@@ -323,7 +331,7 @@ pub async fn jmap_list_threads(
     let email_limit = count * 4;
 
     let mailbox_id = match folder.as_str() {
-        "inbox" | "sentitems" | "deleteditems" | "drafts" => {
+        "inbox" | "sentitems" | "deleteditems" | "drafts" | "spam" => {
             let ids = get_folder_ids(&state, &client, &config).await?;
             ids.get(&folder).cloned().unwrap_or(folder.clone())
         }
