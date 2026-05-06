@@ -53,6 +53,7 @@ pub struct EwsEvent {
     pub is_meeting: bool,
     /// RecurringMasterId — shared by all occurrences of the same recurring series.
     pub recurring_master_id: Option<String>,
+    pub body: Option<String>,
 }
 
 // ── Auth commands ──────────────────────────────────────────────────────────────
@@ -403,6 +404,7 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
             attendees,
             is_meeting,
             recurring_master_id,
+            body: None,
         });
     }
 
@@ -419,6 +421,7 @@ struct GetItemDetail {
     /// CleanGlobalObjectId (MAPI prop 0x0023 in PSETID_Meeting) — identical for all
     /// occurrences of the same recurring series.
     clean_global_object_id: Option<String>,
+    body: Option<String>,
 }
 
 fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
@@ -466,8 +469,20 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
             // Fallback: for recurring exceptions, RecurringMasterId is a stable series identifier.
             .or_else(|| xml_content(&item_xml, "t:RecurringMasterId").filter(|s| !s.is_empty()));
 
-        results.push(GetItemDetail { item_id, organizer_name, organizer_email, attendees, clean_global_object_id });
+        let body = xml_content(&item_xml, "t:Body")
+            .filter(|s| !s.is_empty())
+            .map(|s| xml_decode(&s));
+
+        results.push(GetItemDetail { item_id, organizer_name, organizer_email, attendees, clean_global_object_id, body });
     }
 
     results
+}
+
+fn xml_decode(s: &str) -> String {
+    s.replace("&lt;", "<")
+     .replace("&gt;", ">")
+     .replace("&amp;", "&")
+     .replace("&quot;", "\"")
+     .replace("&apos;", "'")
 }

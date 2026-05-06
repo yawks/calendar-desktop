@@ -24,6 +24,7 @@ interface EwsEventRaw {
   attendees: Array<{ name?: string; email: string; response_type: string; }>;
   is_meeting: boolean;
   recurring_master_id?: string;
+  body?: string;
 }
 
 function ewsResponseToRsvp(ewsStatus: string): any {
@@ -76,6 +77,7 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
       isAllday: ev.is_all_day,
       category: ev.is_all_day ? 'allday' : 'time',
       location: ev.location,
+      description: ev.body || undefined,
       isDeclined: selfStatus === 'DECLINED',
       isUnaccepted: selfStatus !== 'ACCEPTED' && ev.is_meeting,
       selfRsvpStatus: ev.is_meeting ? selfStatus : undefined,

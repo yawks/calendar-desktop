@@ -335,6 +335,7 @@ export default function MailApp() {
                       replyingToMsg: null,
                       fromAccountId: draftAccountId,
                       fromIdentityId,
+                      draftItemId: draft.item_id,
                     }, attachments)
                   }
                   onCancel={() => setSelectedThread(null)}

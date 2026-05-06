@@ -61,6 +61,7 @@ pub async fn ews_get_calendar_events(
             for event in events.iter_mut() {
                 if let Some(detail) = detailed.iter().find(|d| d.item_id == event.item_id) {
                     event.recurring_master_id = detail.clean_global_object_id.clone();
+                    event.body = detail.body.clone();
                     if event.is_meeting {
                         event.attendees = detail.attendees.clone();
                         if event.organizer_email.is_none() {
