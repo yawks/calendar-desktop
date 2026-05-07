@@ -697,7 +697,11 @@ export function useMailPageLogic() {
       });
     }
 
-    const messagesKey = conversationId ? MAIL_KEYS.thread(accountId, conversationId) : null;
+    const isDraftFolder = selectedFolder === 'drafts';
+    const isTrashFolder = selectedFolder === 'deleteditems';
+    const messagesKey = conversationId
+      ? ([...MAIL_KEYS.thread(accountId, conversationId), isDraftFolder, isTrashFolder] as const)
+      : null;
     const realCountBefore = messagesKey
       ? (queryClient.getQueryData<MailMessage[]>(messagesKey)?.length ?? 0)
       : 0;
@@ -717,7 +721,7 @@ export function useMailPageLogic() {
     const doPoll = async (attempt: number): Promise<void> => {
       if (!conversationId || !messagesKey) return;
       try {
-        const fresh = await p.getThread(conversationId);
+        const fresh = await p.getThread(conversationId, isTrashFolder, isDraftFolder, !isDraftFolder);
         if (fresh.length > realCountBefore) {
           queryClient.setQueryData<MailMessage[]>(messagesKey, fresh);
           const bump = (old: MailThread[] | undefined) =>
@@ -795,7 +799,7 @@ export function useMailPageLogic() {
     setReplyingTo(null);
     setComposing(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allProviders, resolveProvider, selectedThread, selectedAccountId, allMailAccounts, mutations, t, queryClient]);
+  }, [allProviders, resolveProvider, selectedThread, selectedAccountId, allMailAccounts, mutations, t, queryClient, selectedFolder]);
 
   const cancelSend = useCallback(() => {
     if (actionToast?.onCancel) actionToast.onCancel();

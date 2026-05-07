@@ -33,11 +33,13 @@ export function useContactSuggestions(
   return useMemo(() => {
     const freq = new Map<string, { name?: string; count: number }>();
 
+    const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
     // 1. Calendar events — count occurrences for sorting by frequency
     const allCalEvents = [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents];
     for (const ev of allCalEvents) {
       for (const a of ev.attendees ?? []) {
-        if (!a.email) continue;
+        if (!a.email || !isValidEmail(a.email)) continue;
         const key = a.email.toLowerCase();
         const existing = freq.get(key);
         const name = a.name !== a.email ? a.name : undefined;
@@ -52,6 +54,7 @@ export function useContactSuggestions(
 
     // 2. Mail contacts — add those not already present, with count 0
     for (const c of mailContacts) {
+      if (!isValidEmail(c.email)) continue;
       const key = c.email.toLowerCase();
       if (!freq.has(key)) {
         freq.set(key, { name: c.name, count: 0 });
