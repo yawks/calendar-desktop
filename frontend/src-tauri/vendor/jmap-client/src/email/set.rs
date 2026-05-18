@@ -43,7 +43,7 @@ impl Email<Set> {
         self.mailbox_ids = None;
         self.patch
             .get_or_insert_with(AHashMap::new)
-            .insert(format!("mailboxIds/{}", mailbox_id), set);
+            .insert(format!("mailboxIds/{}", mailbox_id), if set { Some(true) } else { None });
         self
     }
 
@@ -60,7 +60,7 @@ impl Email<Set> {
         self.keywords = None;
         self.patch
             .get_or_insert_with(AHashMap::new)
-            .insert(format!("keywords/{}", keyword), set);
+            .insert(format!("keywords/{}", keyword), if set { Some(true) } else { None });
         self
     }
 

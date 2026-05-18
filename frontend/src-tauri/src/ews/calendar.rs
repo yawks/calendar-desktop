@@ -60,7 +60,13 @@ pub async fn ews_get_calendar_events(
             let detailed = parse_get_item_response(&details_xml);
             for event in events.iter_mut() {
                 if let Some(detail) = detailed.iter().find(|d| d.item_id == event.item_id) {
-                    event.recurring_master_id = detail.clean_global_object_id.clone();
+                    // Only use CleanGlobalObjectId as the series identifier when the event was
+                    // already identified as a recurring occurrence (RecurringMasterId present in
+                    // the FindItem response).  CleanGlobalObjectId exists for *every* Exchange
+                    // item, so blindly assigning it would mark all single events as recurring.
+                    if event.recurring_master_id.is_some() {
+                        event.recurring_master_id = detail.clean_global_object_id.clone();
+                    }
                     event.body = detail.body.clone();
                     if event.is_meeting {
                         event.attendees = detail.attendees.clone();
@@ -249,14 +255,20 @@ pub async fn ews_delete_event(
     access_token: String,
     item_id: String,
     change_key: String,
+    send_cancellations: bool,
 ) -> Result<(), String> {
+    let cancellation_mode = if send_cancellations {
+        "SendToAllAndSaveCopy"
+    } else {
+        "SendToNone"
+    };
     let soap_body = format!(
-        r#"<m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="SendToAllAndSaveCopy">
+        r#"<m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="{}">
   <m:ItemIds>
     <t:ItemId Id="{}" ChangeKey="{}"/>
   </m:ItemIds>
 </m:DeleteItem>"#,
-        item_id, change_key
+        cancellation_mode, item_id, change_key
     );
 
     let xml = send_ews_request(&access_token, &soap_body, None).await?;

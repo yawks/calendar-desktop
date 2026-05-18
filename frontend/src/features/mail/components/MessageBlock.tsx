@@ -19,6 +19,7 @@ export interface MessageBlockProps {
   readonly onPreviewAttachment: (att: MailAttachment) => void;
   readonly onDownloadAttachment: (att: MailAttachment) => void;
   readonly onGetAttachmentData: (att: MailAttachment) => Promise<string>;
+  readonly loadingAttachmentId?: string | null;
 }
 
 function findScrollParent(el: HTMLElement): HTMLElement | null {
@@ -34,7 +35,7 @@ function findScrollParent(el: HTMLElement): HTMLElement | null {
 export function MessageBlock({
   message, defaultExpanded = false, currentUserEmail, mailProviderType,
   onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
-  onPreviewAttachment, onDownloadAttachment, onGetAttachmentData,
+  onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
 }: MessageBlockProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const blockRef = useRef<HTMLDivElement>(null);
@@ -85,6 +86,7 @@ export function MessageBlock({
               attachments={message.attachments}
               onPreview={onPreviewAttachment}
               onDownload={onDownloadAttachment}
+              loadingAttachmentId={loadingAttachmentId}
             />
           )}
           {icsAttachments.map(att => (

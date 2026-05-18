@@ -354,6 +354,10 @@
       "hint": "Use from:, to:, cc:, bcc:, subject:, in:, date: to filter",
       "inInbox": "In Inbox",
       "today": "Today"
+    },
+    "attachment": {
+      "preview": "Preview",
+      "download": "Download"
     }
   },
   "settings": {
@@ -381,5 +385,12 @@
       "windows": "Separate Windows",
       "hint": "Restart the application to apply Separate Windows mode."
     }
+  },
+  "recurringChoice": {
+    "title": "Edit recurring event",
+    "description": "Does this change apply only to this event or to all events in the series?",
+    "thisEvent": "This event",
+    "allEvents": "All events in the series",
+    "cancel": "Cancel"
   }
 }

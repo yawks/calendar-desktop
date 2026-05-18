@@ -1,3 +1,4 @@
+import { ALL_ACCOUNTS_ID, buildUnreadCounts } from './utils';
 import {
   Download,
   Inbox,
@@ -11,7 +12,6 @@ import {
 import { MailMessage, MailThread } from './types';
 import { useEffect, useRef, useState } from "react";
 
-import { ALL_ACCOUNTS_ID } from './utils';
 import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
 import { ComposerAttachment } from './providers/MailProvider';
 import { Link } from 'react-router-dom';
@@ -35,7 +35,7 @@ export default function MailApp() {
     contacts, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
-    allAccountFolders, folderUnreadCounts, sidebarDynamicFolders, attachmentPreview,
+    allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
@@ -50,7 +50,7 @@ export default function MailApp() {
     draftConversationIds, dismissDraftForConversation,
   } = useMailPageLogic();
 
-  useDockBadge(folderUnreadCounts);
+  useDockBadge(allAccountsUnreadCounts);
 
   const threadListRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<MailComposerHandle>(null);
@@ -144,6 +144,11 @@ export default function MailApp() {
                 <span className="mail-account-tab__label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Layers size={13} />
                 </span>
+                {(allAccountsUnreadCounts['inbox'] ?? 0) > 0 && (
+                  <span className="mail-account-tab__badge">
+                    {Math.min(allAccountsUnreadCounts['inbox']!, 99)}
+                  </span>
+                )}
               </button>
               <div className="mail-account-tab__divider" />
               {allMailAccounts.map(acc => {
@@ -153,20 +158,29 @@ export default function MailApp() {
                   return domain.charAt(0).toUpperCase() + domain.slice(1);
                 })();
                 const isSelected = acc.id === selectedAccountId;
+                const accInboxUnread = buildUnreadCounts(allAccountFolders.get(acc.id) ?? [])['inbox'] ?? 0;
                 return (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    className={`mail-account-tab${isSelected ? ' mail-account-tab--active' : ''}`}
-                    onClick={() => setSelectedAccountId(acc.id)}
-                    title={acc.email}
-                  >
-                    <span
-                      className="mail-account-tab__stripe"
-                      style={{ background: acc.color ?? 'var(--primary)' }}
-                    />
-                    <span className="mail-account-tab__label">{label}</span>
-                  </button>
+                  <>
+                    <button
+                      key={acc.id}
+                      type="button"
+                      className={`mail-account-tab${isSelected ? ' mail-account-tab--active' : ''}`}
+                      onClick={() => setSelectedAccountId(acc.id)}
+                      title={acc.email}
+                      >
+                      <span
+                        className="mail-account-tab__stripe"
+                        style={{ background: acc.color ?? 'var(--primary)' }}
+                        />
+                      <span className="mail-account-tab__label">{label}</span>
+                      {accInboxUnread > 0 && (
+                        <span className="mail-account-tab__badge">
+                          {Math.min(accInboxUnread, 99)}
+                        </span>
+                      )}
+                    </button>
+                  <div className="mail-account-tab__divider" />
+                    </>
                 );
               })}
             </nav>
@@ -176,7 +190,10 @@ export default function MailApp() {
               <div style={{ width: sidebarWidth, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 <MailSidebar
                   selectedFolder={selectedFolder}
-                  onSelectFolder={setSelectedFolder}
+                  onSelectFolder={(folder) => {
+                    if (searchQuery) handleSearch(null);
+                    setSelectedFolder(folder);
+                  }}
                   onCompose={() => {
                     setComposing(true);
                     setSelectedThread(null);
@@ -296,11 +313,7 @@ export default function MailApp() {
                 <Inbox size={48} strokeWidth={1} style={{ opacity: 0.2 }} />
                 <p style={{ opacity: 0.4 }}>{t('mail.selectThread', 'Select a conversation')}</p>
               </div>
-            ) : messagesLoading ? (
-              <div className="mail-detail-empty">
-                <RefreshCw size={32} strokeWidth={1.5} className="spin" style={{ opacity: 0.4 }} />
-              </div>
-            ) : selectedFolder === 'drafts' && messages.length > 0 ? (() => {
+            ) : selectedFolder === 'drafts' && !messagesLoading && messages.length > 0 ? (() => {
               const draft = messages[messages.length - 1];
               const draftAccountId = selectedThread.accountId ?? (isAllMode ? composingAccountId : selectedAccountId);
               return (
@@ -355,6 +368,7 @@ export default function MailApp() {
               <ThreadDetail
                 thread={selectedThread}
                 messages={messages.filter(m => !m.is_draft)}
+                messagesLoading={messagesLoading}
                 replyingTo={replyingTo}
                 contacts={contacts}
                 currentUserEmail={
@@ -371,6 +385,7 @@ export default function MailApp() {
                 onTrash={moveToTrash}
                 onPreviewAttachment={previewAttachment}
                 onDownloadAttachment={downloadAttachment}
+                loadingAttachmentId={loadingAttachmentId}
                 onGetAttachmentData={getRawAttachmentData}
                 onReply={(msg: MailMessage) => { setReplyMode('reply'); setReplyingTo(msg); }}
                 onReplyAll={(msg: MailMessage) => { setReplyMode('replyAll'); setReplyingTo(msg); }}

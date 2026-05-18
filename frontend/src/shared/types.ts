@@ -151,6 +151,8 @@ export interface CalendarEvent {
   meetUrl?: string;
   /** Series ID used to identify recurring events or events that share the same root identifier */
   seriesId?: string;
+  /** True when this event is a specific instance of a recurring series */
+  isRecurringInstance?: boolean;
   /** Tag assigned to this event locally */
   tagId?: string;
 }

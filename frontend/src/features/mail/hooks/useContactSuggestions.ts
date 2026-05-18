@@ -1,11 +1,11 @@
-import { useMemo } from 'react';
-
 import { RecipientEntry } from '../components/RecipientInput';
+import { isValidEmail } from '../utils';
 import { useCalendars } from '../../calendar/store/CalendarStore';
 import { useEWSEvents } from '../../calendar/hooks/useEWSEvents';
 import { useEventKitEvents } from '../../calendar/hooks/useEventKitEvents';
 import { useGoogleEvents } from '../../calendar/hooks/useGoogleEvents';
 import { useICSEvents } from '../../calendar/hooks/useICSEvents';
+import { useMemo } from 'react';
 import { useNextcloudEvents } from '../../calendar/hooks/useNextcloudEvents';
 
 /**
@@ -33,7 +33,6 @@ export function useContactSuggestions(
   return useMemo(() => {
     const freq = new Map<string, { name?: string; count: number }>();
 
-    const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
     // 1. Calendar events — count occurrences for sorting by frequency
     const allCalEvents = [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents];

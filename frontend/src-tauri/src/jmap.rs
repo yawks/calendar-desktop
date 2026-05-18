@@ -537,12 +537,26 @@ pub async fn jmap_get_thread(
             .and_then(|id| email.body_value(id))
             .map(|v| v.value().to_string());
 
-        let mut body_html = email.html_body()
-            .and_then(|b| b.first())
+        let html_part = email.html_body().and_then(|b| b.first());
+        let html_content_type = html_part.and_then(|p| p.content_type()).unwrap_or("text/html");
+        let is_plain_text_part = html_content_type == "text/plain";
+
+        let mut body_html = html_part
             .and_then(|p| p.part_id())
             .and_then(|id| email.body_value(id))
-            .map(|v| v.value().to_string())
-            .or_else(|| body_text.as_deref().map(|t| format!("<pre>{}</pre>", t)))
+            .map(|v| {
+                let text = v.value().to_string();
+                if is_plain_text_part {
+                    let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+                    format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
+                } else {
+                    text
+                }
+            })
+            .or_else(|| body_text.as_deref().map(|t| {
+                let escaped = t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+                format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
+            }))
             .unwrap_or_default();
 
         // Collect inline images that need to be resolved (cid: → data URI).
@@ -934,7 +948,9 @@ pub async fn jmap_send(
     let identities = resp.method_response_by_pos(0)
         .unwrap_get_identity()
         .map_err(|e| format!("Identity/get: {}", e))?;
-    let mailboxes = resp.method_response_by_pos(1)
+    // method_response_by_pos uses Vec::remove, so after removing index 0 above,
+    // the mailbox response (originally index 1) is now at index 0.
+    let mailboxes = resp.method_response_by_pos(0)
         .unwrap_get_mailbox()
         .map_err(|e| format!("Mailbox/get: {}", e))?;
 

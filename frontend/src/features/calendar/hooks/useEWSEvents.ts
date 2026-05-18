@@ -1,15 +1,16 @@
 import { useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AttendeeStatus, CalendarConfig } from '../../../shared/types';
 import { patchCachedEventRsvp } from '../utils/eventCache';
-import { useCalendarEvents } from './useCalendarQueries';
+import { useCalendarEvents, CALENDAR_KEYS } from './useCalendarQueries';
 
 const CACHE_VERSION = 'ews1';
 
 export function useEWSEvents(calendars: CalendarConfig[]) {
   const ewsCals = useMemo(() => calendars.filter(c => c.type === 'exchange'), [calendars]);
   const { events, isLoading, errors } = useCalendarEvents(ewsCals);
+  const queryClient = useQueryClient();
 
-  // Return a stable object that matches the previous API
   return useMemo(() => ({
     events,
     loading: isLoading,
@@ -17,11 +18,8 @@ export function useEWSEvents(calendars: CalendarConfig[]) {
       if (err) acc[ewsCals[idx]?.id || idx] = err.message;
       return acc;
     }, {} as Record<string, string>),
-    refresh: () => {
-      // In React Query, we can invalidate to refresh
-      // For now, this is a placeholder if manual refresh is needed
-    }
-  }), [events, isLoading, errors, ewsCals]);
+    refresh: () => queryClient.refetchQueries({ queryKey: CALENDAR_KEYS.all }),
+  }), [events, isLoading, errors, ewsCals, queryClient]);
 }
 
 /** Patch a single EWS event's RSVP status in the IndexedDB cache. */

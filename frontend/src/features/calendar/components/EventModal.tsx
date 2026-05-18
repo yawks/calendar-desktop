@@ -70,6 +70,7 @@ interface Props {
   readonly onDelete?: () => Promise<void>;
   readonly onRsvp?: (status: RsvpStatus, comment?: string) => Promise<void>;
   readonly isOrganizer?: boolean;
+  readonly overlayChildren?: React.ReactNode;
 }
 
 function RsvpRow({ current, onRsvp }: {
@@ -223,7 +224,7 @@ function AttendeeRow({ attendee }: { readonly attendee: Attendee }) {
   );
 }
 
-export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onRsvp, isOrganizer }: Props) {
+export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onRsvp, isOrganizer, overlayChildren }: Props) {
   const { t } = useTranslation();
   const { tags, eventTags, setEventTag, removeEventTag } = useTags();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -235,6 +236,9 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showAllAttendees, setShowAllAttendees] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  if (overlayChildren) console.log('[recurring] EventModal: overlayChildren present, dialogRef.current=', dialogRef.current);
 
   // Keep ref in sync with state so backdrop handler can read it without stale closure
   useEffect(() => { showTagDropdownRef.current = showTagDropdown; }, [showTagDropdown]);
@@ -243,9 +247,10 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (event) {
-      dialog.showModal();
+      if (!dialog.open) dialog.showModal();
       setShowDeleteConfirm(false);
       setDeleteError(null);
+      setDeleteLoading(false);
     } else if (dialog.open) {
       dialog.close();
     }
@@ -378,7 +383,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             {onDelete && (
               <button
                 className="btn-icon modal-close"
-                onClick={() => { setShowDeleteConfirm(true); setDeleteError(null); }}
+                onClick={() => { setShowDeleteConfirm(true); setDeleteError(null); setDeleteLoading(false); }}
                 aria-label={t('eventModal.delete')}
               >
                 <Trash2 size={16} />
@@ -396,7 +401,22 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                 <button
                   type="button"
                   className="btn-delete-confirm"
-                  onClick={() => { onDelete!(); onClose(); }}
+                  disabled={deleteLoading}
+                  onClick={async () => {
+                    setDeleteLoading(true);
+                    try {
+                      await onDelete!();
+                      onClose();
+                    } catch (e: unknown) {
+                      if ((e as any)?.cancelled) {
+                        setShowDeleteConfirm(false);
+                      } else {
+                        setDeleteError(e instanceof Error ? e.message : t('eventModal.deleteError'));
+                      }
+                    } finally {
+                      setDeleteLoading(false);
+                    }
+                  }}
                 >
                   {t('eventModal.deleteConfirmYes')}
                 </button>
@@ -518,6 +538,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
           </div>
         </div>
       )}
+      {overlayChildren && dialogRef.current && createPortal(overlayChildren, dialogRef.current)}
     </dialog>
   );
 }

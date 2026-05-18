@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, KeyboardEvent } from 'react';
+import { KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
-import type { MailSearchQuery } from '../types';
+
 import { ContactDropdown } from './ContactDropdown';
+import type { MailSearchQuery } from '../types';
 import type { RecipientEntry } from './RecipientInput';
+import { isValidEmail } from '../utils';
+import { useTranslation } from 'react-i18next';
 
 // ── Token parsing ─────────────────────────────────────────────────────────────
 
@@ -219,6 +221,7 @@ export function MailSearchBar({ activeQuery, onSearch, contacts = [] }: MailSear
 
   const insertContact = (contact: RecipientEntry) => {
     if (!contactMode) return;
+    if (!isValidEmail(contact.email)) return;
     replacePartial(`${contactMode.keyword}:${contact.email} `);
   };
 

@@ -177,6 +177,7 @@ export function useMailMutations() {
     },
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
     },
   });
 

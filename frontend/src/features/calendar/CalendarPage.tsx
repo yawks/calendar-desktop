@@ -1,7 +1,7 @@
 import '@toast-ui/calendar/dist/toastui-calendar.min.css';
 
 import { CalendarEvent } from '../../shared/types';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import AppHeader from './components/AppHeader';
 import Calendar from '@toast-ui/react-calendar';
@@ -9,6 +9,7 @@ import SearchModal from './components/SearchModal';
 import SearchResultsView from './components/SearchResultsView';
 import CreateEventModal from './components/CreateEventModal';
 import EventModal from './components/EventModal';
+import RecurringChoiceModal from './components/RecurringChoiceModal';
 import Sidebar from './components/Sidebar';
 import { useCalendarLogic } from './hooks/useCalendarLogic';
 import { formatDateLabel, DARK_THEME, LIGHT_THEME, toTUIEvents, getViewRange, formatTime } from './utils/calendarUtils';
@@ -70,9 +71,12 @@ export default function CalendarPage() {
     handleSaveEvent,
     handleRsvp,
     handleDeleteEvent,
+    handleStartEdit,
     handleBeforeUpdateEvent,
     isEventEditable,
     isExchangeOrganizer,
+    showRecurringModal,
+    handleRecurringModalChoice,
   } = useCalendarLogic();
 
   const tuiEvents = useMemo(() =>
@@ -90,6 +94,45 @@ export default function CalendarPage() {
       dragBackgroundColor: c.color,
       borderColor: c.color,
     })), [calendars]);
+
+  type TuiEventStyle = { backgroundColor: string; color: string; borderColor: string; customStyle: Record<string, string>; state: string; title: string };
+  const prevTuiStylesRef = useRef<Map<string, TuiEventStyle>>(new Map());
+  useEffect(() => {
+    const inst = calendarRef.current?.getInstance() as any;
+    if (!inst?.updateEvent) return;
+    const prevMap = prevTuiStylesRef.current;
+    tuiEvents.forEach((ev) => {
+      const prev = prevMap.get(ev.id);
+      if (!prev) return;
+      if (
+        prev.backgroundColor !== ev.backgroundColor ||
+        prev.color !== ev.color ||
+        prev.state !== ev.state ||
+        prev.title !== ev.title ||
+        JSON.stringify(prev.customStyle) !== JSON.stringify(ev.customStyle)
+      ) {
+        inst.updateEvent(ev.id, ev.calendarId, {
+          backgroundColor: ev.backgroundColor,
+          color: ev.color,
+          borderColor: ev.borderColor,
+          customStyle: ev.customStyle,
+          state: ev.state,
+          title: ev.title,
+          raw: ev.raw,
+        });
+      }
+    });
+    const newMap = new Map<string, TuiEventStyle>();
+    tuiEvents.forEach((ev) => newMap.set(ev.id, {
+      backgroundColor: ev.backgroundColor,
+      color: ev.color,
+      borderColor: ev.borderColor,
+      customStyle: ev.customStyle,
+      state: ev.state,
+      title: ev.title,
+    }));
+    prevTuiStylesRef.current = newMap;
+  }, [tuiEvents]);
 
   useEffect(() => {
     if (view === 'month' || searchQuery !== null) return;
@@ -195,21 +238,35 @@ export default function CalendarPage() {
                 const end = formatTime(event.end);
                 const timeLabel = start && end ? `de ${start} à ${end}` : '';
                 const tagColor = event.raw?.tagColor;
+                const hatchColor = event.raw?.hatchColor;
+                const isDeclined = event.raw?.isDeclined;
+                const hatch = hatchColor
+                  ? `<div style="position:absolute;inset:0;background:repeating-linear-gradient(-45deg,${hatchColor} 0,${hatchColor} 4px,transparent 4px,transparent 8px);pointer-events:none;z-index:0;"></div>`
+                  : '';
                 const dot = tagColor
-                  ? `<span style="position:absolute;bottom:3px;right:3px;width:7px;height:7px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);display:block;pointer-events:none"></span>`
+                  ? `<span style="position:absolute;bottom:3px;right:3px;width:7px;height:7px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);display:block;pointer-events:none;z-index:1;"></span>`
                   : '';
                 return `<div style="position:absolute;inset:0;padding:1px 0 0 3px;line-height:1.3;overflow:hidden">
-                  <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${event.title}</div>
-                  ${timeLabel ? `<div style="opacity:0.85;white-space:nowrap">${timeLabel}</div>` : ''}
+                  ${hatch}
+                  <div style="position:relative;z-index:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis${isDeclined ? ';text-decoration:line-through' : ''}">${event.title}</div>
+                  ${timeLabel ? `<div style="position:relative;z-index:1;opacity:0.85;white-space:nowrap">${timeLabel}</div>` : ''}
                   ${dot}
                 </div>`;
               },
               allday: (event: any) => {
                 const tagColor = event.raw?.tagColor;
-                const dot = tagColor
-                  ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);margin-left:4px;vertical-align:middle;flex-shrink:0"></span>`
+                const hatchColor = event.raw?.hatchColor;
+                const isDeclined = event.raw?.isDeclined;
+                const hatch = hatchColor
+                  ? `<div style="position:absolute;inset:0;background:repeating-linear-gradient(-45deg,${hatchColor} 0,${hatchColor} 4px,transparent 4px,transparent 8px);pointer-events:none;"></div>`
                   : '';
-                return `<span style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${event.title}</span>${dot}`;
+                const dot = tagColor
+                  ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);margin-left:4px;vertical-align:middle;flex-shrink:0;position:relative;z-index:1;"></span>`
+                  : '';
+                return `<div style="position:relative;overflow:hidden;height:100%;">
+                  ${hatch}
+                  <span style="position:relative;z-index:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis${isDeclined ? ';text-decoration:line-through' : ''}">${event.title}</span>${dot}
+                </div>`;
               },
             }}
             week={{
@@ -237,21 +294,18 @@ export default function CalendarPage() {
           calendar={calendars.find(c => c.id === selectedEvent.calendarId) || null}
           onClose={() => setSelectedEvent(null)}
           onEdit={
-             isEventEditable(selectedEvent)
-              ? () => { setEditEvent(selectedEvent); setSelectedEvent(null); }
+            isEventEditable(selectedEvent)
+              ? () => { void handleStartEdit(selectedEvent); }
               : undefined
           }
-          onDelete={
-             isEventEditable(selectedEvent) || isExchangeOrganizer(selectedEvent)
-              ? () => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null))
-              : undefined
-          }
+          onDelete={() => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null))}
           onRsvp={
             selectedEvent.selfRsvpStatus && !isExchangeOrganizer(selectedEvent)
               ? (status, comment) => handleRsvp(selectedEvent, status, comment)
               : undefined
           }
           isOrganizer={isExchangeOrganizer(selectedEvent)}
+          overlayChildren={showRecurringModal ? <RecurringChoiceModal onChoice={handleRecurringModalChoice} /> : null}
         />
       )}
 

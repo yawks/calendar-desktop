@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { CalendarConfig, CalendarEvent, CreateEventPayload, ViewType } from '../../../shared/types';
 import { useCalendars } from '../store/CalendarStore';
 import { useCalendarGroups } from '../store/CalendarGroupStore';
@@ -96,15 +96,49 @@ export function useCalendarLogic() {
   const [deletedEventIds, setDeletedEventIds] = useState<Set<string>>(new Set());
   const [optimisticCreated, setOptimisticCreated] = useState<CalendarEvent[]>([]);
   const [optimisticUpdated, setOptimisticUpdated] = useState<Map<string, CalendarEvent>>(new Map());
+  const [showRecurringModal, setShowRecurringModal] = useState(false);
+  const recurringChoiceResolveRef = useRef<((scope: 'this' | 'all' | null) => void) | null>(null);
 
   const calendars = DEMO_MODE ? DEMO_CALENDARS : realCalendars;
   const allEventsRaw = DEMO_MODE ? DEMO_EVENTS : [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents];
-  const events = useMemo(() => [
-    ...allEventsRaw
+  const events = useMemo(() => {
+    const serverEvents = allEventsRaw
       .filter((e: CalendarEvent) => !deletedEventIds.has(e.id))
-      .map((e: CalendarEvent) => optimisticUpdated.get(e.id) ?? e),
-    ...optimisticCreated,
-  ], [allEventsRaw, deletedEventIds, optimisticUpdated, optimisticCreated]);
+      .map((e: CalendarEvent) => optimisticUpdated.get(e.id) ?? e);
+    // Filter out optimistic created events that already exist on the server
+    // (by calendarId + title + start within 60 s) to avoid transient duplicates.
+    const pendingCreated = optimisticCreated.filter((opt) =>
+      !serverEvents.some(
+        (sv) =>
+          sv.calendarId === opt.calendarId &&
+          sv.title === opt.title &&
+          Math.abs(new Date(sv.start).getTime() - new Date(opt.start).getTime()) < 60_000,
+      ),
+    );
+    return [...serverEvents, ...pendingCreated];
+  }, [allEventsRaw, deletedEventIds, optimisticUpdated, optimisticCreated]);
+
+  // Keep selectedEvent in sync when the underlying event changes.
+  // Handles both: server-side data refresh (same id) and optimistic→real
+  // transition after creation (temp-xxx id → real server id).
+  useEffect(() => {
+    if (!selectedEvent) return;
+    const byId = events.find((e) => e.id === selectedEvent.id);
+    if (byId) {
+      if (byId !== selectedEvent) setSelectedEvent(byId);
+      return;
+    }
+    if (selectedEvent.id.startsWith('temp-')) {
+      const real = events.find(
+        (e) =>
+          !e.id.startsWith('temp-') &&
+          e.calendarId === selectedEvent.calendarId &&
+          e.title === selectedEvent.title &&
+          Math.abs(new Date(e.start).getTime() - new Date(selectedEvent.start).getTime()) < 60_000,
+      );
+      if (real) setSelectedEvent(real);
+    }
+  }, [events, selectedEvent]);
 
   const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ekLoading || ewsLoading);
   const errors = DEMO_MODE ? {} : { ...icsErrors, ...googleErrors, ...ncErrors, ...ekErrors, ...ewsErrors };
@@ -289,15 +323,47 @@ export function useCalendarLogic() {
         tagId: payload.tagId ?? undefined,
       };
       setOptimisticCreated((prev) => [...prev, optimistic]);
+      console.log('[createEvent] optimistic added', tempId, payload.title);
+      const cleanup = () => {
+        console.log('[createEvent] cleanup – removing optimistic', tempId);
+        setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
+      };
       try {
         const sid = await doSave();
+        console.log('[createEvent] doSave OK, sid=', sid, 'cal.type=', cal.type);
         if (payload.tagId && sid) setEventTag(sid, payload.tagId);
-        await doRefresh();
-      } finally {
-        setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
+        setTimeout(async () => {
+          console.log('[createEvent] setTimeout fired – calling doRefresh');
+          try { await doRefresh(); console.log('[createEvent] doRefresh done'); } finally { cleanup(); }
+        }, 2000);
+      } catch (e) {
+        console.error('[createEvent] error', e);
+        cleanup();
+        throw e;
       }
     }
   }, [calendars, saveNextcloudEvent, saveEventKitEvent, saveExchangeEvent, saveGoogleEvent, ncRefresh, ekRefresh, ewsRefresh, googleRefresh, setEventTag, removeEventTag]);
+
+  const isEventRecurring = useCallback((event: CalendarEvent): boolean => {
+    const result = event.isRecurringInstance === true;
+    console.log('[recurring] isEventRecurring', { id: event.id, title: event.title, isRecurringInstance: event.isRecurringInstance, result });
+    return result;
+  }, []);
+
+  const askRecurringScope = useCallback((): Promise<'this' | 'all' | null> => {
+    console.log('[recurring] askRecurringScope: setting showRecurringModal=true');
+    return new Promise((resolve) => {
+      recurringChoiceResolveRef.current = resolve;
+      setShowRecurringModal(true);
+    });
+  }, []);
+
+  const handleRecurringModalChoice = useCallback((scope: 'this' | 'all' | null) => {
+    console.log('[recurring] handleRecurringModalChoice scope=', scope);
+    setShowRecurringModal(false);
+    recurringChoiceResolveRef.current?.(scope);
+    recurringChoiceResolveRef.current = null;
+  }, []);
 
   const handleRsvp = useCallback(async (
     event: CalendarEvent,
@@ -308,22 +374,42 @@ export function useCalendarLogic() {
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
     if (cal.type === 'eventkit') throw new Error(i18n.t('calendarPage.eventKitRsvpNote'));
 
-    const optimistic: CalendarEvent = {
-      ...event,
+    let rsvpSourceId = event.sourceId;
+    let affectedIds = [event.id];
+
+    if (isEventRecurring(event)) {
+      const scope = await askRecurringScope();
+      if (scope === null) return;
+      if (scope === 'all' && event.seriesId) {
+        rsvpSourceId = event.seriesId;
+        affectedIds = events.filter((e) => e.seriesId === event.seriesId).map((e) => e.id);
+      }
+    }
+
+    const makeOptimistic = (ev: CalendarEvent): CalendarEvent => ({
+      ...ev,
       selfRsvpStatus: status,
       isDeclined: status === 'DECLINED',
       isUnaccepted: status !== 'ACCEPTED',
-    };
-    setOptimisticUpdated((prev) => new Map(prev).set(event.id, optimistic));
-    setSelectedEvent(optimistic);
+    });
+
+    setOptimisticUpdated((prev) => {
+      const n = new Map(prev);
+      for (const id of affectedIds) {
+        const ev = events.find((e) => e.id === id);
+        if (ev) n.set(id, makeOptimistic(ev));
+      }
+      return n;
+    });
+    setSelectedEvent(makeOptimistic(event));
 
     try {
       if (cal.type === 'google') {
-        if (!cal.googleAccountId || !event.sourceId || !cal.ownerEmail)
+        if (!cal.googleAccountId || !rsvpSourceId || !cal.ownerEmail)
           throw new Error(i18n.t('calendarPage.missingInfo'));
         const token = await getValidToken(cal.googleAccountId);
         if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
-        await respondToGoogleEvent(token, cal, event.sourceId, cal.ownerEmail, status, comment);
+        await respondToGoogleEvent(token, cal, rsvpSourceId, cal.ownerEmail, status, comment);
         await googleRefresh();
       } else if (cal.type === 'nextcloud') {
         if (!event.sourceId || !cal.ownerEmail)
@@ -348,23 +434,46 @@ export function useCalendarLogic() {
         await ewsRefresh();
       }
     } catch (e) {
-      setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(event.id); return n; });
+      setOptimisticUpdated((prev) => {
+        const n = new Map(prev);
+        for (const id of affectedIds) n.delete(id);
+        return n;
+      });
       setSelectedEvent(event);
       throw e;
     }
-    setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(event.id); return n; });
-  }, [calendars, getValidToken, getExchangeToken, googleRefresh, ncRefresh, ewsRefresh]);
+    // Keep the optimistic entry: the server refresh may return stale data briefly.
+  }, [calendars, events, isEventRecurring, askRecurringScope, getValidToken, getExchangeToken, googleRefresh, ncRefresh, ewsRefresh]);
 
   const handleDeleteEvent = useCallback(async (event: CalendarEvent) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
+    console.log('[recurring] handleDeleteEvent cal=', cal?.type, 'event.isRecurringInstance=', event.isRecurringInstance, 'seriesId=', event.seriesId);
     if (!cal) return;
 
-    setDeletedEventIds((prev) => new Set([...prev, event.id]));
+    let deleteSourceId = event.sourceId;
+    let affectedIds = [event.id];
+
+    if (isEventRecurring(event)) {
+      console.log('[recurring] event IS recurring → showing scope modal');
+      const scope = await askRecurringScope();
+      if (scope === null) {
+        const err = new Error('CANCELLED') as Error & { cancelled: true };
+        err.cancelled = true;
+        throw err;
+      }
+      if (scope === 'all' && event.seriesId) {
+        deleteSourceId = event.seriesId;
+        affectedIds = events.filter((e) => e.seriesId === event.seriesId).map((e) => e.id);
+      }
+    }
+
+    setDeletedEventIds((prev) => new Set([...prev, ...affectedIds]));
 
     try {
+      console.log('[deleteEvent] sourceId=', event.sourceId, 'deleteSourceId=', deleteSourceId, 'cal.type=', cal.type, 'event.id=', event.id);
       if (cal.type === 'google') {
         const token = await getValidToken(cal.googleAccountId!);
-        await deleteGoogleEvent(token!, cal, event.sourceId!);
+        await deleteGoogleEvent(token!, cal, deleteSourceId!);
         await googleRefresh();
       } else if (cal.type === 'nextcloud') {
         await deleteNextcloudEvent(cal, event.sourceId!);
@@ -376,19 +485,27 @@ export function useCalendarLogic() {
       } else if (cal.type === 'exchange') {
         const token = await getExchangeToken(cal.exchangeAccountId!);
         const [itemId, changeKey] = event.sourceId!.split('|');
+        console.log('[deleteEvent] exchange itemId=', itemId, 'changeKey=', changeKey);
+        const account = exchangeAccounts.find((a) => a.id === cal.exchangeAccountId);
+        const isOrganizer = !event.attendees?.length || event.attendees.some((a) => {
+          if (!a.isOrganizer) return false;
+          if (account && a.email.toLowerCase() === account.email.toLowerCase()) return true;
+          return !!(account?.displayName && a.name.toLowerCase() === account.displayName.toLowerCase());
+        });
         const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('ews_delete_event', { accessToken: token, itemId, changeKey });
+        await invoke('ews_delete_event', { accessToken: token, itemId, changeKey, sendCancellations: isOrganizer });
         await ewsRefresh();
       }
-    } catch {
+    } catch (err) {
+      console.error('[deleteEvent] failed', err);
       setDeletedEventIds((prev) => {
         const next = new Set(prev);
-        next.delete(event.id);
+        for (const id of affectedIds) next.delete(id);
         return next;
       });
       throw new Error(i18n.t('eventModal.deleteError'));
     }
-  }, [calendars, getValidToken, getExchangeToken, googleRefresh, ncRefresh, ekRefresh, ewsRefresh]);
+  }, [calendars, events, exchangeAccounts, isEventRecurring, askRecurringScope, getValidToken, getExchangeToken, googleRefresh, ncRefresh, ekRefresh, ewsRefresh]);
 
   const isEventEditable = useCallback((event: CalendarEvent) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
@@ -411,11 +528,24 @@ export function useCalendarLogic() {
     });
   }, [calendars, exchangeAccounts]);
 
+  const handleStartEdit = useCallback(async (event: CalendarEvent) => {
+    if (isEventRecurring(event)) {
+      const scope = await askRecurringScope();
+      if (scope === null) return;
+      if (scope === 'all' && event.seriesId) {
+        setEditEvent({ ...event, sourceId: event.seriesId });
+        setSelectedEvent(null);
+        return;
+      }
+    }
+    setEditEvent(event);
+    setSelectedEvent(null);
+  }, [isEventRecurring, askRecurringScope]);
+
   const handleBeforeUpdateEvent = useCallback(
     ({ event, changes }: { event: any; changes: any }) => {
       const originalEvent = events.find((e) => e.id === event.id);
       if (!originalEvent) return;
-
       if (!isEventEditable(originalEvent)) return;
 
       const toISO = (d: unknown): string => {
@@ -452,9 +582,19 @@ export function useCalendarLogic() {
         attendees: originalEvent.attendees?.map((a) => ({ email: a.email, name: a.name })),
       };
 
-      void handleSaveEvent(payload, originalEvent);
+      void (async () => {
+        let sourceEvent = originalEvent;
+        if (isEventRecurring(originalEvent)) {
+          const scope = await askRecurringScope();
+          if (scope === null) return;
+          if (scope === 'all' && originalEvent.seriesId) {
+            sourceEvent = { ...originalEvent, sourceId: originalEvent.seriesId };
+          }
+        }
+        await handleSaveEvent(payload, sourceEvent);
+      })();
     },
-    [events, isEventEditable, handleSaveEvent]
+    [events, isEventEditable, isEventRecurring, askRecurringScope, handleSaveEvent]
   );
 
   return {
@@ -503,8 +643,11 @@ export function useCalendarLogic() {
     handleSaveEvent,
     handleRsvp,
     handleDeleteEvent,
+    handleStartEdit,
     isEventEditable,
     isExchangeOrganizer,
-    handleBeforeUpdateEvent
+    handleBeforeUpdateEvent,
+    showRecurringModal,
+    handleRecurringModalChoice,
   };
 }

@@ -1,7 +1,8 @@
-import { Monitor, Moon, Sun } from 'lucide-react';
-import { ThemePreference } from '../../shared/store/ThemeStore';
-import React from 'react';
 import { FileIcon, defaultStyles } from 'react-file-icon';
+import { Monitor, Moon, Sun } from 'lucide-react';
+
+import React from 'react';
+import { ThemePreference } from '../../shared/store/ThemeStore';
 
 /** Decode HTML entities in a plain-text string (e.g. snippet previews).
  *  Uses a temporary DOM element so all named and numeric entities are handled
@@ -65,6 +66,8 @@ export function senderColor(name: string, isDark: boolean): string {
 export function initials(name: string): string {
   return name.split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('') || '?';
 }
+
+export const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 export function formatDate(iso: string): string {
   if (!iso) return '';

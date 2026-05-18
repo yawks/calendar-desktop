@@ -628,7 +628,7 @@ export function ICSInvitationCard({
           <span className="ics-card__label">{isCancelled ? 'Annulation' : 'Invitation'}</span>
         </div>
 
-        <h3 className="ics-card__title">{icsData.title}</h3>
+        <h3 className="ics-card__title" style={currentStatus === 'DECLINED' ? { textDecoration: 'line-through' } : undefined}>{icsData.title}</h3>
 
         {isCancelled && (
           <div className="ics-status ics-status--cancelled">Évènement annulé</div>

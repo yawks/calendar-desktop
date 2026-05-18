@@ -354,6 +354,10 @@
       "hint": "Utilisez from:, to:, cc:, bcc:, subject:, in:, date: pour filtrer",
       "inInbox": "Dans la boîte de réception",
       "today": "Aujourd'hui"
+    },
+    "attachment": {
+      "preview": "Aperçu",
+      "download": "Télécharger"
     }
   },
   "settings": {
@@ -381,5 +385,12 @@
       "windows": "Fenêtres séparées",
       "hint": "Redémarrez l'application pour appliquer le mode Fenêtres séparées."
     }
+  },
+  "recurringChoice": {
+    "title": "Modifier un événement récurrent",
+    "description": "Cette modification concerne-t-elle uniquement cet événement ou tous les événements de la série ?",
+    "thisEvent": "Cet événement",
+    "allEvents": "Tous les événements de la série",
+    "cancel": "Annuler"
   }
 }

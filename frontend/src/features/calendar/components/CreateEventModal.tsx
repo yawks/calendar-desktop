@@ -366,7 +366,19 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
             <>
               <div className="form-row">
                 <label htmlFor="ev-start-date">{t('createEvent.start')}</label>
-                <input id="ev-start-date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+                <input id="ev-start-date" type="date" value={startDate} onChange={(e) => {
+                  const newStartStr = e.target.value;
+                  const oldStart = new Date(startDate);
+                  const oldEnd = new Date(endDate);
+                  setStartDate(newStartStr);
+                  if (!Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime())) {
+                    const duration = oldEnd.getTime() - oldStart.getTime();
+                    const newStart = new Date(newStartStr);
+                    if (!Number.isNaN(newStart.getTime())) {
+                      setEndDate(toDateLocal(new Date(newStart.getTime() + duration).toISOString()));
+                    }
+                  }
+                }} required />
               </div>
               <div className="form-row">
                 <label htmlFor="ev-end-date">{t('createEvent.end')}</label>
@@ -377,7 +389,19 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
             <>
               <div className="form-row">
                 <label htmlFor="ev-start">{t('createEvent.start')}</label>
-                <input id="ev-start" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required />
+                <input id="ev-start" type="datetime-local" value={start} onChange={(e) => {
+                  const newStartStr = e.target.value;
+                  const oldStart = new Date(start);
+                  const oldEnd = new Date(end);
+                  setStart(newStartStr);
+                  if (!Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime())) {
+                    const duration = oldEnd.getTime() - oldStart.getTime();
+                    const newStart = new Date(newStartStr);
+                    if (!Number.isNaN(newStart.getTime())) {
+                      setEnd(toDatetimeLocal(new Date(newStart.getTime() + duration).toISOString()));
+                    }
+                  }
+                }} required />
               </div>
               <div className="form-row">
                 <label htmlFor="ev-end">{t('createEvent.end')}</label>

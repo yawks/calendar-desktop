@@ -70,6 +70,7 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
       id: `${cal.id}::${ev.item_id}`,
       sourceId: `${ev.item_id}|${ev.change_key}`,
       seriesId: ev.recurring_master_id ?? ev.item_id,
+      isRecurringInstance: !!ev.recurring_master_id,
       calendarId: cal.id,
       title: ev.subject,
       start: ev.start,

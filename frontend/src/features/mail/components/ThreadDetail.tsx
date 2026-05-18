@@ -5,6 +5,7 @@ import {
   FolderInput,
   Forward,
   MoreHorizontal,
+  RefreshCw,
   ShieldAlert,
   Trash2
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 export interface ThreadDetailProps {
   readonly thread: MailThread;
   readonly messages: MailMessage[];
+  readonly messagesLoading?: boolean;
   readonly replyingTo: MailMessage | null;
   readonly contacts: { email: string; name?: string }[];
   readonly currentUserEmail?: string;
@@ -30,6 +32,7 @@ export interface ThreadDetailProps {
   readonly onTrash: (id: string) => void;
   readonly onPreviewAttachment: (att: MailAttachment) => void;
   readonly onDownloadAttachment: (att: MailAttachment) => void;
+  readonly loadingAttachmentId?: string | null;
   readonly onGetAttachmentData: (att: MailAttachment) => Promise<string>;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
@@ -113,10 +116,10 @@ function computeSnoozeOptions() {
 }
 
 export function ThreadDetail({
-  thread, messages, replyingTo, contacts, currentUserEmail, mailProviderType,
+  thread, messages, messagesLoading, replyingTo, contacts, currentUserEmail, mailProviderType,
   identities, selectedIdentityId, onIdentityChange,
   onMarkRead, onTrash,
-  onPreviewAttachment, onDownloadAttachment, onGetAttachmentData,
+  onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
   onReply, onReplyAll, onForward, onToggleRead,
   replyMode, onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
@@ -341,7 +344,12 @@ export function ThreadDetail({
       )}
 
       <div className="mail-thread-detail__messages">
-        {messages.length > 5 && !middleExpanded ? (
+        {messagesLoading && (
+          <div className="mail-detail-empty">
+            <RefreshCw size={32} strokeWidth={1.5} className="spin" style={{ opacity: 0.4 }} />
+          </div>
+        )}
+        {!messagesLoading && messages.length > 5 && !middleExpanded && (
           <>
             <CollapsedMessagesBar
               messages={messages.slice(0, messages.length - 1)}
@@ -361,28 +369,29 @@ export function ThreadDetail({
               onPreviewAttachment={onPreviewAttachment}
               onDownloadAttachment={onDownloadAttachment}
               onGetAttachmentData={onGetAttachmentData}
+              loadingAttachmentId={loadingAttachmentId}
             />
           </>
-        ) : (
-          messages.map((msg, idx) => (
-            <MessageBlock
-              key={msg.item_id}
-              message={msg}
-              defaultExpanded={!msg.is_read || idx === messages.length - 1}
-              currentUserEmail={currentUserEmail}
-              mailProviderType={mailProviderType}
-              onMarkRead={handleMarkSingleRead}
-              onReply={onReply}
-              onReplyAll={onReplyAll}
-              onForward={onForward}
-              onTrash={onTrash}
-              onToggleRead={onToggleRead}
-              onPreviewAttachment={onPreviewAttachment}
-              onDownloadAttachment={onDownloadAttachment}
-              onGetAttachmentData={onGetAttachmentData}
-            />
-          ))
         )}
+        {!messagesLoading && !(messages.length > 5 && !middleExpanded) && messages.map((msg, idx) => (
+          <MessageBlock
+            key={msg.item_id}
+            message={msg}
+            defaultExpanded={!msg.is_read || idx === messages.length - 1}
+            currentUserEmail={currentUserEmail}
+            mailProviderType={mailProviderType}
+            onMarkRead={handleMarkSingleRead}
+            onReply={onReply}
+            onReplyAll={onReplyAll}
+            onForward={onForward}
+            onTrash={onTrash}
+            onToggleRead={onToggleRead}
+            onPreviewAttachment={onPreviewAttachment}
+            onDownloadAttachment={onDownloadAttachment}
+            onGetAttachmentData={onGetAttachmentData}
+            loadingAttachmentId={loadingAttachmentId}
+          />
+        ))}
 
         {(replyingTo || composerRestoreData) && (
           <div ref={composerAnchorRef} className="mail-thread-detail__composer-anchor">

@@ -81,7 +81,7 @@ function getOwnerPartstat(vevent: unknown, ownerEmail?: string): 'ACCEPTED' | 'D
 
 function buildEvent(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  start: any, end: any, icalEvent: any, calendar: CalendarConfig, suffix = ''
+  start: any, end: any, icalEvent: any, calendar: CalendarConfig, suffix = '', isRecurringInstance = false
 ): CalendarEvent {
   const isAllday = start.isDate === true;
   const attendees = parseAttendees(icalEvent.component);
@@ -102,6 +102,7 @@ function buildEvent(
     selfRsvpStatus: partstat ?? undefined,
     attendees: attendees.length > 0 ? attendees : undefined,
     seriesId: icalEvent.uid as string | undefined,
+    isRecurringInstance,
   };
 }
 
@@ -122,7 +123,7 @@ function expandRecurring(
       if (d > rangeEnd) break;
       if (d >= rangeStart) {
         const det = icalEvent.getOccurrenceDetails(next);
-        results.push(buildEvent(det.startDate, det.endDate, det.item, calendar, next.toString()));
+        results.push(buildEvent(det.startDate, det.endDate, det.item, calendar, next.toString(), true));
       }
       count++;
       next = expand.next();

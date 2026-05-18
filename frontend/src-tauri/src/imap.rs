@@ -8,6 +8,7 @@ use tauri::command;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use rustls_pki_types::ServerName;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use async_imap::imap_proto::types::{BodyStructure, BodyContentCommon, SectionPath};
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ImapConfig {
@@ -235,38 +236,125 @@ fn find_text_part(mail: &ParsedMail, mimetype: &str) -> Option<String> {
     None
 }
 
-fn extract_body(mail: &ParsedMail) -> String {
-    if let Some(html) = find_text_part(mail, "text/html") {
-        return html;
-    }
-    if let Some(plain) = find_text_part(mail, "text/plain") {
-        return format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", plain);
-    }
-    String::new()
+// ── BODYSTRUCTURE helpers (lazy attachment loading) ──────────────────────────
+
+fn section_path_str(path: &[u32]) -> String {
+    path.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(".")
 }
 
-fn collect_attachments(mail: &ParsedMail, attachments: &mut Vec<ImapAttachment>, index: &mut u32, message_id: &str) {
-    let disposition = mail.get_headers().get_first_value("Content-Disposition").unwrap_or_default();
-    if disposition.starts_with("attachment") || disposition.starts_with("inline") {
-        let name = mail.ctype.params.get("name")
-            .cloned()
-            .or_else(|| {
-                mail.get_headers().get_first_value("Content-ID")
-                    .map(|id| id.trim_matches(|c| c == '<' || c == '>').to_string())
-            })
-            .unwrap_or_else(|| format!("attachment-{}", index));
+fn get_filename_from_bs(common: &BodyContentCommon<'_>, subtype: &str) -> String {
+    common.ty.params.as_ref()
+        .and_then(|p| p.iter().find(|(k, _)| k.to_lowercase() == "name"))
+        .map(|(_, v)| v.to_string())
+        .or_else(|| {
+            common.disposition.as_ref()
+                .and_then(|d| d.params.as_ref())
+                .and_then(|p| p.iter().find(|(k, _)| k.to_lowercase() == "filename"))
+                .map(|(_, v)| v.to_string())
+        })
+        .unwrap_or_else(|| format!("attachment.{}", subtype))
+}
 
-        attachments.push(ImapAttachment {
-            attachment_id: format!("{}:{}", message_id, index),
-            name,
-            content_type: mail.ctype.mimetype.clone(),
-            size: mail.get_body_raw().unwrap_or_default().len() as u64,
-            is_inline: disposition.starts_with("inline"),
-        });
-        *index += 1;
+/// Find the HTML (or text/plain fallback) body section in a BODYSTRUCTURE tree.
+/// `parent_path` is the IMAP section path leading to this node (empty for the root).
+/// Returns `(section_path, is_html)`.
+fn find_body_section(bs: &BodyStructure, parent_path: &[u32]) -> Option<(Vec<u32>, bool)> {
+    match bs {
+        BodyStructure::Text { common, .. } => {
+            let subtype = common.ty.subtype.to_lowercase();
+            let section = if parent_path.is_empty() { vec![1] } else { parent_path.to_vec() };
+            if subtype == "html" {
+                Some((section, true))
+            } else if subtype == "plain" {
+                Some((section, false))
+            } else {
+                None
+            }
+        }
+        BodyStructure::Basic { .. } => None,
+        BodyStructure::Message { body, .. } => {
+            let base = if parent_path.is_empty() { vec![1u32] } else { parent_path.to_vec() };
+            let child: Vec<u32> = base.iter().chain(&[1u32]).copied().collect();
+            find_body_section(body, &child)
+        }
+        BodyStructure::Multipart { bodies, common, .. } => {
+            let subtype = common.ty.subtype.to_lowercase();
+            let base: &[u32] = if parent_path.is_empty() { &[] } else { parent_path };
+            if subtype == "alternative" {
+                let mut html_result: Option<(Vec<u32>, bool)> = None;
+                let mut plain_result: Option<(Vec<u32>, bool)> = None;
+                for (i, body) in bodies.iter().enumerate() {
+                    let child: Vec<u32> = base.iter().chain(&[i as u32 + 1]).copied().collect();
+                    match find_body_section(body, &child) {
+                        Some((sp, true)) if html_result.is_none() => html_result = Some((sp, true)),
+                        Some((sp, false)) if plain_result.is_none() => plain_result = Some((sp, false)),
+                        _ => {}
+                    }
+                }
+                html_result.or(plain_result)
+            } else {
+                for (i, body) in bodies.iter().enumerate() {
+                    let child: Vec<u32> = base.iter().chain(&[i as u32 + 1]).copied().collect();
+                    if let Some(result) = find_body_section(body, &child) {
+                        return Some(result);
+                    }
+                }
+                None
+            }
+        }
     }
-    for sub in &mail.subparts {
-        collect_attachments(sub, attachments, index, message_id);
+}
+
+/// Walk BODYSTRUCTURE and collect metadata for all attachment parts (no binary download).
+/// `folder` and `seq_num` are embedded in the attachment_id as `folder:seq_num:section`.
+fn collect_attachments_from_bs(
+    bs: &BodyStructure,
+    parent_path: &[u32],
+    folder: &str,
+    seq_num: &str,
+    result: &mut Vec<ImapAttachment>,
+) {
+    let my_section: Vec<u32> = if parent_path.is_empty() { vec![1] } else { parent_path.to_vec() };
+    match bs {
+        BodyStructure::Basic { common, other, .. } => {
+            let disp = common.disposition.as_ref().map(|d| d.ty.to_lowercase());
+            let disp_str = disp.as_deref().unwrap_or("");
+            if disp_str == "attachment" || disp_str == "inline" {
+                let ty = common.ty.ty.to_lowercase();
+                let subtype = common.ty.subtype.to_lowercase();
+                result.push(ImapAttachment {
+                    attachment_id: format!("{}:{}:{}", folder, seq_num, section_path_str(&my_section)),
+                    name: get_filename_from_bs(common, &subtype),
+                    content_type: format!("{}/{}", ty, subtype),
+                    size: other.octets as u64,
+                    is_inline: disp_str == "inline",
+                });
+            }
+        }
+        BodyStructure::Text { common, other, .. } => {
+            if common.disposition.as_ref().map(|d| d.ty.to_lowercase()).as_deref() == Some("attachment") {
+                let ty = common.ty.ty.to_lowercase();
+                let subtype = common.ty.subtype.to_lowercase();
+                result.push(ImapAttachment {
+                    attachment_id: format!("{}:{}:{}", folder, seq_num, section_path_str(&my_section)),
+                    name: get_filename_from_bs(common, &subtype),
+                    content_type: format!("{}/{}", ty, subtype),
+                    size: other.octets as u64,
+                    is_inline: false,
+                });
+            }
+        }
+        BodyStructure::Message { body, .. } => {
+            let child: Vec<u32> = my_section.iter().chain(&[1u32]).copied().collect();
+            collect_attachments_from_bs(body, &child, folder, seq_num, result);
+        }
+        BodyStructure::Multipart { bodies, .. } => {
+            let base: &[u32] = if parent_path.is_empty() { &[] } else { parent_path };
+            for (i, body) in bodies.iter().enumerate() {
+                let child: Vec<u32> = base.iter().chain(&[i as u32 + 1]).copied().collect();
+                collect_attachments_from_bs(body, &child, folder, seq_num, result);
+            }
+        }
     }
 }
 
@@ -538,16 +626,42 @@ pub async fn imap_get_thread(config: ImapConfig, conversation_id: String, folder
     let mut session = get_imap_session(&config).await?;
     session.examine(&folder).await.map_err(|e| format!("IMAP examine error: {}", e))?;
 
-    let fetches_stream = session.fetch(&conversation_id, "(FLAGS INTERNALDATE RFC822)")
-        .await
-        .map_err(|e| format!("IMAP fetch error: {}", e))?;
-    let fetches: Vec<_> = fetches_stream.collect().await;
+    // Phase 1: fetch headers + BODYSTRUCTURE only — no attachment binary data transferred.
+    let phase1_stream = session.fetch(
+        &conversation_id,
+        "(FLAGS INTERNALDATE BODY.PEEK[HEADER] BODYSTRUCTURE)",
+    )
+    .await
+    .map_err(|e| format!("IMAP fetch error: {}", e))?;
+    let phase1: Vec<_> = phase1_stream.collect().await;
 
-    let mut messages = Vec::new();
-    for fetch_result in fetches {
-        let fetch = fetch_result.map_err(|e| format!("Fetch item error: {}", e))?;
-        let body = fetch.body().ok_or("No body")?;
-        let mail = parse_mail(body).map_err(|e| format!("Mail parse error: {}", e))?;
+    struct Pending {
+        seq_num: u32,
+        subject: String,
+        from_name: Option<String>,
+        from_email: Option<String>,
+        to_recipients: Vec<ImapRecipient>,
+        cc_recipients: Vec<ImapRecipient>,
+        date: String,
+        is_read: bool,
+        attachments: Vec<ImapAttachment>,
+        body_section: Vec<u32>,
+        body_is_html: bool,
+    }
+
+    let mut pending: Vec<Pending> = Vec::new();
+
+    for fetch_result in &phase1 {
+        let fetch = fetch_result.as_ref().map_err(|e| format!("Fetch item error: {}", e))?;
+
+        // Parse headers (IMAP includes trailing blank line in BODY[HEADER]).
+        let header_bytes = fetch.header().unwrap_or(b"");
+        // Ensure there is a blank-line separator so mailparse sees a valid message.
+        let mut hdr = header_bytes.to_vec();
+        if !hdr.ends_with(b"\r\n\r\n") && !hdr.ends_with(b"\n\n") {
+            hdr.extend_from_slice(b"\r\n");
+        }
+        let mail = parse_mail(&hdr).map_err(|e| format!("Header parse error: {}", e))?;
 
         let subject = mail.headers.get_first_value("Subject")
             .map(|s| decode_maybe_encoded(&s))
@@ -599,29 +713,81 @@ pub async fn imap_get_thread(config: ImapConfig, conversation_id: String, folder
             }
         }
 
-        let body_html = extract_body(&mail);
-        let body_text = find_text_part(&mail, "text/plain");
         let date = fetch.internal_date().map(|d| d.to_rfc3339()).unwrap_or_default();
         let is_read = fetch.flags().any(|f| f == async_imap::types::Flag::Seen);
+        let seq_num = fetch.message;
 
-        let mut attachments = Vec::new();
-        let mut att_idx = 0;
-        let item_id = fetch.message.to_string();
-        collect_attachments(&mail, &mut attachments, &mut att_idx, &item_id);
+        // Use BODYSTRUCTURE to find body section and attachment metadata.
+        let (body_section, body_is_html, attachments) = if let Some(bs) = fetch.bodystructure() {
+            let (section, is_html) = find_body_section(bs, &[]).unwrap_or((vec![1], false));
+            let mut atts = Vec::new();
+            collect_attachments_from_bs(bs, &[], &folder, &seq_num.to_string(), &mut atts);
+            (section, is_html, atts)
+        } else {
+            (vec![1], false, Vec::new())
+        };
 
-        messages.push(ImapMessage {
-            item_id,
-            change_key: String::new(),
+        pending.push(Pending {
+            seq_num,
             subject,
             from_name: from_rec.name,
             from_email: Some(from_rec.email),
             to_recipients,
             cc_recipients,
-            body_html,
-            date_time_received: date,
+            date,
             is_read,
-            has_attachments: !attachments.is_empty(),
             attachments,
+            body_section,
+            body_is_html,
+        });
+    }
+
+    // Phase 2: fetch only the body section for each message (skips attachment data).
+    let mut messages = Vec::new();
+    for p in pending {
+        let section_str = section_path_str(&p.body_section);
+        let fetch_cmd = format!("BODY.PEEK[{}]", section_str);
+
+        let body_stream = session.fetch(&p.seq_num.to_string(), &fetch_cmd)
+            .await
+            .map_err(|e| format!("IMAP body fetch error: {}", e))?;
+        let body_results: Vec<_> = body_stream.collect().await;
+
+        let body_html = body_results.into_iter().next()
+            .and_then(|r| r.ok())
+            .and_then(|bf| {
+                let sp = SectionPath::Part(p.body_section.clone(), None);
+                bf.section(&sp).map(|data| {
+                    let text = String::from_utf8_lossy(data).to_string();
+                    if p.body_is_html {
+                        text
+                    } else {
+                        let escaped = text
+                            .replace('&', "&amp;")
+                            .replace('<', "&lt;")
+                            .replace('>', "&gt;");
+                        format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
+                    }
+                })
+            })
+            .unwrap_or_default();
+
+        // Derive a plain-text version from HTML for quote-marker detection.
+        let body_text = if body_html.is_empty() { None } else { Some(strip_html(&body_html)) };
+
+        messages.push(ImapMessage {
+            item_id: p.seq_num.to_string(),
+            change_key: String::new(),
+            subject: p.subject,
+            from_name: p.from_name,
+            from_email: p.from_email,
+            to_recipients: p.to_recipients,
+            cc_recipients: p.cc_recipients,
+            body_html,
+            date_time_received: p.date,
+            is_read: p.is_read,
+            has_attachments: !p.attachments.is_empty(),
+            attachments: p.attachments,
             body_text,
         });
     }
@@ -809,7 +975,14 @@ pub async fn imap_get_attachment_data(config: ImapConfig, folder: String, messag
     let mut session = get_imap_session(&config).await?;
     session.examine(&folder).await.map_err(|e| format!("IMAP examine error: {}", e))?;
 
-    let fetches_stream = session.fetch(&message_id, "RFC822")
+    // attachment_id is an IMAP section path like "2" or "1.2".
+    let section_parts: Vec<u32> = attachment_id
+        .split('.')
+        .map(|s| s.parse::<u32>().map_err(|_| format!("Invalid section component: {}", s)))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let fetch_cmd = format!("BODY.PEEK[{}]", attachment_id);
+    let fetches_stream = session.fetch(&message_id, &fetch_cmd)
         .await
         .map_err(|e| format!("IMAP fetch error: {}", e))?;
     let fetches: Vec<_> = fetches_stream.collect().await;
@@ -817,28 +990,16 @@ pub async fn imap_get_attachment_data(config: ImapConfig, folder: String, messag
     let fetch = fetches.into_iter().next()
         .ok_or("Message not found")?
         .map_err(|e| format!("Fetch error: {}", e))?;
-    let body = fetch.body().ok_or("No body")?;
-    let mail = parse_mail(body).map_err(|e| format!("Mail parse error: {}", e))?;
 
-    let mut current_idx = 0;
-    fn find_attachment_data(mail: &ParsedMail, target_idx: u32, current_idx: &mut u32) -> Option<Vec<u8>> {
-        let disposition = mail.get_headers().get_first_value("Content-Disposition").unwrap_or_default();
-        if disposition.starts_with("attachment") || disposition.starts_with("inline") {
-            if *current_idx == target_idx {
-                return mail.get_body_raw().ok();
-            }
-            *current_idx += 1;
-        }
-        for sub in &mail.subparts {
-            if let Some(data) = find_attachment_data(sub, target_idx, current_idx) {
-                return Some(data);
-            }
-        }
-        None
+    let sp = SectionPath::Part(section_parts, None);
+    let data = fetch.section(&sp).ok_or("Attachment section not found")?;
+
+    // IMAP returns content with its transfer encoding applied (usually base64 for file attachments).
+    // Strip whitespace, then validate: if valid base64, decode and re-encode to normalise;
+    // otherwise treat as raw bytes (7bit/8bit plain text attachment).
+    let stripped: Vec<u8> = data.iter().filter(|&&b| !b.is_ascii_whitespace()).copied().collect();
+    match BASE64.decode(&stripped) {
+        Ok(decoded) => Ok(BASE64.encode(&decoded)),
+        Err(_) => Ok(BASE64.encode(data)),
     }
-
-    let target_idx = attachment_id.parse::<u32>().map_err(|_| "Invalid attachment ID")?;
-    let data = find_attachment_data(&mail, target_idx, &mut current_idx).ok_or("Attachment not found")?;
-
-    Ok(BASE64.encode(data))
 }

@@ -132,6 +132,7 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
     attendees,
     meetUrl,
     seriesId: gEvent.recurringEventId || gEvent.id.split('_')[0],
+    isRecurringInstance: !!gEvent.recurringEventId,
   };
 }
 

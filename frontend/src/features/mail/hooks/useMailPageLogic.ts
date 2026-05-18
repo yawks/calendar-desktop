@@ -12,7 +12,7 @@ import { EwsMailProvider } from '../providers/EwsMailProvider';
 import { GmailMailProvider } from '../providers/GmailMailProvider';
 import { ImapMailProvider } from '../providers/ImapMailProvider';
 import { JmapMailProvider } from '../providers/JmapMailProvider';
-import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery } from '../types';
+import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery, MailFolder } from '../types';
 import { ALL_ACCOUNTS_ID, DISPLAY_TO_STATIC, THEME_CYCLE, buildUnreadCounts } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
 import { useQueryClient } from '@tanstack/react-query';
@@ -239,14 +239,17 @@ export function useMailPageLogic() {
   const downloadToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('mail-sidebar-collapsed') === 'true');
-  const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('mail-sidebar-width') || 220));
-  const [threadListWidth, setThreadListWidth] = useState(() => Number(localStorage.getItem('mail-threadlist-width') || 350));
+  const getScreenKey = () => `${window.screen.width}x${window.screen.height}`;
+  const screenKeyRef = useRef(getScreenKey());
+  const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem(`mail-sidebar-width-${getScreenKey()}`) || 220));
+  const [threadListWidth, setThreadListWidth] = useState(() => Number(localStorage.getItem(`mail-threadlist-width-${getScreenKey()}`) || 350));
   const [snoozedMap, setSnoozedMap] = useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem('mail-snoozed') ?? '{}'); } catch { return {}; }
   });
   const [attachmentPreview, setAttachmentPreview] = useState<{
     attachment: MailAttachment; loading: boolean; data: string | null;
   } | null>(null);
+  const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
   const [composerRestoreData, setComposerRestoreData] = useState<ComposerRestoreData | null>(null);
   const [composingDraftItemId, setComposingDraftItemId] = useState<string | null>(null);
 
@@ -458,14 +461,38 @@ export function useMailPageLogic() {
       const accountId = thread.accountId ?? selectedAccountId;
       const isInTrash = selectedFolder === 'deleteditems';
       selectNextThread(thread.conversation_id);
-      const rollback = optimisticallyRemoveThread(thread.conversation_id);
+      const threadRollback = optimisticallyRemoveThread(thread.conversation_id);
+
+      let folderRollback: (() => void) | null = null;
+      if (!isInTrash && thread.unread_count > 0) {
+        const foldersKey = MAIL_KEYS.folders(accountId);
+        const previousFolders = queryClient.getQueryData<MailFolder[]>(foldersKey);
+        queryClient.setQueriesData<MailFolder[]>({ queryKey: foldersKey }, (old) => {
+          if (!Array.isArray(old)) return old;
+          return old.map(f => {
+            const staticKey = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
+            if (f.folder_id === selectedFolder || staticKey === selectedFolder) {
+              return { ...f, unread_count: Math.max(0, f.unread_count - thread.unread_count) };
+            }
+            return f;
+          });
+        });
+        folderRollback = () => {
+          if (previousFolders !== undefined) queryClient.setQueryData(foldersKey, previousFolders);
+        };
+      }
+
+      const rollback = () => {
+        threadRollback();
+        folderRollback?.();
+      };
 
       const execute = () => {
         const isDraft = selectedFolder === 'drafts';
         if (isInTrash) {
           mutations.deletePermanently({ accountId, provider: p, conversationId: thread.conversation_id });
         } else {
-          mutations.moveToTrash({ accountId, provider: p, conversationId: thread.conversation_id, folderId: selectedFolder, threadUnreadCount: thread.unread_count, isDraft });
+          mutations.moveToTrash({ accountId, provider: p, conversationId: thread.conversation_id, folderId: selectedFolder, threadUnreadCount: 0, isDraft });
         }
         setPendingRemovalIds(prev => { const next = new Set(prev); next.delete(thread.conversation_id); return next; });
         setDeleteToast(null);
@@ -477,7 +504,7 @@ export function useMailPageLogic() {
       setDeleteToast({ label: toastLabel });
       pendingActionRef.current = { id: thread.conversation_id, timerId: setTimeout(execute, 5000), execute, rollback };
     }
-  }, [mutations, selectedThread, threads, resolveProvider, selectedAccountId, selectedFolder, selectNextThread, t, flushPendingAction, optimisticallyRemoveThread]);
+  }, [mutations, selectedThread, threads, resolveProvider, selectedAccountId, selectedFolder, selectNextThread, t, flushPendingAction, optimisticallyRemoveThread, queryClient]);
 
   const handleToggleThreadRead = useCallback((thread: MailThread) => {
     const p = resolveProvider(thread.accountId);
@@ -629,7 +656,9 @@ export function useMailPageLogic() {
     if (!p) return;
     const canPreviewInApp = att.content_type.startsWith('image/') || att.content_type.includes('pdf');
     if (!canPreviewInApp) {
+      setLoadingAttachmentId(`preview:${att.attachment_id}`);
       try { await p.openAttachment(att); } catch (e) { setError(String(e)); }
+      setLoadingAttachmentId(null);
       return;
     }
     setAttachmentPreview({ attachment: att, loading: true, data: null });
@@ -645,6 +674,7 @@ export function useMailPageLogic() {
   const downloadAttachment = useCallback(async (att: MailAttachment) => {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) return;
+    setLoadingAttachmentId(`download:${att.attachment_id}`);
     try {
       const data = await p.getAttachmentData(att);
       const path = await invoke<string>('save_file_to_downloads', { filename: att.name, data });
@@ -652,6 +682,7 @@ export function useMailPageLogic() {
       setDownloadToast({ name: att.name, path });
       downloadToastTimerRef.current = setTimeout(() => setDownloadToast(null), 15000);
     } catch (e) { setError(String(e)); }
+    setLoadingAttachmentId(null);
   }, [resolveProvider, selectedThread]);
 
   const getRawAttachmentData = useCallback(async (att: MailAttachment): Promise<string> => {
@@ -872,17 +903,33 @@ export function useMailPageLogic() {
 
   const handleFoldersLoaded = useCallback(() => {}, []);
 
+  useEffect(() => {
+    const handleScreenChange = () => {
+      const newKey = `${window.screen.width}x${window.screen.height}`;
+      if (newKey !== screenKeyRef.current) {
+        screenKeyRef.current = newKey;
+        setSidebarWidth(Number(localStorage.getItem(`mail-sidebar-width-${newKey}`) || 220));
+        setThreadListWidth(Number(localStorage.getItem(`mail-threadlist-width-${newKey}`) || 350));
+      }
+    };
+    window.addEventListener('resize', handleScreenChange);
+    return () => window.removeEventListener('resize', handleScreenChange);
+  }, []);
+
   const startResizingSidebar = useCallback((e: ReactMouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = sidebarWidth;
+    let currentWidth = startWidth;
     const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
       const delta = moveEvent.clientX - startX;
-      setSidebarWidth(Math.max(150, Math.min(300, startWidth + delta)));
+      currentWidth = Math.max(150, Math.min(300, startWidth + delta));
+      setSidebarWidth(currentWidth);
     };
     const handleMouseUp = () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      localStorage.setItem(`mail-sidebar-width-${screenKeyRef.current}`, String(currentWidth));
     };
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
@@ -892,13 +939,16 @@ export function useMailPageLogic() {
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = threadListWidth;
+    let currentWidth = startWidth;
     const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
       const delta = moveEvent.clientX - startX;
-      setThreadListWidth(Math.max(200, Math.min(500, startWidth + delta)));
+      currentWidth = Math.max(200, Math.min(500, startWidth + delta));
+      setThreadListWidth(currentWidth);
     };
     const handleMouseUp = () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      localStorage.setItem(`mail-threadlist-width-${screenKeyRef.current}`, String(currentWidth));
     };
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
@@ -911,7 +961,7 @@ export function useMailPageLogic() {
     contacts, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
-    allAccountFolders, folderUnreadCounts, sidebarDynamicFolders, attachmentPreview,
+    allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts: allFoldersQuery.mergedCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
     setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, reloadThreads, loadMoreThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,

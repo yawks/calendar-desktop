@@ -220,6 +220,9 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
       raw: {
         ...ev,
         tagColor,
+        hatchColor: ev.selfRsvpStatus === 'TENTATIVE' && !ev.isDeclined
+          ? hexToRgba(color, 0.3)
+          : undefined,
       },
     };
   });

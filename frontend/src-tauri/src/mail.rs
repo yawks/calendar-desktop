@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use mailparse::ParsedMail;
 use serde::{Deserialize, Serialize};
 use tauri::command;
 
@@ -658,7 +657,6 @@ pub async fn mail_get_thread(
     <t:BodyType>HTML</t:BodyType>
     <t:AdditionalProperties>
       <t:FieldURI FieldURI="message:IsRead"/>
-      <t:FieldURI FieldURI="item:MimeContent"/>
     </t:AdditionalProperties>
   </m:ItemShape>
   <m:ItemIds>
@@ -709,7 +707,6 @@ pub async fn mail_get_thread(
     <t:BodyType>HTML</t:BodyType>
     <t:AdditionalProperties>
       <t:FieldURI FieldURI="message:IsRead"/>
-      <t:FieldURI FieldURI="item:MimeContent"/>
     </t:AdditionalProperties>
   </m:ItemShape>
   {folders_to_ignore}
@@ -1406,17 +1403,15 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
     // Attachments — parse FileAttachment elements (skip inline images)
     let attachments = parse_attachments(msg_xml);
 
-    let mime_content = xml_content_ns(msg_xml, "t:MimeContent");
-
-    // Try to extract an ICS from the raw MIME content (for Teams/other invitations
-    // that embed text/calendar as a MIME part rather than a FileAttachment).
-    let ics_mime = if !has_attachments {
-        mime_content.as_deref().and_then(extract_ics_from_mime_base64)
-    } else {
-        None
-    };
-
-    let body_text = mime_content.as_deref().and_then(extract_plain_text_from_mime_base64);
+    // MimeContent is no longer requested to avoid transferring attachment binary
+    // data (~1.33× file size in base64) for every message load.
+    // body_text is derived from the HTML body instead.
+    // ics_mime detection via MimeContent is intentionally dropped: Exchange native
+    // meeting requests come as t:MeetingRequest (handled separately); Teams embedded
+    // ICS via MimeContent would require a separate on-demand fetch if needed later.
+    let body_text = strip_html_tags(&body_html);
+    let body_text = if body_text.trim().is_empty() { None } else { Some(body_text) };
+    let ics_mime: Option<String> = None;
 
     let is_draft = xml_content_ns(msg_xml, "t:IsDraft")
         .map(|v| v == "true")
@@ -1441,43 +1436,42 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
     })
 }
 
-fn find_text_plain_part(mail: &ParsedMail) -> Option<String> {
-    if mail.ctype.mimetype == "text/plain" {
-        return mail.get_body().ok();
+/// Strip HTML tags and <style>/<script> blocks, returning plain text suitable
+/// for quote-marker detection (EmailHtmlBody.tsx findQuoteMarker).
+fn strip_html_tags(html: &str) -> String {
+    let lower = html.to_lowercase();
+    let mut buf = String::with_capacity(html.len() / 2);
+    let mut pos = 0;
+    // Drop <style>…</style> and <script>…</script> blocks first.
+    loop {
+        let style  = lower[pos..].find("<style") .map(|p| (pos + p, "</style>"));
+        let script = lower[pos..].find("<script").map(|p| (pos + p, "</script>"));
+        let next = match (style, script) {
+            (None, None) => { buf.push_str(&html[pos..]); break; }
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (Some(a), Some(b)) => if a.0 <= b.0 { a } else { b },
+        };
+        let (start, end_tag) = next;
+        buf.push_str(&html[pos..start]);
+        pos = lower[start..].find(end_tag)
+            .map(|rel| start + rel + end_tag.len())
+            .unwrap_or(html.len());
     }
-    for sub in &mail.subparts {
-        if let Some(t) = find_text_plain_part(sub) {
-            return Some(t);
-        }
+    // Strip remaining tags.
+    let mut out = String::with_capacity(buf.len());
+    let mut in_tag = false;
+    for c in buf.chars() {
+        if c == '<' { in_tag = true; }
+        else if c == '>' { in_tag = false; }
+        else if !in_tag { out.push(c); }
     }
-    None
+    out
 }
 
-fn extract_plain_text_from_mime_base64(mime_b64: &str) -> Option<String> {
-    let cleaned: String = mime_b64.chars().filter(|c| !c.is_whitespace()).collect();
-    let raw = BASE64.decode(cleaned.as_bytes()).ok()?;
-    let mail = mailparse::parse_mail(&raw).ok()?;
-    find_text_plain_part(&mail)
-}
 
-/// Extract the first `text/calendar` MIME part from a base64-encoded MIME message
-/// (the value of `t:MimeContent` in an EWS response).
-///
-/// Returns the plain ICS text, or `None` if no calendar part is found.
-fn extract_ics_from_mime_base64(mime_b64: &str) -> Option<String> {
-    // Strip whitespace that EWS sometimes wraps into MimeContent
-    let cleaned: String = mime_b64.chars().filter(|c| !c.is_whitespace()).collect();
-    let raw = BASE64.decode(cleaned.as_bytes()).ok()?;
-    let text = String::from_utf8_lossy(&raw);
-    extract_calendar_part_from_mime(&text)
-}
-
-/// Walk MIME parts and return the content of the first `text/calendar` part.
-///
-/// Handles:
-/// - `Content-Transfer-Encoding: base64`
-/// - `Content-Transfer-Encoding: quoted-printable`
-/// - Plain (7bit / 8bit) content
+// Previously used for Teams ICS detection via MimeContent. Kept for potential
+// future on-demand fetch; not called during the main message load path.
 fn extract_calendar_part_from_mime(mime: &str) -> Option<String> {
     let lines: Vec<&str> = mime.lines().collect();
     let mut i = 0;
@@ -1560,7 +1554,7 @@ fn extract_calendar_part_from_mime(mime: &str) -> Option<String> {
     None
 }
 
-/// Minimal quoted-printable decoder (RFC 2045).
+// Kept for potential future use by extract_calendar_part_from_mime.
 fn decode_quoted_printable(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
