@@ -423,20 +423,6 @@ body {
 .mail-actions-menu__item--active {
   color: var(--primary); font-weight: 600;
 }
-/* Scrollbar styling */
-.mail-thread-list::-webkit-scrollbar {
-  width: 8px;
-}
-.mail-thread-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.mail-thread-list::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
-.mail-thread-list::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
 
 /* ── Resize handle ──────────────────────────────── */
 .mail-resize-handle {
