@@ -38,14 +38,13 @@ function generateState(): string {
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
-const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/calendar',
-  // Full Gmail access (read, compose, send, delete). Required for the mail client.
-  'https://mail.google.com/',
-  'openid',
-  'email',
-  'profile',
-].join(' ');
+
+function buildScopes(capabilities: ('calendar' | 'email')[]): string {
+  const scopes = ['openid', 'email', 'profile'];
+  if (capabilities.includes('calendar')) scopes.push('https://www.googleapis.com/auth/calendar');
+  if (capabilities.includes('email')) scopes.push('https://mail.google.com/');
+  return scopes.join(' ');
+}
 
 interface TokenResponse {
   access_token: string;
@@ -135,7 +134,9 @@ export async function refreshAccessToken(
 //   4. Rust capture le code et le renvoie via invoke('wait_oauth_code')
 //   5. Frontend échange le code contre des tokens directement avec Google (PKCE, pas de secret)
 
-export async function tauriConnectGoogle(): Promise<Omit<GoogleAccount, 'id'> | null> {
+export async function tauriConnectGoogle(
+  capabilities: ('calendar' | 'email')[] = ['calendar', 'email']
+): Promise<Omit<GoogleAccount, 'id'> | null> {
   const { clientId, clientSecret } = resolveGoogleCredentials();
 
   const codeVerifier = generateCodeVerifier();
@@ -151,7 +152,7 @@ export async function tauriConnectGoogle(): Promise<Omit<GoogleAccount, 'id'> | 
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: GOOGLE_SCOPES,
+    scope: buildScopes(capabilities),
     access_type: 'offline',
     prompt: 'consent',
     code_challenge: codeChallenge,

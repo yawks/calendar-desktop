@@ -424,6 +424,14 @@ body {
   color: var(--primary); font-weight: 600;
 }
 
+/* ── Scrollbar: hidden by default, visible on scroll ── */
+.mail-thread-list,
+.mail-sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.4s ease;
+}
+
 /* ── Resize handle ──────────────────────────────── */
 .mail-resize-handle {
   width: 4px; flex-shrink: 0; background: transparent; border-left: 1px solid var(--border);

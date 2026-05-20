@@ -70,6 +70,19 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       return () => container.removeEventListener('scroll', handleScroll);
     }, [onLoadMore, hasMore, loadingMore]);
 
+    useEffect(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      let timer: ReturnType<typeof setTimeout>;
+      const onScroll = () => {
+        el.style.setProperty('scrollbar-color', 'color-mix(in srgb, var(--text-muted) 55%, transparent) transparent');
+        clearTimeout(timer);
+        timer = setTimeout(() => el.style.setProperty('scrollbar-color', 'transparent transparent'), 1000);
+      };
+      el.addEventListener('scroll', onScroll, { passive: true });
+      return () => { el.removeEventListener('scroll', onScroll); clearTimeout(timer); };
+    }, [loading]); // re-run quand loading passe à false pour que le ref soit attaché
+
     const allSelected = threads.length > 0 && selectedThreadIds.size === threads.length;
 
     const handleToolbarCheckbox = () => {

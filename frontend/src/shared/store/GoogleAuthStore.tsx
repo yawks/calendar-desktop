@@ -44,7 +44,7 @@ interface GoogleAuthContextValue {
   /** Returns a valid access token, refreshing it automatically if expired. */
   getValidToken: (accountId: string) => Promise<string | null>;
   /** Opens Google OAuth (Tauri: system browser + PKCE; Web: popup + proxy). */
-  connectGoogle: () => Promise<GoogleAccount | null>;
+  connectGoogle: (capabilities?: ('calendar' | 'email')[]) => Promise<GoogleAccount | null>;
 }
 
 const GoogleAuthContext = createContext<GoogleAuthContextValue | null>(null);
@@ -113,6 +113,12 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
           }
         } catch (err) {
           console.error('[GoogleAuthStore] refresh failed', err);
+          const msg = err instanceof Error ? err.message.toLowerCase() : '';
+          const isPermanent = msg.includes('unauthorized') || msg.includes('invalid_grant') || msg.includes('invalid_client');
+          if (isPermanent) {
+            // Mark token as expired far in the future to stop retrying; account needs re-auth
+            dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken: '', expiresAt: Date.now() + 30 * 60 * 1000 } });
+          }
           return null;
         } finally {
             delete refreshPromises.current[accountId];
@@ -123,9 +129,9 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
     return refreshPromises.current[accountId];
   }, []);
 
-  const connectGoogle = useCallback(async (): Promise<GoogleAccount | null> => {
+  const connectGoogle = useCallback(async (capabilities: ('calendar' | 'email')[] = ['calendar', 'email']): Promise<GoogleAccount | null> => {
     if (isTauri()) {
-      const accountData = await tauriConnectGoogle();
+      const accountData = await tauriConnectGoogle(capabilities);
       if (!accountData) return null;
       return addAccount(accountData);
     } else {

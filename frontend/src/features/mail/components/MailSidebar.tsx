@@ -1,6 +1,6 @@
 import { ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
 import { Folder, MailFolder } from '../types';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 export type DynamicFolderEntry = MailFolder & { accountId?: string; accountColor?: string; accountLabel?: string };
@@ -181,6 +181,20 @@ export function MailSidebar({
 }: MailSidebarProps) {
   const { t } = useTranslation();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const onScroll = () => {
+      el.style.setProperty('scrollbar-color', 'color-mix(in srgb, var(--text-muted) 55%, transparent) transparent');
+      clearTimeout(timer);
+      timer = setTimeout(() => el.style.setProperty('scrollbar-color', 'transparent transparent'), 1000);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { el.removeEventListener('scroll', onScroll); clearTimeout(timer); };
+  }, []);
 
   const folderTree = buildFolderTree(dynamicFolders);
 
@@ -202,7 +216,7 @@ export function MailSidebar({
   ];
 
   return (
-    <nav className="mail-sidebar">
+    <nav className="mail-sidebar" ref={navRef}>
       <button className="mail-compose-btn" onClick={onCompose}>
         <Pencil size={15} />
         {t('mail.compose', 'Nouveau message')}

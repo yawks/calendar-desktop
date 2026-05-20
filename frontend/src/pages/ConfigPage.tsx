@@ -1121,7 +1121,7 @@ function NewCalendarModal({
   const handleConnectGoogle = async () => {
     setConnecting(true);
     setConnectError('');
-    const account = await connectGoogle();
+    const account = await connectGoogle(pendingCapabilities);
     setConnecting(false);
     if (account) {
       updateGoogleCapabilities(account.id, pendingCapabilities);
