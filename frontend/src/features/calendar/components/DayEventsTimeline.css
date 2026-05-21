@@ -118,6 +118,19 @@
   border-width: 2px;
 }
 
+.det-event--cancelled {
+  background: rgba(217, 48, 37, 0.08);
+  border-color: var(--danger);
+  border-style: solid;
+  border-width: 2px;
+  color: var(--danger);
+  opacity: 0.75;
+}
+
+.det-event--cancelled .det-event-title {
+  text-decoration: line-through;
+}
+
 .det-event-title {
   font-size: 10px;
   font-weight: 500;

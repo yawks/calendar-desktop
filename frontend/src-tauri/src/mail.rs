@@ -749,7 +749,14 @@ pub async fn mail_get_thread(
         if let Some(items_xml) = xml_content_ns(&node_xml, "t:Items") {
             for &item_type in ITEM_TYPES {
                 for msg_xml in xml_all_ns(&items_xml, item_type) {
-                    if let Some(msg) = parse_message(&msg_xml) {
+                    if let Some(mut msg) = parse_message(&msg_xml) {
+                        if item_type != "t:Message" {
+                            let ics = build_meeting_ics(&msg_xml, item_type);
+                            if ics.is_none() {
+                                eprintln!("[mail] build_meeting_ics returned None for {} (has t:Start={})", item_type, xml_content_ns(&msg_xml, "t:Start").is_some());
+                            }
+                            msg.ics_mime = ics;
+                        }
                         let inline = parse_inline_images(&msg_xml);
                         pending.push((msg, inline));
                     }
@@ -1946,6 +1953,122 @@ fn xml_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+/// Build a minimal valid ICS string from a `t:MeetingRequest`,
+/// `t:MeetingCancellation`, or `t:MeetingResponse` XML element so that
+/// `ICSInvitationCard` can render a calendar card for Exchange/Teams invitations.
+/// Returns `None` when the required `t:Start` / `t:End` fields are absent.
+fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
+    let start_str = xml_content_ns(msg_xml, "t:Start")?;
+    let end_str   = xml_content_ns(msg_xml, "t:End")?;
+
+    let summary   = xml_content_ns(msg_xml, "t:Subject").unwrap_or_default();
+    let is_all_day = xml_content_ns(msg_xml, "t:IsAllDayEvent")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let location  = xml_content_ns(msg_xml, "t:Location");
+
+    // Use ItemId as UID (t:UID is not included in AllProperties for MeetingRequest)
+    let uid = {
+        let id_elem = msg_xml
+            .find("<t:ItemId ")
+            .and_then(|s| msg_xml[s..].find("/>").map(|e| &msg_xml[s..s + e]));
+        id_elem.and_then(|e| xml_attr(e, "Id")).unwrap_or_else(|| "unknown".to_string())
+    };
+
+    let method = match item_type {
+        "t:MeetingCancellation" => "CANCEL",
+        "t:MeetingResponse"     => "REPLY",
+        _                       => "REQUEST",
+    };
+
+    // EWS UTC times: "2024-01-15T10:00:00Z" → ICS: "20240115T100000Z"
+    let fmt_ics_dt = |s: &str| -> String {
+        s.chars().filter(|&c| c != '-' && c != ':').collect()
+    };
+
+    let (dtstart, dtend) = if is_all_day {
+        let ds = start_str.get(..10).unwrap_or(&start_str).replace('-', "");
+        let de = end_str.get(..10).unwrap_or(&end_str).replace('-', "");
+        (format!("DTSTART;VALUE=DATE:{}", ds), format!("DTEND;VALUE=DATE:{}", de))
+    } else {
+        (format!("DTSTART:{}", fmt_ics_dt(&start_str)), format!("DTEND:{}", fmt_ics_dt(&end_str)))
+    };
+
+    // Organizer (nested inside t:Organizer > t:Mailbox)
+    let org_mb    = xml_content_ns(msg_xml, "t:Organizer")
+        .and_then(|o| xml_content_ns(&o, "t:Mailbox"));
+    let org_email = org_mb.as_deref()
+        .and_then(|m| xml_content_ns(m, "t:EmailAddress"))
+        .unwrap_or_default()
+        .to_lowercase();
+    let org_name  = org_mb.as_deref()
+        .and_then(|m| xml_content_ns(m, "t:Name"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| org_email.clone());
+
+    let mut lines = vec![
+        "BEGIN:VCALENDAR".to_string(),
+        "VERSION:2.0".to_string(),
+        "PRODID:-//Courrier//EN".to_string(),
+        format!("METHOD:{}", method),
+        "BEGIN:VEVENT".to_string(),
+        format!("UID:{}", ics_escape_value(&uid)),
+        format!("SUMMARY:{}", ics_escape_value(&summary)),
+        dtstart,
+        dtend,
+    ];
+    if !org_email.is_empty() {
+        lines.push(format!("ORGANIZER;CN={}:mailto:{}", ics_escape_value(&org_name), org_email));
+    }
+    if let Some(loc) = location.filter(|s| !s.is_empty()) {
+        lines.push(format!("LOCATION:{}", ics_escape_value(&loc)));
+    }
+
+    for list_tag in &["t:RequiredAttendees", "t:OptionalAttendees"] {
+        let role = if *list_tag == "t:RequiredAttendees" { "REQ-PARTICIPANT" } else { "OPT-PARTICIPANT" };
+        if let Some(list_xml) = xml_content_ns(msg_xml, list_tag) {
+            for att_xml in xml_all_ns(&list_xml, "t:Attendee") {
+                let email = xml_content_ns(&att_xml, "t:EmailAddress")
+                    .unwrap_or_default()
+                    .to_lowercase();
+                if email.is_empty() { continue; }
+                let name     = xml_content_ns(&att_xml, "t:Name")
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| email.clone());
+                let partstat = xml_content_ns(&att_xml, "t:ResponseType")
+                    .as_deref()
+                    .map(ews_response_type_to_partstat)
+                    .unwrap_or("NEEDS-ACTION");
+                lines.push(format!(
+                    "ATTENDEE;CN={};ROLE={};PARTSTAT={}:mailto:{}",
+                    ics_escape_value(&name), role, partstat, email,
+                ));
+            }
+        }
+    }
+
+    lines.push("END:VEVENT".to_string());
+    lines.push("END:VCALENDAR".to_string());
+    Some(lines.join("\r\n"))
+}
+
+fn ews_response_type_to_partstat(rt: &str) -> &'static str {
+    match rt {
+        "Accept" | "Organizer" => "ACCEPTED",
+        "Decline"              => "DECLINED",
+        "Tentative"            => "TENTATIVE",
+        _                      => "NEEDS-ACTION",
+    }
+}
+
+fn ics_escape_value(s: &str) -> String {
+    s.replace('\\', "\\\\")
+     .replace(';', "\\;")
+     .replace(',', "\\,")
+     .replace('\n', "\\n")
+     .replace('\r', "")
 }
 
 /// Unescape an HTML body that EWS returned XML-escaped inside a text node.

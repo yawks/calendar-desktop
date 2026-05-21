@@ -7,7 +7,7 @@
  */
 // @ts-ignore – ical.js has no bundled types for v1.x
 import ICAL from 'ical.js';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarCheck, ChevronDown, MapPin, Clock, Users, Check, Minus, X, Plus, Loader2 } from 'lucide-react';
 import { CalendarConfig, CalendarEvent, AttendeeStatus } from '../../../shared/types';
 import { MailAttachment } from '../types';
@@ -48,6 +48,21 @@ function normTitle(t: string): string {
   return t.trim().toLowerCase().replaceAll(/\s+/g, ' ');
 }
 
+/**
+ * Loose title match: handles server-side prefixes added by Exchange/Outlook when
+ * an event is cancelled — e.g. "Événement annulé: <title> - mer. 10 juin…".
+ * After stripping the first "word(s): " prefix, checks whether the remainder
+ * *starts with* the ICS title (ignoring any trailing date/email suffix).
+ */
+function titlesMatch(evTitle: string, icsTitle: string): boolean {
+  const a = normTitle(evTitle);
+  const b = normTitle(icsTitle);
+  if (a === b) return true;
+  const colonIdx = a.indexOf(': ');
+  if (colonIdx !== -1 && a.slice(colonIdx + 2).startsWith(b)) return true;
+  return false;
+}
+
 /** Find the best matching calendar event for the ICS invitation */
 function matchEvent(
   icsTitle: string,
@@ -55,26 +70,36 @@ function matchEvent(
   icsEnd: string,
   allEvents: CalendarEvent[],
 ): CalendarEvent | null {
-  const title = normTitle(icsTitle);
   const icsStartDay = new Date(icsStart);
   const icsEndDay = new Date(icsEnd);
-  // Strict: same title + within 5 min on start + same end day
+  // Strict: title match + within 5 min on start + same end day
   for (const ev of allEvents) {
-    if (normTitle(ev.title) === title
+    if (titlesMatch(ev.title, icsTitle)
       && dateAreSimilar(ev.start, icsStart)
       && isSameDay(new Date(ev.end), icsEndDay)) {
       return ev;
     }
   }
-  // Relax: same title + same start day + same end day
+  // Relax: title match + same start day + same end day
   for (const ev of allEvents) {
-    if (normTitle(ev.title) === title
+    if (titlesMatch(ev.title, icsTitle)
       && isSameDay(new Date(ev.start), icsStartDay)
       && isSameDay(new Date(ev.end), icsEndDay)) {
       return ev;
     }
   }
   return null;
+}
+
+function resolveHighlightedId(isCancelled: boolean, matchedId: string | undefined, isAllday: boolean | undefined): string | undefined {
+  if (isCancelled) return undefined;
+  return matchedId ?? (isAllday ? undefined : ICS_PREVIEW_ID);
+}
+
+function cardLabel(isCancelled: boolean, isReply: boolean): string {
+  if (isCancelled) return 'Annulation';
+  if (isReply) return 'Réponse';
+  return 'Invitation';
 }
 
 function supportsRsvp(type: CalendarConfig['type']): boolean {
@@ -372,7 +397,8 @@ export interface ICSInvitationCardProps {
   readonly mailProviderType?: 'gmail' | 'ews';
 }
 
-const ICS_PREVIEW_ID = '__ics_preview__';
+const ICS_PREVIEW_ID   = '__ics_preview__';
+const ICS_CANCELLED_ID = '__ics_cancelled__';
 
 export function ICSInvitationCard({
   source, currentUserEmail, mailProviderType,
@@ -382,14 +408,27 @@ export function ICSInvitationCard({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Stable key derived from content — the parent creates a new `source` object
+  // on every render (inline literal), so using `source` directly as an effect
+  // dep would re-trigger parsing on every mouse-hover re-render of the parent.
+  const sourceKey = source.kind === 'text'
+    ? `text:${source.icsText.slice(0, 128)}`
+    : `att:${source.attachment.attachment_id}`;
+
+  // Keep a ref so the effect always calls the latest `getAttachmentData`
+  // without needing it in the dep array.
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
 
-    const resolve = source.kind === 'text'
-      ? Promise.resolve(source.icsText)
-      : source.getAttachmentData(source.attachment).then(decodeBase64Utf8);
+    const src = sourceRef.current;
+    const resolve = src.kind === 'text'
+      ? Promise.resolve(src.icsText)
+      : src.getAttachmentData(src.attachment).then(decodeBase64Utf8);
 
     resolve
       .then(text => {
@@ -406,7 +445,7 @@ export function ICSInvitationCard({
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [source]);
+  }, [sourceKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Calendar + event data ─────────────────────────────────────────────────
   const { calendars: allCalendars } = useCalendars();
@@ -460,19 +499,38 @@ export function ICSInvitationCard({
   const matchedEvent = useMemo(() => {
     if (!icsData) return null;
     const writableEvents = allEvents.filter(ev => writableCalIds.has(ev.calendarId));
-    return matchEvent(icsData.title, icsData.start, icsData.end, writableEvents);
+    const result = matchEvent(icsData.title, icsData.start, icsData.end, writableEvents);
+
+    // ── Debug matching (remove once resolved) ────────────────────────────────
+    if (!result && writableEvents.length > 0) {
+      const icsDay = icsData.start.slice(0, 10);
+      const nearby = writableEvents.filter(ev => Math.abs(
+        new Date(ev.start).getTime() - new Date(icsData.start).getTime()
+      ) < 7 * 24 * 60 * 60 * 1000); // within 1 week
+      console.debug('[ICSCard] no match for:', {
+        icsTitle: icsData.title,
+        icsStart: icsData.start,
+        icsEnd: icsData.end,
+        icsDay,
+        writableEventsTotal: writableEvents.length,
+        nearbyEvents: nearby.map(ev => ({
+          title: ev.title,
+          start: ev.start,
+          end: ev.end,
+          calendarId: ev.calendarId,
+          titleMatch: titlesMatch(ev.title, icsData.title),
+          startDiffMin: Math.round((new Date(ev.start).getTime() - new Date(icsData.start).getTime()) / 60000),
+        })),
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    return result;
   }, [icsData, allEvents, writableCalIds]);
 
-  const [selectedCalId, setSelectedCalId] = useState<string>('');
-  const [userChangedCalendar, setUserChangedCalendar] = useState(false);
-
-  useEffect(() => {
-    if (userChangedCalendar) return;
-    const targetId = matchedEvent?.calendarId ?? defaultCalendarId;
-    if (targetId && targetId !== selectedCalId) {
-        setSelectedCalId(targetId);
-    }
-  }, [defaultCalendarId, matchedEvent?.calendarId, userChangedCalendar, selectedCalId]);
+  const [userSelectedCalId, setUserSelectedCalId] = useState<string | null>(null);
+  // Derived — no state sync needed, avoids extra renders
+  const selectedCalId = userSelectedCalId ?? matchedEvent?.calendarId ?? defaultCalendarId;
 
   const selectedCal = useMemo(
     () => writableCalendars.find(c => c.id === selectedCalId) ?? null,
@@ -485,18 +543,16 @@ export function ICSInvitationCard({
     return matchedEvent.calendarId === selectedCal.id ? matchedEvent : null;
   }, [matchedEvent, selectedCal]);
 
-  // Current RSVP status — localStorage takes priority over the calendar cache,
-  // so the user's last explicit choice is always shown on remount.
-  const [storedStatus, setStoredStatus] = useState<AttendeeStatus | undefined>(undefined);
-  useEffect(() => {
-    if (!icsData) return;
-    const persisted = loadStoredRsvp(icsData);
-    setStoredStatus(persisted);
-  }, [icsData]);
+  // RSVP override set by the user in this session; takes priority over localStorage.
+  const [rsvpOverride, setRsvpOverride] = useState<AttendeeStatus | undefined>(undefined);
+  // Synchronous localStorage read — avoids one extra render cycle vs useState+useEffect.
+  const storedStatus = rsvpOverride ?? (icsData ? loadStoredRsvp(icsData) : undefined);
 
   const isCancelled = icsData?.method === 'CANCEL';
+  const isReply = icsData?.method === 'REPLY';
+  const replyResponder = isReply ? (icsData?.attendees.find(a => !a.isOrganizer) ?? null) : null;
   const currentStatus = storedStatus ?? matchedInSelected?.selfRsvpStatus;
-  const canRsvp = !isCancelled && (selectedCal ? supportsRsvp(selectedCal.type) : false);
+  const canRsvp = !isCancelled && !isReply && (selectedCal ? supportsRsvp(selectedCal.type) : false);
   const isInCalendar = matchedInSelected !== null;
 
   // Events for the day timeline
@@ -515,19 +571,17 @@ export function ICSInvitationCard({
       const s = new Date(ev.start);
       return s >= day && s <= dayEnd;
     });
-    // If the event isn't in the calendar yet, inject a virtual pending event
-    // so the timeline shows it as a dashed preview.
-    if (!matchedInSelected && !icsData.isAllday) {
-      const virtualEvent = {
-        id: ICS_PREVIEW_ID,
-        calendarId: selectedCalId || '',
-        title: icsData.title,
-        start: icsData.start,
-        end: icsData.end,
-        isAllday: false,
-        category: 'time' as const,
-      };
-      return [...filtered, virtualEvent];
+    if (!icsData.isAllday) {
+      if (!isReply && !isCancelled && !matchedInSelected && !currentStatus) {
+        // REQUEST not yet in calendar and no known response: show a dashed preview
+        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, isAllday: false, category: 'time' as const }];
+      }
+      if (isCancelled && !matchedInSelected) {
+        // CANCEL but real event not matched: replace any same-title event with the
+        // struck-through ghost so we don't show two blocks side by side.
+        const withoutDuplicate = filtered.filter(ev => !titlesMatch(ev.title, icsData.title));
+        return [...withoutDuplicate, { id: ICS_CANCELLED_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, isAllday: false, category: 'time' as const }];
+      }
     }
     return filtered;
   }, [allEvents, icsData, matchedInSelected, selectedCalId]);
@@ -539,6 +593,8 @@ export function ICSInvitationCard({
 
   const handleRsvp = useCallback(async (status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE') => {
     if (!selectedCal || !icsData) return;
+    const prevOverride = rsvpOverride; // capture for rollback
+    setRsvpOverride(status);           // optimistic update — UI reflects choice instantly
     setLoadingAction(status);
     setActionError(null);
     setActionSuccess(null);
@@ -546,8 +602,7 @@ export function ICSInvitationCard({
       if (isInCalendar && matchedInSelected) {
         await executeRsvp(selectedCal, matchedInSelected, status, getGoogleToken, getExchangeToken);
         saveStoredRsvp(icsData, status);
-        setStoredStatus(status);
-        // Also patch the IndexedDB cache so the calendar view reflects the change
+        // Patch the IndexedDB cache so the calendar view reflects the change
         const { id: eventId, calendarId } = matchedInSelected;
         if (selectedCal.type === 'exchange') {
           await patchEWSCachedRsvp(calendarId, eventId, status);
@@ -562,15 +617,15 @@ export function ICSInvitationCard({
         // Event not yet in calendar: create it with the given status
         await addToCalendar(selectedCal, icsData, getGoogleToken, getExchangeToken);
         saveStoredRsvp(icsData, status);
-        setStoredStatus(status);
         setActionSuccess('Ajouté au calendrier !');
       }
     } catch (e) {
+      setRsvpOverride(prevOverride); // rollback optimistic update
       setActionError(String(e));
     } finally {
       setLoadingAction(null);
     }
-  }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken]);
+  }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride]);
 
   const handleAddToCalendar = useCallback(async () => {
     if (!selectedCal || !icsData) return;
@@ -625,10 +680,12 @@ export function ICSInvitationCard({
       <div className="ics-card__main">
         <div className="ics-card__header">
           <CalendarCheck size={18} className="ics-card__icon" />
-          <span className="ics-card__label">{isCancelled ? 'Annulation' : 'Invitation'}</span>
+          <span className="ics-card__label">
+            {cardLabel(isCancelled, isReply)}
+          </span>
         </div>
 
-        <h3 className="ics-card__title" style={currentStatus === 'DECLINED' ? { textDecoration: 'line-through' } : undefined}>{icsData.title}</h3>
+        <h3 className="ics-card__title" style={currentStatus === 'DECLINED' || isCancelled ? { textDecoration: 'line-through' } : undefined}>{icsData.title}</h3>
 
         {isCancelled && (
           <div className="ics-status ics-status--cancelled">Évènement annulé</div>
@@ -658,33 +715,43 @@ export function ICSInvitationCard({
           )}
         </div>
 
-        {/* Status badge */}
-        {currentStatus && (
+        {/* Responder info — only for REPLY method */}
+        {isReply && replyResponder && (
+          <div className="ics-reply-info">
+            <strong>{replyResponder.name}</strong>{' '}a répondu :{' '}
+            <span className={`ics-status ${statusClass(replyResponder.status)}`}>
+              {statusLabel(replyResponder.status)}
+            </span>
+          </div>
+        )}
+
+        {/* Status badge — hidden for REPLY (responder block takes over) */}
+        {!isReply && currentStatus && (
           <div className={`ics-status ${statusClass(currentStatus)}`}>
             {statusLabel(currentStatus)}
           </div>
         )}
 
-        {/* Calendar selector — hidden for cancellations */}
-        {!isCancelled && writableCalendars.length > 0 && selectedCalId && (
+        {/* Calendar selector — hidden for cancellations and replies */}
+        {!isCancelled && !isReply && writableCalendars.length > 0 && selectedCalId && (
           <div className="ics-card__cal-row">
             <span className="ics-card__cal-label">Calendrier :</span>
             <CalendarSelector
               calendars={writableCalendars}
               selectedId={selectedCalId}
-              onChange={id => { setSelectedCalId(id); setUserChangedCalendar(true); }}
+              onChange={id => setUserSelectedCalId(id)}
             />
           </div>
         )}
 
-        {/* Actions — hidden for cancellations */}
-        {!isCancelled && (<div className="ics-card__actions">
+        {/* Actions — hidden for cancellations and replies */}
+        {!isCancelled && !isReply && (<div className="ics-card__actions">
           {canRsvp ? (
             <>
               <button
                 className={`ics-btn ics-btn--accept${currentStatus === 'ACCEPTED' ? ' ics-btn--active' : ''}`}
                 onClick={() => handleRsvp('ACCEPTED')}
-                disabled={loadingAction !== null}
+                disabled={loadingAction !== null || currentStatus === 'ACCEPTED'}
                 type="button"
               >
                 {loadingAction === 'ACCEPTED' ? <Loader2 size={13} className="ics-spinner" /> : <Check size={13} />} Accepter
@@ -692,7 +759,7 @@ export function ICSInvitationCard({
               <button
                 className={`ics-btn ics-btn--tentative${currentStatus === 'TENTATIVE' ? ' ics-btn--active' : ''}`}
                 onClick={() => handleRsvp('TENTATIVE')}
-                disabled={loadingAction !== null}
+                disabled={loadingAction !== null || currentStatus === 'TENTATIVE'}
                 type="button"
               >
                 {loadingAction === 'TENTATIVE' ? <Loader2 size={13} className="ics-spinner" /> : <Minus size={13} />} Peut-être
@@ -700,7 +767,7 @@ export function ICSInvitationCard({
               <button
                 className={`ics-btn ics-btn--decline${currentStatus === 'DECLINED' ? ' ics-btn--active' : ''}`}
                 onClick={() => handleRsvp('DECLINED')}
-                disabled={loadingAction !== null}
+                disabled={loadingAction !== null || currentStatus === 'DECLINED'}
                 type="button"
               >
                 {loadingAction === 'DECLINED' ? <Loader2 size={13} className="ics-spinner" /> : <X size={13} />} Refuser
@@ -731,7 +798,8 @@ export function ICSInvitationCard({
         events={dayEvents}
         calendars={allCalendars}
         targetDate={targetDate}
-        highlightedEventId={matchedInSelected?.id ?? (!icsData?.isAllday ? ICS_PREVIEW_ID : undefined)}
+        highlightedEventId={resolveHighlightedId(isCancelled, matchedInSelected?.id, icsData?.isAllday)}
+        cancelledEventId={isCancelled ? (matchedInSelected?.id ?? ICS_CANCELLED_ID) : undefined}
       />
     </div>
   );

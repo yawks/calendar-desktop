@@ -74,11 +74,13 @@ export interface DayEventsTimelineProps {
   readonly targetDate: Date;
   /** ID of the calendar event matching the ICS invitation — shown with a distinct frame */
   readonly highlightedEventId?: string;
+  /** ID of a calendar event that was cancelled — shown struck-through with danger styling */
+  readonly cancelledEventId?: string;
   readonly loading?: boolean;
 }
 
 export function DayEventsTimeline({
-  events, calendars, targetDate, highlightedEventId, loading,
+  events, calendars, targetDate, highlightedEventId, cancelledEventId, loading,
 }: DayEventsTimelineProps) {
   const hours = useMemo(() => {
     const h: number[] = [];
@@ -177,25 +179,26 @@ export function DayEventsTimeline({
 
           {/* Absolute events layer */}
           <div className="det-events-layer">
-            {placed.map(({ ev, topPx, heightPx, color, isHighlighted, leftPct, widthPct, bgColor, textColor }) => (
-              <div
-                key={ev.id}
-                className={`det-event${isHighlighted ? ' det-event--highlighted' : ''}`}
-                title={`${ev.title}\n${new Date(ev.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} – ${new Date(ev.end).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
-                style={{
-                  top: `${topPx}px`,
-                  height: `${heightPx}px`,
-                  left: `calc(${leftPct}% + 1px)`,
-                  width: `calc(${widthPct}% - 3px)`,
-                  backgroundColor: bgColor,
-                  color: textColor,
-                  borderColor: color,
-                  outlineColor: isHighlighted ? color : undefined,
-                }}
-              >
-                <span className="det-event-title">{ev.title}</span>
-              </div>
-            ))}
+            {placed.map(({ ev, topPx, heightPx, color, isHighlighted, leftPct, widthPct, bgColor, textColor }) => {
+              const isCancelledEv = ev.id === cancelledEventId;
+              return (
+                <div
+                  key={ev.id}
+                  className={`det-event${isHighlighted ? ' det-event--highlighted' : ''}${isCancelledEv ? ' det-event--cancelled' : ''}`}
+                  title={`${ev.title}\n${new Date(ev.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} – ${new Date(ev.end).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
+                  style={{
+                    top: `${topPx}px`,
+                    height: `${heightPx}px`,
+                    left: `calc(${leftPct}% + 1px)`,
+                    width: `calc(${widthPct}% - 3px)`,
+                    // Let CSS handle colours for cancelled events
+                    ...(!isCancelledEv && { backgroundColor: bgColor, color: textColor, borderColor: color }),
+                  }}
+                >
+                  <span className="det-event-title">{ev.title}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
