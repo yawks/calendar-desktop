@@ -127,7 +127,10 @@ frontend/
     gmail.rs                        # Commandes Tauri Gmail
     imap.rs                         # Commandes Tauri IMAP + SMTP
     jmap.rs                         # Commandes Tauri JMAP
-    mail.rs                         # Types Rust partagés mail
+    mail_provider.rs                # trait MailProvider + types canoniques Rust (MailThread, MailMessage, MailFolder, MailAttachment, MailItemRef, MailIdentity, ComposerAttachment, SendMailParams, SaveDraftParams, MailSearchQuery)
+    mail.rs                         # EwsProvider + impl MailProvider (EWS/Exchange)
+    imap.rs                         # ImapProvider + impl MailProvider (IMAP/SMTP)
+    jmap.rs                         # JmapProvider + impl MailProvider + JmapClientState (cache connexions)
     ews/
       mod.rs                        # Commandes Tauri EWS
       calendar.rs                   # Commandes Tauri EWS calendrier
@@ -148,8 +151,17 @@ frontend/
 - Les mutations utilisent `useMailMutations` (mail) et les fonctions dans `useCalendarLogic` (calendrier)
 
 ### Providers mail
-Tous les providers implémentent l'interface `MailProvider` (`features/mail/providers/MailProvider.ts`).
-Pour ajouter un provider : créer une classe, l'instancier dans `useMailProvider.ts`, ajouter un store d'auth dans `shared/store/`.
+L'architecture est symétrique côté TypeScript et Rust :
+
+**TypeScript** — tous les providers implémentent `interface MailProvider` (`features/mail/providers/MailProvider.ts`).
+Pour ajouter un provider TS : créer une classe, l'instancier dans `useMailProvider.ts`, ajouter un store d'auth dans `shared/store/`.
+
+**Rust** — tous les providers implémentent `trait MailProvider` (`src-tauri/src/mail_provider.rs`).
+Les types canoniques (MailThread, MailMessage, MailFolder, MailAttachment, etc.) sont définis une seule fois dans `mail_provider.rs` et importés par `mail.rs` (EWS), `imap.rs` et `jmap.rs`.
+Les commandes Tauri sont de fines enveloppes qui instancient le bon `XxxProvider` et délèguent au trait.
+Pour ajouter un provider Rust : créer un struct, implémenter `MailProvider`, enregistrer les commandes dans `lib.rs`.
+
+> Gmail est une exception : son provider est entièrement côté TypeScript ; `gmail.rs` ne contient que 2 helpers d'attachements.
 
 ### Providers calendrier
 Chaque source = un hook `useXxxEvents(calendars, dateRange)` → renvoie `CalendarEvent[]`.

@@ -5,6 +5,7 @@ mod http;
 mod imap;
 mod jmap;
 mod mail;
+mod mail_provider;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
@@ -140,7 +141,7 @@ pub fn run() {
         .expect("Failed to install rustls crypto provider");
 
     let oauth_state = auth::OAuthState { rx: std::sync::Mutex::new(None) };
-    let jmap_state = jmap::JmapClientState::new();
+    let jmap_state = std::sync::Arc::new(jmap::JmapClientState::new());
 
     #[cfg(target_os = "macos")]
     let ek_state = eventkit::EventKitState::new();
