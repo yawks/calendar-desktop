@@ -22,6 +22,7 @@ export interface ThreadListProps {
   readonly onToggleSelect: (t: MailThread) => void;
   readonly onSelectAll: () => void;
   readonly onClearSelection: () => void;
+  readonly provider?: import('../providers/MailProvider').MailProvider | null;
 }
 
 export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
@@ -44,6 +45,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       onToggleSelect,
       onSelectAll,
       onClearSelection,
+      provider,
     },
     ref
   ) => {
@@ -195,6 +197,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               snoozeUntil={snoozedMap[thread.conversation_id]}
               isInSnoozedFolder={isInSnoozedFolder}
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
+              provider={provider}
               onSelect={onSelect}
               onToggleRead={onToggleRead}
               onDelete={onDelete}

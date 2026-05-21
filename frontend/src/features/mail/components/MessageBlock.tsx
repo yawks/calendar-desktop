@@ -10,6 +10,7 @@ export interface MessageBlockProps {
   readonly defaultExpanded?: boolean;
   readonly currentUserEmail?: string;
   readonly mailProviderType?: 'gmail' | 'ews';
+  readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly onMarkRead?: (msg: MailMessage) => void;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
@@ -33,7 +34,7 @@ function findScrollParent(el: HTMLElement): HTMLElement | null {
 }
 
 export function MessageBlock({
-  message, defaultExpanded = false, currentUserEmail, mailProviderType,
+  message, defaultExpanded = false, currentUserEmail, mailProviderType, provider,
   onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
 }: MessageBlockProps) {
@@ -77,6 +78,7 @@ export function MessageBlock({
         onForward={onForward}
         onTrash={onTrash}
         onToggleRead={onToggleRead}
+        provider={provider}
       />
 
       {isExpanded && (

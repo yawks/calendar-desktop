@@ -12,8 +12,10 @@ import {
 import { MouseEvent, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
-import { avatarColor, formatDate, formatFullDate, formatSize, initials, senderColor } from '../utils';
+import { formatDate, formatFullDate, formatSize, senderColor } from '../utils';
 import { MailMessage, MailRecipient } from '../types';
+import { ContactAvatar } from './ContactAvatar';
+import type { MailProvider } from '../providers/MailProvider';
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -27,6 +29,7 @@ interface MessageBlockHeaderProps {
   readonly onTrash: (id: string) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
   readonly onComposeToContact?: (recipient: MailRecipient) => void;
+  readonly provider?: MailProvider | null;
 }
 
 // ── Recipient chip ─────────────────────────────────────────────────────────────
@@ -112,6 +115,7 @@ export function MessageBlockHeader({
   onTrash,
   onToggleRead,
   onComposeToContact,
+  provider,
 }: MessageBlockHeaderProps) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
@@ -140,12 +144,13 @@ export function MessageBlockHeader({
         className="mail-message-block__header mail-message-block__header--compact"
         onClick={onToggleExpand}
       >
-        <div
+        <ContactAvatar
+          email={message.from_email ?? sender}
+          name={message.from_name ?? undefined}
+          provider={provider}
+          size={24}
           className="mail-message-block__avatar mail-message-block__avatar--small"
-          style={{ background: avatarColor(sender) }}
-        >
-          {initials(sender)}
-        </div>
+        />
         <span
           className="mail-message-block__from--compact"
           style={{ color: senderColor(sender, isDark) }}
@@ -166,9 +171,13 @@ export function MessageBlockHeader({
       <div className="mail-message-block__header" onClick={onToggleExpand}>
 
         {/* Avatar */}
-        <div className="mail-message-block__avatar" style={{ background: avatarColor(sender) }}>
-          {initials(sender)}
-        </div>
+        <ContactAvatar
+          email={message.from_email ?? sender}
+          name={message.from_name ?? undefined}
+          provider={provider}
+          size={32}
+          className="mail-message-block__avatar"
+        />
 
         {/* 2-row content */}
         <div className="mail-message-block__header-content">

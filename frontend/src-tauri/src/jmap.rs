@@ -299,7 +299,9 @@ impl MailProvider for JmapProvider {
                 }
             } else {
                 thread_order.push(thread_id.clone());
-                let from_name = email.from().and_then(|f| f.first()).and_then(|a| a.name().map(|s| s.to_string()));
+                let from_addr = email.from().and_then(|f| f.first());
+                let from_name = from_addr.and_then(|a| a.name().map(|s| s.to_string()));
+                let from_email = from_addr.map(|a| a.email().to_string());
                 thread_map.insert(thread_id.clone(), MailThread {
                     conversation_id: thread_id,
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
@@ -308,6 +310,7 @@ impl MailProvider for JmapProvider {
                     message_count: 1,
                     unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
                     from_name,
+                    from_email,
                     has_attachments: email.has_attachment(),
                 });
             }
@@ -722,7 +725,9 @@ impl MailProvider for JmapProvider {
             let thread_id = email.thread_id().unwrap_or_default().to_string();
             if !thread_map.contains_key(&thread_id) {
                 thread_order.push(thread_id.clone());
-                let from_name = email.from().and_then(|f| f.first()).and_then(|a| a.name().map(|s| s.to_string()));
+                let from_addr = email.from().and_then(|f| f.first());
+                let from_name = from_addr.and_then(|a| a.name().map(|s| s.to_string()));
+                let from_email = from_addr.map(|a| a.email().to_string());
                 thread_map.insert(thread_id.clone(), MailThread {
                     conversation_id: thread_id,
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
@@ -731,6 +736,7 @@ impl MailProvider for JmapProvider {
                     message_count: 1,
                     unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
                     from_name,
+                    from_email,
                     has_attachments: email.has_attachment(),
                 });
             }

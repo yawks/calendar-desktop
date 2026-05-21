@@ -400,6 +400,7 @@ impl MailProvider for EwsProvider {
                     message_count: 1,
                     unread_count: 0,
                     from_name: sender_name,
+                    from_email: None,
                     has_attachments,
                 });
             }
@@ -491,6 +492,7 @@ impl MailProvider for EwsProvider {
                 message_count,
                 unread_count,
                 from_name,
+                from_email: None,
                 has_attachments,
             });
         }
@@ -628,6 +630,7 @@ impl MailProvider for EwsProvider {
                     message_count: 1,
                     unread_count: if is_read { 0 } else { 1 },
                     from_name,
+                    from_email: None,
                     has_attachments: has_attach,
                 });
             }
@@ -1225,6 +1228,64 @@ impl MailProvider for EwsProvider {
     async fn list_identities(&self) -> Result<Vec<MailIdentity>, String> {
         Err("not_supported".to_string())
     }
+
+    async fn search_contacts(&self, query: &str, max_count: Option<u32>) -> Result<Vec<crate::mail_provider::Contact>, String> {
+        if query.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let top = max_count.unwrap_or(25);
+        let encoded = urlencoding::encode(query);
+        let url = format!(
+            "{}/me/people?$search={}&$top={}&$select=displayName,scoredEmailAddresses",
+            GRAPH_ENDPOINT, encoded, top
+        );
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.access_token))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("Graph people error: {}", resp.status()));
+        }
+        let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let contacts = json["value"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|p| {
+                let email = p["scoredEmailAddresses"]
+                    .as_array()?
+                    .first()?["address"]
+                    .as_str()?
+                    .to_string();
+                let name = p["displayName"].as_str().map(|s| s.to_string());
+                Some(crate::mail_provider::Contact { email, name })
+            })
+            .collect();
+        Ok(contacts)
+    }
+
+    async fn get_contact_photo(&self, email: &str) -> Result<Option<String>, String> {
+        let encoded = urlencoding::encode(email);
+        let url = format!("{}/users/{}/photo/$value", GRAPH_ENDPOINT, encoded);
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.access_token))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if resp.status().as_u16() == 404 || resp.status().as_u16() == 403 {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
+        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+        Ok(Some(BASE64.encode(&bytes)))
+    }
 }
 
 // ── Tauri commands (thin wrappers) ────────────────────────────────────────────
@@ -1403,6 +1464,23 @@ pub async fn mail_snooze(
     item_id: String,
 ) -> Result<String, String> {
     EwsProvider::new(access_token).snooze(&item_id).await
+}
+
+#[command]
+pub async fn mail_search_contacts(
+    access_token: String,
+    query: String,
+    max_count: Option<u32>,
+) -> Result<Vec<crate::mail_provider::Contact>, String> {
+    EwsProvider::new(access_token).search_contacts(&query, max_count).await
+}
+
+#[command]
+pub async fn mail_get_contact_photo(
+    access_token: String,
+    email: String,
+) -> Result<Option<String>, String> {
+    EwsProvider::new(access_token).get_contact_photo(&email).await
 }
 
 // ── Private parsing helpers ───────────────────────────────────────────────────

@@ -11,6 +11,8 @@ pub struct MailThread {
     pub message_count: u32,
     pub unread_count: u32,
     pub from_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_email: Option<String>,
     pub has_attachments: bool,
 }
 
@@ -115,6 +117,12 @@ pub struct MailIdentity {
     pub may_delete: bool,
 }
 
+#[derive(Serialize, Debug, Clone)]
+pub struct Contact {
+    pub email: String,
+    pub name: Option<String>,
+}
+
 pub struct SendMailParams {
     pub to: Vec<String>,
     pub cc: Vec<String>,
@@ -202,5 +210,12 @@ pub trait MailProvider {
     }
     async fn list_identities(&self) -> Result<Vec<MailIdentity>, String> {
         Err("not_supported".to_string())
+    }
+    async fn search_contacts(&self, _query: &str, _max_count: Option<u32>) -> Result<Vec<Contact>, String> {
+        Err("not_supported".to_string())
+    }
+    /// Returns the contact photo as a base64-encoded string (JPEG/PNG), or `None` if unavailable.
+    async fn get_contact_photo(&self, _email: &str) -> Result<Option<String>, String> {
+        Ok(None)
     }
 }

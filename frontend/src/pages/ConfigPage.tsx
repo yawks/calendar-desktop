@@ -7,6 +7,7 @@ import i18n from '../i18n';
 import { useLanguage } from '../shared/store/LanguageStore';
 import { LanguagePreference } from '../i18n';
 import { useLayout, AppLayout } from '../shared/store/LayoutStore';
+import { useLogoDevToken } from '../shared/store/LogoDevTokenStore';
 import { useTheme, ThemePreference } from '../shared/store/ThemeStore';
 
 // ── CalDAV connection test ────────────────────────────────────────────────────
@@ -1886,6 +1887,7 @@ function SettingsSection() {
   const { layout, setLayout } = useLayout();
   const { preference: themePref, setPreference: setThemePref } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
+  const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
 
   const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
     { value: 'system', label: t('settings.language.system'), flag: '🖥' },
@@ -2007,6 +2009,34 @@ function SettingsSection() {
             onClick={() => setFontSize('large')}
           />
         </div>
+      </div>
+
+      {/* Logo.dev token */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Mail size={16} />
+          {t('settings.logoDev.sectionTitle', 'Logos des contacts')}
+        </h3>
+        <p style={{ margin: '0 0 10px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
+          {t('settings.logoDev.hint', 'Token logo.dev pour afficher les logos d\'entreprise dans les avatars.')}
+        </p>
+        <input
+          type="password"
+          value={logoDevToken}
+          onChange={e => setLogoDevToken(e.target.value)}
+          placeholder="pk_..."
+          style={{
+            width: '100%',
+            padding: '8px 10px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--bg)',
+            color: 'var(--text)',
+            fontSize: 'calc(13px * var(--font-scale, 1))',
+            boxSizing: 'border-box',
+            outline: 'none',
+          }}
+        />
       </div>
 
     </div>

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { MailAttachment, MailFolder, MailMessage, MailRecipient, MailSearchQuery, MailThread } from '../types';
-import type { MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
+import type { Contact, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
 
 // ── Gmail REST API types ──────────────────────────────────────────────────────
 
@@ -421,6 +421,7 @@ export class GmailMailProvider implements MailProvider {
         message_count: messages.length,
         unread_count: unreadCount,
         from_name: from.name ?? from.email,
+        from_email: from.email || null,
         has_attachments: hasAttachments,
       };
     } catch {
@@ -752,6 +753,43 @@ export class GmailMailProvider implements MailProvider {
       addLabelIds: [targetLabel],
       removeLabelIds,
     });
+  }
+
+  async searchContacts(query: string, maxCount = 25): Promise<Contact[]> {
+    if (!query.trim()) return [];
+    const token = await this.token();
+    const params = new URLSearchParams({
+      query,
+      pageSize: String(maxCount),
+      readMask: 'names,emailAddresses',
+    });
+    const res = await fetch(`https://people.googleapis.com/v1/people:searchContacts?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as { results?: Array<{ person: { names?: Array<{ displayName: string }>; emailAddresses?: Array<{ value: string }> } }> };
+    return (data.results ?? []).flatMap(({ person }) => {
+      const email = person.emailAddresses?.[0]?.value;
+      if (!email) return [];
+      return [{ email, name: person.names?.[0]?.displayName }];
+    });
+  }
+
+  async getContactPhoto(email: string): Promise<string | null> {
+    const token = await this.token();
+    // Search for the person to get their resourceName, then fetch the photo
+    const params = new URLSearchParams({ query: email, pageSize: '1', readMask: 'photos,emailAddresses' });
+    const res = await fetch(`https://people.googleapis.com/v1/people:searchContacts?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { results?: Array<{ person: { photos?: Array<{ url: string }> } }> };
+    const photoUrl = data.results?.[0]?.person?.photos?.[0]?.url;
+    if (!photoUrl) return null;
+    const imgRes = await fetch(photoUrl);
+    if (!imgRes.ok) return null;
+    const buf = await imgRes.arrayBuffer();
+    return btoa(Array.from(new Uint8Array(buf), b => String.fromCodePoint(b)).join(''));
   }
 }
 

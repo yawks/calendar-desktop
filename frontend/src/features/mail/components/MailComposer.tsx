@@ -54,6 +54,7 @@ export interface MailComposerProps {
   readonly replyTo?: MailMessage;
   readonly mode?: 'reply' | 'replyAll' | 'forward';
   readonly contacts: { email: string; name?: string }[];
+  readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly currentUserEmail?: string;
   readonly restoreData?: ComposerRestoreData | null;
   readonly identities?: MailIdentity[];
@@ -68,7 +69,7 @@ export interface MailComposerProps {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(function MailComposer({
-  replyTo, mode, contacts, currentUserEmail,
+  replyTo, mode, contacts, provider, currentUserEmail,
   restoreData, identities, selectedIdentityId, onIdentityChange,
   onGetAttachmentData, onSend, onCancel, onSaveDraft,
 }: MailComposerProps, ref) {
@@ -251,7 +252,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
 
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>
-          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} fieldId="to" autoFocus={mode === 'forward'} />
+          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} provider={provider} fieldId="to" autoFocus={mode === 'forward'} />
           <div className="mail-composer__field-actions">
             {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
             {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
@@ -261,7 +262,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
         {showCc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">{t('mail.cc', 'Cc')}</span>
-            <RecipientInput value={ccRecipients} onChange={setCcRecipients} contacts={contacts} fieldId="cc" />
+            <RecipientInput value={ccRecipients} onChange={setCcRecipients} contacts={contacts} provider={provider} fieldId="cc" />
             <button type="button" className="mail-composer__field-remove" onClick={() => setShowCc(false)}><X size={14} /></button>
           </div>
         )}
@@ -269,7 +270,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
         {showBcc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">Bcc</span>
-            <RecipientInput value={bccRecipients} onChange={setBccRecipients} contacts={contacts} fieldId="bcc" />
+            <RecipientInput value={bccRecipients} onChange={setBccRecipients} contacts={contacts} provider={provider} fieldId="bcc" />
             <button type="button" className="mail-composer__field-remove" onClick={() => setShowBcc(false)}><X size={14} /></button>
           </div>
         )}

@@ -1,11 +1,14 @@
+import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+
 import { RecipientEntry } from '../components/RecipientInput';
+import type { MailProvider } from '../providers/MailProvider';
 import { isValidEmail } from '../utils';
 import { useCalendars } from '../../calendar/store/CalendarStore';
 import { useEWSEvents } from '../../calendar/hooks/useEWSEvents';
 import { useEventKitEvents } from '../../calendar/hooks/useEventKitEvents';
 import { useGoogleEvents } from '../../calendar/hooks/useGoogleEvents';
 import { useICSEvents } from '../../calendar/hooks/useICSEvents';
-import { useMemo } from 'react';
 import { useNextcloudEvents } from '../../calendar/hooks/useNextcloudEvents';
 
 /**
@@ -32,7 +35,6 @@ export function useContactSuggestions(
 
   return useMemo(() => {
     const freq = new Map<string, { name?: string; count: number }>();
-
 
     // 1. Calendar events — count occurrences for sorting by frequency
     const allCalEvents = [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents];
@@ -64,4 +66,23 @@ export function useContactSuggestions(
       .sort((a, b) => b[1].count - a[1].count)
       .map(([email, { name }]) => ({ email, name }));
   }, [icsEvents, googleEvents, ncEvents, ekEvents, ewsEvents, mailContacts]);
+}
+
+/**
+ * Searches contacts from the given provider for the given query string.
+ * Results are cached by React Query; returns [] while loading or if unsupported.
+ */
+export function useProviderContactSearch(
+  query: string,
+  provider: MailProvider | null | undefined
+): RecipientEntry[] {
+  const trimmed = query.trim();
+  const { data } = useQuery({
+    queryKey: ['contact-search', provider?.accountId, trimmed],
+    queryFn: () => provider!.searchContacts!(trimmed, 10),
+    enabled: trimmed.length >= 2 && !!provider?.searchContacts,
+    staleTime: 60 * 1000,
+    placeholderData: [],
+  });
+  return (data ?? []).map(c => ({ email: c.email, name: c.name }));
 }

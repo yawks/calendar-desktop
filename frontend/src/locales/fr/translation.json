@@ -384,6 +384,10 @@
       "tabbed": "Onglets",
       "windows": "Fenêtres séparées",
       "hint": "Redémarrez l'application pour appliquer le mode Fenêtres séparées."
+    },
+    "logoDev": {
+      "sectionTitle": "Logos des contacts",
+      "hint": "Token logo.dev pour afficher les logos d'entreprise dans les avatars des contacts."
     }
   },
   "recurringChoice": {

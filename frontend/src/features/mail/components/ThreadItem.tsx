@@ -1,8 +1,10 @@
 import { Archive, BellOff, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
 import React, { useState } from 'react';
-import { avatarColor, decodeHtmlEntities, formatDate, initials, senderColor } from '../utils';
+import { decodeHtmlEntities, formatDate, senderColor } from '../utils';
 
 import { MailThread } from '../types';
+import type { MailProvider } from '../providers/MailProvider';
+import { ContactAvatar } from './ContactAvatar';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useTranslation } from 'react-i18next';
@@ -14,13 +16,14 @@ export interface ThreadItemProps {
   readonly snoozeUntil?: string;
   readonly isInSnoozedFolder: boolean;
   readonly hasDraft?: boolean;
+  readonly provider?: MailProvider | null;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
   readonly onToggleCheck: (t: MailThread) => void;
 }
 
-export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, hasDraft, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
+export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, hasDraft, provider, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const { preference } = useTheme();
   const isDark = preference === 'dark';
@@ -44,7 +47,6 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
     >
       <div
         className={`mail-thread-item__avatar ${(isHovered || isChecked) ? 'mail-thread-item__avatar--checkbox' : ''}`}
-        style={{ backgroundColor: (isHovered || isChecked) ? 'transparent' : avatarColor(thread.from_name || '') }}
         onClick={e => {
           if (isHovered || isChecked) {
             e.stopPropagation();
@@ -57,7 +59,12 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
             {isChecked && <Check size={14} strokeWidth={3} />}
           </div>
         ) : (
-          initials(thread.from_name || '')
+          <ContactAvatar
+            email={thread.from_email ?? thread.from_name ?? ''}
+            name={thread.from_name ?? undefined}
+            provider={provider}
+            size={36}
+          />
         )}
       </div>
 

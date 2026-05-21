@@ -46,6 +46,11 @@ export interface SaveDraftParams {
   bodyHtml: string;
 }
 
+export interface Contact {
+  email: string;
+  name?: string;
+}
+
 /**
  * Abstraction over any mail backend (EWS, Gmail, …).
  * Add a new implementation to support additional providers without touching the UI.
@@ -80,4 +85,7 @@ export interface MailProvider {
   snooze?(itemId: string): Promise<string>;
   getInboxUnread(): Promise<number>;
   listIdentities?(): Promise<MailIdentity[]>;
+  searchContacts?(query: string, maxCount?: number): Promise<Contact[]>;
+  /** Returns the contact photo as a base64 string (no data-URL prefix), or null if unavailable. */
+  getContactPhoto?(email: string): Promise<string | null>;
 }

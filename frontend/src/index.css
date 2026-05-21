@@ -1228,6 +1228,18 @@ body {
   background: var(--primary); color: #fff; border-color: var(--primary);
 }
 
+/* ── ContactAvatar ────────────────────────────────────────────────────────── */
+.contact-avatar {
+  border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; color: #fff; overflow: hidden;
+}
+.contact-avatar--img {
+  background: transparent;
+  object-fit: cover;
+  font-size: 0;
+}
+
 /* Avatar in message header */
 .mail-message-block__avatar {
   width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;

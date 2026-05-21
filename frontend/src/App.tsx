@@ -16,6 +16,7 @@ import { GoogleAuthProvider } from './shared/store/GoogleAuthStore';
 import { ImapAuthProvider } from './shared/store/ImapAuthStore';
 import { JmapAuthProvider } from './shared/store/JmapAuthStore';
 import { LanguageProvider } from './shared/store/LanguageStore';
+import { LogoDevTokenProvider } from './shared/store/LogoDevTokenStore';
 import MailApp from './features/mail/MailPage';
 import { TagProvider } from './features/calendar/store/TagStore';
 import { ThemeProvider } from './shared/store/ThemeStore';
@@ -60,6 +61,7 @@ export default function App() {
       <ThemeProvider>
         <LanguageProvider>
           <FontSizeProvider>
+            <LogoDevTokenProvider>
             <LayoutProvider>
             <GoogleAuthProvider>
               <ExchangeAuthProvider>
@@ -83,6 +85,7 @@ export default function App() {
               </ExchangeAuthProvider>
             </GoogleAuthProvider>
           </LayoutProvider>
+            </LogoDevTokenProvider>
           </FontSizeProvider>
         </LanguageProvider>
       </ThemeProvider>

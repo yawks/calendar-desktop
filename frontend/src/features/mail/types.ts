@@ -8,6 +8,7 @@ export interface MailThread {
   message_count: number;
   unread_count: number;
   from_name: string | null;
+  from_email?: string | null;
   has_attachments: boolean;
   /** Set when loaded in All-accounts mode to route actions to the correct provider. */
   accountId?: string;

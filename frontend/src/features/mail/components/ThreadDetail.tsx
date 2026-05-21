@@ -26,6 +26,7 @@ export interface ThreadDetailProps {
   readonly messagesLoading?: boolean;
   readonly replyingTo: MailMessage | null;
   readonly contacts: { email: string; name?: string }[];
+  readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly currentUserEmail?: string;
   readonly mailProviderType?: 'gmail' | 'ews';
   readonly onMarkRead: (msgs: MailMessage[]) => void;
@@ -116,7 +117,7 @@ function computeSnoozeOptions() {
 }
 
 export function ThreadDetail({
-  thread, messages, messagesLoading, replyingTo, contacts, currentUserEmail, mailProviderType,
+  thread, messages, messagesLoading, replyingTo, contacts, provider, currentUserEmail, mailProviderType,
   identities, selectedIdentityId, onIdentityChange,
   onMarkRead, onTrash,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
@@ -360,6 +361,7 @@ export function ThreadDetail({
               defaultExpanded={true}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
+              provider={provider}
               onMarkRead={handleMarkSingleRead}
               onReply={onReply}
               onReplyAll={onReplyAll}
@@ -380,6 +382,7 @@ export function ThreadDetail({
             defaultExpanded={!msg.is_read || idx === messages.length - 1}
             currentUserEmail={currentUserEmail}
             mailProviderType={mailProviderType}
+            provider={provider}
             onMarkRead={handleMarkSingleRead}
             onReply={onReply}
             onReplyAll={onReplyAll}
@@ -400,6 +403,7 @@ export function ThreadDetail({
               replyTo={replyingTo ?? (composerRestoreData?.replyingToMsg ?? undefined)}
               mode={replyMode}
               contacts={contacts}
+              provider={provider}
               currentUserEmail={currentUserEmail}
               restoreData={composerRestoreData}
               identities={identities}

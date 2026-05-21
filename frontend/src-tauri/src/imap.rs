@@ -53,6 +53,7 @@ struct MsgMeta {
     date: String,
     unread: bool,
     from_name: Option<String>,
+    from_email: Option<String>,
     header_bytes: Vec<u8>,
     text_bytes: Vec<u8>,
 }
@@ -454,9 +455,15 @@ impl MailProvider for ImapProvider {
 
             let date = fetch.internal_date().map(|d| d.to_rfc3339()).unwrap_or_default();
             let unread = !fetch.flags().any(|f| f == async_imap::types::Flag::Seen);
-            let from_name = envelope.from.as_ref().and_then(|f| f.first()).and_then(|a| {
+            let from_addr = envelope.from.as_ref().and_then(|f| f.first());
+            let from_name = from_addr.and_then(|a| {
                 a.name.as_ref().map(|n| decode_maybe_encoded(&String::from_utf8_lossy(n)))
                     .or_else(|| a.mailbox.as_ref().map(|m| String::from_utf8_lossy(m).to_string()))
+            });
+            let from_email = from_addr.and_then(|a| {
+                let mb = a.mailbox.as_ref().map(|m| String::from_utf8_lossy(m).to_string())?;
+                let host = a.host.as_ref().map(|h| String::from_utf8_lossy(h).to_string()).unwrap_or_default();
+                Some(format!("{}@{}", mb, host))
             });
 
             metas.push(MsgMeta {
@@ -468,6 +475,7 @@ impl MailProvider for ImapProvider {
                 date,
                 unread,
                 from_name,
+                from_email,
                 header_bytes: fetch.header().map(|b| b.to_vec()).unwrap_or_default(),
                 text_bytes:   fetch.text().map(|b| b.to_vec()).unwrap_or_default(),
             });
@@ -535,6 +543,7 @@ impl MailProvider for ImapProvider {
                 message_count,
                 unread_count,
                 from_name: newest.from_name.clone(),
+                from_email: newest.from_email.clone(),
                 has_attachments: false,
             }
         }).collect();

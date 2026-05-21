@@ -384,6 +384,10 @@
       "tabbed": "Tabs",
       "windows": "Separate Windows",
       "hint": "Restart the application to apply Separate Windows mode."
+    },
+    "logoDev": {
+      "sectionTitle": "Contact logos",
+      "hint": "logo.dev token to display company logos in contact avatars."
     }
   },
   "recurringChoice": {

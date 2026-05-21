@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 
 export interface NewMessageComposerProps {
   readonly contacts: { email: string; name?: string }[];
+  readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly restoreData: ComposerRestoreData | null;
   readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) => Promise<void>;
   readonly onCancel: () => void;
@@ -25,7 +26,7 @@ export interface NewMessageComposerProps {
 }
 
 export function NewMessageComposer({
-  contacts, restoreData, onSend, onCancel, onSaveDraft, onDeleteDraft,
+  contacts, provider, restoreData, onSend, onCancel, onSaveDraft, onDeleteDraft,
   fromAccounts, fromAccountId, onFromAccountChange,
   identities, selectedIdentityId, onIdentityChange,
 }: NewMessageComposerProps) {
@@ -192,7 +193,7 @@ export function NewMessageComposer({
         {/* ── To ── */}
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>
-          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} fieldId="to" />
+          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} provider={provider} fieldId="to" />
           {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
           {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
         </div>
@@ -200,14 +201,14 @@ export function NewMessageComposer({
         {showCc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">{t('mail.cc', 'Cc')}</span>
-            <RecipientInput value={ccRecipients} onChange={setCcRecipients} contacts={contacts} fieldId="cc" />
+            <RecipientInput value={ccRecipients} onChange={setCcRecipients} contacts={contacts} provider={provider} fieldId="cc" />
           </div>
         )}
 
         {showBcc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">Bcc:</span>
-            <RecipientInput value={bccRecipients} onChange={setBccRecipients} contacts={contacts} fieldId="bcc" />
+            <RecipientInput value={bccRecipients} onChange={setBccRecipients} contacts={contacts} provider={provider} fieldId="bcc" />
           </div>
         )}
 

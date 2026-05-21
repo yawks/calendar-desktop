@@ -44,7 +44,7 @@ export default function MailApp() {
     downloadAttachment, getRawAttachmentData, scheduleSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, setReplyingTo, setReplyMode, setActionToast,
-    setSelectedThread, threadSupportsSnooze,
+    setSelectedThread, threadSupportsSnooze, provider,
     searchQuery, searchResults, searchLoading, handleSearch,
     accountIdentities, loadMoreThreads, hasMoreThreads,
     draftConversationIds, dismissDraftForConversation,
@@ -249,6 +249,7 @@ export default function MailApp() {
               }}
               onSelectAll={() => setSelectedThreadIds(new Set(threads.map(t => t.conversation_id)))}
               onClearSelection={() => setSelectedThreadIds(new Set())}
+              provider={provider}
             />
           </div>
           <div
@@ -277,6 +278,7 @@ export default function MailApp() {
             ) : composing ? (
               <NewMessageComposer
                 contacts={contacts}
+                provider={provider}
                 restoreData={composerRestoreData}
                 onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) =>
                   scheduleSend(to, cc, bcc, subject, body, {
@@ -320,6 +322,7 @@ export default function MailApp() {
                 <NewMessageComposer
                   key={selectedThread.conversation_id}
                   contacts={contacts}
+                  provider={provider}
                   restoreData={{
                     toRecipients: (draft.to_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
                     ccRecipients: (draft.cc_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
@@ -371,6 +374,7 @@ export default function MailApp() {
                 messagesLoading={messagesLoading}
                 replyingTo={replyingTo}
                 contacts={contacts}
+                provider={provider}
                 currentUserEmail={
                   isAllMode
                     ? allMailAccounts.find(a => a.id === selectedThread.accountId)?.email
