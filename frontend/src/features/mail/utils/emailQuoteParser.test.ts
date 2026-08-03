@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { processEmailQuotes, findQuoteMarker } from './emailQuoteParser';
+import { processEmailQuotes, findQuoteMarker, formatEmailQuotesForEditor } from './emailQuoteParser';
 
 const OPTS = { label: 'Previous message' };
 
@@ -69,12 +69,66 @@ describe('processEmailQuotes — blockquote', () => {
       </blockquote>
     `);
     expect(qtCount(el)).toBe(2);
+    expect(el.querySelector('[data-quote-depth="2"]')).not.toBeNull();
+  });
+
+  it('keeps short nested replies as distinct coloured levels', () => {
+    const el = parse(`
+      <blockquote>
+        <p>This outer quoted reply is long enough to be recognised as a previous message.</p>
+        <blockquote>Short original reply</blockquote>
+      </blockquote>
+    `);
+    expect(qtCount(el)).toBe(2);
+    expect(el.querySelector('.qt[data-quote-depth="1"] .qt[data-quote-depth="2"]')).not.toBeNull();
+  });
+
+  it('always recognises nested cite blockquotes', () => {
+    const el = parse('<blockquote type="cite">Short quote<blockquote type="cite">Older</blockquote></blockquote>');
+    expect(qtCount(el)).toBe(2);
+  });
+
+  it.each(['gmail_quote', 'yahoo_quoted', 'protonmail_quote'])('wraps %s containers', className => {
+    const el = parse(`<p>Reply</p><div class="${className}">A short quoted message</div>`);
+    expect(qtCount(el)).toBe(1);
+  });
+
+  it('exposes an accessible three-dot toggle', () => {
+    const el = parse('<div class="gmail_quote">Quoted message</div>');
+    const button = el.querySelector<HTMLButtonElement>('.qt-toggle');
+    expect(button?.textContent).toBe('•••');
+    expect(button?.getAttribute('aria-expanded')).toBe('false');
+    button?.click();
+    expect(button?.getAttribute('aria-expanded')).toBe('true');
   });
 });
 
 // ─── processEmailQuotes — text-based dividers ─────────────────────────────────
 
 describe('processEmailQuotes — Outlook-style separators', () => {
+  it('recognises an Outlook reply header container', () => {
+    const el = parse('<p>Reply</p><div id="divRplyFwdMsg"><b>From:</b> Alice</div><p>Old message</p>');
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('Old message');
+  });
+
+  it('recognises Outlook ids recursively prefixed with x_', () => {
+    const el = parse(`
+      <p>Current message</p>
+      <div id="divRplyFwdMsg">First reply header</div>
+      <p>First quoted message</p>
+      <div id="x_mail-editor-reference-message-container">
+        <p>Second reply header and message</p>
+        <div id="x_x_mail-editor-reference-message-container">
+          <p>Third reply header and message</p>
+          <div id="x_x_divRplyFwdMsg">Fourth reply header</div>
+          <p>Oldest message</p>
+        </div>
+      </div>
+    `);
+    expect(qtCount(el)).toBe(4);
+    expect(el.querySelector('[data-quote-depth="4"]')?.textContent).toContain('Oldest message');
+  });
   it('wraps everything after -----Original Message----- in ONE block', () => {
     const el = parse(`
       <p>New reply</p>
@@ -151,5 +205,21 @@ describe('processEmailQuotes — quoteMarker', () => {
       'On Mon wrote:',
     );
     expect(qtCount(el)).toBe(1);
+  });
+});
+
+describe('formatEmailQuotesForEditor', () => {
+  it('converts nested quotes to editable mail-quoted levels', () => {
+    const html = formatEmailQuotesForEditor(`
+      <p>Reply</p>
+      <div id="divRplyFwdMsg">Previous header</div>
+      <p>Previous body</p>
+      <div id="x_mail-editor-reference-message-container"><p>Older body</p></div>
+    `);
+    const root = document.createElement('div');
+    root.innerHTML = html;
+    expect(root.querySelector('.mail-quoted--level-2 .mail-quoted--level-3')).not.toBeNull();
+    expect(root.querySelectorAll('.qt')).toHaveLength(0);
+    expect(root.querySelector('.mail-quoted__body')?.textContent).toContain('Previous body');
   });
 });

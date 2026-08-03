@@ -42,14 +42,18 @@ export function ContactAvatar({ email, name, provider, size = 32, className = ''
 
   if (currentSrc) {
     return (
-      <img
-        src={currentSrc}
-        alt={displayName}
-        width={size}
-        height={size}
-        className={`contact-avatar contact-avatar--img ${className}`}
-        onError={() => handleError(currentSrc)}
-      />
+      <div
+        className={`contact-avatar ${className}`}
+        style={{ width: size, height: size }}
+        aria-label={displayName}
+      >
+        <img
+          src={currentSrc}
+          alt={displayName}
+          className="contact-avatar--img"
+          onError={() => handleError(currentSrc)}
+        />
+      </div>
     );
   }
 

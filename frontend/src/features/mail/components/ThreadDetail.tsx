@@ -161,6 +161,7 @@ export function ThreadDetail({
   const isSnoozed = !snoozeBannerDismissed && (isInSnoozedFolder || (!!snoozeUntil && new Date(snoozeUntil) > new Date()));
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
 
+
   return (
     <div className="mail-thread-detail">
       <div className="mail-thread-detail__toolbar">

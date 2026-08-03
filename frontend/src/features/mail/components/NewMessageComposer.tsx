@@ -108,6 +108,28 @@ export function NewMessageComposer({
     e.target.value = '';
   };
 
+  const handleRecipientDrop = (targetField: 'to' | 'cc' | 'bcc') => (
+    entry: RecipientEntry,
+    sourceField: string,
+  ) => {
+    if (sourceField === targetField || !['to', 'cc', 'bcc'].includes(sourceField)) return;
+
+    const removeFromSource = (recipients: RecipientEntry[]) =>
+      recipients.filter(recipient => recipient.email.toLowerCase() !== entry.email.toLowerCase());
+    const addToTarget = (recipients: RecipientEntry[]) =>
+      recipients.some(recipient => recipient.email.toLowerCase() === entry.email.toLowerCase())
+        ? recipients
+        : [...recipients, entry];
+
+    if (sourceField === 'to') setToRecipients(removeFromSource);
+    if (sourceField === 'cc') setCcRecipients(removeFromSource);
+    if (sourceField === 'bcc') setBccRecipients(removeFromSource);
+
+    if (targetField === 'to') setToRecipients(addToTarget);
+    if (targetField === 'cc') setCcRecipients(addToTarget);
+    if (targetField === 'bcc') setBccRecipients(addToTarget);
+  };
+
   const selectedAccount = fromAccounts.find(a => a.id === fromAccountId) ?? fromAccounts[0];
 
   return (
@@ -193,7 +215,7 @@ export function NewMessageComposer({
         {/* ── To ── */}
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>
-          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} provider={provider} fieldId="to" />
+          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} provider={provider} fieldId="to" onDropFromOtherField={handleRecipientDrop('to')} />
           {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
           {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
         </div>
@@ -201,14 +223,14 @@ export function NewMessageComposer({
         {showCc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">{t('mail.cc', 'Cc')}</span>
-            <RecipientInput value={ccRecipients} onChange={setCcRecipients} contacts={contacts} provider={provider} fieldId="cc" />
+            <RecipientInput value={ccRecipients} onChange={setCcRecipients} contacts={contacts} provider={provider} fieldId="cc" onDropFromOtherField={handleRecipientDrop('cc')} />
           </div>
         )}
 
         {showBcc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">Bcc:</span>
-            <RecipientInput value={bccRecipients} onChange={setBccRecipients} contacts={contacts} provider={provider} fieldId="bcc" />
+            <RecipientInput value={bccRecipients} onChange={setBccRecipients} contacts={contacts} provider={provider} fieldId="bcc" onDropFromOtherField={handleRecipientDrop('bcc')} />
           </div>
         )}
 
@@ -242,4 +264,3 @@ export function NewMessageComposer({
     </div>
   );
 }
-

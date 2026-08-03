@@ -2124,7 +2124,9 @@ export default function ConfigPage() {
   const { defaultCalendarId, setDefaultCalendar } = useDefaultCalendar();
 
   const [activeSection, setActiveSection] = useState<SectionType>('providers');
-  const [showNewCalModal, setShowNewCalModal] = useState(false);
+  const [showNewCalModal, setShowNewCalModal] = useState(
+    () => new URLSearchParams(globalThis.location.search).get('addSource') === '1',
+  );
   const [editModal, setEditModal] = useState<EditModalState>(null);
 
   const ekCals = calendars.filter((c) => c.type === 'eventkit');

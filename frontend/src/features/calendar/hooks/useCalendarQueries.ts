@@ -23,6 +23,7 @@ interface EwsEventRaw {
   my_response_type: string;
   attendees: Array<{ name?: string; email: string; response_type: string; }>;
   is_meeting: boolean;
+  is_cancelled: boolean;
   recurring_master_id?: string;
   body?: string;
 }
@@ -40,15 +41,37 @@ function ewsResponseToRsvp(ewsStatus: string): any {
 async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise<CalendarEvent[]> {
   const now = new Date();
   const start = new Date(now);
-  start.setDate(start.getDate() - 26 * 7);
+  // EWS CalendarView is capped at 500 occurrences and returns the oldest ones
+  // first. A large range starting months ago can therefore contain no event for
+  // the current view on busy calendars. Keep the window centred around today.
+  start.setDate(start.getDate() - 4 * 7);
   const end = new Date(now);
-  end.setDate(end.getDate() + 52 * 7);
+  end.setDate(end.getDate() + 26 * 7);
 
-  const raw = await invoke<EwsEventRaw[]>('ews_get_calendar_events', {
-    accessToken,
-    start: start.toISOString(),
-    end: end.toISOString(),
+  console.info('[Exchange calendar] Synchronisation démarrée', {
+    calendarId: cal.id,
+    account: cal.ownerEmail,
   });
+
+  let raw: EwsEventRaw[];
+  try {
+    raw = await invoke<EwsEventRaw[]>('ews_get_calendar_events', {
+      accessToken,
+      ownerEmail: cal.ownerEmail,
+      start: start.toISOString(),
+      end: end.toISOString(),
+    });
+  } catch (error) {
+    console.error('[Exchange calendar] Échec de la synchronisation', error);
+    throw error;
+  }
+
+  const receivedDates = raw
+    .map((event) => Date.parse(event.start))
+    .filter(Number.isFinite);
+  const firstDate = receivedDates.length > 0 ? new Date(Math.min(...receivedDates)).toISOString() : null;
+  const lastDate = receivedDates.length > 0 ? new Date(Math.max(...receivedDates)).toISOString() : null;
+  console.info(`[Exchange calendar] ${raw.length} événement(s) reçu(s)`, { firstDate, lastDate });
 
   return raw.map((ev): CalendarEvent => {
     const attendees = ev.attendees.map((a) => ({
@@ -80,6 +103,7 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
       location: ev.location,
       description: ev.body || undefined,
       isDeclined: selfStatus === 'DECLINED',
+      isCancelled: ev.is_cancelled,
       isUnaccepted: selfStatus !== 'ACCEPTED' && ev.is_meeting,
       selfRsvpStatus: ev.is_meeting ? selfStatus : undefined,
       attendees: ev.is_meeting ? attendees : [],
@@ -110,7 +134,9 @@ export function useCalendarEvents(calendars: CalendarConfig[]) {
 
   const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
   const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
-  const isLoading = results.some(r => r.isLoading);
+  // `isLoading` only covers the first load. Manual refreshes use `isFetching`,
+  // which lets the header display progress every time the user clicks Refresh.
+  const isLoading = results.some(r => r.isFetching);
 
   const allEvents = useMemo(() => {
     return results.flatMap(r => r.data ?? []);
@@ -118,7 +144,8 @@ export function useCalendarEvents(calendars: CalendarConfig[]) {
   }, [dataTimestamps]);
 
   const errors = useMemo(() => {
-    return results.map(r => r.error).filter(Boolean);
+    // Preserve result indexes so callers can associate an error with its calendar.
+    return results.map(r => r.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [errorTimestamps]);
 

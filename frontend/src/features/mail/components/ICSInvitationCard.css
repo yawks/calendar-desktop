@@ -346,3 +346,14 @@
   padding: 12px 8px 12px 10px;
   background: color-mix(in srgb, var(--bg) 97%, var(--border) 3%);
 }
+.ics-card__description {
+  margin-top: 10px;
+  max-height: 320px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.ics-card__description .mail-email-iframe {
+  min-height: 40px;
+}

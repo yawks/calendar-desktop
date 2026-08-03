@@ -50,14 +50,14 @@ export function useMailPageLogic() {
 
     for (const a of mailEwsAccounts) {
         if (!current.has(a.id) || !(current.get(a.id) instanceof EwsMailProvider)) {
-            next.set(a.id, new EwsMailProvider(a.id, getEwsToken));
+            next.set(a.id, new EwsMailProvider(a.id, getEwsToken, a.email));
         } else {
             next.set(a.id, current.get(a.id)!);
         }
     }
     for (const a of mailGoogleAccounts) {
         if (!current.has(a.id) || !(current.get(a.id) instanceof GmailMailProvider)) {
-            next.set(a.id, new GmailMailProvider(a.id, getGoogleToken));
+            next.set(a.id, new GmailMailProvider(a.id, getGoogleToken, a.email));
         } else {
             next.set(a.id, current.get(a.id)!);
         }
@@ -241,8 +241,8 @@ export function useMailPageLogic() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('mail-sidebar-collapsed') === 'true');
   const getScreenKey = () => `${window.screen.width}x${window.screen.height}`;
   const screenKeyRef = useRef(getScreenKey());
-  const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem(`mail-sidebar-width-${getScreenKey()}`) || 220));
-  const [threadListWidth, setThreadListWidth] = useState(() => Number(localStorage.getItem(`mail-threadlist-width-${getScreenKey()}`) || 350));
+  const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem(`mail-sidebar-width-${getScreenKey()}`) || 240));
+  const [threadListWidth, setThreadListWidth] = useState(() => Number(localStorage.getItem(`mail-threadlist-width-${getScreenKey()}`) || 390));
   const [snoozedMap, setSnoozedMap] = useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem('mail-snoozed') ?? '{}'); } catch { return {}; }
   });
@@ -646,10 +646,18 @@ export function useMailPageLogic() {
       const thread = threads.find(t => t.conversation_id === id);
       if (thread) {
         const p = resolveProvider(thread.accountId);
-        if (p) mutations.markRead({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, read });
+        if (p) mutations.markRead({
+          accountId: thread.accountId ?? selectedAccountId,
+          provider: p,
+          conversationId: id,
+          read,
+          folderId: selectedFolder,
+          threadUnreadCount: thread.unread_count,
+        });
       }
     }
-  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations]);
+    setSelectedThreadIds(new Set());
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, selectedFolder, mutations]);
 
   const previewAttachment = useCallback(async (att: MailAttachment) => {
     const p = resolveProvider(selectedThread?.accountId);

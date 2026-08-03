@@ -275,6 +275,8 @@ impl MailProvider for JmapProvider {
                 EmailProperty::ThreadId,
                 EmailProperty::Subject,
                 EmailProperty::From,
+                EmailProperty::To,
+                EmailProperty::Cc,
                 EmailProperty::ReceivedAt,
                 EmailProperty::Preview,
                 EmailProperty::HasAttachment,
@@ -286,9 +288,15 @@ impl MailProvider for JmapProvider {
 
         let mut thread_map: HashMap<String, MailThread> = HashMap::new();
         let mut thread_order: Vec<String> = Vec::new();
+        // Track unique senders per thread (excluding own email)
+        let mut sender_seen: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+        let own_email = self.config.email.to_lowercase();
 
         for email in emails.list() {
             let thread_id = email.thread_id().unwrap_or_default().to_string();
+            let from_addr = email.from().and_then(|f| f.first());
+            let from_email_str = from_addr.map(|a| a.email().to_string()).unwrap_or_default();
+
             if let Some(thread) = thread_map.get_mut(&thread_id) {
                 thread.message_count += 1;
                 if !email.keywords().contains(&"$seen") {
@@ -297,11 +305,41 @@ impl MailProvider for JmapProvider {
                 if email.has_attachment() {
                     thread.has_attachments = true;
                 }
+                // Accumulate additional unique senders
+                let seen = sender_seen.entry(thread_id.clone()).or_default();
+                let key = from_email_str.to_lowercase();
+                if !key.is_empty() && key != own_email && !seen.contains(&key) {
+                    seen.insert(key);
+                    thread.unique_senders.push(MailRecipient {
+                        name: from_addr.and_then(|a| a.name().map(|s| s.to_string())),
+                        email: from_email_str,
+                    });
+                }
             } else {
                 thread_order.push(thread_id.clone());
-                let from_addr = email.from().and_then(|f| f.first());
                 let from_name = from_addr.and_then(|a| a.name().map(|s| s.to_string()));
                 let from_email = from_addr.map(|a| a.email().to_string());
+                let to_recipients = email.to().map(|list| list.iter().map(|a| MailRecipient {
+                    name: a.name().map(|s| s.to_string()),
+                    email: a.email().to_string(),
+                }).collect::<Vec<_>>()).unwrap_or_default();
+                let cc_recipients = email.cc().map(|list| list.iter().map(|a| MailRecipient {
+                    name: a.name().map(|s| s.to_string()),
+                    email: a.email().to_string(),
+                }).collect::<Vec<_>>()).unwrap_or_default();
+                // First sender for this thread
+                let mut unique_senders = Vec::new();
+                let key = from_email_str.to_lowercase();
+                if !key.is_empty() && key != own_email {
+                    let seen = sender_seen.entry(thread_id.clone()).or_default();
+                    seen.insert(key);
+                    unique_senders.push(MailRecipient {
+                        name: from_addr.and_then(|a| a.name().map(|s| s.to_string())),
+                        email: from_email_str,
+                    });
+                } else {
+                    sender_seen.entry(thread_id.clone()).or_default();
+                }
                 thread_map.insert(thread_id.clone(), MailThread {
                     conversation_id: thread_id,
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
@@ -312,12 +350,39 @@ impl MailProvider for JmapProvider {
                     from_name,
                     from_email,
                     has_attachments: email.has_attachment(),
+                    to_recipients,
+                    cc_recipients,
+                    unique_senders,
                 });
             }
         }
 
         let mut threads: Vec<MailThread> = thread_order.into_iter().filter_map(|id| thread_map.remove(&id)).collect();
         threads.truncate(count as usize);
+
+        // Email/query above is intentionally restricted to the selected mailbox,
+        // so counting those rows alone misses messages that share the thread but
+        // remain in another mailbox (notably Sent). Thread/get returns the global
+        // emailIds for all visible rows in one batched request.
+        if !threads.is_empty() {
+            let thread_ids: Vec<String> = threads.iter()
+                .map(|thread| thread.conversation_id.clone())
+                .collect();
+            let mut count_request = client.build();
+            count_request.get_thread().ids(thread_ids.iter().map(|id| id.as_str()));
+            let mut count_response = count_request.send().await.map_err(|e| e.to_string())?;
+            let thread_get = count_response.method_response_by_pos(0)
+                .unwrap_get_thread()
+                .map_err(|e| e.to_string())?;
+            let global_counts: HashMap<&str, u32> = thread_get.list().iter()
+                .map(|thread| (thread.id(), thread.email_ids().len() as u32))
+                .collect();
+            for thread in &mut threads {
+                if let Some(global_count) = global_counts.get(thread.conversation_id.as_str()) {
+                    thread.message_count = *global_count;
+                }
+            }
+        }
         Ok(threads)
     }
 
@@ -709,6 +774,8 @@ impl MailProvider for JmapProvider {
                 EmailProperty::ThreadId,
                 EmailProperty::Subject,
                 EmailProperty::From,
+                EmailProperty::To,
+                EmailProperty::Cc,
                 EmailProperty::ReceivedAt,
                 EmailProperty::Preview,
                 EmailProperty::HasAttachment,
@@ -721,13 +788,28 @@ impl MailProvider for JmapProvider {
         let mut thread_map: HashMap<String, MailThread> = HashMap::new();
         let mut thread_order: Vec<String> = Vec::new();
 
+        let own_email = self.config.email.to_lowercase();
         for email in emails.list() {
             let thread_id = email.thread_id().unwrap_or_default().to_string();
             if !thread_map.contains_key(&thread_id) {
                 thread_order.push(thread_id.clone());
                 let from_addr = email.from().and_then(|f| f.first());
                 let from_name = from_addr.and_then(|a| a.name().map(|s| s.to_string()));
-                let from_email = from_addr.map(|a| a.email().to_string());
+                let from_email_str = from_addr.map(|a| a.email().to_string()).unwrap_or_default();
+                let to_recipients = email.to().map(|list| list.iter().map(|a| MailRecipient {
+                    name: a.name().map(|s| s.to_string()),
+                    email: a.email().to_string(),
+                }).collect::<Vec<_>>()).unwrap_or_default();
+                let cc_recipients = email.cc().map(|list| list.iter().map(|a| MailRecipient {
+                    name: a.name().map(|s| s.to_string()),
+                    email: a.email().to_string(),
+                }).collect::<Vec<_>>()).unwrap_or_default();
+                let unique_senders = if !from_email_str.is_empty() && from_email_str.to_lowercase() != own_email {
+                    vec![MailRecipient {
+                        name: from_addr.and_then(|a| a.name().map(|s| s.to_string())),
+                        email: from_email_str.clone(),
+                    }]
+                } else { vec![] };
                 thread_map.insert(thread_id.clone(), MailThread {
                     conversation_id: thread_id,
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
@@ -736,8 +818,11 @@ impl MailProvider for JmapProvider {
                     message_count: 1,
                     unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
                     from_name,
-                    from_email,
+                    from_email: if from_email_str.is_empty() { None } else { Some(from_email_str) },
                     has_attachments: email.has_attachment(),
+                    to_recipients,
+                    cc_recipients,
+                    unique_senders,
                 });
             }
         }
@@ -761,11 +846,42 @@ impl MailProvider for JmapProvider {
         if email_ids.is_empty() { return Ok(()); }
         let folder_ids_map = get_folder_ids(&self.state, &client, &self.config).await?;
         let resolved_folder_id = folder_ids_map.get(folder_id).cloned().unwrap_or_else(|| folder_id.to_string());
+        let sent_id = folder_ids_map.get("sentitems").cloned();
+
+        // Find which emails have Sent membership so we can preserve it.
+        let sent_email_ids: std::collections::HashSet<String> = if let Some(ref sid) = sent_id {
+            let mut fetch = client.build();
+            fetch.get_email()
+                .ids(email_ids.iter().map(|s| s.as_str()))
+                .properties([EmailProperty::Id, EmailProperty::MailboxIds]);
+            let mut fetch_resp = fetch.send().await.map_err(|e| format!("Email/get mailboxIds: {}", e))?;
+            let fetched = fetch_resp.method_response_by_pos(0)
+                .unwrap_get_email()
+                .map_err(|e| format!("Email/get mailboxIds parse: {}", e))?;
+            fetched.list().iter()
+                .filter(|e| {
+                    let mids: Vec<String> = e.mailbox_ids().iter().map(|s| s.to_string()).collect();
+                    mids.iter().any(|m| m == sid)
+                })
+                .filter_map(|e| e.id().map(|s| s.to_string()))
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+
         let folder_ref = resolved_folder_id.as_str();
         let mut request = client.build();
         let set = request.set_email();
         for id in &email_ids {
-            set.update(id.as_str()).mailbox_ids([folder_ref]);
+            if sent_email_ids.contains(id.as_str()) {
+                if let Some(ref sid) = sent_id {
+                    set.update(id.as_str()).mailbox_ids([folder_ref, sid.as_str()]);
+                } else {
+                    set.update(id.as_str()).mailbox_ids([folder_ref]);
+                }
+            } else {
+                set.update(id.as_str()).mailbox_ids([folder_ref]);
+            }
         }
         request.send().await.map_err(|e| e.to_string())?;
         Ok(())
@@ -893,17 +1009,9 @@ async fn jmap_move_email(
         .map(|e| e.mailbox_ids().iter().map(|s| s.to_string()).collect())
         .unwrap_or_default();
 
-    // Skip emails that live exclusively in Sent — they should not be moved.
-    if let Some(sent_id) = sent_mailbox_id {
-        let non_sent: Vec<&String> = current_mailbox_ids.iter()
-            .filter(|mid| mid.as_str() != sent_id)
-            .collect();
-        if non_sent.is_empty() {
-            return Ok(false);
-        }
-    }
-
     // Full mailboxIds replacement: target + Sent (if email was already in Sent).
+    // Sent-only emails are included — they get [target, Sent] so the full thread
+    // is visible in the destination folder while remaining in Sent.
     // We avoid the patch API because jmap-client serialises `false` instead of
     // `null`, and JMAP servers require `null` to remove map entries.
     let mut new_ids: Vec<&str> = vec![target_mailbox_id];

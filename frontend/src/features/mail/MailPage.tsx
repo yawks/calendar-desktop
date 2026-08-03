@@ -1,6 +1,7 @@
 import { ALL_ACCOUNTS_ID, buildUnreadCounts } from './utils';
 import {
   Download,
+  HelpCircle,
   Inbox,
   Layers,
   Mail,
@@ -13,6 +14,7 @@ import { MailMessage, MailThread } from './types';
 import { useEffect, useRef, useState } from "react";
 
 import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
+import AppViewMenu from '../../shared/components/AppViewMenu';
 import { ComposerAttachment } from './providers/MailProvider';
 import { Link } from 'react-router-dom';
 import { MailComposerHandle } from './components/MailComposer';
@@ -97,10 +99,7 @@ export default function MailApp() {
         >
           <Menu size={20} />
         </button>
-        <span className="header-logo">
-          <Mail size={22} strokeWidth={1.5} />
-          <span>{t('tabs.mail', 'Mail')}</span>
-        </span>
+        <AppViewMenu current="mail" />
 
         <div className="header-spacer" />
         <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} />
@@ -109,6 +108,9 @@ export default function MailApp() {
         <button className="btn-icon" onClick={reloadThreads} disabled={threadsRefreshing}
           title={t('header.refresh', 'Refresh')}>
           <RefreshCw size={18} className={threadsRefreshing ? 'spin' : ''} />
+        </button>
+        <button className="btn-icon header-help" title={t('header.help', 'Help')}>
+          <HelpCircle size={20} />
         </button>
         <Link to="/config" className="btn-config btn-config--icon-only">
           <Settings size={17} />
@@ -223,24 +225,19 @@ export default function MailApp() {
               selectedId={selectedThread?.conversation_id ?? null}
               snoozedMap={snoozedMap}
               isInSnoozedFolder={isInSnoozedFolder}
+              isSentFolder={selectedFolder === 'sentitems'}
               draftConversationIds={draftConversationIds}
-              onSelect={(thread: MailThread) => {
-                if (selectedThreadIds.size > 0) {
-                  setSelectedThreadIds(prev => {
-                    const next = new Set(prev);
-                    if (next.has(thread.conversation_id)) next.delete(thread.conversation_id);
-                    else next.add(thread.conversation_id);
-                    return next;
-                  });
-                } else {
-                  handleSelectThread(thread);
-                }
-              }}
+              onSelect={handleSelectThread}
               onToggleRead={handleToggleThreadRead}
               onDelete={handleDeleteThread}
               selectedThreadIds={selectedThreadIds}
-              onToggleSelect={(thread: MailThread) => {
+              onToggleSelect={(thread: MailThread, range?: MailThread[]) => {
                 setSelectedThreadIds(prev => {
+                  if (range) {
+                    const next = new Set(prev);
+                    range.forEach(t => next.add(t.conversation_id));
+                    return next;
+                  }
                   const next = new Set(prev);
                   if (next.has(thread.conversation_id)) next.delete(thread.conversation_id);
                   else next.add(thread.conversation_id);

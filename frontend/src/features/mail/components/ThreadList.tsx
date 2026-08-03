@@ -13,13 +13,14 @@ export interface ThreadListProps {
   readonly selectedId: string | null;
   readonly snoozedMap: Record<string, string>;
   readonly isInSnoozedFolder: boolean;
+  readonly isSentFolder?: boolean;
   readonly isSearchMode?: boolean;
   readonly draftConversationIds?: Set<string>;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
   readonly selectedThreadIds: Set<string>;
-  readonly onToggleSelect: (t: MailThread) => void;
+  readonly onToggleSelect: (t: MailThread, range?: MailThread[]) => void;
   readonly onSelectAll: () => void;
   readonly onClearSelection: () => void;
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
@@ -36,6 +37,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       selectedId,
       snoozedMap,
       isInSnoozedFolder,
+      isSentFolder = false,
       isSearchMode = false,
       draftConversationIds,
       onSelect,
@@ -51,6 +53,11 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
   ) => {
     const { t } = useTranslation();
     const [filter, setFilter] = useState<'all' | 'unread'>('all');
+    const lastCheckedIdRef = useRef<string | null>(null);
+
+    useEffect(() => {
+      if (selectedThreadIds.size === 0) lastCheckedIdRef.current = null;
+    }, [selectedThreadIds.size]);
     const [filterOpen, setFilterOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -196,12 +203,31 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               isChecked={selectedThreadIds.has(thread.conversation_id)}
               snoozeUntil={snoozedMap[thread.conversation_id]}
               isInSnoozedFolder={isInSnoozedFolder}
+              isSentFolder={isSentFolder}
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
               provider={provider}
               onSelect={onSelect}
               onToggleRead={onToggleRead}
               onDelete={onDelete}
-              onToggleCheck={onToggleSelect}
+              onToggleCheck={(clickedThread, shiftKey) => {
+                const anchorIndex = lastCheckedIdRef.current
+                  ? visibleThreads.findIndex(t => t.conversation_id === lastCheckedIdRef.current)
+                  : -1;
+                const clickedIndex = visibleThreads.findIndex(t => t.conversation_id === clickedThread.conversation_id);
+
+                if (shiftKey && anchorIndex >= 0 && clickedIndex >= 0) {
+                  const start = Math.min(anchorIndex, clickedIndex);
+                  const end = Math.max(anchorIndex, clickedIndex);
+                  onToggleSelect(clickedThread, visibleThreads.slice(start, end + 1));
+                  lastCheckedIdRef.current = clickedThread.conversation_id;
+                  return;
+                }
+
+                onToggleSelect(clickedThread);
+                if (!selectedThreadIds.has(clickedThread.conversation_id)) {
+                  lastCheckedIdRef.current = clickedThread.conversation_id;
+                }
+              }}
             />
           ))}
           {loadingMore && (

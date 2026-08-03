@@ -113,9 +113,27 @@
   min-height: 18px;
 }
 
-.det-event--highlighted {
+.det-event--highlighted.det-event--rsvp-needs-action {
   border-style: dashed;
   border-width: 2px;
+}
+
+.det-event--highlighted.det-event--rsvp-accepted {
+  border-style: solid;
+}
+
+.det-event--rsvp-tentative {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    currentColor 0,
+    currentColor 2px,
+    transparent 2px,
+    transparent 6px
+  );
+}
+
+.det-event--rsvp-declined .det-event-title {
+  text-decoration: line-through;
 }
 
 .det-event--cancelled {

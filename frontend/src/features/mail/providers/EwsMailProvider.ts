@@ -46,12 +46,14 @@ export class EwsMailProvider implements MailProvider {
   readonly providerType = 'ews' as const;
   readonly supportsSnooze = true;
   readonly accountId: string;
+  readonly userEmail: string;
 
   private readonly getValidToken: (id: string) => Promise<string | null>;
 
-  constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>) {
+  constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>, userEmail = '') {
     this.accountId = accountId;
     this.getValidToken = getValidToken;
+    this.userEmail = userEmail;
   }
 
   private async token(): Promise<string> {
@@ -62,7 +64,7 @@ export class EwsMailProvider implements MailProvider {
 
   async listThreads(folder: string, maxCount = 50, offset = 0): Promise<MailThread[]> {
     const accessToken = await this.token();
-    return invoke<MailThread[]>('mail_list_threads', { accessToken, folder, maxCount, offset });
+    return invoke<MailThread[]>('mail_list_threads', { accessToken, folder, maxCount, offset, userEmail: this.userEmail || null });
   }
 
   async searchThreads(query: MailSearchQuery, maxCount = 50): Promise<MailThread[]> {
@@ -76,6 +78,11 @@ export class EwsMailProvider implements MailProvider {
   async getThread(conversationId: string, includeTrash = false, isDraft = false, includeDrafts = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
     return invoke<MailMessage[]>('mail_get_thread', { accessToken, conversationId, includeTrash, isDraft, includeDrafts });
+  }
+
+  async getRawMessageSource(itemId: string): Promise<string> {
+    const accessToken = await this.token();
+    return invoke<string>('mail_get_raw_message', { accessToken, itemId });
   }
 
   async listFolders(): Promise<MailFolder[]> {

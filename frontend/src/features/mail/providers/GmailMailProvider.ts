@@ -52,8 +52,11 @@ const FOLDER_TO_LABEL: Record<string, string> = {
   drafts: 'DRAFT',
 };
 
-function folderToLabel(folder: string): string {
-  return FOLDER_TO_LABEL[folder] ?? folder;
+function folderToLabel(folder: string): string | null {
+  if (FOLDER_TO_LABEL[folder]) return FOLDER_TO_LABEL[folder];
+  // EWS/Exchange folder IDs are base64-encoded blobs containing /, +, = — never valid Gmail label IDs
+  if (/[+/=]/.test(folder)) return null;
+  return folder;
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -300,14 +303,16 @@ export class GmailMailProvider implements MailProvider {
   readonly providerType = 'gmail' as const;
   readonly supportsSnooze = false;
   readonly accountId: string;
+  readonly userEmail: string;
 
   private readonly getValidToken: (id: string) => Promise<string | null>;
   /** Page token per label — for load-more pagination. */
   private readonly nextPageTokens = new Map<string, string>();
 
-  constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>) {
+  constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>, userEmail = '') {
     this.accountId = accountId;
     this.getValidToken = getValidToken;
+    this.userEmail = userEmail.toLowerCase();
   }
 
   private async token(): Promise<string> {
@@ -347,6 +352,7 @@ export class GmailMailProvider implements MailProvider {
   async listThreads(folder: string, maxCount = 50, offset = 0): Promise<MailThread[]> {
     const token = await this.token();
     const label = folderToLabel(folder);
+    if (!label) return [];
 
     // Reset page token when loading from the beginning
     if (offset === 0) this.nextPageTokens.delete(label);
@@ -392,7 +398,8 @@ export class GmailMailProvider implements MailProvider {
       const thread = await this.gFetch<GmailThread>(
         token,
         `/users/me/threads/${threadId}?format=metadata` +
-          `&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+          `&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date` +
+          `&metadataHeaders=To&metadataHeaders=Cc`,
       );
 
       const messages = thread.messages ?? [];
@@ -413,6 +420,27 @@ export class GmailMailProvider implements MailProvider {
       const unreadCount = messages.filter(m => m.labelIds?.includes('UNREAD')).length;
       const hasAttachments = messages.some(m => hasAttachmentParts(m.payload));
 
+      // For To/Cc: use the last message we *sent* (SENT label) so that in Sent folder
+      // we show outgoing recipients, not the To: of a reply addressed back to us.
+      const sentMessages = messages.filter(m => m.labelIds?.includes('SENT'));
+      const recipientSource = sentMessages.length > 0 ? sentMessages[sentMessages.length - 1] : last;
+
+      // unique_senders: From addresses of messages we did NOT send, excluding own email
+      const ownEmail = this.userEmail;
+      const seenEmails = new Set<string>();
+      const unique_senders = messages
+        .filter(m => !m.labelIds?.includes('SENT'))
+        .reduce<import('../types').MailRecipient[]>((acc, m) => {
+          const raw = fh(m, 'From');
+          if (!raw) return acc;
+          const parsed = parseFrom(raw);
+          const key = parsed.email.toLowerCase();
+          if (!key || key === ownEmail || seenEmails.has(key)) return acc;
+          seenEmails.add(key);
+          acc.push({ name: parsed.name, email: parsed.email });
+          return acc;
+        }, []);
+
       return {
         conversation_id: threadId,
         topic: subject,
@@ -423,6 +451,9 @@ export class GmailMailProvider implements MailProvider {
         from_name: from.name ?? from.email,
         from_email: from.email || null,
         has_attachments: hasAttachments,
+        to_recipients: parseAddressList(fh(recipientSource, 'To')),
+        cc_recipients: parseAddressList(fh(recipientSource, 'Cc')),
+        unique_senders,
       };
     } catch {
       return null;
@@ -483,6 +514,13 @@ export class GmailMailProvider implements MailProvider {
         return { ...msg, body_html };
       }),
     );
+  }
+
+  async getRawMessageSource(itemId: string): Promise<string> {
+    const token = await this.token();
+    const message = await this.gFetch<{ raw?: string }>(token, `/users/me/messages/${itemId}?format=raw`);
+    if (!message.raw) throw new Error('Gmail did not return the original message source.');
+    return decodeBase64Url(message.raw);
   }
 
   private parseMessage(msg: GmailMessage): MailMessage {
@@ -687,6 +725,7 @@ export class GmailMailProvider implements MailProvider {
     if (!conversationIds.length) return;
     const token = await this.token();
     const targetLabel = folderToLabel(folderId);
+    if (!targetLabel) return;
     const MUTABLE_SYSTEM = ['INBOX', 'TRASH', 'SPAM'];
     const removeLabelIds = MUTABLE_SYSTEM.includes(targetLabel)
       ? MUTABLE_SYSTEM.filter(l => l !== targetLabel)
@@ -733,9 +772,9 @@ export class GmailMailProvider implements MailProvider {
 
 
   async moveToFolder(itemId: string, folderId: string): Promise<void> {
-
     const token = await this.token();
     const targetLabel = folderToLabel(folderId);
+    if (!targetLabel) return;
 
     // SENT and DRAFT are immutable Gmail labels — the API rejects any attempt to remove them.
     // INBOX, TRASH and SPAM are mutually exclusive: removing the others when targeting one.
@@ -825,7 +864,7 @@ export function buildGmailQuery(query: MailSearchQuery): string {
 
   if (query.folder) {
     // Map known folder keys to Gmail labels/in-operands
-    const inLabel = folderToLabel(query.folder).toLowerCase();
+    const inLabel = (folderToLabel(query.folder) ?? query.folder).toLowerCase();
     parts.push(`in:${inLabel}`);
   }
 

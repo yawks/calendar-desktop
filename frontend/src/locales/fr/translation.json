@@ -3,6 +3,11 @@
     "calendar": "Calendrier",
     "mail": "Mail"
   },
+  "welcome": {
+    "title": "Bienvenue dans Courrier",
+    "description": "Réunissez vos emails et vos calendriers dans une seule application, simple et organisée.",
+    "addSource": "Ajouter ma première source"
+  },
   "header": {
     "toggleSidebar": "Afficher/masquer la sidebar",
     "appName": "Courrier",
@@ -10,6 +15,16 @@
     "prev": "Précédent",
     "next": "Suivant",
     "refresh": "Rafraîchir",
+    "events": "Événements",
+    "eventFilters": "Filtrer les événements affichés",
+    "showEvents": "Afficher les événements",
+    "eventStatuses": {
+      "accepted": "Confirmés / acceptés",
+      "tentative": "Tentatifs",
+      "pending": "En attente",
+      "declined": "Refusés",
+      "cancelled": "Annulés"
+    },
     "theme": "Thème : {{preference}}",
     "configCalendars": "Configurer les calendriers",
     "configureBtn": "Configurer",
@@ -265,6 +280,10 @@
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
+    "showOriginalMessage": "Afficher le message original",
+    "originalMessage": "Message original",
+    "copy": "Copier",
+    "close": "Fermer",
     "delete": "Supprimer",
     "movedToTrash": "Conversation déplacée vers la corbeille",
     "deletedPermanently": "Conversation supprimée définitivement",

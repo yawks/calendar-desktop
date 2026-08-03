@@ -14,6 +14,12 @@ pub struct MailThread {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_email: Option<String>,
     pub has_attachments: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub to_recipients: Vec<MailRecipient>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cc_recipients: Vec<MailRecipient>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unique_senders: Vec<MailRecipient>,
 }
 
 #[derive(Serialize, Debug, Clone)]

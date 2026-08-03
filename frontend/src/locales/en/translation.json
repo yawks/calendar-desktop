@@ -3,6 +3,11 @@
     "calendar": "Calendar",
     "mail": "Mail"
   },
+  "welcome": {
+    "title": "Welcome to Courrier",
+    "description": "Bring your email and calendars together in one simple, organized app.",
+    "addSource": "Add my first source"
+  },
   "header": {
     "toggleSidebar": "Toggle sidebar",
     "appName": "Courrier",
@@ -10,6 +15,16 @@
     "prev": "Previous",
     "next": "Next",
     "refresh": "Refresh",
+    "events": "Events",
+    "eventFilters": "Filter displayed events",
+    "showEvents": "Show events",
+    "eventStatuses": {
+      "accepted": "Confirmed / accepted",
+      "tentative": "Tentative",
+      "pending": "Awaiting response",
+      "declined": "Declined",
+      "cancelled": "Cancelled"
+    },
     "theme": "Theme: {{preference}}",
     "configCalendars": "Configure",
     "configureBtn": "Calendars",
@@ -265,6 +280,10 @@
     "reply": "Reply",
     "replyAll": "Reply all",
     "forward": "Forward",
+    "showOriginalMessage": "Show original message",
+    "originalMessage": "Original message",
+    "copy": "Copy",
+    "close": "Close",
     "delete": "Delete",
     "movedToTrash": "Conversation moved to trash",
     "deletedPermanently": "Conversation permanently deleted",

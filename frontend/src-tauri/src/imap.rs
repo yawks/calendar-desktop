@@ -54,6 +54,8 @@ struct MsgMeta {
     unread: bool,
     from_name: Option<String>,
     from_email: Option<String>,
+    to_recipients: Vec<MailRecipient>,
+    cc_recipients: Vec<MailRecipient>,
     header_bytes: Vec<u8>,
     text_bytes: Vec<u8>,
 }
@@ -151,6 +153,24 @@ fn decode_maybe_encoded(s: &str) -> String {
         return header.get_value();
     }
     s.to_string()
+}
+
+fn parse_addr_header(value: &str) -> Vec<MailRecipient> {
+    match mailparse::addrparse(value) {
+        Ok(addr_list) => addr_list.iter().flat_map(|addr| -> Vec<MailRecipient> {
+            match addr {
+                MailAddr::Single(info) => vec![MailRecipient {
+                    name: info.display_name.as_ref().map(|n| decode_maybe_encoded(n)).filter(|n| !n.is_empty()),
+                    email: info.addr.clone(),
+                }],
+                MailAddr::Group(g) => g.addrs.iter().map(|m| MailRecipient {
+                    name: m.display_name.as_ref().map(|n| decode_maybe_encoded(n)).filter(|n| !n.is_empty()),
+                    email: m.addr.clone(),
+                }).collect(),
+            }
+        }).collect(),
+        Err(_) => vec![],
+    }
 }
 
 fn parse_recipient(s: &str) -> MailRecipient {
@@ -466,6 +486,19 @@ impl MailProvider for ImapProvider {
                 Some(format!("{}@{}", mb, host))
             });
 
+            // Parse To/Cc from raw RFC822 headers — preserves display names (envelope may strip them)
+            let (to_recipients, cc_recipients) = if let Some(hdr) = fetch.header() {
+                if let Ok((hdrs, _)) = mailparse::parse_headers(hdr) {
+                    let to_val = hdrs.get_first_value("To").unwrap_or_default();
+                    let cc_val = hdrs.get_first_value("Cc").unwrap_or_default();
+                    (parse_addr_header(&to_val), parse_addr_header(&cc_val))
+                } else {
+                    (vec![], vec![])
+                }
+            } else {
+                (vec![], vec![])
+            };
+
             metas.push(MsgMeta {
                 uid,
                 message_id,
@@ -476,6 +509,8 @@ impl MailProvider for ImapProvider {
                 unread,
                 from_name,
                 from_email,
+                to_recipients,
+                cc_recipients,
                 header_bytes: fetch.header().map(|b| b.to_vec()).unwrap_or_default(),
                 text_bytes:   fetch.text().map(|b| b.to_vec()).unwrap_or_default(),
             });
@@ -510,6 +545,7 @@ impl MailProvider for ImapProvider {
             groups.entry(root).or_default().push(msg);
         }
 
+        let own_email = self.config.email.to_lowercase();
         let mut threads: Vec<MailThread> = groups.into_values().map(|mut msgs| {
             msgs.sort_by_key(|m| m.uid);
             let newest = msgs.last().unwrap();
@@ -517,6 +553,18 @@ impl MailProvider for ImapProvider {
             let conversation_id = msgs.iter().map(|m| m.uid.to_string()).collect::<Vec<_>>().join(",");
             let unread_count = msgs.iter().filter(|m| m.unread).count() as u32;
             let message_count = msgs.len() as u32;
+
+            // Unique senders across all messages in the thread, excluding own email
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let unique_senders: Vec<MailRecipient> = msgs.iter().filter_map(|m| {
+                let email_str = m.from_email.as_deref().unwrap_or("").to_lowercase();
+                if email_str.is_empty() || email_str == own_email { return None; }
+                if !seen.insert(email_str) { return None; }
+                Some(MailRecipient {
+                    name: m.from_name.clone(),
+                    email: m.from_email.clone().unwrap_or_default(),
+                })
+            }).collect();
 
             let snippet = {
                 let h = &newest.header_bytes;
@@ -545,6 +593,9 @@ impl MailProvider for ImapProvider {
                 from_name: newest.from_name.clone(),
                 from_email: newest.from_email.clone(),
                 has_attachments: false,
+                to_recipients: newest.to_recipients.clone(),
+                cc_recipients: newest.cc_recipients.clone(),
+                unique_senders,
             }
         }).collect();
 

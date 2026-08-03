@@ -16,11 +16,15 @@ const GRAPH_ENDPOINT: &str = "https://graph.microsoft.com/v1.0";
 
 pub struct EwsProvider {
     access_token: String,
+    user_email: Option<String>,
 }
 
 impl EwsProvider {
     pub fn new(access_token: String) -> Self {
-        Self { access_token }
+        Self { access_token, user_email: None }
+    }
+    pub fn with_user_email(access_token: String, user_email: String) -> Self {
+        Self { access_token, user_email: Some(user_email) }
     }
 }
 
@@ -179,7 +183,7 @@ fn build_recipients_blocks(to: &[String], cc: &[String], bcc: &[String]) -> (Str
     (to_block, cc_block, bcc_block)
 }
 
-async fn fetch_ews_attachment_base64(access_token: &str, attachment_id: &str) -> Result<String, String> {
+pub(crate) async fn fetch_ews_attachment_base64(access_token: &str, attachment_id: &str) -> Result<String, String> {
     let soap_body = format!(
         r#"<m:GetAttachment>
   <m:AttachmentShape/>
@@ -402,6 +406,9 @@ impl MailProvider for EwsProvider {
                     from_name: sender_name,
                     from_email: None,
                     has_attachments,
+                    to_recipients: vec![],
+                    cc_recipients: vec![],
+                    unique_senders: vec![],
                 });
             }
             return Ok(threads);
@@ -484,6 +491,47 @@ impl MailProvider for EwsProvider {
                         .filter(|s| !s.is_empty())
                 });
 
+            let to_recipients: Vec<MailRecipient> = {
+                let recipients_xml = xml_content_ns(&conv_xml, "t:GlobalUniqueRecipients")
+                    .or_else(|| xml_content_ns(&conv_xml, "t:UniqueRecipients"))
+                    .unwrap_or_default();
+                // xml_all_ns returns full elements like "<String>value</String>" — extract inner text
+                xml_all_ns(&recipients_xml, "t:String")
+                    .into_iter()
+                    .filter_map(|elem| {
+                        let value = xml_content_ns(&elem, "t:String")
+                            .filter(|s| !s.is_empty())?;
+                        // EWS returns display names (not SMTP addresses) here
+                        if value.contains('@') {
+                            Some(MailRecipient { name: None, email: value })
+                        } else {
+                            Some(MailRecipient { name: Some(value.clone()), email: value })
+                        }
+                    })
+                    .collect()
+            };
+
+            let unique_senders: Vec<MailRecipient> = {
+                let senders_xml = xml_content_ns(&conv_xml, "t:GlobalUniqueSenders")
+                    .or_else(|| xml_content_ns(&conv_xml, "t:UniqueSenders"))
+                    .unwrap_or_default();
+                let own = self.user_email.as_deref().unwrap_or("").to_lowercase();
+                xml_all_ns(&senders_xml, "t:String")
+                    .into_iter()
+                    .filter_map(|elem| {
+                        let value = xml_content_ns(&elem, "t:String")
+                            .filter(|s| !s.is_empty())?;
+                        // Exclude own email (case-insensitive)
+                        if !own.is_empty() && value.to_lowercase() == own { return None; }
+                        if value.contains('@') {
+                            Some(MailRecipient { name: None, email: value })
+                        } else {
+                            Some(MailRecipient { name: Some(value.clone()), email: value })
+                        }
+                    })
+                    .collect()
+            };
+
             threads.push(MailThread {
                 conversation_id,
                 topic,
@@ -494,6 +542,9 @@ impl MailProvider for EwsProvider {
                 from_name,
                 from_email: None,
                 has_attachments,
+                to_recipients,
+                cc_recipients: vec![],
+                unique_senders,
             });
         }
 
@@ -632,6 +683,9 @@ impl MailProvider for EwsProvider {
                     from_name,
                     from_email: None,
                     has_attachments: has_attach,
+                    to_recipients: vec![],
+                    cc_recipients: vec![],
+                    unique_senders: vec![],
                 });
             }
             if order.len() >= thread_limit && by_conv.len() >= thread_limit {
@@ -862,7 +916,64 @@ impl MailProvider for EwsProvider {
 
     async fn bulk_move_to_folder(&self, item_ids: Vec<String>, folder_id: &str) -> Result<(), String> {
         if item_ids.is_empty() { return Ok(()); }
-        let items_xml: String = item_ids.iter()
+
+        // Exchange items have exactly one parent folder. Unlike Gmail/JMAP we
+        // cannot add the destination while retaining Sent, so exclude items
+        // whose current parent is the Sent Items folder from the move.
+        let sent_folder_id = get_distinguished_folder_id(&self.access_token, "sentitems")
+            .await
+            .ok_or_else(|| "Unable to resolve the Exchange Sent Items folder".to_string())?;
+        let item_refs: String = item_ids.iter()
+            .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let inspect_body = format!(
+            r#"<m:GetItem>
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:ParentFolderId"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:ItemIds>
+{item_refs}
+  </m:ItemIds>
+</m:GetItem>"#,
+        );
+        let inspect_xml = send(&self.access_token, &inspect_body).await?;
+        if inspect_xml.contains("ResponseClass=\"Error\"") {
+            return Err(ews_err(&inspect_xml, "EWS error checking Sent items before move"));
+        }
+
+        const ITEM_TYPES: &[&str] = &[
+            "t:Message",
+            "t:MeetingRequest",
+            "t:MeetingResponse",
+            "t:MeetingCancellation",
+        ];
+        let mut movable_ids = Vec::new();
+        for &item_type in ITEM_TYPES {
+            for item_xml in xml_all_ns(&inspect_xml, item_type) {
+                let item_id = item_xml
+                    .find("<t:ItemId ")
+                    .or_else(|| item_xml.find("<ItemId "))
+                    .and_then(|s| item_xml[s..].find("/>").map(|e| &item_xml[s..s + e]))
+                    .and_then(|elem| xml_attr(elem, "Id"));
+                let parent_id = item_xml
+                    .find("<t:ParentFolderId ")
+                    .or_else(|| item_xml.find("<ParentFolderId "))
+                    .and_then(|s| item_xml[s..].find("/>").map(|e| &item_xml[s..s + e]))
+                    .and_then(|elem| xml_attr(elem, "Id"));
+                if let (Some(id), Some(parent)) = (item_id, parent_id) {
+                    if parent != sent_folder_id {
+                        movable_ids.push(id.to_string());
+                    }
+                }
+            }
+        }
+        if movable_ids.is_empty() { return Ok(()); }
+
+        let items_xml: String = movable_ids.iter()
             .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
             .collect::<Vec<_>>()
             .join("\n");
@@ -1300,8 +1411,13 @@ pub async fn mail_list_threads(
     access_token: String,
     folder: String,
     max_count: Option<u32>,
+    user_email: Option<String>,
 ) -> Result<Vec<MailThread>, String> {
-    EwsProvider::new(access_token).list_threads(&folder, max_count).await
+    let provider = match user_email {
+        Some(email) => EwsProvider::with_user_email(access_token, email),
+        None => EwsProvider::new(access_token),
+    };
+    provider.list_threads(&folder, max_count).await
 }
 
 #[command]
@@ -1324,6 +1440,28 @@ pub async fn mail_get_thread(
     EwsProvider::new(access_token)
         .get_thread(&conversation_id, include_trash, is_draft, include_drafts)
         .await
+}
+
+#[command]
+pub async fn mail_get_raw_message(access_token: String, item_id: String) -> Result<String, String> {
+    let soap_body = format!(
+        r#"<m:GetItem>
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:IncludeMimeContent>true</t:IncludeMimeContent>
+  </m:ItemShape>
+  <m:ItemIds><t:ItemId Id="{item_id}"/></m:ItemIds>
+</m:GetItem>"#,
+    );
+    let xml = send(&access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS error getting original message"));
+    }
+    let encoded = xml_content_ns(&xml, "t:MimeContent")
+        .ok_or_else(|| "EWS did not return MIME content".to_string())?;
+    let compact: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
+    let bytes = BASE64.decode(compact.as_bytes()).map_err(|e| format!("Invalid MIME base64: {e}"))?;
+    String::from_utf8(bytes).map_err(|e| format!("Original message is not valid UTF-8: {e}"))
 }
 
 #[command]

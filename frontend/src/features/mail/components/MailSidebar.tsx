@@ -1,4 +1,4 @@
-import { ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
 import { Folder, MailFolder } from '../types';
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -218,9 +218,16 @@ export function MailSidebar({
   return (
     <nav className="mail-sidebar" ref={navRef}>
       <button className="mail-compose-btn" onClick={onCompose}>
-        <Pencil size={15} />
-        {t('mail.compose', 'Nouveau message')}
+        <span className="mail-compose-btn__main">
+          <Pencil size={17} />
+          {t('mail.compose', 'Nouveau message')}
+        </span>
+        <span className="mail-compose-btn__chevron" aria-hidden="true">
+          <ChevronDown size={17} />
+        </span>
       </button>
+
+      <div className="mail-sidebar-title">{t('mail.labels', 'Labels')}</div>
 
       {staticFolders.map(({ id, label, Icon }) => {
         const unread = folderUnreadCounts[id] ?? 0;

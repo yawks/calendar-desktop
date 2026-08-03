@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronUp,
+  CodeXml,
   Forward,
   Mail,
   MailOpen,
@@ -12,10 +13,11 @@ import {
 import { MouseEvent, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
-import { formatDate, formatFullDate, formatSize, senderColor } from '../utils';
+import { formatDate, formatFullDate, formatMailPreview, formatSize, senderColor } from '../utils';
 import { MailMessage, MailRecipient } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import type { MailProvider } from '../providers/MailProvider';
+import { OriginalMessageModal } from './OriginalMessageModal';
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -63,10 +65,11 @@ interface ActionsMenuProps {
   readonly onForward: (m: MailMessage) => void;
   readonly onToggleRead: (m: MailMessage) => void;
   readonly onTrash: (id: string) => void;
+  readonly onShowOriginal: () => void;
   readonly onClose: () => void;
 }
 
-function ActionsMenu({ message, onReply, onReplyAll, onForward, onToggleRead, onTrash, onClose }: ActionsMenuProps) {
+function ActionsMenu({ message, onReply, onReplyAll, onForward, onToggleRead, onTrash, onShowOriginal, onClose }: ActionsMenuProps) {
   const { t } = useTranslation();
   const act = (e: MouseEvent, fn: () => void) => { e.stopPropagation(); fn(); onClose(); };
   return (
@@ -82,6 +85,10 @@ function ActionsMenu({ message, onReply, onReplyAll, onForward, onToggleRead, on
       <button type="button" className="mail-actions-menu__item"
         onClick={e => act(e, () => onForward(message))}>
         <Forward size={14} /><span>{t('mail.forward', 'Forward')}</span>
+      </button>
+      <button type="button" className="mail-actions-menu__item"
+        onClick={e => act(e, onShowOriginal)}>
+        <CodeXml size={14} /><span>{t('mail.showOriginalMessage', 'Show original message')}</span>
       </button>
 
       <div className="mail-actions-menu__separator" />
@@ -123,6 +130,7 @@ export function MessageBlockHeader({
 
   const [showHeaders, setShowHeaders] = useState(false);
   const [showActions, setShowActions] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   // Collapse headers panel when block collapses
   useEffect(() => { if (!expanded) setShowHeaders(false); }, [expanded]);
@@ -148,7 +156,7 @@ export function MessageBlockHeader({
           email={message.from_email ?? sender}
           name={message.from_name ?? undefined}
           provider={provider}
-          size={24}
+          size={38}
           className="mail-message-block__avatar mail-message-block__avatar--small"
         />
         <span
@@ -157,7 +165,9 @@ export function MessageBlockHeader({
         >
           {fromLabel}
         </span>
-        <span className="mail-message-block__preview--collapsed">{message.subject}</span>
+        <span className="mail-message-block__preview--collapsed">
+          {formatMailPreview(message.body_text || '') || formatMailPreview(message.subject)}
+        </span>
         {message.has_attachments && <Paperclip size={11} className="mail-message-block__clip" />}
         <span className="mail-message-block__date">{formatDate(message.date_time_received)}</span>
         <ChevronDown size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
@@ -187,8 +197,11 @@ export function MessageBlockHeader({
             <span className="mail-message-block__from" style={{ color: senderColor(sender, isDark) }}>
               {fromLabel}
             </span>
-            <span className="mail-message-block__date" title={formatFullDate(message.date_time_received)}>
-              {formatDate(message.date_time_received)}
+            <span className="mail-message-block__message-meta">
+              {message.has_attachments && <Paperclip size={13} className="mail-message-block__clip" />}
+              <span className="mail-message-block__date" title={formatFullDate(message.date_time_received)}>
+                {formatDate(message.date_time_received)}
+              </span>
             </span>
           </div>
 
@@ -258,6 +271,7 @@ export function MessageBlockHeader({
                       message={message}
                       onReply={onReply} onReplyAll={onReplyAll} onForward={onForward}
                       onToggleRead={onToggleRead} onTrash={onTrash}
+                      onShowOriginal={() => setShowOriginal(true)}
                       onClose={() => setShowActions(false)}
                     />
                   </>
@@ -321,6 +335,9 @@ export function MessageBlockHeader({
             </div>
           )}
         </div>
+      )}
+      {showOriginal && (
+        <OriginalMessageModal message={message} provider={provider} onClose={() => setShowOriginal(false)} />
       )}
     </>
   );

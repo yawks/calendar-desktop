@@ -63,6 +63,8 @@ export interface MailProvider {
   /** Search threads using a structured query. Results are not cached. */
   searchThreads(query: MailSearchQuery, maxCount?: number): Promise<MailThread[]>;
   getThread(conversationId: string, includeTrash?: boolean, isDraft?: boolean, includeDrafts?: boolean): Promise<MailMessage[]>;
+  /** Return the original RFC 5322/MIME source when supported by the provider. */
+  getRawMessageSource?(itemId: string): Promise<string>;
   listFolders(): Promise<MailFolder[]>;
   sendMail(params: SendMailParams): Promise<void>;
   markRead(items: MailItemRef[]): Promise<void>;

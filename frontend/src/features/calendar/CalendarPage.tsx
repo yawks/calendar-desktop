@@ -3,7 +3,7 @@ import '@toast-ui/calendar/dist/toastui-calendar.min.css';
 import { CalendarEvent } from '../../shared/types';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import AppHeader from './components/AppHeader';
+import AppHeader, { EventVisibilityStatus } from './components/AppHeader';
 import Calendar from '@toast-ui/react-calendar';
 import SearchModal from './components/SearchModal';
 import SearchResultsView from './components/SearchResultsView';
@@ -17,6 +17,9 @@ import { formatDateLabel, DARK_THEME, LIGHT_THEME, toTUIEvents, getViewRange, fo
 export default function CalendarPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [visibleEventStatuses, setVisibleEventStatuses] = useState<Set<EventVisibilityStatus>>(
+    () => new Set(['accepted', 'tentative', 'pending', 'declined', 'cancelled'])
+  );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -79,9 +82,27 @@ export default function CalendarPage() {
     handleRecurringModalChoice,
   } = useCalendarLogic();
 
+  const visibleEvents = useMemo(() => events.filter((event) => {
+    let status: EventVisibilityStatus = 'accepted';
+    if (event.isCancelled) status = 'cancelled';
+    else if (event.isDeclined || event.selfRsvpStatus === 'DECLINED') status = 'declined';
+    else if (event.selfRsvpStatus === 'TENTATIVE') status = 'tentative';
+    else if (event.isUnaccepted || event.selfRsvpStatus === 'NEEDS-ACTION' || event.selfRsvpStatus === 'DELEGATED') status = 'pending';
+    return visibleEventStatuses.has(status);
+  }), [events, visibleEventStatuses]);
+
+  const handleToggleEventStatus = (status: EventVisibilityStatus) => {
+    setVisibleEventStatuses((current) => {
+      const next = new Set(current);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  };
+
   const tuiEvents = useMemo(() =>
-    toTUIEvents(events, calendars, theme === 'dark', tags, eventTags),
-    [events, calendars, theme, tags, eventTags]
+    toTUIEvents(visibleEvents, calendars, theme === 'dark', tags, eventTags),
+    [visibleEvents, calendars, theme, tags, eventTags]
   );
 
   const tuiCalendars = useMemo(() => calendars
@@ -140,7 +161,7 @@ export default function CalendarPage() {
       const scrollPanel = document.querySelector('.toastui-calendar-panel.toastui-calendar-time') as HTMLElement | null;
       if (!scrollPanel) return;
       const range = getViewRange(currentDate, view);
-      const timedEvents = events.filter(ev =>
+      const timedEvents = visibleEvents.filter(ev =>
         !ev.isAllday &&
         new Date(ev.start) >= range.start &&
         new Date(ev.start) <= range.end
@@ -154,7 +175,7 @@ export default function CalendarPage() {
       scrollPanel.scrollTop = (targetMinutes / (24 * 60)) * scrollPanel.scrollHeight;
     }, 100);
     return () => clearTimeout(timer);
-  }, [events, view, currentDate, searchQuery]);
+  }, [visibleEvents, view, currentDate, searchQuery]);
 
   const isWorkweek = view === 'workweek';
   const tuiView = isWorkweek ? 'week' : view;
@@ -175,6 +196,8 @@ export default function CalendarPage() {
         loading={loading}
         onToggleSidebar={handleCollapseToggle}
         onSearch={() => setSearchOpen(true)}
+        visibleEventStatuses={visibleEventStatuses}
+        onToggleEventStatus={handleToggleEventStatus}
       />
 
       <div className="app-body">
@@ -239,7 +262,7 @@ export default function CalendarPage() {
                 const timeLabel = start && end ? `de ${start} à ${end}` : '';
                 const tagColor = event.raw?.tagColor;
                 const hatchColor = event.raw?.hatchColor;
-                const isDeclined = event.raw?.isDeclined;
+                const isDeclined = event.raw?.isDeclined || event.raw?.isCancelled;
                 const hatch = hatchColor
                   ? `<div style="position:absolute;inset:0;background:repeating-linear-gradient(-45deg,${hatchColor} 0,${hatchColor} 4px,transparent 4px,transparent 8px);pointer-events:none;z-index:0;"></div>`
                   : '';
@@ -256,7 +279,7 @@ export default function CalendarPage() {
               allday: (event: any) => {
                 const tagColor = event.raw?.tagColor;
                 const hatchColor = event.raw?.hatchColor;
-                const isDeclined = event.raw?.isDeclined;
+                const isDeclined = event.raw?.isDeclined || event.raw?.isCancelled;
                 const hatch = hatchColor
                   ? `<div style="position:absolute;inset:0;background:repeating-linear-gradient(-45deg,${hatchColor} 0,${hatchColor} 4px,transparent 4px,transparent 8px);pointer-events:none;"></div>`
                   : '';

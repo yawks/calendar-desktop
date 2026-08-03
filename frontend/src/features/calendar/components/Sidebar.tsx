@@ -170,7 +170,7 @@ function SortableCalendarItem({
       {error && (
         <div className="sidebar-error" title={error}>
           <AlertCircle size={12} style={{ flexShrink: 0 }} />
-          {t('sidebar.loadError')}
+          <span>{t('sidebar.loadError')}: {error}</span>
         </div>
       )}
     </div>

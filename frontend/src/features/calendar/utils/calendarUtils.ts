@@ -190,7 +190,7 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
       borderColor = 'transparent';
     }
 
-    if (isDeclined) {
+    if (isDeclined || ev.isCancelled) {
       customStyle.textDecoration = 'line-through';
     }
 
@@ -212,7 +212,7 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
       isAllday: ev.isAllday,
       category: ev.isAllday ? 'allday' : 'time',
       location: ev.location,
-      state: ev.isDeclined ? 'Free' : 'Busy',
+      state: ev.isDeclined || ev.isCancelled ? 'Free' : 'Busy',
       backgroundColor,
       color: textColor,
       borderColor,
@@ -220,7 +220,7 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
       raw: {
         ...ev,
         tagColor,
-        hatchColor: ev.selfRsvpStatus === 'TENTATIVE' && !ev.isDeclined
+        hatchColor: ev.selfRsvpStatus === 'TENTATIVE' && !ev.isDeclined && !ev.isCancelled
           ? hexToRgba(color, 0.3)
           : undefined,
       },

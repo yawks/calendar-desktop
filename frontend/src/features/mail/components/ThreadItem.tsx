@@ -1,13 +1,88 @@
 import { Archive, BellOff, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
 import React, { useState } from 'react';
-import { decodeHtmlEntities, formatDate, senderColor } from '../utils';
+import { decodeHtmlEntities, formatDate, formatMailPreview, senderColor } from '../utils';
 
-import { MailThread } from '../types';
+import { MailRecipient, MailThread } from '../types';
 import type { MailProvider } from '../providers/MailProvider';
 import { ContactAvatar } from './ContactAvatar';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useTranslation } from 'react-i18next';
+
+// ── Stacked recipient avatars ───────────────────────────────────────────────
+
+interface RecipientAvatarsProps {
+  readonly recipients: MailRecipient[];
+  readonly provider?: MailProvider | null;
+}
+
+function RecipientAvatars({ recipients, provider }: RecipientAvatarsProps) {
+  const total = recipients.length;
+
+  // 1 recipient — single normal-sized avatar
+  if (total === 1) {
+    return (
+      <ContactAvatar
+        email={recipients[0].email}
+        name={recipients[0].name ?? undefined}
+        provider={provider}
+        size={36}
+      />
+    );
+  }
+
+  // 2 recipients — diagonal: top-left and bottom-right (22px each)
+  // (0,0) and (14,14) → right/bottom edges = 36 ✓
+  if (total === 2) {
+    const positions = [{ l: 0, t: 0 }, { l: 14, t: 14 }];
+    return (
+      <div className="mail-thread-item__recipient-stack">
+        {recipients.map((r, i) => (
+          <div key={r.email} style={{ position: 'absolute', left: positions[i].l, top: positions[i].t, zIndex: 2 - i }}>
+            <ContactAvatar email={r.email} name={r.name ?? undefined} provider={provider} size={22} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // 3 recipients — triangle of 20px avatars (fits exactly in 36×36)
+  // top-left (0,0), top-right (16,0), bottom-center (8,16) → all edges ≤ 36 ✓
+  if (total === 3) {
+    const positions = [{ l: 0, t: 0 }, { l: 16, t: 0 }, { l: 8, t: 16 }];
+    return (
+      <div className="mail-thread-item__recipient-stack">
+        {recipients.map((r, i) => (
+          <div key={r.email} style={{ position: 'absolute', left: positions[i].l, top: positions[i].t, zIndex: 3 - i }}>
+            <ContactAvatar email={r.email} name={r.name ?? undefined} provider={provider} size={20} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // 4+ recipients — triangle like the 3-avatar case, 3rd position is the "+N" badge
+  // top-left (0,0), top-right (16,0), bottom-center (8,16) → all edges ≤ 36 ✓
+  const twoShown = recipients.slice(0, 2);
+  const pairPositions = [{ l: 0, t: 0 }, { l: 16, t: 0 }];
+  return (
+    <div className="mail-thread-item__recipient-stack">
+      {twoShown.map((r, i) => (
+        <div key={r.email} style={{ position: 'absolute', left: pairPositions[i].l, top: pairPositions[i].t, zIndex: 2 - i }}>
+          <ContactAvatar email={r.email} name={r.name ?? undefined} provider={provider} size={20} />
+        </div>
+      ))}
+      <div
+        className="mail-thread-item__recipient-more"
+        style={{ position: 'absolute', left: 8, top: 16, width: 20, height: 20 }}
+      >
+        +{total - 2}
+      </div>
+    </div>
+  );
+}
+
+// ── ThreadItem ──────────────────────────────────────────────────────────────
 
 export interface ThreadItemProps {
   readonly thread: MailThread;
@@ -15,15 +90,16 @@ export interface ThreadItemProps {
   readonly isChecked: boolean;
   readonly snoozeUntil?: string;
   readonly isInSnoozedFolder: boolean;
+  readonly isSentFolder?: boolean;
   readonly hasDraft?: boolean;
   readonly provider?: MailProvider | null;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
-  readonly onToggleCheck: (t: MailThread) => void;
+  readonly onToggleCheck: (t: MailThread, shiftKey: boolean) => void;
 }
 
-export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, hasDraft, provider, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
+export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, hasDraft, provider, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const { preference } = useTheme();
   const isDark = preference === 'dark';
@@ -38,6 +114,36 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   const isUnread = thread.unread_count > 0;
   const isSnoozed = isInSnoozedFolder || (!!snoozeUntil && new Date(snoozeUntil) > new Date());
 
+  const toRecipients = thread.to_recipients ?? [];
+  const ccRecipients = thread.cc_recipients ?? [];
+  const totalRecipients = toRecipients.length + ccRecipients.length;
+  const showRecipients = isSentFolder && totalRecipients > 0;
+  const recipientsLabel = toRecipients.map(r => r.name || r.email).join(', ');
+
+  const uniqueSenders = thread.unique_senders ?? [];
+
+  let avatarContent: React.ReactNode;
+  if (isHovered || isChecked) {
+    avatarContent = (
+      <div className={`mail-thread-item__checkbox-box ${isChecked ? 'mail-thread-item__checkbox-box--checked' : ''}`}>
+        {isChecked && <Check size={14} strokeWidth={3} />}
+      </div>
+    );
+  } else if (showRecipients) {
+    avatarContent = <RecipientAvatars recipients={toRecipients} provider={provider} />;
+  } else if (uniqueSenders.length >= 2) {
+    avatarContent = <RecipientAvatars recipients={uniqueSenders} provider={provider} />;
+  } else {
+    avatarContent = (
+      <ContactAvatar
+        email={thread.from_email ?? thread.from_name ?? ''}
+        name={thread.from_name ?? undefined}
+        provider={provider}
+        size={36}
+      />
+    );
+  }
+
   return (
     <div
       className={`mail-thread-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''} ${isChecked ? 'checked' : ''}`}
@@ -50,32 +156,34 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
         onClick={e => {
           if (isHovered || isChecked) {
             e.stopPropagation();
-            onToggleCheck(thread);
+            onToggleCheck(thread, e.shiftKey);
           }
         }}
       >
-        {(isHovered || isChecked) ? (
-          <div className={`mail-thread-item__checkbox-box ${isChecked ? 'mail-thread-item__checkbox-box--checked' : ''}`}>
-            {isChecked && <Check size={14} strokeWidth={3} />}
-          </div>
-        ) : (
-          <ContactAvatar
-            email={thread.from_email ?? thread.from_name ?? ''}
-            name={thread.from_name ?? undefined}
-            provider={provider}
-            size={36}
-          />
-        )}
+        {avatarContent}
       </div>
 
       <div className="mail-thread-item__content">
         <div className="mail-thread-item__top">
           <div className="mail-thread-item__from">
-            <span style={{ color: senderColor(thread.from_name || '', isDark) }}>
-              {thread.from_name}
-            </span>
-            {thread.message_count > 1 && (
-              <span className="mail-thread-item__count">{thread.message_count}</span>
+            {showRecipients ? (
+              <>
+                <span className="mail-thread-item__recipients" title={[...toRecipients, ...ccRecipients].map(r => r.name ? `${r.name} <${r.email}>` : r.email).join(', ')}>
+                  {recipientsLabel}
+                </span>
+                {totalRecipients > 1 && (
+                  <span className="mail-thread-item__count mail-thread-item__count--recipients">{totalRecipients}</span>
+                )}
+              </>
+            ) : (
+              <>
+                <span style={{ color: senderColor(thread.from_name || '', isDark) }}>
+                  {thread.from_name}
+                </span>
+                {thread.message_count > 1 && (
+                  <span className="mail-thread-item__count">{thread.message_count}</span>
+                )}
+              </>
             )}
           </div>
           <div className="mail-thread-item__top-right">
@@ -94,7 +202,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           {hasDraft && (
             <span className="mail-thread-item__draft-badge">{t('mail.draftBadge', 'Brouillon')}</span>
           )}
-          <span className="mail-thread-item__snippet-text">{decodeHtmlEntities(thread.snippet)}</span>
+          <span className="mail-thread-item__snippet-text">{formatMailPreview(thread.snippet)}</span>
         </div>
 
         {isInSnoozedFolder && isSnoozed && (
