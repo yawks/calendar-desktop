@@ -8,9 +8,6 @@ use crate::mail_provider::{
 };
 
 const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
-const CLIENT_ID: &str = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
-const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
-const GRAPH_ENDPOINT: &str = "https://graph.microsoft.com/v1.0";
 
 // ── EwsProvider ───────────────────────────────────────────────────────────────
 
@@ -1402,62 +1399,144 @@ impl MailProvider for EwsProvider {
         if query.trim().is_empty() {
             return Ok(vec![]);
         }
-        let top = max_count.unwrap_or(25);
-        let encoded = urlencoding::encode(query);
-        let url = format!(
-            "{}/me/people?$search={}&$top={}&$select=displayName,scoredEmailAddresses",
-            GRAPH_ENDPOINT, encoded, top
+        let soap_body = format!(
+            r#"<m:ResolveNames ReturnFullContactData="true" SearchScope="ContactsActiveDirectory" ContactDataShape="Default">
+  <m:UnresolvedEntry>{}</m:UnresolvedEntry>
+</m:ResolveNames>"#,
+            xml_escape(query.trim())
         );
-        let client = reqwest::Client::new();
-        let resp = client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.access_token))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        if !resp.status().is_success() {
-            return Err(format!("Graph people error: {}", resp.status()));
+        let xml = send(&self.access_token, &soap_body).await?;
+        if xml.contains("ResponseClass=\"Error\"") && !xml.contains("ErrorNameResolutionNoResults") {
+            return Err(ews_err(&xml, "EWS contact search error"));
         }
-        let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        let contacts = json["value"]
-            .as_array()
-            .unwrap_or(&vec![])
-            .iter()
-            .filter_map(|p| {
-                let email = p["scoredEmailAddresses"]
-                    .as_array()?
-                    .first()?["address"]
-                    .as_str()?
+        let max = max_count.unwrap_or(25).min(100) as usize;
+        let mut seen = std::collections::HashSet::new();
+        let contacts = xml_all_ns(&xml, "t:Resolution")
+            .into_iter()
+            .filter_map(|resolution| {
+                let mailbox = xml_content_ns(&resolution, "t:Mailbox")?;
+                let email = xml_content_ns(&mailbox, "t:EmailAddress")?;
+                if email.trim().is_empty() || !seen.insert(email.to_lowercase()) {
+                    return None;
+                }
+                let name = xml_content_ns(&mailbox, "t:Name").filter(|value| !value.trim().is_empty());
+                let source = xml_content_ns(&resolution, "t:ContactSource")
+                    .map(|value| if value == "ActiveDirectory" { "ews-directory" } else { "ews-contact" })
+                    .unwrap_or("ews-contact")
                     .to_string();
-                let name = p["displayName"].as_str().map(|s| s.to_string());
-                Some(crate::mail_provider::Contact { email, name })
+                Some(crate::mail_provider::Contact { email, name, source: Some(source) })
             })
+            .take(max)
             .collect();
         Ok(contacts)
     }
 
     async fn get_contact_photo(&self, email: &str) -> Result<Option<String>, String> {
-        let encoded = urlencoding::encode(email);
-        let url = format!("{}/users/{}/photo/$value", GRAPH_ENDPOINT, encoded);
-        let client = reqwest::Client::new();
-        let resp = client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.access_token))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        if resp.status().as_u16() == 404 || resp.status().as_u16() == 403 {
+        let soap_body = format!(
+            r#"<m:GetUserPhoto>
+  <m:Email>{}</m:Email>
+  <m:SizeRequested>HR96x96</m:SizeRequested>
+</m:GetUserPhoto>"#,
+            xml_escape(email.trim())
+        );
+        let xml = send(&self.access_token, &soap_body).await?;
+        if xml.contains("ResponseClass=\"Error\"") {
             return Ok(None);
         }
-        if !resp.status().is_success() {
-            return Ok(None);
-        }
-        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-        Ok(Some(BASE64.encode(&bytes)))
+        Ok(xml_content_ns(&xml, "m:PictureData").filter(|data| !data.trim().is_empty()))
     }
 }
 
 // ── Tauri commands (thin wrappers) ────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactBackfillBatch {
+    observations: Vec<crate::contact_index::ContactObservation>,
+    item_count: u32,
+    oldest_at: Option<i64>,
+}
+
+fn ews_mailboxes(xml: &str) -> Vec<(String, Option<String>)> {
+    xml_all_ns(xml, "t:Mailbox").into_iter().filter_map(|mailbox| {
+        let email = xml_content_ns(&mailbox, "t:EmailAddress")?;
+        let name = xml_content_ns(&mailbox, "t:Name").filter(|value| !value.trim().is_empty());
+        Some((email, name))
+    }).collect()
+}
+
+#[command]
+pub async fn mail_backfill_contacts(
+    access_token: String,
+    folder: String,
+    offset: u32,
+    max_count: u32,
+    user_email: String,
+) -> Result<ContactBackfillBatch, String> {
+    let count = max_count.clamp(1, 200);
+    let parent_folder = match folder.as_str() {
+        "inbox" | "sentitems" => format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder),
+        _ => format!(r#"<t:FolderId Id="{}"/>"#, xml_escape(&folder)),
+    };
+    let soap_body = format!(r#"<m:FindItem Traversal="Shallow">
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:DateTimeReceived"/>
+      <t:FieldURI FieldURI="item:DateTimeSent"/>
+      <t:FieldURI FieldURI="message:InternetMessageId"/>
+      <t:FieldURI FieldURI="message:From"/>
+      <t:FieldURI FieldURI="message:ToRecipients"/>
+      <t:FieldURI FieldURI="message:CcRecipients"/>
+      <t:FieldURI FieldURI="message:BccRecipients"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="{offset}" BasePoint="Beginning"/>
+  <m:SortOrder><t:FieldOrder Order="Descending"><t:FieldURI FieldURI="item:DateTimeReceived"/></t:FieldOrder></m:SortOrder>
+  <m:ParentFolderIds>{parent_folder}</m:ParentFolderIds>
+</m:FindItem>"#);
+    let xml = send(&access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS contact backfill error"));
+    }
+    let items = xml_all_ns(&xml, "t:Message");
+    let item_count = items.len() as u32;
+    let mut observations = Vec::new();
+    let mut oldest_at: Option<i64> = None;
+    for item in items {
+        let occurred = xml_content_ns(&item, "t:DateTimeSent")
+            .or_else(|| xml_content_ns(&item, "t:DateTimeReceived"))
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(&value).ok())
+            .map(|date| date.timestamp());
+        let Some(occurred_at) = occurred else { continue };
+        oldest_at = Some(oldest_at.map_or(occurred_at, |current| current.min(occurred_at)));
+        let event_id = xml_content_ns(&item, "t:InternetMessageId").or_else(|| {
+            item.find("<t:ItemId ")
+                .and_then(|start| item[start..].find("/>").map(|end| &item[start..start + end]))
+                .and_then(|element| xml_attr(element, "Id"))
+        }).unwrap_or_else(|| format!("ews:{folder}:{offset}:{occurred_at}"));
+        let senders = xml_content_ns(&item, "t:From")
+            .map(|value| ews_mailboxes(&value))
+            .unwrap_or_default();
+        let sent_by_user = folder == "sentitems" || senders.iter().any(|(email, _)| {
+            !user_email.is_empty() && email.eq_ignore_ascii_case(&user_email)
+        });
+        let (kind, mailboxes) = if sent_by_user {
+            let mut recipients = xml_content_ns(&item, "t:ToRecipients").map(|value| ews_mailboxes(&value)).unwrap_or_default();
+            if let Some(cc) = xml_content_ns(&item, "t:CcRecipients") { recipients.extend(ews_mailboxes(&cc)); }
+            if let Some(bcc) = xml_content_ns(&item, "t:BccRecipients") { recipients.extend(ews_mailboxes(&bcc)); }
+            ("sent", recipients)
+        } else {
+            ("received", senders)
+        };
+        for (email, display_name) in mailboxes {
+            observations.push(crate::contact_index::ContactObservation {
+                email, display_name, kind: kind.to_string(), occurred_at, event_id: event_id.clone(),
+            });
+        }
+    }
+    Ok(ContactBackfillBatch { observations, item_count, oldest_at })
+}
 
 #[command]
 pub async fn mail_list_folders(access_token: String) -> Result<Vec<MailFolder>, String> {

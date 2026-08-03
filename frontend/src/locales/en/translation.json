@@ -263,6 +263,13 @@
     "noSubject": "(No subject)",
     "noAccount": "No mail account configured. Add an Exchange or Google account in Settings.",
     "allAccounts": "All accounts",
+    "contactSync": {
+      "running": "Contacts: {{folder}} · {{scanned}} scanned · {{inserted}} new",
+      "complete": "Contacts: synchronized",
+      "error": "Contacts: synchronization error",
+      "sentFolder": "sent",
+      "inboxFolder": "received"
+    },
     "showSidebar": "Show sidebar",
     "hideSidebar": "Hide sidebar",
     "messageDeleted": "Message deleted",

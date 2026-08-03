@@ -6,10 +6,12 @@ import { useTranslation } from 'react-i18next';
 import type { MailProvider } from '../providers/MailProvider';
 import { useProviderContactSearch } from '../hooks/useContactSuggestions';
 import { ContactDropdown } from './ContactDropdown';
+import { usableContactName } from '../utils/contactIndex';
 
 export interface RecipientEntry {
   email: string;
   name?: string;
+  source?: 'google-contact' | 'google-other-contact' | 'ews-contact' | 'ews-directory' | 'mail' | 'calendar';
 }
 
 interface RecipientInputProps {
@@ -175,9 +177,14 @@ export function RecipientInput({ value, onChange, contacts, provider, autoFocus,
     for (const part of parts) {
       const entry = parseRecipientText(part);
       if (!entry) continue;
-      // Check against contacts for a name match
+      // Enrich from known contacts without discarding a name explicitly pasted
+      // as "Display Name <email>".
       const known = contacts.find(c => c.email.toLowerCase() === entry.email.toLowerCase());
-      const resolved = known ?? entry;
+      const resolved: RecipientEntry = {
+        ...known,
+        ...entry,
+        name: usableContactName(entry.name, entry.email) ?? usableContactName(known?.name, entry.email),
+      };
       const normalized = resolved.email.toLowerCase();
       if (!currentValue.some(r => r.email.toLowerCase() === normalized)) {
         currentValue = [...currentValue, resolved];

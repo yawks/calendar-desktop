@@ -42,7 +42,13 @@ const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
 function buildScopes(capabilities: ('calendar' | 'email')[]): string {
   const scopes = ['openid', 'email', 'profile'];
   if (capabilities.includes('calendar')) scopes.push('https://www.googleapis.com/auth/calendar');
-  if (capabilities.includes('email')) scopes.push('https://mail.google.com/');
+  if (capabilities.includes('email')) {
+    scopes.push('https://mail.google.com/');
+    // Native address-book suggestions. "Other contacts" contains recipients
+    // learned by Gmail and is intentionally a separate People API source.
+    scopes.push('https://www.googleapis.com/auth/contacts.readonly');
+    scopes.push('https://www.googleapis.com/auth/contacts.other.readonly');
+  }
   return scopes.join(' ');
 }
 

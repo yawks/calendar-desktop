@@ -13,5 +13,5 @@ export function domainLogoUrl(email: string, token: string): string {
   if (!token) return '';
   const domain = email.split('@')[1] ?? '';
   if (!domain) return '';
-  return `https://img.logo.dev/${domain}?token=${token}&fallback=404&ormat=png`;
+  return `https://img.logo.dev/${domain}?token=${token}&fallback=404&format=png`;
 }

@@ -6,6 +6,7 @@ mod imap;
 mod jmap;
 mod mail;
 mod mail_provider;
+mod contact_index;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
@@ -198,6 +199,12 @@ pub fn run() {
                     mail::mail_search_threads,
                     mail::mail_search_contacts,
                     mail::mail_get_contact_photo,
+                    mail::mail_backfill_contacts,
+                    contact_index::contact_index_record,
+                    contact_index::contact_index_search,
+                    contact_index::contact_index_cleanup,
+                    contact_index::contact_backfill_get_state,
+                    contact_index::contact_backfill_set_state,
                     gmail::gmail_open_attachment,
                     gmail::gmail_get_attachment_data,
                     imap::imap_list_folders,
@@ -279,6 +286,12 @@ pub fn run() {
                     mail::mail_search_threads,
                     mail::mail_search_contacts,
                     mail::mail_get_contact_photo,
+                    mail::mail_backfill_contacts,
+                    contact_index::contact_index_record,
+                    contact_index::contact_index_search,
+                    contact_index::contact_index_cleanup,
+                    contact_index::contact_backfill_get_state,
+                    contact_index::contact_backfill_set_state,
                     gmail::gmail_open_attachment,
                     gmail::gmail_get_attachment_data,
                     imap::imap_list_folders,

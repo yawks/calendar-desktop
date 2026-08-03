@@ -263,6 +263,13 @@
     "noSubject": "(Pas d'objet)",
     "noAccount": "Aucun compte mail configuré. Ajoutez un compte Exchange ou Google dans les paramètres.",
     "allAccounts": "Tous les comptes",
+    "contactSync": {
+      "running": "Contacts : {{folder}} · {{scanned}} analysés · {{inserted}} nouveaux",
+      "complete": "Contacts : synchronisés",
+      "error": "Contacts : erreur de synchronisation",
+      "sentFolder": "envoyés",
+      "inboxFolder": "reçus"
+    },
     "showSidebar": "Afficher la barre latérale",
     "hideSidebar": "Masquer la barre latérale",
     "messageDeleted": "Message supprimé",

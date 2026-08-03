@@ -42,6 +42,12 @@ function escapeInvitationText(text: string): string {
     .replaceAll('\n', '<br>');
 }
 
+function invitationDescriptionToHtml(description: string): string {
+  return /<[a-z][\s\S]*?>/i.test(description)
+    ? description
+    : escapeInvitationText(description);
+}
+
 function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear()
     && a.getMonth() === b.getMonth()
@@ -577,6 +583,11 @@ export function ICSInvitationCard({
   const liveStatus = matchedInSelected?.selfRsvpStatus;
   const currentStatus = rsvpOverride
     ?? (liveStatus && liveStatus !== 'NEEDS-ACTION' ? liveStatus : storedStatus ?? liveStatus);
+  const previewDescriptionHtml = icsData?.descriptionHtml
+    || (matchedInSelected?.description
+      ? invitationDescriptionToHtml(matchedInSelected.description)
+      : invitationHtml)
+    || (icsData?.description ? escapeInvitationText(icsData.description) : '');
   const canRsvp = !isCancelled && !isReply && (selectedCal ? supportsRsvp(selectedCal.type) : false);
   const isInCalendar = matchedInSelected !== null;
 
@@ -745,12 +756,10 @@ export function ICSInvitationCard({
           )}
         </div>
 
-        {(icsData.descriptionHtml || icsData.description || invitationHtml) && (
+        {previewDescriptionHtml && (
           <div className="ics-card__description">
             <EmailHtmlBody
-              html={icsData.descriptionHtml
-                || invitationHtml
-                || escapeInvitationText(icsData.description || '')}
+              html={previewDescriptionHtml}
               bodyText={icsData.description || invitationText}
             />
           </div>

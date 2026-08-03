@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
-import type { ComposerAttachment, Contact, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
+import type { ComposerAttachment, Contact, ContactBackfillBatch, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
 
 /**
  * Extracts base64 data-URI images from HTML, replaces them with cid: references,
@@ -211,5 +211,12 @@ export class EwsMailProvider implements MailProvider {
   async getContactPhoto(email: string): Promise<string | null> {
     const accessToken = await this.token();
     return invoke<string | null>('mail_get_contact_photo', { accessToken, email });
+  }
+
+  async backfillContacts(folder: string, offset: number, maxCount: number): Promise<ContactBackfillBatch> {
+    const accessToken = await this.token();
+    return invoke<ContactBackfillBatch>('mail_backfill_contacts', {
+      accessToken, folder, offset, maxCount, userEmail: this.userEmail,
+    });
   }
 }

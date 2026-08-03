@@ -49,6 +49,19 @@ export interface SaveDraftParams {
 export interface Contact {
   email: string;
   name?: string;
+  source?: 'google-contact' | 'google-other-contact' | 'ews-contact' | 'ews-directory' | 'mail' | 'calendar';
+}
+
+export interface ContactBackfillBatch {
+  observations: Array<{
+    email: string;
+    displayName?: string;
+    kind: 'received' | 'sent';
+    occurredAt: number;
+    eventId: string;
+  }>;
+  itemCount: number;
+  oldestAt?: number;
 }
 
 /**
@@ -90,4 +103,6 @@ export interface MailProvider {
   searchContacts?(query: string, maxCount?: number): Promise<Contact[]>;
   /** Returns the contact photo as a base64 string (no data-URL prefix), or null if unavailable. */
   getContactPhoto?(email: string): Promise<string | null>;
+  /** Efficient provider-native metadata scan used by the persistent contact index. */
+  backfillContacts?(folder: string, offset: number, maxCount: number): Promise<ContactBackfillBatch>;
 }

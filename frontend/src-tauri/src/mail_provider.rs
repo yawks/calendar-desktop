@@ -127,6 +127,7 @@ pub struct MailIdentity {
 pub struct Contact {
     pub email: String,
     pub name: Option<String>,
+    pub source: Option<String>,
 }
 
 pub struct SendMailParams {

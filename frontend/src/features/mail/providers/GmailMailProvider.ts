@@ -308,6 +308,7 @@ export class GmailMailProvider implements MailProvider {
   private readonly getValidToken: (id: string) => Promise<string | null>;
   /** Page token per label — for load-more pagination. */
   private readonly nextPageTokens = new Map<string, string>();
+  private contactSearchWarmup?: Promise<void>;
 
   constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>, userEmail = '') {
     this.accountId = accountId;
@@ -797,21 +798,49 @@ export class GmailMailProvider implements MailProvider {
   async searchContacts(query: string, maxCount = 25): Promise<Contact[]> {
     if (!query.trim()) return [];
     const token = await this.token();
-    const params = new URLSearchParams({
-      query,
-      pageSize: String(maxCount),
-      readMask: 'names,emailAddresses',
-    });
-    const res = await fetch(`https://people.googleapis.com/v1/people:searchContacts?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return [];
-    const data = await res.json() as { results?: Array<{ person: { names?: Array<{ displayName: string }>; emailAddresses?: Array<{ value: string }> } }> };
-    return (data.results ?? []).flatMap(({ person }) => {
-      const email = person.emailAddresses?.[0]?.value;
-      if (!email) return [];
-      return [{ email, name: person.names?.[0]?.displayName }];
-    });
+    const headers = { Authorization: `Bearer ${token}` };
+    const pageSize = String(Math.min(maxCount, 30));
+    const readMask = 'names,emailAddresses';
+    const request = async (endpoint: string, source: Contact['source']): Promise<Contact[]> => {
+      const params = new URLSearchParams({ query, pageSize, readMask });
+      const res = await fetch(`https://people.googleapis.com/v1/${endpoint}?${params}`, { headers });
+      if (!res.ok) throw new Error(`Google People ${endpoint} failed (${res.status})`);
+      const data = await res.json() as { results?: Array<{ person: { names?: Array<{ displayName: string }>; emailAddresses?: Array<{ value: string }> } }> };
+      return (data.results ?? []).flatMap(({ person }) => {
+        const name = person.names?.[0]?.displayName;
+        return (person.emailAddresses ?? []).flatMap(({ value: email }) => email ? [{ email, name, source }] : []);
+      });
+    };
+
+    // Both endpoints use a lazy search cache. Warm it before the real searches;
+    // failures are harmless here and the actual requests retain useful errors.
+    if (!this.contactSearchWarmup) {
+      const warm = (endpoint: string) => fetch(
+        `https://people.googleapis.com/v1/${endpoint}?${new URLSearchParams({ query: '', pageSize: '1', readMask })}`,
+        { headers },
+      ).then(() => undefined, () => undefined);
+      this.contactSearchWarmup = Promise.all([
+        warm('people:searchContacts'),
+        warm('otherContacts:search'),
+      ]).then(() => undefined);
+    }
+    await this.contactSearchWarmup;
+
+    const settled = await Promise.allSettled([
+      request('people:searchContacts', 'google-contact'),
+      request('otherContacts:search', 'google-other-contact'),
+    ]);
+    const results = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+    if (results.length === 0 && settled.every(result => result.status === 'rejected')) {
+      throw (settled[0] as PromiseRejectedResult).reason;
+    }
+    const seen = new Set<string>();
+    return results.filter(contact => {
+      const key = contact.email.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, maxCount);
   }
 
   async getContactPhoto(email: string): Promise<string | null> {
@@ -822,10 +851,13 @@ export class GmailMailProvider implements MailProvider {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return null;
-    const data = await res.json() as { results?: Array<{ person: { photos?: Array<{ url: string }> } }> };
-    const photoUrl = data.results?.[0]?.person?.photos?.[0]?.url;
+    const data = await res.json() as { results?: Array<{ person: { photos?: Array<{ url: string }>; emailAddresses?: Array<{ value: string }> } }> };
+    const match = data.results?.find(({ person }) =>
+      person.emailAddresses?.some(({ value }) => value.toLowerCase() === email.toLowerCase())
+    );
+    const photoUrl = match?.person.photos?.find(photo => photo.url)?.url;
     if (!photoUrl) return null;
-    const imgRes = await fetch(photoUrl);
+    const imgRes = await fetch(photoUrl, { headers: { Authorization: `Bearer ${token}` } });
     if (!imgRes.ok) return null;
     const buf = await imgRes.arrayBuffer();
     return btoa(Array.from(new Uint8Array(buf), b => String.fromCodePoint(b)).join(''));

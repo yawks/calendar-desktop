@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { FromAccount, MailIdentity, ComposerRestoreData } from '../types';
 import { ComposerAttachment } from '../providers/MailProvider';
 import { RecipientEntry, RecipientInput } from './RecipientInput';
@@ -12,7 +12,7 @@ export interface NewMessageComposerProps {
   readonly contacts: { email: string; name?: string }[];
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly restoreData: ComposerRestoreData | null;
-  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) => Promise<void>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId: string | undefined, recipients: { to: RecipientEntry[]; cc: RecipientEntry[]; bcc: RecipientEntry[] }) => Promise<void>;
   readonly onCancel: () => void;
   readonly onSaveDraft: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => void;
   readonly onDeleteDraft?: () => void;
@@ -25,11 +25,16 @@ export interface NewMessageComposerProps {
   readonly onIdentityChange?: (id: string) => void;
 }
 
-export function NewMessageComposer({
+export interface NewMessageComposerHandle {
+  hasChanges: () => boolean;
+  getDraftData: () => { to: string[]; cc: string[]; bcc: string[]; subject: string; bodyHtml: string };
+}
+
+export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessageComposerProps>(function NewMessageComposer({
   contacts, provider, restoreData, onSend, onCancel, onSaveDraft, onDeleteDraft,
   fromAccounts, fromAccountId, onFromAccountChange,
   identities, selectedIdentityId, onIdentityChange,
-}: NewMessageComposerProps) {
+}: NewMessageComposerProps, ref) {
   const { t } = useTranslation();
 
   const [toRecipients,  setToRecipients]  = useState<RecipientEntry[]>(restoreData?.toRecipients ?? []);
@@ -41,6 +46,7 @@ export function NewMessageComposer({
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(restoreData?.attachments ?? []);
   const [fromOpen, setFromOpen] = useState(false);
+  const fieldsModifiedRef = useRef(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fromRef      = useRef<HTMLDivElement>(null);
@@ -48,6 +54,25 @@ export function NewMessageComposer({
 
   // Initial body HTML — evaluated once on mount
   const initialHTML = useMemo(() => restoreData?.body ?? '', []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useImperativeHandle(ref, () => ({
+    hasChanges: () => (
+      fieldsModifiedRef.current || (editorRef.current?.isModified() ?? false)
+    ),
+    getDraftData: () => ({
+      to: toRecipients.map(r => r.email),
+      cc: ccRecipients.map(r => r.email),
+      bcc: bccRecipients.map(r => r.email),
+      subject,
+      bodyHtml: editorRef.current?.getHTML() ?? '',
+    }),
+  }), [toRecipients, ccRecipients, bccRecipients, subject]);
+
+  const markFieldsModified = <T,>(setter: React.Dispatch<React.SetStateAction<T>>) =>
+    (value: React.SetStateAction<T>) => {
+      fieldsModifiedRef.current = true;
+      setter(value);
+    };
 
   // Close from-dropdown on outside click
   useEffect(() => {
@@ -71,6 +96,7 @@ export function NewMessageComposer({
         editorRef.current?.getHTML() ?? '',
         attachments,
         selectedIdentityId,
+        { to: toRecipients, cc: ccRecipients, bcc: bccRecipients },
       );
     } finally {
       setSending(false);
@@ -79,7 +105,7 @@ export function NewMessageComposer({
 
   const handleClose = () => {
     const bodyHtml   = editorRef.current?.getHTML() ?? '';
-    const hasContent = toRecipients.length > 0 || subject.trim() || bodyHtml.trim();
+    const hasContent = toRecipients.length > 0 || ccRecipients.length > 0 || bccRecipients.length > 0 || subject.trim() || bodyHtml.trim();
     if (hasContent) {
       onSaveDraft(
         toRecipients.map(r => r.email),
@@ -121,6 +147,7 @@ export function NewMessageComposer({
         ? recipients
         : [...recipients, entry];
 
+    fieldsModifiedRef.current = true;
     if (sourceField === 'to') setToRecipients(removeFromSource);
     if (sourceField === 'cc') setCcRecipients(removeFromSource);
     if (sourceField === 'bcc') setBccRecipients(removeFromSource);
@@ -215,7 +242,7 @@ export function NewMessageComposer({
         {/* ── To ── */}
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>
-          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} provider={provider} fieldId="to" onDropFromOtherField={handleRecipientDrop('to')} />
+          <RecipientInput value={toRecipients} onChange={markFieldsModified(setToRecipients)} contacts={contacts} provider={provider} fieldId="to" onDropFromOtherField={handleRecipientDrop('to')} />
           {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
           {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
         </div>
@@ -223,14 +250,14 @@ export function NewMessageComposer({
         {showCc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">{t('mail.cc', 'Cc')}</span>
-            <RecipientInput value={ccRecipients} onChange={setCcRecipients} contacts={contacts} provider={provider} fieldId="cc" onDropFromOtherField={handleRecipientDrop('cc')} />
+            <RecipientInput value={ccRecipients} onChange={markFieldsModified(setCcRecipients)} contacts={contacts} provider={provider} fieldId="cc" onDropFromOtherField={handleRecipientDrop('cc')} />
           </div>
         )}
 
         {showBcc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">Bcc:</span>
-            <RecipientInput value={bccRecipients} onChange={setBccRecipients} contacts={contacts} provider={provider} fieldId="bcc" onDropFromOtherField={handleRecipientDrop('bcc')} />
+            <RecipientInput value={bccRecipients} onChange={markFieldsModified(setBccRecipients)} contacts={contacts} provider={provider} fieldId="bcc" onDropFromOtherField={handleRecipientDrop('bcc')} />
           </div>
         )}
 
@@ -241,7 +268,7 @@ export function NewMessageComposer({
             className="mail-composer__input"
             type="text"
             value={subject}
-            onChange={e => setSubject(e.target.value)}
+            onChange={e => { fieldsModifiedRef.current = true; setSubject(e.target.value); }}
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
             spellCheck={false}
           />
@@ -263,4 +290,4 @@ export function NewMessageComposer({
       </form>
     </div>
   );
-}
+});

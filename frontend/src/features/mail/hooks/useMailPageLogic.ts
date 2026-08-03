@@ -15,9 +15,11 @@ import { JmapMailProvider } from '../providers/JmapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery, MailFolder } from '../types';
 import { ALL_ACCOUNTS_ID, DISPLAY_TO_STATIC, THEME_CYCLE, buildUnreadCounts } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useMailIdentities } from './useMailQueries';
 import { useMailMutations } from './useMailMutations';
+import { cleanupContactIndex, recordContactObservations, searchContactIndex, type ContactObservation } from '../utils/contactIndex';
+import { useContactBackfill } from './useContactBackfill';
 
 export function useMailPageLogic() {
   const { t } = useTranslation();
@@ -71,6 +73,11 @@ export function useMailPageLogic() {
     providersRef.current = next;
     return next;
   }, [mailEwsAccounts, mailGoogleAccounts, imapAccounts, jmapAccounts, getEwsToken, getGoogleToken]);
+  const backfillAccounts = useMemo(() => allMailAccounts.map(account => ({
+    ...account,
+    provider: allProviders.get(account.id) ?? null,
+  })), [allMailAccounts, allProviders]);
+  const contactBackfillStatus = useContactBackfill(backfillAccounts);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
     () => allMailAccounts.length > 1 ? ALL_ACCOUNTS_ID : (allMailAccounts[0]?.id ?? ALL_ACCOUNTS_ID)
@@ -188,6 +195,9 @@ export function useMailPageLogic() {
     ? (selectedThread?.accountId ?? composingAccountId)
     : selectedAccountId;
   const identityProvider = allProviders.get(identityAccountId) ?? null;
+  const composerProvider = allProviders.get(
+    selectedThread?.accountId ?? composingAccountId ?? selectedAccountId
+  ) ?? provider;
   const identitiesQuery = useMailIdentities(identityAccountId, identityProvider);
   const accountIdentities = identitiesQuery.data;
 
@@ -231,7 +241,97 @@ export function useMailPageLogic() {
   const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward'>('reply');
   const [composing, setComposing] = useState(false);
-  const [mailContacts] = useState<RecipientEntry[]>([]);
+  const observedMailContacts = useMemo<RecipientEntry[]>(() => {
+    const byEmail = new Map<string, RecipientEntry>();
+    const add = (email?: string | null, name?: string | null) => {
+      if (!email) return;
+      const key = email.trim().toLowerCase();
+      if (!key.includes('@')) return;
+      const existing = byEmail.get(key);
+      if (!existing || (!existing.name && name)) {
+        byEmail.set(key, { email: key, name: name || undefined, source: 'mail' });
+      }
+    };
+    for (const thread of stableThreads) {
+      add(thread.from_email, thread.from_name);
+      for (const recipient of thread.to_recipients ?? []) add(recipient.email, recipient.name);
+      for (const recipient of thread.cc_recipients ?? []) add(recipient.email, recipient.name);
+      for (const sender of thread.unique_senders ?? []) add(sender.email, sender.name);
+    }
+    for (const message of messages) {
+      add(message.from_email, message.from_name);
+      for (const recipient of message.to_recipients) add(recipient.email, recipient.name);
+      for (const recipient of message.cc_recipients) add(recipient.email, recipient.name);
+    }
+    return [...byEmail.values()];
+  }, [stableThreads, messages]);
+  const accountIds = useMemo(() => allMailAccounts.map(account => account.id), [allMailAccounts]);
+  const indexedContactsQuery = useQuery({
+    queryKey: ['contact-index', accountIds],
+    queryFn: () => searchContactIndex(accountIds),
+    enabled: accountIds.length > 0,
+    staleTime: 60_000,
+  });
+  const observationsByAccount = useMemo(() => {
+    const grouped = new Map<string, ContactObservation[]>();
+    const accountEmails = new Map(allMailAccounts.map(account => [account.id, account.email.toLowerCase()]));
+    const add = (accountId: string, email: string | null | undefined, name: string | null | undefined,
+      kind: ContactObservation['kind'], occurredAt: number, eventId: string) => {
+      const normalized = email?.trim().toLowerCase();
+      if (!normalized || normalized === accountEmails.get(accountId) || !normalized.includes('@')) return;
+      const localPart = normalized.split('@', 1)[0].replaceAll(/[._-]/g, '');
+      if (localPart.includes('noreply') || localPart === 'mailerdaemon') return;
+      const list = grouped.get(accountId) ?? [];
+      list.push({ email: normalized, displayName: name || undefined, kind, occurredAt, eventId });
+      grouped.set(accountId, list);
+    };
+    for (const thread of stableThreads) {
+      const accountId = thread.accountId ?? selectedAccountId;
+      if (!accountId || accountId === ALL_ACCOUNTS_ID) continue;
+      const parsed = Date.parse(thread.last_delivery_time);
+      const occurredAt = Number.isFinite(parsed) ? Math.floor(parsed / 1000) : Math.floor(Date.now() / 1000);
+      if (selectedFolder === 'sentitems') {
+        for (const recipient of [...(thread.to_recipients ?? []), ...(thread.cc_recipients ?? [])]) {
+          add(accountId, recipient.email, recipient.name, 'sent', occurredAt, `thread:${thread.conversation_id}:${occurredAt}`);
+        }
+      } else {
+        add(accountId, thread.from_email, thread.from_name, 'received', occurredAt, `thread:${thread.conversation_id}:${occurredAt}`);
+      }
+    }
+    return grouped;
+  }, [allMailAccounts, selectedAccountId, selectedFolder, stableThreads]);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([...observationsByAccount].map(([accountId, observations]) =>
+      recordContactObservations(accountId, observations)
+    )).then(results => {
+      if (!cancelled && results.some(count => count > 0)) {
+        void queryClient.invalidateQueries({ queryKey: ['contact-index'] });
+        void queryClient.invalidateQueries({ queryKey: ['contact-index-search'] });
+      }
+    }).catch(error => console.error('[contact-index] unable to record observations', error));
+    return () => { cancelled = true; };
+  }, [observationsByAccount, queryClient]);
+  useEffect(() => {
+    cleanupContactIndex(365)
+      .then(deleted => {
+        if (deleted > 0) void queryClient.invalidateQueries({ queryKey: ['contact-index'] });
+        if (deleted > 0) void queryClient.invalidateQueries({ queryKey: ['contact-index-search'] });
+      })
+      .catch(error => console.error('[contact-index] cleanup failed', error));
+  }, [queryClient]);
+  const mailContacts = useMemo<RecipientEntry[]>(() => {
+    const merged = new Map<string, RecipientEntry>();
+    for (const contact of indexedContactsQuery.data ?? []) {
+      merged.set(contact.email.toLowerCase(), { email: contact.email, name: contact.name, source: 'mail' });
+    }
+    for (const contact of observedMailContacts) {
+      const key = contact.email.toLowerCase();
+      const existing = merged.get(key);
+      merged.set(key, { ...existing, ...contact, name: contact.name ?? existing?.name });
+    }
+    return [...merged.values()];
+  }, [indexedContactsQuery.data, observedMailContacts]);
   const contacts = useContactSuggestions(mailContacts);
   const [deleteToast, setDeleteToast] = useState<{ label: string } | null>(null);
   const [actionToast, setActionToast] = useState<{ label: string; onCancel?: () => void } | null>(null);
@@ -801,6 +901,21 @@ export function useMailPageLogic() {
           replyToChangeKey: replyingToMsg?.change_key,
           isForward: restoreData.isForward,
         });
+        const sentAt = Math.floor(Date.now() / 1000);
+        const recipientNames = new Map(
+          [...restoreData.toRecipients, ...restoreData.ccRecipients, ...restoreData.bccRecipients]
+            .map(recipient => [recipient.email.toLowerCase(), recipient.name] as const)
+        );
+        const sentObservations = [...to, ...cc, ...bcc].map(email => ({
+          email,
+          displayName: recipientNames.get(email.toLowerCase()),
+          kind: 'sent' as const,
+          occurredAt: sentAt,
+          eventId: `send:${optimisticId}`,
+        }));
+        await recordContactObservations(accountId, sentObservations);
+        void queryClient.invalidateQueries({ queryKey: ['contact-index'] });
+        void queryClient.invalidateQueries({ queryKey: ['contact-index-search'] });
         if (conversationId) setTimeout(() => doPoll(1), 3000);
         if (draftItemId) {
           try { await p.permanentlyDelete(draftItemId); } catch { /* ignore */ }
@@ -966,7 +1081,7 @@ export function useMailPageLogic() {
     t, preference, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
     threads, threadsLoading: threadsLoading && threadLimit === 50, threadsRefreshing: threadsFetching && stableThreads.length > 0, threadsLoadingMore, hasMoreThreads, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
-    contacts, error, deleteToast, downloadToast, actionToast,
+    contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts: allFoldersQuery.mergedCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
@@ -977,7 +1092,7 @@ export function useMailPageLogic() {
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
     downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
-    setSelectedThreadIds, setAttachmentPreview, provider, setReplyingTo, setReplyMode, setActionToast,
+    setSelectedThreadIds, setAttachmentPreview, provider, composerProvider, setReplyingTo, setReplyMode, setActionToast,
     handleFoldersLoaded, setSelectedThread, threadSupportsSnooze,
     searchQuery, searchResults, searchLoading, handleSearch,
     isSending: mutations.isSending,

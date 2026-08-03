@@ -21,7 +21,7 @@ import { MailComposerHandle } from './components/MailComposer';
 import { MailSearchBar } from './components/MailSearchBar';
 import { MailSidebar } from './components/MailSidebar';
 import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
-import { NewMessageComposer } from "./components/NewMessageComposer";
+import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
 import { ThreadDetail } from "./components/ThreadDetail";
 import { ThreadList } from "./components/ThreadList";
 import { createPortal } from 'react-dom';
@@ -34,7 +34,7 @@ export default function MailApp() {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
     threads, threadsLoading, threadsRefreshing, threadsLoadingMore, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
-    contacts, error, deleteToast, downloadToast, actionToast,
+    contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
@@ -46,7 +46,7 @@ export default function MailApp() {
     downloadAttachment, getRawAttachmentData, scheduleSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, setReplyingTo, setReplyMode, setActionToast,
-    setSelectedThread, threadSupportsSnooze, provider,
+    setSelectedThread, threadSupportsSnooze, provider, composerProvider,
     searchQuery, searchResults, searchLoading, handleSearch,
     accountIdentities, loadMoreThreads, hasMoreThreads,
     draftConversationIds, dismissDraftForConversation,
@@ -56,12 +56,25 @@ export default function MailApp() {
 
   const threadListRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<MailComposerHandle>(null);
+  const newMessageComposerRef = useRef<NewMessageComposerHandle>(null);
 
   const handleSelectThread = (thread: MailThread) => {
+    if (newMessageComposerRef.current) {
+      if (newMessageComposerRef.current.hasChanges()) {
+        const data = newMessageComposerRef.current.getDraftData();
+        handleSaveDraft(
+          composing ? (composingAccountId || selectedAccountId) : selectedThread?.accountId,
+          data.to, data.cc, data.bcc, data.subject, data.bodyHtml,
+        );
+        setActionToast({ label: t('mail.draftSaved', 'Brouillon enregistré') });
+        setTimeout(() => setActionToast(null), 3000);
+      }
+      if (composing) setComposing(false);
+    }
     if (replyingTo && composerRef.current) {
-      // Don't auto-save if the composer was pre-filled from a locally-stored draft
-      // (composerRestoreData.draftItemId is set). The original draft is still on the server.
-      if (composerRef.current.isBodyModified() && !composerRestoreData?.draftItemId) {
+      // A locally restored draft already exists on the server, so selecting another
+      // thread only dismisses it instead of creating a duplicate draft.
+      if (composerRef.current.hasChanges() && !composerRestoreData?.draftItemId) {
         const data = composerRef.current.getDraftData();
         handleSaveDraft(selectedThread?.accountId, data.to, data.cc, data.bcc, data.subject, data.bodyHtml, selectedThread?.conversation_id);
         setActionToast({ label: t('mail.draftSaved', 'Brouillon enregistré') });
@@ -204,6 +217,21 @@ export default function MailApp() {
                   folderUnreadCounts={folderUnreadCounts}
                   dynamicFolders={sidebarDynamicFolders}
                 />
+                {contactBackfillStatus.state !== 'idle' && (
+                  <div style={{ padding: '6px 12px', fontSize: 11, opacity: 0.65 }} title={contactBackfillStatus.error}>
+                    {contactBackfillStatus.state === 'running' && t('mail.contactSync.running', {
+                      folder: contactBackfillStatus.folder === 'sentitems'
+                        ? t('mail.contactSync.sentFolder')
+                        : contactBackfillStatus.folder === 'inbox'
+                          ? t('mail.contactSync.inboxFolder')
+                          : contactBackfillStatus.folder,
+                      scanned: contactBackfillStatus.scanned,
+                      inserted: contactBackfillStatus.inserted,
+                    })}
+                    {contactBackfillStatus.state === 'complete' && t('mail.contactSync.complete')}
+                    {contactBackfillStatus.state === 'error' && t('mail.contactSync.error')}
+                  </div>
+                )}
               </div>
               <div
                 className="mail-resize-handle"
@@ -274,15 +302,16 @@ export default function MailApp() {
               />
             ) : composing ? (
               <NewMessageComposer
+                ref={newMessageComposerRef}
                 contacts={contacts}
-                provider={provider}
+                provider={composerProvider}
                 restoreData={composerRestoreData}
-                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) =>
+                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients) =>
                   scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: true,
-                    toRecipients: to.map(email => ({ email })),
-                    ccRecipients: cc.map(email => ({ email })),
-                    bccRecipients: bcc.map(email => ({ email })),
+                    toRecipients: recipients.to,
+                    ccRecipients: recipients.cc,
+                    bccRecipients: recipients.bcc,
                     subject,
                     body,
                     attachments: attachments,
@@ -318,8 +347,9 @@ export default function MailApp() {
               return (
                 <NewMessageComposer
                   key={selectedThread.conversation_id}
+                  ref={newMessageComposerRef}
                   contacts={contacts}
-                  provider={provider}
+                  provider={composerProvider}
                   restoreData={{
                     toRecipients: (draft.to_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
                     ccRecipients: (draft.cc_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
@@ -334,12 +364,12 @@ export default function MailApp() {
                     fromAccountId: draftAccountId,
                     draftItemId: draft.item_id,
                   }}
-                  onSend={(to, cc, bcc, subject, body, attachments, fromIdentityId) =>
+                  onSend={(to, cc, bcc, subject, body, attachments, fromIdentityId, recipients) =>
                     scheduleSend(to, cc, bcc, subject, body, {
                       isNewMessage: true,
-                      toRecipients: to.map(email => ({ email })),
-                      ccRecipients: cc.map(email => ({ email })),
-                      bccRecipients: bcc.map(email => ({ email })),
+                      toRecipients: recipients.to,
+                      ccRecipients: recipients.cc,
+                      bccRecipients: recipients.bcc,
                       subject,
                       body,
                       attachments,
@@ -371,7 +401,7 @@ export default function MailApp() {
                 messagesLoading={messagesLoading}
                 replyingTo={replyingTo}
                 contacts={contacts}
-                provider={provider}
+                provider={composerProvider}
                 currentUserEmail={
                   isAllMode
                     ? allMailAccounts.find(a => a.id === selectedThread.accountId)?.email
