@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppTab, useLayout } from '../store/LayoutStore';
 import { useAppCapabilities } from '../hooks/useAppCapabilities';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { makeWindowIcon, openOrFocusWindow } from './WindowSwitcher';
 
 interface Props {
   readonly current: AppTab;
@@ -15,7 +17,7 @@ export default function AppViewMenu({ current }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const canSwitch = layout === 'tabbed' && hasCalendar && hasMail;
+  const canSwitch = hasCalendar && hasMail;
   const label = current === 'mail'
     ? t('tabs.mail', 'Mail')
     : t('tabs.calendar', 'Calendrier');
@@ -36,13 +38,40 @@ export default function AppViewMenu({ current }: Props) {
     };
   }, [open]);
 
+  useEffect(() => {
+    if (layout !== 'windows') return;
+    makeWindowIcon(current).then(bytes => {
+      getCurrentWindow().setIcon(bytes).catch(() => {});
+    });
+  }, [current, layout]);
+
   if (!canSwitch) {
     return <span className="header-logo"><span>{label}</span></span>;
   }
 
-  const select = (tab: AppTab) => {
-    setActiveTab(tab);
+  const select = async (tab: AppTab) => {
     setOpen(false);
+    if (tab === current) return;
+    if (layout === 'tabbed') {
+      setActiveTab(tab);
+      return;
+    }
+
+    if (tab === 'calendar') {
+      await openOrFocusWindow(
+        'calendar',
+        globalThis.location.origin + '/calendar',
+        t('tabs.calendar', 'Calendrier'),
+        'calendar',
+      );
+    } else {
+      await openOrFocusWindow(
+        'main',
+        globalThis.location.origin + '/',
+        t('tabs.mail', 'Mail'),
+        'mail',
+      );
+    }
   };
 
   return (

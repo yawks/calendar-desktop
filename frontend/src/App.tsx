@@ -5,7 +5,6 @@ import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 import { FontSizeProvider } from './shared/store/FontSizeStore';
 
-import WindowSwitcher from './shared/components/WindowSwitcher';
 import { CalendarGroupProvider } from './features/calendar/store/CalendarGroupStore';
 import CalendarPage from './features/calendar/CalendarPage';
 import { CalendarProvider } from './features/calendar/store/CalendarStore';
@@ -24,15 +23,12 @@ import { useAppCapabilities } from './shared/hooks/useAppCapabilities';
 
 // Fenêtre calendrier secondaire (mode windows uniquement, route /calendar)
 function CalendarWindowView() {
-  const { hasSource, hasCalendar, hasMail } = useAppCapabilities();
+  const { hasSource, hasCalendar } = useAppCapabilities();
 
   if (!hasSource) return <WelcomeScreen />;
 
   return (
-    <>
-      {hasMail && <WindowSwitcher target="mail" />}
-      {hasCalendar ? <CalendarPage /> : <MailApp />}
-    </>
+    hasCalendar ? <CalendarPage /> : <MailApp />
   );
 }
 
@@ -53,12 +49,7 @@ function RootView() {
   }
 
   // En mode fenêtres, la fenêtre principale privilégie le mail lorsqu'il est disponible.
-  return (
-    <>
-      {hasMail && hasCalendar && <WindowSwitcher target="calendar" />}
-      {hasMail ? <MailApp /> : <CalendarPage />}
-    </>
-  );
+  return hasMail ? <MailApp /> : <CalendarPage />;
 }
 
 export default function App() {

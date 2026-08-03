@@ -12,7 +12,7 @@ interface Props {
 }
 
 // Génère une icône PNG 64×64 (enveloppe ou grille calendrier) en bytes bruts.
-async function makeWindowIcon(type: 'mail' | 'calendar'): Promise<Uint8Array> {
+export async function makeWindowIcon(type: 'mail' | 'calendar'): Promise<Uint8Array> {
   const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -48,7 +48,7 @@ async function makeWindowIcon(type: 'mail' | 'calendar'): Promise<Uint8Array> {
   return bytes;
 }
 
-async function openOrFocusWindow(
+export async function openOrFocusWindow(
   label: string,
   url: string,
   title: string,

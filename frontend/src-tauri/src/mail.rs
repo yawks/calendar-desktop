@@ -548,6 +548,64 @@ impl MailProvider for EwsProvider {
             });
         }
 
+        // Some Exchange servers scope GlobalMessageCount to the selected
+        // folder, even though GetConversationItems still returns the complete
+        // conversation across that folder and Sent Items. Recount the visible
+        // conversations in one request so the thread-list badge stays correct.
+        if !threads.is_empty() {
+            let conversations_xml = threads.iter()
+                .map(|thread| format!(
+                    "    <t:Conversation><t:ConversationId Id=\"{}\"/></t:Conversation>",
+                    thread.conversation_id,
+                ))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let count_body = format!(
+                r#"<m:GetConversationItems>
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+  </m:ItemShape>
+  <m:FoldersToIgnore>
+    <t:DistinguishedFolderId Id="deleteditems"/>
+    <t:DistinguishedFolderId Id="drafts"/>
+  </m:FoldersToIgnore>
+  <m:MaxItemsToReturn>50</m:MaxItemsToReturn>
+  <m:Conversations>
+{conversations_xml}
+  </m:Conversations>
+</m:GetConversationItems>"#,
+            );
+            if let Ok(count_xml) = send(access_token, &count_body).await {
+                if !count_xml.contains("ResponseClass=\"Error\"") {
+                    let mut counts: std::collections::HashMap<String, u32> =
+                        std::collections::HashMap::new();
+                    const COUNTED_ITEM_TYPES: &[&str] = &[
+                        "t:Message",
+                        "t:MeetingRequest",
+                        "t:MeetingResponse",
+                        "t:MeetingCancellation",
+                    ];
+                    for &item_type in COUNTED_ITEM_TYPES {
+                        for item_xml in xml_all_ns(&count_xml, item_type) {
+                            let conversation_id = item_xml
+                                .find("<t:ConversationId ")
+                                .or_else(|| item_xml.find("<ConversationId "))
+                                .and_then(|s| item_xml[s..].find("/>").map(|e| &item_xml[s..s + e]))
+                                .and_then(|elem| xml_attr(elem, "Id"));
+                            if let Some(id) = conversation_id {
+                                *counts.entry(id.to_string()).or_default() += 1;
+                            }
+                        }
+                    }
+                    for thread in &mut threads {
+                        if let Some(count) = counts.get(&thread.conversation_id) {
+                            thread.message_count = *count;
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(threads)
     }
 

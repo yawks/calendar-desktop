@@ -97,6 +97,8 @@ export function MessageBlock({
               source={{ kind: 'attachment', attachment: att, getAttachmentData: onGetAttachmentData }}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
+              invitationHtml={message.body_html}
+              invitationText={message.body_text}
             />
           ))}
           {message.ics_mime && (
@@ -105,6 +107,8 @@ export function MessageBlock({
               source={{ kind: 'text', icsText: message.ics_mime }}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
+              invitationHtml={message.body_html}
+              invitationText={message.body_text}
             />
           )}
           <EmailHtmlBody html={message.body_html || ''} bodyText={message.body_text} />

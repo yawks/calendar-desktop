@@ -413,13 +413,16 @@ export interface ICSInvitationCardProps {
   readonly currentUserEmail?: string;
   /** Provider of the mail account (determines default calendar selection) */
   readonly mailProviderType?: 'gmail' | 'ews';
+  /** Resolved message HTML, used when the ICS has no X-ALT-DESC (common with EWS). */
+  readonly invitationHtml?: string;
+  readonly invitationText?: string;
 }
 
 const ICS_PREVIEW_ID   = '__ics_preview__';
 const ICS_CANCELLED_ID = '__ics_cancelled__';
 
 export function ICSInvitationCard({
-  source, currentUserEmail, mailProviderType,
+  source, currentUserEmail, mailProviderType, invitationHtml, invitationText,
 }: ICSInvitationCardProps) {
   // ── Data loading ─────────────────────────────────────────────────────────
   const [icsData, setIcsData] = useState<ICSEventData | null>(null);
@@ -742,11 +745,13 @@ export function ICSInvitationCard({
           )}
         </div>
 
-        {(icsData.descriptionHtml || icsData.description) && (
+        {(icsData.descriptionHtml || icsData.description || invitationHtml) && (
           <div className="ics-card__description">
             <EmailHtmlBody
-              html={icsData.descriptionHtml || escapeInvitationText(icsData.description || '')}
-              bodyText={icsData.description}
+              html={icsData.descriptionHtml
+                || invitationHtml
+                || escapeInvitationText(icsData.description || '')}
+              bodyText={icsData.description || invitationText}
             />
           </div>
         )}
