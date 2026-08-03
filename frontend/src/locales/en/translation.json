@@ -295,6 +295,7 @@
     "movedToTrash": "Conversation moved to trash",
     "deletedPermanently": "Conversation permanently deleted",
     "snoozed_toast": "Conversation snoozed",
+    "snoozeFailed": "Could not snooze this message",
     "moved": "Conversation moved",
     "archive": "Archive",
     "move": "Move",

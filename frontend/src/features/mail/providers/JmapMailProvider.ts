@@ -5,7 +5,8 @@ import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams } from './Ma
 
 export class JmapMailProvider implements MailProvider {
   readonly providerType = 'jmap';
-  readonly supportsSnooze = true;
+  // Standard JMAP tokens cannot access Fastmail's private dev/mail snooze API.
+  readonly capabilities = { snooze: false } as const;
   readonly accountId: string;
   private readonly config: JmapAccount;
 
@@ -67,6 +68,7 @@ export class JmapMailProvider implements MailProvider {
       bcc: params.bcc ?? [],
       subject: params.subject,
       bodyHtml: params.bodyHtml,
+      attachments: params.attachments ?? [],
       identityId: params.fromIdentityId ?? null,
       inReplyTo: params.inReplyTo ?? null,
       references: params.references ?? null,
@@ -150,8 +152,8 @@ export class JmapMailProvider implements MailProvider {
     });
   }
 
-  async snooze(itemId: string): Promise<string> {
-    return invoke<string>('jmap_snooze', { config: this.rustConfig, id: itemId });
+  async snooze(itemId: string, until?: string): Promise<string> {
+    return invoke<string>('jmap_snooze', { config: this.rustConfig, id: itemId, until });
   }
 
   async getInboxUnread(): Promise<number> {

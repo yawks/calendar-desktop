@@ -17,7 +17,7 @@ import { CollapsedMessagesBar } from './CollapsedMessagesBar';
 import { ComposerAttachment } from '../providers/MailProvider';
 import { FolderPickerPopover } from './FolderPickerPopover';
 import { MessageBlock } from './MessageBlock';
-import { decodeHtmlEntities } from '../utils';
+import { decodeHtmlEntities, formatSnoozeDate } from '../utils';
 import { useTranslation } from 'react-i18next';
 
 export interface ThreadDetailProps {
@@ -62,37 +62,6 @@ export interface ThreadDetailProps {
 }
 
 const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
-
-function formatSnoozeDate(iso: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  const target = new Date(iso);
-  const now = new Date();
-  const diffMs = target.getTime() - now.getTime();
-  const diffMin = Math.round(diffMs / 60000);
-  const diffHours = Math.round(diffMs / 3600000);
-
-  const timeStr = target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  if (diffMin < 60) {
-    return t('mail.snoozeInMinutes', { count: Math.max(1, diffMin), defaultValue: `in ${Math.max(1, diffMin)} minute(s)` });
-  }
-  if (diffHours < 6) {
-    return t('mail.snoozeInHours', { count: diffHours, defaultValue: `in ${diffHours} hour(s)` });
-  }
-
-  const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
-  const tomorrowStart = new Date(todayStart); tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-  const dayAfterStart = new Date(tomorrowStart); dayAfterStart.setDate(dayAfterStart.getDate() + 1);
-
-  if (target >= todayStart && target < tomorrowStart) {
-    return t('mail.snoozeTodayAt', { time: timeStr, defaultValue: `today at ${timeStr}` });
-  }
-  if (target >= tomorrowStart && target < dayAfterStart) {
-    return t('mail.snoozeTomorrowAt', { time: timeStr, defaultValue: `tomorrow at ${timeStr}` });
-  }
-
-  const dateStr = target.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  return t('mail.snoozeDateAt', { date: dateStr, time: timeStr, defaultValue: `${dateStr} at ${timeStr}` });
-}
 
 function computeSnoozeOptions() {
   const now = new Date();
@@ -203,12 +172,10 @@ export function ThreadDetail({
         )}
 
         {/* Snooze */}
-        <div className="mail-actions-dropdown">
+        {supportsSnooze && <div className="mail-actions-dropdown">
           <button
             className="mail-detail-action-btn"
-            disabled={!supportsSnooze}
             onClick={() => {
-              if (!supportsSnooze) return;
               if (snoozeOpen) { setSnoozeOpen(false); setSnoozeMode('menu'); }
               else { setSnoozeOpen(true); setSnoozeMode('menu'); }
             }}
@@ -217,7 +184,7 @@ export function ThreadDetail({
             <Clock size={15} />
             <span>{t('mail.snooze', 'Snooze')}</span>
           </button>
-          {snoozeOpen && supportsSnooze && (
+          {snoozeOpen && (
             <>
               <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => { setSnoozeOpen(false); setSnoozeMode('menu'); }} />
               <div className="mail-actions-menu mail-snooze-menu">
@@ -275,7 +242,7 @@ export function ThreadDetail({
               </div>
             </>
           )}
-        </div>
+        </div>}
 
         {/* Move */}
         <div className="mail-actions-dropdown">

@@ -228,6 +228,8 @@ pub enum URI {
     Principals,
     #[serde(rename = "urn:ietf:params:jmap:principals:owner")]
     PrincipalsOwner,
+    #[serde(rename = "https://www.fastmail.com/dev/mail")]
+    FastmailMail,
 }
 
 impl AsRef<str> for URI {
@@ -243,6 +245,7 @@ impl AsRef<str> for URI {
             URI::Sieve => "urn:ietf:params:jmap:sieve",
             URI::Principals => "urn:ietf:params:jmap:principals",
             URI::PrincipalsOwner => "urn:ietf:params:jmap:principals:owner",
+            URI::FastmailMail => "https://www.fastmail.com/dev/mail",
         }
     }
 }

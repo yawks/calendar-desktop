@@ -13,7 +13,7 @@ import { GmailMailProvider } from '../providers/GmailMailProvider';
 import { ImapMailProvider } from '../providers/ImapMailProvider';
 import { JmapMailProvider } from '../providers/JmapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery, MailFolder } from '../types';
-import { ALL_ACCOUNTS_ID, DISPLAY_TO_STATIC, THEME_CYCLE, buildUnreadCounts } from '../utils';
+import { ALL_ACCOUNTS_ID, DISPLAY_TO_STATIC, THEME_CYCLE, buildUnreadCounts, getErrorMessage } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useMailIdentities } from './useMailQueries';
@@ -458,8 +458,13 @@ export function useMailPageLogic() {
 
   const threadSupportsSnooze = useMemo(() => {
     const p = resolveProvider(selectedThread?.accountId);
-    return p?.supportsSnooze ?? false;
+    return p?.capabilities.snooze ?? false;
   }, [resolveProvider, selectedThread?.accountId]);
+
+  const mailCapabilitiesByAccount = useMemo(
+    () => new Map([...allProviders].map(([accountId, mailProvider]) => [accountId, mailProvider.capabilities] as const)),
+    [allProviders],
+  );
 
   const openThread = useCallback((thread: MailThread) => {
     setSelectedThread(thread);
@@ -650,7 +655,12 @@ export function useMailPageLogic() {
       const execute = () => {
         mutations.snoozeThread(
           { accountId, provider: p, conversationId, until: snoozeUntil },
-          { onError: () => clearSnooze(conversationId) },
+          { onError: (error) => {
+            clearSnooze(conversationId);
+            const detail = getErrorMessage(error);
+            setActionToast({ label: `${t('mail.snoozeFailed', 'Impossible de mettre ce message en attente')} — ${detail}` });
+            setTimeout(() => setActionToast(null), 8000);
+          } },
         );
         setPendingRemovalIds(prev => { const next = new Set(prev); next.delete(conversationId); return next; });
         setDeleteToast(null);
@@ -719,11 +729,22 @@ export function useMailPageLogic() {
       const thread = threads.find(t => t.conversation_id === id);
       if (thread) {
         const p = resolveProvider(thread.accountId);
-        if (p) mutations.snoozeThread({ accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, until });
+        if (p) {
+          persistSnooze(id, until);
+          mutations.snoozeThread(
+            { accountId: thread.accountId ?? selectedAccountId, provider: p, conversationId: id, until },
+            { onError: (error) => {
+              clearSnooze(id);
+              const detail = getErrorMessage(error);
+              setActionToast({ label: `${t('mail.snoozeFailed', 'Impossible de mettre ce message en attente')} — ${detail}` });
+              setTimeout(() => setActionToast(null), 8000);
+            } },
+          );
+        }
       }
     }
     setSelectedThreadIds(new Set());
-  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations]);
+  }, [selectedThreadIds, threads, resolveProvider, selectedAccountId, mutations, persistSnooze, clearSnooze, t]);
   const handleBulkMove = useCallback(async (targetFolderId: string) => {
     const byAccount = new Map<string, { accountId: string; provider: MailProvider; conversationIds: string[] }>();
     for (const id of selectedThreadIds) {
@@ -1093,7 +1114,7 @@ export function useMailPageLogic() {
     downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, provider, composerProvider, setReplyingTo, setReplyMode, setActionToast,
-    handleFoldersLoaded, setSelectedThread, threadSupportsSnooze,
+    handleFoldersLoaded, setSelectedThread, threadSupportsSnooze, mailCapabilitiesByAccount,
     searchQuery, searchResults, searchLoading, handleSearch,
     isSending: mutations.isSending,
     accountIdentities,

@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { MailProvider, ComposerAttachment } from '../providers/MailProvider';
 import { MAIL_KEYS } from './useMailQueries';
 import { MailThread, MailMessage, MailFolder } from '../types';
-import { DISPLAY_TO_STATIC } from '../utils';
+import { DISPLAY_TO_STATIC, getErrorMessage } from '../utils';
 import { useMemo } from 'react';
 
 export interface MutationParams {
@@ -317,13 +317,13 @@ export function useMailMutations() {
   });
 
   const snoozeThreadMutation = useMutation({
-    mutationFn: async ({ provider, conversationId, until: _until }: MutationParams & { conversationId: string; until: string }) => {
+    mutationFn: async ({ provider, conversationId, until }: MutationParams & { conversationId: string; until: string }) => {
       if (!provider.snooze) return;
       const msgs = await provider.getThread(conversationId, false);
       // Move every message in the thread to Snoozed so the thread disappears
       // from all regular folders, not just the one containing the last message.
       for (const msg of msgs) {
-        await provider.snooze(msg.item_id);
+        await provider.snooze(msg.item_id, until);
       }
     },
     onMutate: async ({ accountId, conversationId }) => {
@@ -342,7 +342,17 @@ export function useMailMutations() {
 
       return { previousThreads, previousAllThreads };
     },
-    onError: (_err, variables, context: any) => {
+    onError: (err, variables, context: any) => {
+      const detail = getErrorMessage(err);
+      console.error(`[mail:snooze] ${detail}`);
+      console.error('[mail:snooze] provider rejected snooze', {
+        provider: variables.provider.providerType,
+        accountId: variables.accountId,
+        conversationId: variables.conversationId,
+        until: variables.until,
+        error: err,
+        detail,
+      });
       const { accountId } = variables;
       if (context) {
         queryClient.setQueryData(['mail', accountId, 'threads'], context.previousThreads);

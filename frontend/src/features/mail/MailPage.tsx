@@ -46,7 +46,7 @@ export default function MailApp() {
     downloadAttachment, getRawAttachmentData, scheduleSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, setReplyingTo, setReplyMode, setActionToast,
-    setSelectedThread, threadSupportsSnooze, provider, composerProvider,
+    setSelectedThread, threadSupportsSnooze, mailCapabilitiesByAccount, provider, composerProvider,
     searchQuery, searchResults, searchLoading, handleSearch,
     accountIdentities, loadMoreThreads, hasMoreThreads,
     draftConversationIds, dismissDraftForConversation,
@@ -298,7 +298,11 @@ export default function MailApp() {
                     ? (allAccountFolders.get(threads.find(t => selectedThreadIds.has(t.conversation_id))?.accountId ?? '') ?? allFolders)
                     : allFolders
                 }
-                supportsSnooze={allMailAccounts.some(a => a.providerType === 'ews')}
+                supportsSnooze={
+                  selectedThreadIds.size > 0 && threads
+                    .filter(thread => selectedThreadIds.has(thread.conversation_id))
+                    .every(thread => mailCapabilitiesByAccount.get(thread.accountId ?? selectedAccountId)?.snooze === true)
+                }
               />
             ) : composing ? (
               <NewMessageComposer

@@ -79,17 +79,16 @@ export function MultiSelectionPanel({
         </button>
 
         {/* Snooze */}
-        <div className="mail-actions-dropdown">
+        {supportsSnooze && <div className="mail-actions-dropdown">
           <button
             className="mail-detail-action-btn"
-            disabled={!supportsSnooze}
-            onClick={() => { if (supportsSnooze) setSnoozeOpen(o => !o); }}
+            onClick={() => setSnoozeOpen(o => !o)}
             title={t('mail.snooze', 'Snooze')}
           >
             <Clock size={15} />
             <span>{t('mail.snooze', 'Snooze')}</span>
           </button>
-          {snoozeOpen && supportsSnooze && (
+          {snoozeOpen && (
             <>
               <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => setSnoozeOpen(false)} />
               <div className="mail-actions-menu mail-snooze-menu">
@@ -108,7 +107,7 @@ export function MultiSelectionPanel({
               </div>
             </>
           )}
-        </div>
+        </div>}
 
         {/* Move */}
         <div className="mail-actions-dropdown">

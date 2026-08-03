@@ -1,6 +1,6 @@
 import { Archive, BellOff, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
 import React, { useState } from 'react';
-import { decodeHtmlEntities, formatDate, formatMailPreview, senderColor } from '../utils';
+import { decodeHtmlEntities, formatDate, formatMailPreview, formatSnoozeDate, senderColor } from '../utils';
 
 import { MailRecipient, MailThread } from '../types';
 import type { MailProvider } from '../providers/MailProvider';
@@ -189,8 +189,9 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           <div className="mail-thread-item__top-right">
             {thread.has_attachments && <Paperclip size={12} className="mail-thread-item__clip" />}
             {isSnoozed && (
-              <span className="mail-thread-item__snooze-badge" title={snoozeUntil ? `${t('mail.snoozedUntil', "Mis en attente jusqu'au")} ${formatDate(snoozeUntil)}` : t('mail.snoozed', 'Mis en attente')}>
+              <span className="mail-thread-item__snooze-badge" title={snoozeUntil ? `${t('mail.snoozedUntil', "Mis en attente jusqu'au")} ${new Date(snoozeUntil).toLocaleString()}` : t('mail.snoozed', 'Mis en attente')}>
                 <Clock size={10} />
+                {snoozeUntil && <span>{formatSnoozeDate(snoozeUntil, t)}</span>}
               </span>
             )}
             <span className="mail-thread-item__date">{formatDate(thread.last_delivery_time)}</span>

@@ -76,6 +76,108 @@ fn timestamp_to_rfc3339(ts: i64) -> String {
         .unwrap_or_default()
 }
 
+fn sanitise_mime_header(value: &str) -> String {
+    value.replace(['\r', '\n'], " ")
+}
+
+fn wrap_base64(value: &str) -> String {
+    value.as_bytes().chunks(76)
+        .map(|chunk| std::str::from_utf8(chunk).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
+fn build_mime_message(
+    from: &str,
+    params: &SendMailParams,
+) -> Result<Vec<u8>, String> {
+    let mut headers = format!(
+        "From: {}\r\nTo: {}\r\nSubject: {}\r\nMIME-Version: 1.0\r\n",
+        sanitise_mime_header(from),
+        params.to.iter().map(|v| sanitise_mime_header(v)).collect::<Vec<_>>().join(", "),
+        sanitise_mime_header(&params.subject),
+    );
+    if !params.cc.is_empty() {
+        headers.push_str(&format!("Cc: {}\r\n", params.cc.iter().map(|v| sanitise_mime_header(v)).collect::<Vec<_>>().join(", ")));
+    }
+    if !params.bcc.is_empty() {
+        headers.push_str(&format!("Bcc: {}\r\n", params.bcc.iter().map(|v| sanitise_mime_header(v)).collect::<Vec<_>>().join(", ")));
+    }
+    if let Some(ref value) = params.in_reply_to {
+        headers.push_str(&format!("In-Reply-To: {}\r\n", sanitise_mime_header(value)));
+    }
+    if let Some(ref value) = params.references {
+        headers.push_str(&format!("References: {}\r\n", sanitise_mime_header(value)));
+    }
+
+    let body = params.body_html.replace('\r', "").replace('\n', "\r\n");
+    let attachments = params.attachments.as_deref().unwrap_or_default();
+    if attachments.is_empty() {
+        headers.push_str("Content-Type: text/html; charset=utf-8\r\n\r\n");
+        return Ok(format!("{}{}", headers, body).into_bytes());
+    }
+
+    let boundary = format!("calendar-desktop-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default());
+    headers.push_str(&format!("Content-Type: multipart/mixed; boundary=\"{}\"\r\n\r\n", boundary));
+    let mut message = format!(
+        "{}--{}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{}\r\n",
+        headers, boundary, body,
+    );
+    for attachment in attachments {
+        let compact: String = attachment.data.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+        let bytes = base64::engine::general_purpose::STANDARD.decode(compact.as_bytes())
+            .map_err(|e| format!("Invalid base64 attachment '{}': {}", attachment.name, e))?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let filename = sanitise_mime_header(&attachment.name).replace(['"', '\\'], "_");
+        let content_type = sanitise_mime_header(&attachment.content_type);
+        let disposition = if attachment.is_inline.unwrap_or(false) { "inline" } else { "attachment" };
+        message.push_str(&format!(
+            "--{}\r\nContent-Type: {}; name=\"{}\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: {}; filename=\"{}\"\r\n",
+            boundary, content_type, filename, disposition, filename,
+        ));
+        if let Some(content_id) = attachment.content_id.as_deref() {
+            message.push_str(&format!("Content-ID: <{}>\r\n", sanitise_mime_header(content_id).trim_matches(['<', '>'])));
+        }
+        message.push_str(&format!("\r\n{}\r\n", wrap_base64(&encoded)));
+    }
+    message.push_str(&format!("--{}--\r\n", boundary));
+    Ok(message.into_bytes())
+}
+
+#[cfg(test)]
+mod mime_tests {
+    use super::*;
+
+    #[test]
+    fn builds_multipart_message_with_attachment() {
+        let params = SendMailParams {
+            to: vec!["recipient@example.com".into()],
+            cc: vec![],
+            bcc: vec![],
+            subject: "Attachment test".into(),
+            body_html: "<p>Hello</p>".into(),
+            attachments: Some(vec![ComposerAttachment {
+                name: "hello.txt".into(),
+                content_type: "text/plain".into(),
+                data: base64::engine::general_purpose::STANDARD.encode(b"hello"),
+                is_inline: Some(false),
+                content_id: None,
+            }]),
+            reply_to_item_id: None,
+            reply_to_change_key: None,
+            is_forward: None,
+            identity_id: None,
+            in_reply_to: None,
+            references: None,
+        };
+
+        let raw = String::from_utf8(build_mime_message("sender@example.com", &params).unwrap()).unwrap();
+        assert!(raw.contains("Content-Type: multipart/mixed"));
+        assert!(raw.contains("Content-Disposition: attachment; filename=\"hello.txt\""));
+        assert!(raw.contains("\r\naGVsbG8=\r\n"));
+    }
+}
+
 fn build_auth_header(config: &JmapConfig) -> String {
     match config.auth_type.as_deref() {
         Some("basic") => {
@@ -676,28 +778,7 @@ impl MailProvider for JmapProvider {
             .and_then(|m| m.id())
             .map(|s| s.to_string());
 
-        let normalised_body = params.body_html.replace('\r', "").replace('\n', "\r\n");
-        let safe_subject = params.subject.replace(['\r', '\n'], " ");
-
-        let mut headers = format!(
-            "From: {}\r\nTo: {}\r\nSubject: {}\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n",
-            from_header,
-            params.to.join(", "),
-            safe_subject,
-        );
-        if !params.cc.is_empty() {
-            headers.push_str(&format!("Cc: {}\r\n", params.cc.join(", ")));
-        }
-        if !params.bcc.is_empty() {
-            headers.push_str(&format!("Bcc: {}\r\n", params.bcc.join(", ")));
-        }
-        if let Some(ref irt) = params.in_reply_to {
-            headers.push_str(&format!("In-Reply-To: {}\r\n", irt));
-        }
-        if let Some(ref refs) = params.references {
-            headers.push_str(&format!("References: {}\r\n", refs));
-        }
-        let raw_message = format!("{}\r\n{}", headers, normalised_body).into_bytes();
+        let raw_message = build_mime_message(&from_header, &params)?;
 
         let mailbox_ids: Vec<String> = sent_id.into_iter().collect();
         let email = client.email_import(raw_message, mailbox_ids, None::<Vec<&str>>, None)
@@ -845,7 +926,15 @@ impl MailProvider for JmapProvider {
         let email_ids = jmap_thread_ids_to_email_ids(&client, &item_ids).await?;
         if email_ids.is_empty() { return Ok(()); }
         let folder_ids_map = get_folder_ids(&self.state, &client, &self.config).await?;
-        let resolved_folder_id = folder_ids_map.get(folder_id).cloned().unwrap_or_else(|| folder_id.to_string());
+        // `snoozed` is an application-level well-known key, not a JMAP mailbox
+        // ID. Resolve (or create) it before building Email/set; sending the
+        // literal string "snoozed" makes standards-compliant servers reject the
+        // whole update.
+        let resolved_folder_id = if folder_id == "snoozed" {
+            get_or_create_snoozed_id(&self.state, &client, &self.config).await?
+        } else {
+            folder_ids_map.get(folder_id).cloned().unwrap_or_else(|| folder_id.to_string())
+        };
         let sent_id = folder_ids_map.get("sentitems").cloned();
 
         // Find which emails have Sent membership so we can preserve it.
@@ -1113,8 +1202,47 @@ pub async fn jmap_snooze(
     state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     id: String,
+    until: Option<String>,
 ) -> Result<String, String> {
-    JmapProvider { config, state: Arc::clone(&state) }.snooze(&id).await
+    let client = get_client(&state, &config).await?;
+    let snoozed_id = get_or_create_snoozed_id(&state, &client, &config).await?;
+    let folders = get_folder_ids(&state, &client, &config).await?;
+    let inbox_id = folders.get("inbox").cloned();
+    let sent_id = folders.get("sentitems").cloned();
+    let until = until.ok_or_else(|| "JMAP snooze requires an awaken time".to_string())?;
+    let until = chrono::DateTime::parse_from_rfc3339(&until)
+        .map_err(|e| format!("Invalid snooze date: {e}"))?
+        .with_timezone(&chrono::Utc);
+
+    let mut fetch = client.build();
+    fetch.get_email().ids([id.as_str()]).properties([EmailProperty::Id, EmailProperty::MailboxIds]);
+    let mut fetch_response = fetch.send().await.map_err(|e| format!("Email/get before snooze: {e}"))?;
+    let emails = fetch_response.method_response_by_pos(0)
+        .unwrap_get_email()
+        .map_err(|e| format!("Email/get before snooze parse: {e}"))?;
+    let was_sent = sent_id.as_ref().is_some_and(|sent| {
+        emails.list().first().is_some_and(|email| email.mailbox_ids().iter().any(|mailbox| mailbox == sent))
+    });
+
+    let mut request = client.build();
+    request.add_capability(URI::FastmailMail);
+    let update = request.set_email().update(id.as_str());
+    if was_sent {
+        update.mailbox_ids([snoozed_id.as_str(), sent_id.as_deref().unwrap_or_default()]);
+    } else {
+        update.mailbox_ids([snoozed_id.as_str()]);
+    }
+    update.snoozed(until, inbox_id);
+
+    let mut response = request.send().await.map_err(|e| format!("Email/set snooze: {e}"))?;
+    let set_response = response.method_response_by_pos(0)
+        .unwrap_set_email()
+        .map_err(|e| format!("Email/set snooze response: {e}"))?;
+    set_response.unwrap_update_errors().map_err(|e| format!("Email/set snooze rejected: {e}"))?;
+    if !set_response.has_updated() {
+        return Err("Email/set snooze returned no updated email".to_string());
+    }
+    Ok(snoozed_id)
 }
 
 #[command]
@@ -1134,6 +1262,7 @@ pub async fn jmap_send(
     bcc: Vec<String>,
     subject: String,
     body_html: String,
+    attachments: Option<Vec<ComposerAttachment>>,
     identity_id: Option<String>,
     in_reply_to: Option<String>,
     references: Option<String>,
@@ -1149,7 +1278,7 @@ pub async fn jmap_send(
         references,
         reply_to_item_id: None,
         reply_to_change_key: None,
-        attachments: None,
+        attachments,
         is_forward: None,
     }).await
 }

@@ -2,6 +2,12 @@ import type { MailAttachment, MailFolder, MailIdentity, MailMessage, MailSearchQ
 
 export type ProviderType = 'ews' | 'gmail' | 'imap' | 'jmap';
 
+/** Capabilities advertised by a mail source. UI code must consult this
+ * contract instead of inferring support from the provider type. */
+export interface MailProviderCapabilities {
+  readonly snooze: boolean;
+}
+
 export interface MailItemRef {
   item_id: string;
   change_key: string;
@@ -71,6 +77,7 @@ export interface ContactBackfillBatch {
 export interface MailProvider {
   readonly providerType: ProviderType;
   readonly accountId: string;
+  readonly capabilities: MailProviderCapabilities;
 
   listThreads(folder: string, maxCount?: number, offset?: number): Promise<MailThread[]>;
   /** Search threads using a structured query. Results are not cached. */
@@ -94,10 +101,9 @@ export interface MailProvider {
   /** Return the attachment content as a standard base64 string (for in-app preview / download). */
   getAttachmentData(attachment: MailAttachment): Promise<string>;
   saveDraft(params: SaveDraftParams): Promise<string>;
-  readonly supportsSnooze: boolean;
   findOrCreateSnoozedFolder?(): Promise<string>;
   moveToFolder(itemId: string, folderId: string): Promise<void>;
-  snooze?(itemId: string): Promise<string>;
+  snooze?(itemId: string, until?: string): Promise<string>;
   getInboxUnread(): Promise<number>;
   listIdentities?(): Promise<MailIdentity[]>;
   searchContacts?(query: string, maxCount?: number): Promise<Contact[]>;

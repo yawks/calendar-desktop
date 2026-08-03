@@ -301,7 +301,7 @@ function replaceNextEmptySrc(html: string, dataUri: string): string {
  */
 export class GmailMailProvider implements MailProvider {
   readonly providerType = 'gmail' as const;
-  readonly supportsSnooze = false;
+  readonly capabilities = { snooze: false } as const;
   readonly accountId: string;
   readonly userEmail: string;
 

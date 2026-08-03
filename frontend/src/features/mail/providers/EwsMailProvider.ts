@@ -44,7 +44,7 @@ function extractInlineImages(html: string): { html: string; inlineImages: Compos
  */
 export class EwsMailProvider implements MailProvider {
   readonly providerType = 'ews' as const;
-  readonly supportsSnooze = true;
+  readonly capabilities = { snooze: true } as const;
   readonly accountId: string;
   readonly userEmail: string;
 

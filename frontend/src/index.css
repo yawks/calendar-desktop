@@ -2154,7 +2154,7 @@ body {
 
 /* ── Fastmail-inspired mail layout ───────────────── */
 .mail-app {
-  background: #eef0f2;
+  background: var(--bg-hover);
 }
 
 .mail-app .header {
@@ -2162,7 +2162,7 @@ body {
   padding: 0 18px;
   gap: 10px;
   border-bottom: 0;
-  background: #eef0f2;
+  background: var(--bg-hover);
 }
 
 .mail-app .header-logo {
@@ -2189,16 +2189,16 @@ body {
   height: 42px;
   padding: 0 16px;
   gap: 12px;
-  border-color: #d6dade;
+  border-color: var(--border);
   border-radius: 7px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(27 31 35 / 12%);
+  background: var(--bg);
+  box-shadow: 0 1px 3px var(--shadow);
 }
 
 .mail-app .mail-search-bar--focused,
 .mail-app .mail-search-bar--active {
-  border-color: #aeb7bf;
-  box-shadow: 0 1px 4px rgb(27 31 35 / 16%);
+  border-color: var(--text-muted);
+  box-shadow: 0 1px 4px var(--shadow);
 }
 
 .mail-app .mail-search-bar__input {
@@ -2207,7 +2207,7 @@ body {
 
 .mail-app .header .btn-icon,
 .mail-app .btn-config--icon-only {
-  color: #343b40;
+  color: var(--text-muted);
 }
 
 .mail-body {
@@ -2271,13 +2271,13 @@ body {
 .mail-folder-btn {
   padding: 7px 13px;
   border-radius: 6px;
-  color: #444d55;
+  color: var(--text-muted);
 }
 
 .mail-folder-btn.active,
 .mail-folder-row.active {
-  background: #dfe3e7;
-  color: #202428;
+  background: color-mix(in srgb, var(--text) 10%, var(--bg));
+  color: var(--text);
   font-weight: 700;
 }
 
@@ -2332,12 +2332,12 @@ body {
   margin: 0 6px;
   width: calc(100% - 12px);
   padding: 11px 10px;
-  border-bottom-color: #e8eaec;
+  border-bottom-color: var(--border);
   border-radius: 6px;
 }
 
 .mail-thread-item.selected {
-  background: #e5e7ea;
+  background: color-mix(in srgb, var(--text) 9%, var(--bg));
 }
 
 .mail-thread-item.unread {
@@ -2366,7 +2366,7 @@ body {
 }
 
 .mail-detail-panel {
-  background: #fff;
+  background: var(--bg);
 }
 
 .mail-thread-detail {
@@ -2380,7 +2380,7 @@ body {
 .mail-detail-action-btn {
   gap: 7px;
   padding: 7px 9px;
-  color: #4f5a63;
+  color: var(--text-muted);
   font-size: calc(13px * var(--font-scale, 1));
 }
 
@@ -2401,7 +2401,7 @@ body {
 
 .mail-message-block {
   margin-bottom: 0;
-  border-color: #dfe3e7;
+  border-color: var(--border);
   border-radius: 8px;
   box-shadow:
     -2px 1px 5px rgb(30 35 38 / 9%),
@@ -2425,7 +2425,7 @@ body {
 }
 
 .mail-message-block__header:hover {
-  background: #fafbfc;
+  background: var(--bg-hover);
 }
 
 .mail-message-block.expanded .mail-message-block__header:hover {
@@ -2437,7 +2437,7 @@ body {
   isolation: isolate;
   margin-top: -4px;
   margin-bottom: -3px;
-  border-color: #d7dce0;
+  border-color: var(--border);
   border-top-color: transparent;
   background: var(--bg);
   overflow: visible;
@@ -2455,7 +2455,7 @@ body {
   right: -1px;
   left: -1px;
   height: 14px;
-  border: 1px solid #d7dce0;
+  border: 1px solid var(--border);
   border-bottom: 0;
   border-radius: 8px 8px 0 0;
   background: var(--bg);
@@ -2571,7 +2571,7 @@ body {
 
 .mail-message-block:not(.expanded):has(+ .mail-message-block:not(.expanded)) {
   margin-bottom: 0;
-  border-bottom: 1px solid #d7dce0;
+  border-bottom: 1px solid var(--border);
   border-bottom-right-radius: 8px;
   border-bottom-left-radius: 8px;
 }
@@ -2581,7 +2581,7 @@ body {
 .mail-collapsed-bar + .mail-message-block {
   z-index: 2;
   margin-top: -23px;
-  border-top: 1px solid #d7dce0;
+  border-top: 1px solid var(--border);
   border-radius: 8px;
   box-shadow:
     -2px 1px 5px rgb(30 35 38 / 9%),
@@ -2592,7 +2592,7 @@ body {
 .mail-collapsed-bar:has(+ .mail-message-block.expanded) {
   z-index: 2;
   margin-bottom: 0;
-  border-bottom: 1px solid #d7dce0;
+  border-bottom: 1px solid var(--border);
   box-shadow:
     -2px 1px 5px rgb(30 35 38 / 9%),
      2px 1px 5px rgb(30 35 38 / 9%);
@@ -2602,7 +2602,7 @@ body {
   z-index: 10;
   margin-top: 0;
   margin-bottom: 0;
-  border: 1px solid #d7dce0;
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -2618,7 +2618,31 @@ body {
 
 [data-theme="dark"] .mail-app,
 [data-theme="dark"] .mail-app .header {
-  background: #242628;
+  background: #17191c;
+}
+
+/* Mail uses denser surfaces than the calendar. Keep three distinct dark
+   elevations and enough contrast for secondary metadata and toolbar icons. */
+[data-theme="dark"] .mail-app {
+  --bg: #1d2024;
+  --bg-sidebar: #1a1d20;
+  --bg-hover: #292d32;
+  --border: #343a41;
+  --text: #e5e8ec;
+  --text-muted: #aeb6c0;
+  --shadow: rgb(0 0 0 / 35%);
+}
+
+[data-theme="dark"] .mail-app .mail-search-bar {
+  background: #24282d;
+  border-color: #3d444c;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+}
+
+[data-theme="dark"] .mail-app .mail-search-bar--focused,
+[data-theme="dark"] .mail-app .mail-search-bar--active {
+  background: #292e34;
+  border-color: var(--primary);
 }
 
 [data-theme="dark"] .mail-body,
@@ -2628,11 +2652,15 @@ body {
   background: var(--bg);
 }
 
+[data-theme="dark"] .mail-sidebar {
+  background: var(--bg-sidebar);
+}
+
 [data-theme="dark"] .mail-folder-btn.active,
 [data-theme="dark"] .mail-folder-row.active,
 [data-theme="dark"] .mail-thread-item.selected {
-  background: #393c40;
-  color: #f1f3f4;
+  background: #30353b;
+  color: var(--text);
 }
 
 @media (max-width: 900px) {

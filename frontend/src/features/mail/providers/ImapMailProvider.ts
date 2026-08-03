@@ -5,7 +5,7 @@ import { MailProvider, ProviderType, SendMailParams, SaveDraftParams, MailItemRe
 
 export class ImapMailProvider implements MailProvider {
   readonly providerType: ProviderType = 'imap' as ProviderType;
-  readonly supportsSnooze = false;
+  readonly capabilities = { snooze: false } as const;
   readonly accountId: string;
   private readonly config: ImapAccount;
   private folderMapping: Record<string, string> = {};

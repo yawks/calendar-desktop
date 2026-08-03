@@ -295,6 +295,7 @@
     "movedToTrash": "Conversation déplacée vers la corbeille",
     "deletedPermanently": "Conversation supprimée définitivement",
     "snoozed_toast": "Conversation mise en attente",
+    "snoozeFailed": "Impossible de mettre ce message en attente",
     "moved": "Conversation déplacée",
     "archive": "Archiver",
     "move": "Déplacer",

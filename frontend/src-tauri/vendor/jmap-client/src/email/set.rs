@@ -21,8 +21,17 @@ use crate::{
     Get, Set,
 };
 use ahash::AHashMap;
+use chrono::{DateTime, Utc};
 
 impl Email<Set> {
+    pub fn snoozed(&mut self, until: DateTime<Utc>, move_to_mailbox_id: Option<String>) -> &mut Self {
+        self.snoozed = Some(super::SnoozeDetails {
+            until,
+            move_to_mailbox_id,
+            set_keywords: None,
+        });
+        self
+    }
     pub fn mailbox_ids<T, U>(&mut self, mailbox_ids: T) -> &mut Self
     where
         T: IntoIterator<Item = U>,
@@ -210,6 +219,7 @@ impl SetObject for Email<Set> {
             keywords: Default::default(),
             size: Default::default(),
             received_at: Default::default(),
+            snoozed: Default::default(),
             message_id: Default::default(),
             in_reply_to: Default::default(),
             references: Default::default(),

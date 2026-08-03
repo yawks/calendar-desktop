@@ -27,6 +27,21 @@ export function decodeHtmlEntities(text: string): string {
     .trim();
 }
 
+/** Preserve useful details from Error objects, Tauri string rejections and
+ * structured invoke errors. */
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const candidate = error as Record<string, unknown>;
+    for (const key of ['message', 'error', 'description']) {
+      if (typeof candidate[key] === 'string') return candidate[key];
+    }
+    try { return JSON.stringify(error); } catch { /* fall through */ }
+  }
+  return String(error);
+}
+
 /** Prepare provider snippets/body text for a compact, plain-text preview. */
 export function formatMailPreview(text: string): string {
   let preview = decodeHtmlEntities(text);
@@ -118,6 +133,43 @@ export function formatFullDate(iso: string): string {
       day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
   } catch { return iso; }
+}
+
+/** Compact, user-facing deadline used by snoozed messages. */
+export function formatSnoozeDate(
+  iso: string,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
+  const target = new Date(iso);
+  if (Number.isNaN(target.getTime())) return iso;
+
+  const now = new Date();
+  const diffMs = target.getTime() - now.getTime();
+  const diffMin = Math.round(diffMs / 60_000);
+  const diffHours = Math.round(diffMs / 3_600_000);
+  const time = target.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (diffMs > 0 && diffMin < 60) {
+    const count = Math.max(1, diffMin);
+    return t('mail.snoozeInMinutes', { count, defaultValue: `in ${count} minute(s)` });
+  }
+  if (diffMs > 0 && diffHours < 6) {
+    return t('mail.snoozeInHours', { count: diffHours, defaultValue: `in ${diffHours} hour(s)` });
+  }
+
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+  const dayAfter = new Date(tomorrow); dayAfter.setDate(dayAfter.getDate() + 1);
+
+  if (target >= today && target < tomorrow) {
+    return t('mail.snoozeTodayAt', { time, defaultValue: `today at ${time}` });
+  }
+  if (target >= tomorrow && target < dayAfter) {
+    return t('mail.snoozeTomorrowAt', { time, defaultValue: `tomorrow at ${time}` });
+  }
+
+  const date = target.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return t('mail.snoozeDateAt', { date, time, defaultValue: `${date} at ${time}` });
 }
 
 export function formatSize(bytes: number): string {

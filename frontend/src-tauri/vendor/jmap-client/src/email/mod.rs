@@ -94,6 +94,10 @@ pub struct Email<State = Get> {
     #[serde(skip_serializing_if = "Option::is_none")]
     received_at: Option<DateTime<Utc>>,
 
+    #[serde(rename = "snoozed")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snoozed: Option<SnoozeDetails>,
+
     #[cfg_attr(
         not(feature = "debug"),
         serde(alias = "header:Message-ID:asMessageIds")
@@ -194,6 +198,15 @@ pub struct Email<State = Get> {
     #[serde(skip_deserializing)]
     #[serde(skip_serializing_if = "Option::is_none")]
     patch: Option<AHashMap<String, Option<bool>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnoozeDetails {
+    pub until: DateTime<Utc>,
+    #[serde(rename = "moveToMailboxId", skip_serializing_if = "Option::is_none")]
+    pub move_to_mailbox_id: Option<String>,
+    #[serde(rename = "setKeywords", skip_serializing_if = "Option::is_none")]
+    pub set_keywords: Option<AHashMap<String, bool>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,6 +338,9 @@ pub enum Property {
     Attachments,
     HasAttachment,
     Preview,
+    /// Fastmail's proprietary mail extension. This is also defined by the
+    /// emerging JMAP snooze draft, but is not part of RFC 8621 yet.
+    Snoozed,
     Header(Header),
 }
 
@@ -383,6 +399,7 @@ impl Property {
             "sentAt" => Some(Property::SentAt),
             "hasAttachment" => Some(Property::HasAttachment),
             "preview" => Some(Property::Preview),
+            "snoozed" => Some(Property::Snoozed),
             "bodyValues" => Some(Property::BodyValues),
             "textBody" => Some(Property::TextBody),
             "htmlBody" => Some(Property::HtmlBody),
@@ -422,6 +439,7 @@ impl Display for Property {
             Property::Attachments => write!(f, "attachments"),
             Property::HasAttachment => write!(f, "hasAttachment"),
             Property::Preview => write!(f, "preview"),
+            Property::Snoozed => write!(f, "snoozed"),
             Property::Header(header) => header.fmt(f),
         }
     }
