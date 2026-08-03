@@ -14,11 +14,14 @@ export function useEWSEvents(calendars: CalendarConfig[]) {
   return useMemo(() => ({
     events,
     loading: isLoading,
-    errors: (errors as any[]).reduce((acc, err, idx) => {
-      if (err) acc[ewsCals[idx]?.id || idx] = err.message;
+    errors: errors.reduce((acc, err, idx) => {
+      if (err) acc[ewsCals[idx]?.id || idx] = err instanceof Error ? err.message : String(err);
       return acc;
     }, {} as Record<string, string>),
-    refresh: () => queryClient.refetchQueries({ queryKey: CALENDAR_KEYS.all }),
+    refresh: () => queryClient.refetchQueries({
+      queryKey: CALENDAR_KEYS.all,
+      type: 'active',
+    }),
   }), [events, isLoading, errors, ewsCals, queryClient]);
 }
 

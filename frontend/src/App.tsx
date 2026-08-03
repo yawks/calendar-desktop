@@ -5,8 +5,6 @@ import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 import { FontSizeProvider } from './shared/store/FontSizeStore';
 
-import AppTabs from './shared/components/AppTabs';
-import WindowSwitcher from './shared/components/WindowSwitcher';
 import { CalendarGroupProvider } from './features/calendar/store/CalendarGroupStore';
 import CalendarPage from './features/calendar/CalendarPage';
 import { CalendarProvider } from './features/calendar/store/CalendarStore';
@@ -16,39 +14,42 @@ import { GoogleAuthProvider } from './shared/store/GoogleAuthStore';
 import { ImapAuthProvider } from './shared/store/ImapAuthStore';
 import { JmapAuthProvider } from './shared/store/JmapAuthStore';
 import { LanguageProvider } from './shared/store/LanguageStore';
+import { LogoDevTokenProvider } from './shared/store/LogoDevTokenStore';
 import MailApp from './features/mail/MailPage';
 import { TagProvider } from './features/calendar/store/TagStore';
 import { ThemeProvider } from './shared/store/ThemeStore';
+import WelcomeScreen from './shared/components/WelcomeScreen';
+import { useAppCapabilities } from './shared/hooks/useAppCapabilities';
 
 // Fenêtre calendrier secondaire (mode windows uniquement, route /calendar)
 function CalendarWindowView() {
+  const { hasSource, hasCalendar } = useAppCapabilities();
+
+  if (!hasSource) return <WelcomeScreen />;
+
   return (
-    <>
-      <WindowSwitcher target="mail" />
-      <CalendarPage />
-    </>
+    hasCalendar ? <CalendarPage /> : <MailApp />
   );
 }
 
 function RootView() {
-  const { layout, activeTab, setActiveTab } = useLayout();
+  const { layout, activeTab } = useLayout();
+  const { hasSource, hasCalendar, hasMail } = useAppCapabilities();
+
+  if (!hasSource) return <WelcomeScreen />;
 
   if (layout === 'tabbed') {
-    return (
-      <>
-        <AppTabs active={activeTab} onChange={setActiveTab} />
-        {activeTab === 'calendar' ? <CalendarPage /> : <MailApp />}
-      </>
-    );
+    const visibleTab = activeTab === 'calendar' && hasCalendar
+      ? 'calendar'
+      : activeTab === 'mail' && hasMail
+        ? 'mail'
+        : hasCalendar ? 'calendar' : 'mail';
+
+    return visibleTab === 'calendar' ? <CalendarPage /> : <MailApp />;
   }
 
-  // mode 'windows' : fenêtre principale = Mail, bouton pour ouvrir/focus le Calendrier
-  return (
-    <>
-      <WindowSwitcher target="calendar" />
-      <MailApp />
-    </>
-  );
+  // En mode fenêtres, la fenêtre principale privilégie le mail lorsqu'il est disponible.
+  return hasMail ? <MailApp /> : <CalendarPage />;
 }
 
 export default function App() {
@@ -60,6 +61,7 @@ export default function App() {
       <ThemeProvider>
         <LanguageProvider>
           <FontSizeProvider>
+            <LogoDevTokenProvider>
             <LayoutProvider>
             <GoogleAuthProvider>
               <ExchangeAuthProvider>
@@ -83,6 +85,7 @@ export default function App() {
               </ExchangeAuthProvider>
             </GoogleAuthProvider>
           </LayoutProvider>
+            </LogoDevTokenProvider>
           </FontSizeProvider>
         </LanguageProvider>
       </ThemeProvider>

@@ -10,10 +10,32 @@ import { ThemePreference } from '../../shared/store/ThemeStore';
 export function decodeHtmlEntities(text: string): string {
   if (!text) return text;
   const el = document.createElement('textarea');
-  el.innerHTML = text;
-  const decoded = el.value;
-  // Collapse control characters (CR, LF, tab…) into spaces, then trim runs.
-  return decoded.replace(/[\r\n\t\x00-\x1F\x7F]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  let decoded = text;
+  // Some providers return double-encoded snippets (`&amp;nbsp;`). Decode a
+  // few times, stopping as soon as the value is stable.
+  for (let i = 0; i < 3; i++) {
+    el.innerHTML = decoded;
+    const next = el.value;
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded
+    .replace(/[\u00A0\u2007\u202F]/g, ' ')
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '')
+    .replace(/[\r\n\t\u2028\u2029\x00-\x1F\x7F]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Prepare provider snippets/body text for a compact, plain-text preview. */
+export function formatMailPreview(text: string): string {
+  let preview = decodeHtmlEntities(text);
+  if (/<\/?[a-z][^>]*>/i.test(preview)) {
+    const container = document.createElement('div');
+    container.innerHTML = preview.replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h[1-6])>/gi, ' ');
+    preview = container.textContent ?? '';
+  }
+  return decodeHtmlEntities(preview).replace(/\uFFFC/g, '').trim();
 }
 
 // ── Avatar colors (used as background with white text) ─────────────────────────

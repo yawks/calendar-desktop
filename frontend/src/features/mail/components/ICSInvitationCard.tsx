@@ -22,6 +22,7 @@ import { patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
 import { DayEventsTimeline } from '../../calendar/components/DayEventsTimeline';
 import { respondToGoogleEvent, createEvent as createGoogleEvent } from '../../calendar/utils/googleCalendarApi';
 import { respondToNextcloudEvent, createNextcloudEvent } from '../../calendar/utils/nextcloudCalendarApi';
+import { EmailHtmlBody } from './EmailHtmlBody';
 import './ICSInvitationCard.css';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -29,6 +30,22 @@ import './ICSInvitationCard.css';
 function decodeBase64Utf8(b64: string): string {
   const bytes = Uint8Array.from(atob(b64), c => c.codePointAt(0) ?? 0);
   return new TextDecoder().decode(bytes);
+}
+
+function escapeInvitationText(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+    .replaceAll('\n', '<br>');
+}
+
+function invitationDescriptionToHtml(description: string): string {
+  return /<[a-z][\s\S]*?>/i.test(description)
+    ? description
+    : escapeInvitationText(description);
 }
 
 function isSameDay(a: Date, b: Date): boolean {
@@ -134,6 +151,7 @@ interface ICSEventData {
   isAllday: boolean;
   location?: string;
   description?: string;
+  descriptionHtml?: string;
   organizer?: { name: string; email: string };
   attendees: Array<{ name: string; email: string; status: AttendeeStatus; isOrganizer?: boolean }>;
   uid?: string;
@@ -147,6 +165,11 @@ function parseRawICS(icsText: string): ICSEventData | null {
     if (!vevent) return null;
 
     const ev = new ICAL.Event(vevent);
+    const htmlDescriptionProp = vevent.getFirstProperty('x-alt-desc');
+    const htmlDescription = htmlDescriptionProp
+      && String(htmlDescriptionProp.getParameter('fmttype') ?? '').toLowerCase() === 'text/html'
+      ? String(htmlDescriptionProp.getFirstValue() ?? '')
+      : undefined;
 
     const toISO = (t: unknown): string => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -190,6 +213,7 @@ function parseRawICS(icsText: string): ICSEventData | null {
       isAllday: ev.startDate?.isDate === true,
       location: ev.location   ?? undefined,
       description: ev.description ?? undefined,
+      descriptionHtml: htmlDescription || undefined,
       organizer: orgEmail ? { name: attendees[0]?.name ?? orgEmail, email: orgEmail } : undefined,
       attendees,
       uid: ev.uid ?? undefined,
@@ -395,13 +419,16 @@ export interface ICSInvitationCardProps {
   readonly currentUserEmail?: string;
   /** Provider of the mail account (determines default calendar selection) */
   readonly mailProviderType?: 'gmail' | 'ews';
+  /** Resolved message HTML, used when the ICS has no X-ALT-DESC (common with EWS). */
+  readonly invitationHtml?: string;
+  readonly invitationText?: string;
 }
 
 const ICS_PREVIEW_ID   = '__ics_preview__';
 const ICS_CANCELLED_ID = '__ics_cancelled__';
 
 export function ICSInvitationCard({
-  source, currentUserEmail, mailProviderType,
+  source, currentUserEmail, mailProviderType, invitationHtml, invitationText,
 }: ICSInvitationCardProps) {
   // ── Data loading ─────────────────────────────────────────────────────────
   const [icsData, setIcsData] = useState<ICSEventData | null>(null);
@@ -546,12 +573,21 @@ export function ICSInvitationCard({
   // RSVP override set by the user in this session; takes priority over localStorage.
   const [rsvpOverride, setRsvpOverride] = useState<AttendeeStatus | undefined>(undefined);
   // Synchronous localStorage read — avoids one extra render cycle vs useState+useEffect.
-  const storedStatus = rsvpOverride ?? (icsData ? loadStoredRsvp(icsData) : undefined);
+  const storedStatus = icsData ? loadStoredRsvp(icsData) : undefined;
 
   const isCancelled = icsData?.method === 'CANCEL';
   const isReply = icsData?.method === 'REPLY';
   const replyResponder = isReply ? (icsData?.attendees.find(a => !a.isOrganizer) ?? null) : null;
-  const currentStatus = storedStatus ?? matchedInSelected?.selfRsvpStatus;
+  // A session override is immediate; otherwise prefer the live calendar event
+  // over localStorage, which may contain an older response.
+  const liveStatus = matchedInSelected?.selfRsvpStatus;
+  const currentStatus = rsvpOverride
+    ?? (liveStatus && liveStatus !== 'NEEDS-ACTION' ? liveStatus : storedStatus ?? liveStatus);
+  const previewDescriptionHtml = icsData?.descriptionHtml
+    || (matchedInSelected?.description
+      ? invitationDescriptionToHtml(matchedInSelected.description)
+      : invitationHtml)
+    || (icsData?.description ? escapeInvitationText(icsData.description) : '');
   const canRsvp = !isCancelled && !isReply && (selectedCal ? supportsRsvp(selectedCal.type) : false);
   const isInCalendar = matchedInSelected !== null;
 
@@ -570,11 +606,16 @@ export function ICSInvitationCard({
     const filtered = allEvents.filter(ev => {
       const s = new Date(ev.start);
       return s >= day && s <= dayEnd;
-    });
+    }).map((ev) => ev.id === matchedInSelected?.id && currentStatus ? {
+      ...ev,
+      selfRsvpStatus: currentStatus,
+      isDeclined: currentStatus === 'DECLINED',
+      isUnaccepted: currentStatus !== 'ACCEPTED',
+    } : ev);
     if (!icsData.isAllday) {
       if (!isReply && !isCancelled && !matchedInSelected && !currentStatus) {
         // REQUEST not yet in calendar and no known response: show a dashed preview
-        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, isAllday: false, category: 'time' as const }];
+        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, isAllday: false, category: 'time' as const, selfRsvpStatus: 'NEEDS-ACTION' as const, isUnaccepted: true }];
       }
       if (isCancelled && !matchedInSelected) {
         // CANCEL but real event not matched: replace any same-title event with the
@@ -584,7 +625,7 @@ export function ICSInvitationCard({
       }
     }
     return filtered;
-  }, [allEvents, icsData, matchedInSelected, selectedCalId]);
+  }, [allEvents, icsData, matchedInSelected, selectedCalId, currentStatus, isReply, isCancelled]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
   const [loadingAction, setLoadingAction] = useState<'ACCEPTED' | 'DECLINED' | 'TENTATIVE' | 'add' | null>(null);
@@ -714,6 +755,15 @@ export function ICSInvitationCard({
             </div>
           )}
         </div>
+
+        {previewDescriptionHtml && (
+          <div className="ics-card__description">
+            <EmailHtmlBody
+              html={previewDescriptionHtml}
+              bodyText={icsData.description || invitationText}
+            />
+          </div>
+        )}
 
         {/* Responder info — only for REPLY method */}
         {isReply && replyResponder && (

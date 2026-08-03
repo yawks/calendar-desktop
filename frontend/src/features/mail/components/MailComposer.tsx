@@ -7,6 +7,7 @@ import { RecipientEntry, RecipientInput } from './RecipientInput';
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel';
 import { MailEditor, MailEditorHandle } from './MailEditor';
 import { formatFullDate } from '../utils';
+import { formatEmailQuotesForEditor } from '../utils/emailQuoteParser';
 
 // ── Helper: build the initial HTML for a reply/forward ────────────────────────
 
@@ -27,6 +28,7 @@ function buildReplyHTML(
     .map(r => (r.name ? `${r.name} &lt;${r.email}&gt;` : r.email))
     .join(', ');
   const date = formatFullDate(replyTo.date_time_received);
+  const editableBody = formatEmailQuotesForEditor(replyTo.body_html, replyTo.body_text);
 
   return (
     `<p></p>` +
@@ -38,7 +40,7 @@ function buildReplyHTML(
         `<div><span class="mail-quoted__hdr-key">${dLabel} :</span> ${date}</div>` +
         `<div><span class="mail-quoted__hdr-key">${sLabel} :</span> ${replyTo.subject}</div>` +
       `</div>` +
-      `<div class="mail-quoted__body">${replyTo.body_html}</div>` +
+      `<div class="mail-quoted__body">${editableBody}</div>` +
     `</div>`
   );
 }
@@ -46,7 +48,7 @@ function buildReplyHTML(
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface MailComposerHandle {
-  isBodyModified: () => boolean;
+  hasChanges: () => boolean;
   getDraftData: () => { to: string[]; cc: string[]; bcc: string[]; subject: string; bodyHtml: string };
 }
 
@@ -54,6 +56,7 @@ export interface MailComposerProps {
   readonly replyTo?: MailMessage;
   readonly mode?: 'reply' | 'replyAll' | 'forward';
   readonly contacts: { email: string; name?: string }[];
+  readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly currentUserEmail?: string;
   readonly restoreData?: ComposerRestoreData | null;
   readonly identities?: MailIdentity[];
@@ -68,7 +71,7 @@ export interface MailComposerProps {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(function MailComposer({
-  replyTo, mode, contacts, currentUserEmail,
+  replyTo, mode, contacts, provider, currentUserEmail,
   restoreData, identities, selectedIdentityId, onIdentityChange,
   onGetAttachmentData, onSend, onCancel, onSaveDraft,
 }: MailComposerProps, ref) {
@@ -82,6 +85,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
   const [subject, setSubject] = useState('');
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const fieldsModifiedRef = useRef(false);
 
   const editorRef   = useRef<MailEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -144,7 +148,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
   }, []);
 
   useImperativeHandle(ref, () => ({
-    isBodyModified: () => editorRef.current?.isModified() ?? false,
+    hasChanges: () => fieldsModifiedRef.current || (editorRef.current?.isModified() ?? false),
     getDraftData:   () => ({
       to:       toRecipients.map(r => r.email),
       cc:       ccRecipients.map(r => r.email),
@@ -153,6 +157,12 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
       bodyHtml: editorRef.current?.getHTML() ?? '',
     }),
   }), [toRecipients, ccRecipients, bccRecipients, subject]);
+
+  const markFieldsModified = <T,>(setter: React.Dispatch<React.SetStateAction<T>>) =>
+    (value: React.SetStateAction<T>) => {
+      fieldsModifiedRef.current = true;
+      setter(value);
+    };
 
   const handleSend = async () => {
     setIsSending(true);
@@ -180,6 +190,29 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
       editorRef.current?.getHTML() ?? '',
     );
     onCancel();
+  };
+
+  const handleRecipientDrop = (targetField: 'to' | 'cc' | 'bcc') => (
+    entry: RecipientEntry,
+    sourceField: string,
+  ) => {
+    if (sourceField === targetField || !['to', 'cc', 'bcc'].includes(sourceField)) return;
+
+    const removeFromSource = (recipients: RecipientEntry[]) =>
+      recipients.filter(recipient => recipient.email.toLowerCase() !== entry.email.toLowerCase());
+    const addToTarget = (recipients: RecipientEntry[]) =>
+      recipients.some(recipient => recipient.email.toLowerCase() === entry.email.toLowerCase())
+        ? recipients
+        : [...recipients, entry];
+
+    fieldsModifiedRef.current = true;
+    if (sourceField === 'to') setToRecipients(removeFromSource);
+    if (sourceField === 'cc') setCcRecipients(removeFromSource);
+    if (sourceField === 'bcc') setBccRecipients(removeFromSource);
+
+    if (targetField === 'to') setToRecipients(addToTarget);
+    if (targetField === 'cc') setCcRecipients(addToTarget);
+    if (targetField === 'bcc') setBccRecipients(addToTarget);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -251,7 +284,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
 
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>
-          <RecipientInput value={toRecipients} onChange={setToRecipients} contacts={contacts} fieldId="to" autoFocus={mode === 'forward'} />
+          <RecipientInput value={toRecipients} onChange={markFieldsModified(setToRecipients)} contacts={contacts} provider={provider} fieldId="to" onDropFromOtherField={handleRecipientDrop('to')} autoFocus={mode === 'forward'} />
           <div className="mail-composer__field-actions">
             {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
             {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
@@ -261,7 +294,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
         {showCc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">{t('mail.cc', 'Cc')}</span>
-            <RecipientInput value={ccRecipients} onChange={setCcRecipients} contacts={contacts} fieldId="cc" />
+            <RecipientInput value={ccRecipients} onChange={markFieldsModified(setCcRecipients)} contacts={contacts} provider={provider} fieldId="cc" onDropFromOtherField={handleRecipientDrop('cc')} />
             <button type="button" className="mail-composer__field-remove" onClick={() => setShowCc(false)}><X size={14} /></button>
           </div>
         )}
@@ -269,7 +302,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
         {showBcc && (
           <div className="mail-composer__field">
             <span className="mail-composer__label">Bcc</span>
-            <RecipientInput value={bccRecipients} onChange={setBccRecipients} contacts={contacts} fieldId="bcc" />
+            <RecipientInput value={bccRecipients} onChange={markFieldsModified(setBccRecipients)} contacts={contacts} provider={provider} fieldId="bcc" onDropFromOtherField={handleRecipientDrop('bcc')} />
             <button type="button" className="mail-composer__field-remove" onClick={() => setShowBcc(false)}><X size={14} /></button>
           </div>
         )}
@@ -281,7 +314,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
             className="mail-composer__input"
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
             value={subject}
-            onChange={e => setSubject(e.target.value)}
+            onChange={e => { fieldsModifiedRef.current = true; setSubject(e.target.value); }}
           />
         </div>
       </div>

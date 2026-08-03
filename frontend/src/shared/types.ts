@@ -144,6 +144,8 @@ export interface CalendarEvent {
   description?: string;
   isUnaccepted?: boolean;
   isDeclined?: boolean;
+  /** True when the organizer cancelled the event. */
+  isCancelled?: boolean;
   /** RSVP status of the current user (undefined if not an attendee or organizer) */
   selfRsvpStatus?: AttendeeStatus;
   attendees?: Attendee[];

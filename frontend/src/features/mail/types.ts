@@ -8,7 +8,14 @@ export interface MailThread {
   message_count: number;
   unread_count: number;
   from_name: string | null;
+  from_email?: string | null;
   has_attachments: boolean;
+  /** Recipients (To). Populated for Sent folder items. */
+  to_recipients?: MailRecipient[];
+  /** CC recipients. Populated for Sent folder items. */
+  cc_recipients?: MailRecipient[];
+  /** Unique senders in the thread, excluding the current user's own email. */
+  unique_senders?: MailRecipient[];
   /** Set when loaded in All-accounts mode to route actions to the correct provider. */
   accountId?: string;
   /** Display label for the account badge (domain part of email). Only set in All-accounts mode. */

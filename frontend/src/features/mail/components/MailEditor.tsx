@@ -179,6 +179,67 @@ const QuotedBlock = Node.create({
     // contentDOM tells ProseMirror where to render/serialize the editable content
     return { dom, contentDOM: bodyEl };
   },
+
+  addNodeView() {
+    return ({ node }) => {
+      const { level, separator, headers } = node.attrs as Record<string, string | number>;
+      const dom = document.createElement('div');
+      dom.className = `mail-quoted mail-quoted--level-${level} mail-quoted--editor`;
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'mail-quoted__toggle';
+      toggle.textContent = '•••';
+      toggle.title = 'Afficher ou masquer le message précédent';
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('contenteditable', 'false');
+
+      const details = document.createElement('div');
+      details.className = 'mail-quoted__editable-content';
+      details.style.display = 'none';
+
+      const sepEl = document.createElement('div');
+      sepEl.className = 'mail-quoted__separator';
+      sepEl.innerHTML = separator as string;
+      sepEl.contentEditable = 'false';
+      details.appendChild(sepEl);
+
+      const hdrEl = document.createElement('div');
+      hdrEl.className = 'mail-quoted__headers';
+      hdrEl.innerHTML = headers as string;
+      hdrEl.contentEditable = 'false';
+      details.appendChild(hdrEl);
+
+      const contentDOM = document.createElement('div');
+      contentDOM.className = 'mail-quoted__body';
+      details.appendChild(contentDOM);
+      dom.append(toggle, details);
+
+      toggle.addEventListener('mousedown', event => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      toggle.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const open = details.style.display !== 'none';
+        details.style.display = open ? 'none' : '';
+        toggle.setAttribute('aria-expanded', String(!open));
+      });
+
+      return {
+        dom,
+        contentDOM,
+        // ProseMirror must not turn a click on this UI control into a document
+        // selection, nor undo the display/aria mutations made by the toggle.
+        stopEvent: event => event.target instanceof window.Node && toggle.contains(event.target),
+        ignoreMutation: mutation => (
+          mutation.type === 'attributes' &&
+          (mutation.target === details || mutation.target === toggle)
+        ),
+      };
+    };
+  },
 });
 
 // ── Constants ──────────────────────────────────────────────────────────────────

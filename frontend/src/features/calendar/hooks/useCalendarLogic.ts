@@ -15,6 +15,8 @@ import { DEMO_CALENDARS, DEMO_EVENTS } from '../../../demo/demoData';
 import i18n from '../../../i18n';
 import { createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } from '../utils/googleCalendarApi';
 import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
+import { useQueryClient } from '@tanstack/react-query';
+import { CALENDAR_KEYS } from './useCalendarQueries';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
@@ -33,6 +35,7 @@ export interface CalendarRef {
 
 export function useCalendarLogic() {
   const calendarRef = useRef<CalendarRef>(null);
+  const queryClient = useQueryClient();
   const [view, setView] = useState<ViewType>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -142,7 +145,15 @@ export function useCalendarLogic() {
 
   const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ekLoading || ewsLoading);
   const errors = DEMO_MODE ? {} : { ...icsErrors, ...googleErrors, ...ncErrors, ...ekErrors, ...ewsErrors };
-  const refresh = useCallback(() => { icsRefresh(); googleRefresh(); ncRefresh(); ekRefresh(); ewsRefresh(); }, [icsRefresh, googleRefresh, ncRefresh, ekRefresh, ewsRefresh]);
+  const refresh = useCallback(async () => {
+    await Promise.all([
+      Promise.resolve(icsRefresh()),
+      Promise.resolve(googleRefresh()),
+      Promise.resolve(ncRefresh()),
+      Promise.resolve(ekRefresh()),
+      ewsRefresh(),
+    ]);
+  }, [icsRefresh, googleRefresh, ncRefresh, ekRefresh, ewsRefresh]);
 
   const handlePrev = useCallback(() => {
     const inst = calendarRef.current?.getInstance();
@@ -417,12 +428,14 @@ export function useCalendarLogic() {
         await respondToNextcloudEvent(cal, event.sourceId, cal.ownerEmail, status, comment);
         await ncRefresh();
       } else if (cal.type === 'exchange') {
-        if (!cal.exchangeAccountId || !event.sourceId)
+        if (!cal.exchangeAccountId || !rsvpSourceId)
           throw new Error(i18n.t('calendarPage.missingInfo'));
         const token = await getExchangeToken(cal.exchangeAccountId);
         if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
-        const [itemId, changeKey] = event.sourceId.split('|');
+        const [itemId, changeKey] = rsvpSourceId.split('|');
+        if (!itemId || !changeKey) throw new Error(i18n.t('calendarPage.missingInfo'));
         const { invoke } = await import('@tauri-apps/api/core');
+        console.info('[Exchange RSVP] Envoi', { itemId, status });
         await invoke('ews_respond_to_invitation', {
           accessToken: token,
           itemId,
@@ -431,7 +444,16 @@ export function useCalendarLogic() {
           ownerEmail: cal.ownerEmail,
           body: comment ?? null,
         });
-        await ewsRefresh();
+        console.info('[Exchange RSVP] Réponse confirmée par EWS', { status });
+        const affectedIdSet = new Set(affectedIds);
+        queryClient.setQueryData<CalendarEvent[]>(CALENDAR_KEYS.events(cal.id), (cached) =>
+          cached?.map((cachedEvent) => affectedIdSet.has(cachedEvent.id) ? makeOptimistic(cachedEvent) : cachedEvent),
+        );
+        setOptimisticUpdated((prev) => {
+          const next = new Map(prev);
+          for (const id of affectedIds) next.delete(id);
+          return next;
+        });
       }
     } catch (e) {
       setOptimisticUpdated((prev) => {
@@ -442,8 +464,7 @@ export function useCalendarLogic() {
       setSelectedEvent(event);
       throw e;
     }
-    // Keep the optimistic entry: the server refresh may return stale data briefly.
-  }, [calendars, events, isEventRecurring, askRecurringScope, getValidToken, getExchangeToken, googleRefresh, ncRefresh, ewsRefresh]);
+  }, [calendars, events, isEventRecurring, askRecurringScope, getValidToken, getExchangeToken, googleRefresh, ncRefresh, queryClient]);
 
   const handleDeleteEvent = useCallback(async (event: CalendarEvent) => {
     const cal = calendars.find((c) => c.id === event.calendarId);

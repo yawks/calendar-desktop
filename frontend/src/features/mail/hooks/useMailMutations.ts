@@ -280,10 +280,10 @@ export function useMailMutations() {
 
   const moveThreadMutation = useMutation({
     mutationFn: async ({ provider, conversationId, targetFolderId }: MutationParams & { conversationId: string; targetFolderId: string }) => {
-      const msgs = await provider.getThread(conversationId, false);
-      for (const msg of msgs) {
-        await provider.moveToFolder(msg.item_id, targetFolderId);
-      }
+      // Let each provider move the whole conversation. Gmail and JMAP can keep
+      // the Sent label/mailbox alongside the destination; EWS deliberately
+      // leaves sent items in Sent because an Exchange item has one parent folder.
+      await provider.bulkMoveToFolder([conversationId], targetFolderId);
     },
     onMutate: async ({ accountId, conversationId }) => {
       const threadsKey = ['mail', accountId, 'threads'];

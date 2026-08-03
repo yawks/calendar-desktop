@@ -51,6 +51,7 @@ pub struct EwsEvent {
     pub my_response_type: String,
     pub attendees: Vec<EwsAttendee>,
     pub is_meeting: bool,
+    pub is_cancelled: bool,
     /// RecurringMasterId — shared by all occurrences of the same recurring series.
     pub recurring_master_id: Option<String>,
     pub body: Option<String>,
@@ -176,6 +177,9 @@ pub(crate) fn soap_envelope(body: &str) -> String {
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
                xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
                xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+  <soap:Header>
+    <t:RequestServerVersion Version="Exchange2013_SP1"/>
+  </soap:Header>
   <soap:Body>
     {}
   </soap:Body>
@@ -344,6 +348,9 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         let is_meeting = xml_content(&item_xml, "t:IsMeeting")
             .map(|v| v == "true")
             .unwrap_or(false);
+        let is_cancelled = xml_content(&item_xml, "t:IsCancelled")
+            .map(|v| v == "true")
+            .unwrap_or(false);
         let location = xml_content(&item_xml, "t:Location").filter(|s| !s.is_empty());
         let my_response_type = xml_content(&item_xml, "t:MyResponseType")
             .unwrap_or_else(|| "Unknown".to_string());
@@ -403,6 +410,7 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
             my_response_type,
             attendees,
             is_meeting,
+            is_cancelled,
             recurring_master_id,
             body: None,
         });
@@ -422,6 +430,13 @@ struct GetItemDetail {
     /// occurrences of the same recurring series.
     clean_global_object_id: Option<String>,
     body: Option<String>,
+    inline_images: Vec<CalendarInlineImage>,
+}
+
+struct CalendarInlineImage {
+    attachment_id: String,
+    content_id: String,
+    content_type: String,
 }
 
 fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
@@ -473,7 +488,33 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
             .filter(|s| !s.is_empty())
             .map(|s| xml_decode(&s));
 
-        results.push(GetItemDetail { item_id, organizer_name, organizer_email, attendees, clean_global_object_id, body });
+        let mut inline_images = Vec::new();
+        if let Some(attachments_xml) = xml_content_ns(&item_xml, "t:Attachments") {
+            for attachment_xml in xml_all_ns(&attachments_xml, "t:FileAttachment") {
+                let id_element = attachment_xml
+                    .find("<t:AttachmentId ")
+                    .or_else(|| attachment_xml.find("<AttachmentId "))
+                    .and_then(|start| attachment_xml[start..].find("/>").map(|end| &attachment_xml[start..start + end]));
+                let Some(attachment_id) = id_element.and_then(|element| xml_attr(element, "Id")) else {
+                    continue;
+                };
+                let Some(content_id) = xml_content_ns(&attachment_xml, "t:ContentId") else {
+                    continue;
+                };
+                let content_id = content_id.trim().trim_matches(['<', '>']).to_string();
+                let content_type = xml_content_ns(&attachment_xml, "t:ContentType")
+                    .unwrap_or_else(|| "image/png".to_string());
+                // Outlook calendar invitations sometimes omit IsInline (or set it
+                // to false) even though the HTML references the attachment by CID.
+                // A ContentId on an image is the reliable signal here.
+                if !content_type.to_ascii_lowercase().starts_with("image/") {
+                    continue;
+                }
+                inline_images.push(CalendarInlineImage { attachment_id, content_id, content_type });
+            }
+        }
+
+        results.push(GetItemDetail { item_id, organizer_name, organizer_email, attendees, clean_global_object_id, body, inline_images });
     }
 
     results

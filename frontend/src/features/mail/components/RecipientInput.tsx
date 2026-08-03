@@ -3,11 +3,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import type { MailProvider } from '../providers/MailProvider';
+import { useProviderContactSearch } from '../hooks/useContactSuggestions';
 import { ContactDropdown } from './ContactDropdown';
+import { usableContactName } from '../utils/contactIndex';
 
 export interface RecipientEntry {
   email: string;
   name?: string;
+  source?: 'google-contact' | 'google-other-contact' | 'ews-contact' | 'ews-directory' | 'mail' | 'calendar';
 }
 
 interface RecipientInputProps {
@@ -15,6 +19,8 @@ interface RecipientInputProps {
   readonly onChange: (recipients: RecipientEntry[]) => void;
   /** Accumulated contacts from all loaded mail messages. */
   readonly contacts: RecipientEntry[];
+  /** Mail provider used for live contact search while typing. */
+  readonly provider?: MailProvider | null;
   readonly autoFocus?: boolean;
   /** Identifies this field for cross-field drag & drop (e.g. 'to', 'cc', 'bcc'). */
   readonly fieldId?: string;
@@ -64,7 +70,7 @@ function splitRecipientString(input: string): string[] {
   return parts;
 }
 
-export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, onDropFromOtherField }: RecipientInputProps) {
+export function RecipientInput({ value, onChange, contacts, provider, autoFocus, fieldId, onDropFromOtherField }: RecipientInputProps) {
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const [open, setOpen] = useState(false);
@@ -75,16 +81,25 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
   const chipsRef = useRef<HTMLUListElement>(null);
   const dragEnterCount = useRef(0);
 
+  const providerResults = useProviderContactSearch(inputValue, provider);
+
   const filtered = useMemo(() => {
     const q = inputValue.trim().toLowerCase();
     const added = new Set(value.map(r => r.email.toLowerCase()));
-    const base = q
+    const staticFiltered = q
       ? contacts.filter(
           c => c.email.toLowerCase().startsWith(q) || (c.name?.toLowerCase().startsWith(q) ?? false)
         )
       : contacts;
-    return base.filter(c => !added.has(c.email.toLowerCase())).slice(0, 8);
-  }, [inputValue, contacts, value]);
+    // Merge provider results ahead of static, deduplicate
+    const seen = new Set<string>();
+    const merged: RecipientEntry[] = [];
+    for (const c of [...providerResults, ...staticFiltered]) {
+      const key = c.email.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); merged.push(c); }
+    }
+    return merged.filter(c => !added.has(c.email.toLowerCase())).slice(0, 8);
+  }, [inputValue, contacts, providerResults, value]);
 
   // Reset active index when dropdown opens or filtered list changes
   useEffect(() => {
@@ -162,9 +177,14 @@ export function RecipientInput({ value, onChange, contacts, autoFocus, fieldId, 
     for (const part of parts) {
       const entry = parseRecipientText(part);
       if (!entry) continue;
-      // Check against contacts for a name match
+      // Enrich from known contacts without discarding a name explicitly pasted
+      // as "Display Name <email>".
       const known = contacts.find(c => c.email.toLowerCase() === entry.email.toLowerCase());
-      const resolved = known ?? entry;
+      const resolved: RecipientEntry = {
+        ...known,
+        ...entry,
+        name: usableContactName(entry.name, entry.email) ?? usableContactName(known?.name, entry.email),
+      };
       const normalized = resolved.email.toLowerCase();
       if (!currentValue.some(r => r.email.toLowerCase() === normalized)) {
         currentValue = [...currentValue, resolved];

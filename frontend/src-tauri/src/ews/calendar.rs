@@ -7,6 +7,7 @@ use super::*;
 #[command]
 pub async fn ews_get_calendar_events(
     access_token: String,
+    owner_email: Option<String>,
     start: String,
     end: String,
 ) -> Result<Vec<EwsEvent>, String> {
@@ -23,7 +24,8 @@ pub async fn ews_get_calendar_events(
         start, end
     );
 
-    let xml = send_ews_request(&access_token, &soap_body, None).await?;
+    let anchor_mailbox = owner_email.as_deref().filter(|email| !email.is_empty());
+    let xml = send_ews_request(&access_token, &soap_body, anchor_mailbox).await?;
     let mut events = parse_calendar_events(&xml)?;
 
     // Batch GetItem for ALL events: fetches attendees (for meetings) and
@@ -46,6 +48,7 @@ pub async fn ews_get_calendar_events(
   <m:ItemShape>
     <t:BaseShape>AllProperties</t:BaseShape>
     <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:Attachments"/>
       <t:ExtendedFieldURI PropertySetId="6ED8DA90-450B-101B-98DA-00AA003F1305" PropertyId="35" PropertyType="Binary"/>
     </t:AdditionalProperties>
   </m:ItemShape>
@@ -56,8 +59,32 @@ pub async fn ews_get_calendar_events(
             item_ids_xml
         );
 
-        if let Ok(details_xml) = send_ews_request(&access_token, &get_body, None).await {
-            let detailed = parse_get_item_response(&details_xml);
+        if let Ok(details_xml) = send_ews_request(&access_token, &get_body, anchor_mailbox).await {
+            let mut detailed = parse_get_item_response(&details_xml);
+            for detail in detailed.iter_mut() {
+                let Some(mut body) = detail.body.take() else { continue };
+                if body.contains("cid:") {
+                    eprintln!(
+                        "[EWS calendar] resolving {} inline image(s) for item {}",
+                        detail.inline_images.len(),
+                        detail.item_id
+                    );
+                }
+                for image in &detail.inline_images {
+                    match crate::mail::fetch_ews_attachment_base64(&access_token, &image.attachment_id).await {
+                        Ok(base64) => {
+                            let data_uri = format!("data:{};base64,{}", image.content_type, base64);
+                            let double_quoted = format!("src=\"cid:{}\"", image.content_id);
+                            let single_quoted = format!("src='cid:{}'", image.content_id);
+                            body = body
+                                .replace(&double_quoted, &format!("src=\"{}\"", data_uri))
+                                .replace(&single_quoted, &format!("src='{}'", data_uri));
+                        }
+                        Err(error) => eprintln!("[EWS calendar] inline image fetch failed: {}", error),
+                    }
+                }
+                detail.body = Some(body);
+            }
             for event in events.iter_mut() {
                 if let Some(detail) = detailed.iter().find(|d| d.item_id == event.item_id) {
                     // Only use CleanGlobalObjectId as the series identifier when the event was
@@ -551,11 +578,14 @@ pub async fn ews_respond_to_invitation(
 
     let xml = send_ews_request(&access_token, &soap_body, Some(owner_email.as_str())).await?;
 
-    if xml.contains("ResponseClass=\"Error\"") {
+    let response_code = xml_content_ns(&xml, "m:ResponseCode")
+        .unwrap_or_else(|| "MissingResponseCode".to_string());
+    if response_code != "NoError" {
         let msg = xml_content(&xml, "m:MessageText")
             .unwrap_or_else(|| "Unknown EWS error".to_string());
-        return Err(msg);
+        return Err(format!("EWS RSVP {}: {}", response_code, msg));
     }
+    eprintln!("[EWS RSVP] {} succeeded for {}", response_type, owner_email);
 
     // When declining, Exchange moves the CalendarItem to Deleted Items.
     // Move it back to the Calendar folder so it stays visible as declined.
@@ -591,4 +621,3 @@ pub async fn ews_respond_to_invitation(
 
     Ok(())
 }
-

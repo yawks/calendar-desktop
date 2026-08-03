@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
-import type { ComposerAttachment, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
+import type { ComposerAttachment, Contact, ContactBackfillBatch, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
 
 /**
  * Extracts base64 data-URI images from HTML, replaces them with cid: references,
@@ -46,12 +46,14 @@ export class EwsMailProvider implements MailProvider {
   readonly providerType = 'ews' as const;
   readonly supportsSnooze = true;
   readonly accountId: string;
+  readonly userEmail: string;
 
   private readonly getValidToken: (id: string) => Promise<string | null>;
 
-  constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>) {
+  constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>, userEmail = '') {
     this.accountId = accountId;
     this.getValidToken = getValidToken;
+    this.userEmail = userEmail;
   }
 
   private async token(): Promise<string> {
@@ -62,7 +64,7 @@ export class EwsMailProvider implements MailProvider {
 
   async listThreads(folder: string, maxCount = 50, offset = 0): Promise<MailThread[]> {
     const accessToken = await this.token();
-    return invoke<MailThread[]>('mail_list_threads', { accessToken, folder, maxCount, offset });
+    return invoke<MailThread[]>('mail_list_threads', { accessToken, folder, maxCount, offset, userEmail: this.userEmail || null });
   }
 
   async searchThreads(query: MailSearchQuery, maxCount = 50): Promise<MailThread[]> {
@@ -76,6 +78,11 @@ export class EwsMailProvider implements MailProvider {
   async getThread(conversationId: string, includeTrash = false, isDraft = false, includeDrafts = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
     return invoke<MailMessage[]>('mail_get_thread', { accessToken, conversationId, includeTrash, isDraft, includeDrafts });
+  }
+
+  async getRawMessageSource(itemId: string): Promise<string> {
+    const accessToken = await this.token();
+    return invoke<string>('mail_get_raw_message', { accessToken, itemId });
   }
 
   async listFolders(): Promise<MailFolder[]> {
@@ -194,5 +201,22 @@ export class EwsMailProvider implements MailProvider {
   async getInboxUnread(): Promise<number> {
     const accessToken = await this.token();
     return invoke<number>('mail_get_inbox_unread', { accessToken });
+  }
+
+  async searchContacts(query: string, maxCount?: number): Promise<Contact[]> {
+    const accessToken = await this.token();
+    return invoke<Contact[]>('mail_search_contacts', { accessToken, query, maxCount: maxCount ?? 25 });
+  }
+
+  async getContactPhoto(email: string): Promise<string | null> {
+    const accessToken = await this.token();
+    return invoke<string | null>('mail_get_contact_photo', { accessToken, email });
+  }
+
+  async backfillContacts(folder: string, offset: number, maxCount: number): Promise<ContactBackfillBatch> {
+    const accessToken = await this.token();
+    return invoke<ContactBackfillBatch>('mail_backfill_contacts', {
+      accessToken, folder, offset, maxCount, userEmail: this.userEmail,
+    });
   }
 }

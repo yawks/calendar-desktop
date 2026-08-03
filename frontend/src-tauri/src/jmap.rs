@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tauri::command;
 use jmap_client::client::{Client, Credentials};
 use jmap_client::email::Property as EmailProperty;
@@ -12,89 +12,15 @@ use base64::Engine;
 use chrono::DateTime;
 use futures::future::join_all;
 use tokio::sync::Mutex;
+use crate::mail_provider::*;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct JmapConfig {
     pub email: String,
     pub session_url: String,
     pub token: String,
-    pub auth_type: Option<String>, // "bearer" (default) or "basic"
+    pub auth_type: Option<String>,
     pub color: Option<String>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct JmapIdentity {
-    pub id: String,
-    pub name: String,
-    pub email: String,
-    pub may_delete: bool,
-}
-
-#[derive(Serialize, Debug, Clone)]
-pub struct JmapFolder {
-    pub folder_id: String,
-    pub display_name: String,
-    pub total_count: u32,
-    pub unread_count: u32,
-}
-
-#[derive(Serialize, Debug, Clone)]
-pub struct JmapThread {
-    pub conversation_id: String,
-    pub topic: String,
-    pub snippet: String,
-    pub last_delivery_time: String,
-    pub message_count: u32,
-    pub unread_count: u32,
-    pub from_name: Option<String>,
-    pub has_attachments: bool,
-}
-
-#[derive(Serialize, Debug, Clone)]
-pub struct JmapMessage {
-    pub item_id: String,
-    pub change_key: String,
-    pub subject: String,
-    pub from_name: Option<String>,
-    pub from_email: Option<String>,
-    pub to_recipients: Vec<JmapRecipient>,
-    pub cc_recipients: Vec<JmapRecipient>,
-    pub body_html: String,
-    pub date_time_received: String,
-    pub is_read: bool,
-    pub has_attachments: bool,
-    pub attachments: Vec<JmapAttachment>,
-    pub message_id: Option<String>,
-    pub references: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body_text: Option<String>,
-}
-
-#[derive(Serialize, Debug, Clone)]
-pub struct JmapRecipient {
-    pub name: Option<String>,
-    pub email: String,
-}
-
-#[derive(Serialize, Debug, Clone)]
-pub struct JmapAttachment {
-    pub attachment_id: String,
-    pub name: String,
-    pub content_type: String,
-    pub size: u64,
-    pub is_inline: bool,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct MailSearchQuery {
-    pub from:    Option<String>,
-    pub to:      Option<String>,
-    pub cc:      Option<String>,
-    pub bcc:     Option<String>,
-    pub subject: Option<String>,
-    pub text:    Option<String>,
-    pub folder:  Option<String>,
-    pub date:    Option<String>,
 }
 
 // ── Persistent client + folder-ID cache ──────────────────────────────────────
@@ -116,6 +42,11 @@ impl JmapClientState {
             folder_ids: Mutex::new(HashMap::new()),
         }
     }
+}
+
+pub struct JmapProvider {
+    config: JmapConfig,
+    state: Arc<JmapClientState>,
 }
 
 fn account_key(config: &JmapConfig) -> String {
@@ -268,234 +199,77 @@ async fn get_or_create_snoozed_id(
     Ok(id)
 }
 
-// ── Commands ──────────────────────────────────────────────────────────────────
+// ── MailProvider impl ─────────────────────────────────────────────────────────
 
-#[command]
-pub async fn jmap_list_folders(
-    state: tauri::State<'_, JmapClientState>,
-    config: JmapConfig,
-) -> Result<Vec<JmapFolder>, String> {
-    let client = get_client(&state, &config).await?;
-    let mut request = client.build();
-    request.get_mailbox();
-    let mut response = request.send().await.map_err(|e| e.to_string())?;
-    let mailboxes = response.method_response_by_pos(0).unwrap_get_mailbox().map_err(|e| e.to_string())?;
+impl MailProvider for JmapProvider {
+    async fn list_folders(&self) -> Result<Vec<MailFolder>, String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let mut request = client.build();
+        request.get_mailbox();
+        let mut response = request.send().await.map_err(|e| e.to_string())?;
+        let mailboxes = response.method_response_by_pos(0).unwrap_get_mailbox().map_err(|e| e.to_string())?;
 
-    let mut folders = Vec::new();
-    for mailbox in mailboxes.list() {
-        let raw_id = mailbox.id().unwrap_or_default().to_string();
-        // Normalise well-known roles to stable keys so TypeScript sidebar
-        // filter and unread counts work without knowing the real JMAP mailbox ID.
-        let folder_id = match mailbox.role() {
-            Role::Junk => "spam".to_string(),
-            _ => raw_id,
+        let mut folders = Vec::new();
+        for mailbox in mailboxes.list() {
+            let raw_id = mailbox.id().unwrap_or_default().to_string();
+            let folder_id = match mailbox.role() {
+                Role::Junk => "spam".to_string(),
+                _ => raw_id,
+            };
+            folders.push(MailFolder {
+                folder_id,
+                display_name: mailbox.name().unwrap_or_default().to_string(),
+                total_count: mailbox.total_emails() as u32,
+                unread_count: mailbox.unread_emails() as u32,
+            });
+        }
+        Ok(folders)
+    }
+
+    async fn get_inbox_unread(&self) -> Result<u32, String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let mut request = client.build();
+        request.get_mailbox();
+        let mut response = request.send().await.map_err(|e| e.to_string())?;
+        let mailboxes = response.method_response_by_pos(0).unwrap_get_mailbox().map_err(|e| e.to_string())?;
+        for mailbox in mailboxes.list() {
+            if mailbox.role() == Role::Inbox || mailbox.name().map(|n| n.to_lowercase() == "inbox").unwrap_or(false) {
+                return Ok(mailbox.unread_emails() as u32);
+            }
+        }
+        Ok(0)
+    }
+
+    async fn list_threads(&self, folder: &str, max_count: Option<u32>) -> Result<Vec<MailThread>, String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let count = max_count.unwrap_or(50);
+        let email_limit = count * 4;
+
+        let mailbox_id = match folder {
+            "inbox" | "sentitems" | "deleteditems" | "drafts" | "spam" => {
+                let ids = get_folder_ids(&self.state, &client, &self.config).await?;
+                ids.get(folder).cloned().unwrap_or_else(|| folder.to_string())
+            }
+            "snoozed" => get_or_create_snoozed_id(&self.state, &client, &self.config).await?,
+            _ => folder.to_string(),
         };
-        folders.push(JmapFolder {
-            folder_id,
-            display_name: mailbox.name().unwrap_or_default().to_string(),
-            total_count: mailbox.total_emails() as u32,
-            unread_count: mailbox.unread_emails() as u32,
-        });
-    }
-    Ok(folders)
-}
 
-#[command]
-pub async fn jmap_get_inbox_unread(
-    state: tauri::State<'_, JmapClientState>,
-    config: JmapConfig,
-) -> Result<u32, String> {
-    let client = get_client(&state, &config).await?;
-    let mut request = client.build();
-    request.get_mailbox();
-    let mut response = request.send().await.map_err(|e| e.to_string())?;
-    let mailboxes = response.method_response_by_pos(0).unwrap_get_mailbox().map_err(|e| e.to_string())?;
+        let is_snoozed = folder == "snoozed";
+        let query_limit = if is_snoozed { count as usize } else { email_limit as usize };
 
-    for mailbox in mailboxes.list() {
-        if mailbox.role() == Role::Inbox || mailbox.name().map(|n| n.to_lowercase() == "inbox").unwrap_or(false) {
-            return Ok(mailbox.unread_emails() as u32);
-        }
-    }
-    Ok(0)
-}
-
-#[command]
-pub async fn jmap_list_threads(
-    state: tauri::State<'_, JmapClientState>,
-    config: JmapConfig,
-    folder: String,
-    max_count: Option<u32>,
-) -> Result<Vec<JmapThread>, String> {
-    let client = get_client(&state, &config).await?;
-    let count = max_count.unwrap_or(50);
-    let email_limit = count * 4;
-
-    let mailbox_id = match folder.as_str() {
-        "inbox" | "sentitems" | "deleteditems" | "drafts" | "spam" => {
-            let ids = get_folder_ids(&state, &client, &config).await?;
-            ids.get(&folder).cloned().unwrap_or(folder.clone())
-        }
-        "snoozed" => get_or_create_snoozed_id(&state, &client, &config).await?,
-        _ => folder.clone(),
-    };
-
-    // For snoozed we collapse by thread so the server returns exactly one email
-    // per thread (the most recent). Without this, a thread with N messages in
-    // the Snoozed mailbox would consume N slots of the limit, causing many
-    // snoozed conversations to be invisible.
-    let is_snoozed = folder == "snoozed";
-    let query_limit = if is_snoozed { count as usize } else { email_limit as usize };
-
-    let mut request = client.build();
-    {
-        let q = request.query_email()
-            .filter(EmailFilter::in_mailbox(&mailbox_id))
-            .sort([EmailComparator::received_at().descending()])
-            .limit(query_limit);
-        if is_snoozed {
-            q.arguments().collapse_threads(true);
-        }
-    }
-    let ref_ = request.last_result_reference("/ids");
-    request.get_email()
-        .ids_ref(ref_)
-        .properties([
-            EmailProperty::Id,
-            EmailProperty::ThreadId,
-            EmailProperty::Subject,
-            EmailProperty::From,
-            EmailProperty::ReceivedAt,
-            EmailProperty::Preview,
-            EmailProperty::HasAttachment,
-            EmailProperty::Keywords,
-        ]);
-
-    let mut response = request.send().await.map_err(|e| e.to_string())?;
-    let emails = response.method_response_by_pos(1).unwrap_get_email().map_err(|e| e.to_string())?;
-
-    let mut thread_map: HashMap<String, JmapThread> = HashMap::new();
-    let mut thread_order: Vec<String> = Vec::new();
-
-    for email in emails.list() {
-        let thread_id = email.thread_id().unwrap_or_default().to_string();
-        if let Some(thread) = thread_map.get_mut(&thread_id) {
-            thread.message_count += 1;
-            if !email.keywords().contains(&"$seen") {
-                thread.unread_count += 1;
+        let mut request = client.build();
+        {
+            let q = request.query_email()
+                .filter(EmailFilter::in_mailbox(&mailbox_id))
+                .sort([EmailComparator::received_at().descending()])
+                .limit(query_limit);
+            if is_snoozed {
+                q.arguments().collapse_threads(true);
             }
-            if email.has_attachment() {
-                thread.has_attachments = true;
-            }
-        } else {
-            thread_order.push(thread_id.clone());
-            let from_name = email.from().and_then(|f| f.first()).and_then(|a| a.name().map(|s| s.to_string()));
-            thread_map.insert(thread_id.clone(), JmapThread {
-                conversation_id: thread_id,
-                topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
-                snippet: email.preview().map(|s| s.to_string()).unwrap_or_default(),
-                last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
-                message_count: 1,
-                unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
-                from_name,
-                has_attachments: email.has_attachment(),
-            });
         }
-    }
-
-    let mut threads: Vec<JmapThread> = thread_order.into_iter().filter_map(|id| thread_map.remove(&id)).collect();
-    threads.truncate(count as usize);
-    Ok(threads)
-}
-
-#[command]
-pub async fn jmap_search_threads(
-    state: tauri::State<'_, JmapClientState>,
-    config: JmapConfig,
-    query: MailSearchQuery,
-    max_count: Option<u32>,
-) -> Result<Vec<JmapThread>, String> {
-    use jmap_client::core::query::Filter as QFilter;
-
-    let client = get_client(&state, &config).await?;
-    let count = max_count.unwrap_or(50);
-
-    let mut filters: Vec<EmailFilter> = Vec::new();
-    if let Some(from) = query.from { filters.push(EmailFilter::from(from)); }
-    if let Some(to) = query.to { filters.push(EmailFilter::to(to)); }
-    if let Some(subject) = query.subject { filters.push(EmailFilter::subject(subject)); }
-    if let Some(text) = query.text { filters.push(EmailFilter::body(text)); }
-
-    let mut request = client.build();
-    {
-        let q = request.query_email();
-        match filters.len() {
-            0 => {}
-            1 => { q.filter(filters.remove(0)); }
-            _ => { q.filter(QFilter::and(filters)); }
-        }
-        q.sort([EmailComparator::received_at().descending()])
-            .limit(count as usize);
-    }
-    let ref_ = request.last_result_reference("/ids");
-    request.get_email()
-        .ids_ref(ref_)
-        .properties([
-            EmailProperty::Id,
-            EmailProperty::ThreadId,
-            EmailProperty::Subject,
-            EmailProperty::From,
-            EmailProperty::ReceivedAt,
-            EmailProperty::Preview,
-            EmailProperty::HasAttachment,
-            EmailProperty::Keywords,
-        ]);
-
-    let mut response = request.send().await.map_err(|e| e.to_string())?;
-    let emails = response.method_response_by_pos(1).unwrap_get_email().map_err(|e| e.to_string())?;
-
-    let mut thread_map: HashMap<String, JmapThread> = HashMap::new();
-    let mut thread_order: Vec<String> = Vec::new();
-
-    for email in emails.list() {
-        let thread_id = email.thread_id().unwrap_or_default().to_string();
-        if !thread_map.contains_key(&thread_id) {
-            thread_order.push(thread_id.clone());
-            let from_name = email.from().and_then(|f| f.first()).and_then(|a| a.name().map(|s| s.to_string()));
-            thread_map.insert(thread_id.clone(), JmapThread {
-                conversation_id: thread_id,
-                topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
-                snippet: email.preview().map(|s| s.to_string()).unwrap_or_default(),
-                last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
-                message_count: 1,
-                unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
-                from_name,
-                has_attachments: email.has_attachment(),
-            });
-        }
-    }
-
-    Ok(thread_order.into_iter().filter_map(|id| thread_map.remove(&id)).collect())
-}
-
-#[command]
-pub async fn jmap_get_thread(
-    state: tauri::State<'_, JmapClientState>,
-    config: JmapConfig,
-    conversation_id: String,
-) -> Result<Vec<JmapMessage>, String> {
-    let client = get_client(&state, &config).await?;
-
-    let mut thread_request = client.build();
-    thread_request.get_thread().ids([conversation_id.as_str()]);
-    let mut thread_response = thread_request.send().await.map_err(|e| e.to_string())?;
-    let thread_get = thread_response.method_response_by_pos(0).unwrap_get_thread().map_err(|e| e.to_string())?;
-    let thread = thread_get.list().first().ok_or("Thread not found")?;
-    let email_ids: Vec<String> = thread.email_ids().to_vec();
-
-    let mut email_request = client.build();
-    {
-        let get_req = email_request.get_email();
-        get_req.ids(email_ids.iter().map(|s| s.as_str()))
+        let ref_ = request.last_result_reference("/ids");
+        request.get_email()
+            .ids_ref(ref_)
             .properties([
                 EmailProperty::Id,
                 EmailProperty::ThreadId,
@@ -507,183 +281,713 @@ pub async fn jmap_get_thread(
                 EmailProperty::Preview,
                 EmailProperty::HasAttachment,
                 EmailProperty::Keywords,
-                EmailProperty::HtmlBody,
-                EmailProperty::TextBody,
-                EmailProperty::BodyValues,
-                EmailProperty::Attachments,
-                EmailProperty::MessageId,
-                EmailProperty::InReplyTo,
-                EmailProperty::References,
             ]);
-        get_req.arguments()
-            .fetch_html_body_values(true)
-            .fetch_text_body_values(true)
-            .fetch_all_body_values(true);
-    }
-    let mut response = email_request.send().await.map_err(|e| e.to_string())?;
-    let emails = response.method_response_by_pos(0).unwrap_get_email().map_err(|e| e.to_string())?;
 
-    let auth_header = build_auth_header(&config);
-    let account_id = client.session().primary_accounts().next()
-        .map(|a| a.1.as_str()).unwrap_or_default().to_string();
-    let dl_template = client.session().download_url().to_string();
-    let dl_client = reqwest::Client::new();
+        let mut response = request.send().await.map_err(|e| e.to_string())?;
+        let emails = response.method_response_by_pos(1).unwrap_get_email().map_err(|e| e.to_string())?;
 
-    let mut messages = Vec::new();
-    for email in emails.list() {
-        let body_text = email.text_body()
-            .and_then(|b| b.first())
-            .and_then(|p| p.part_id())
-            .and_then(|id| email.body_value(id))
-            .map(|v| v.value().to_string());
+        let mut thread_map: HashMap<String, MailThread> = HashMap::new();
+        let mut thread_order: Vec<String> = Vec::new();
+        // Track unique senders per thread (excluding own email)
+        let mut sender_seen: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+        let own_email = self.config.email.to_lowercase();
 
-        let html_part = email.html_body().and_then(|b| b.first());
-        let html_content_type = html_part.and_then(|p| p.content_type()).unwrap_or("text/html");
-        let is_plain_text_part = html_content_type == "text/plain";
+        for email in emails.list() {
+            let thread_id = email.thread_id().unwrap_or_default().to_string();
+            let from_addr = email.from().and_then(|f| f.first());
+            let from_email_str = from_addr.map(|a| a.email().to_string()).unwrap_or_default();
 
-        let mut body_html = html_part
-            .and_then(|p| p.part_id())
-            .and_then(|id| email.body_value(id))
-            .map(|v| {
-                let text = v.value().to_string();
-                if is_plain_text_part {
-                    let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-                    format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
+            if let Some(thread) = thread_map.get_mut(&thread_id) {
+                thread.message_count += 1;
+                if !email.keywords().contains(&"$seen") {
+                    thread.unread_count += 1;
+                }
+                if email.has_attachment() {
+                    thread.has_attachments = true;
+                }
+                // Accumulate additional unique senders
+                let seen = sender_seen.entry(thread_id.clone()).or_default();
+                let key = from_email_str.to_lowercase();
+                if !key.is_empty() && key != own_email && !seen.contains(&key) {
+                    seen.insert(key);
+                    thread.unique_senders.push(MailRecipient {
+                        name: from_addr.and_then(|a| a.name().map(|s| s.to_string())),
+                        email: from_email_str,
+                    });
+                }
+            } else {
+                thread_order.push(thread_id.clone());
+                let from_name = from_addr.and_then(|a| a.name().map(|s| s.to_string()));
+                let from_email = from_addr.map(|a| a.email().to_string());
+                let to_recipients = email.to().map(|list| list.iter().map(|a| MailRecipient {
+                    name: a.name().map(|s| s.to_string()),
+                    email: a.email().to_string(),
+                }).collect::<Vec<_>>()).unwrap_or_default();
+                let cc_recipients = email.cc().map(|list| list.iter().map(|a| MailRecipient {
+                    name: a.name().map(|s| s.to_string()),
+                    email: a.email().to_string(),
+                }).collect::<Vec<_>>()).unwrap_or_default();
+                // First sender for this thread
+                let mut unique_senders = Vec::new();
+                let key = from_email_str.to_lowercase();
+                if !key.is_empty() && key != own_email {
+                    let seen = sender_seen.entry(thread_id.clone()).or_default();
+                    seen.insert(key);
+                    unique_senders.push(MailRecipient {
+                        name: from_addr.and_then(|a| a.name().map(|s| s.to_string())),
+                        email: from_email_str,
+                    });
                 } else {
-                    text
+                    sender_seen.entry(thread_id.clone()).or_default();
                 }
-            })
-            .or_else(|| body_text.as_deref().map(|t| {
-                let escaped = t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-                format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
-            }))
-            .unwrap_or_default();
-
-        // Collect inline images that need to be resolved (cid: → data URI).
-        // All downloads are launched in parallel to minimize latency.
-        struct InlinePart {
-            needle_dq: String,
-            needle_sq: String,
-            url: String,
-            content_type: String,
+                thread_map.insert(thread_id.clone(), MailThread {
+                    conversation_id: thread_id,
+                    topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
+                    snippet: email.preview().map(|s| s.to_string()).unwrap_or_default(),
+                    last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
+                    message_count: 1,
+                    unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
+                    from_name,
+                    from_email,
+                    has_attachments: email.has_attachment(),
+                    to_recipients,
+                    cc_recipients,
+                    unique_senders,
+                });
+            }
         }
-        let inline_parts: Vec<InlinePart> = email.attachments().unwrap_or(&[])
-            .iter()
-            .filter_map(|part| {
-                let cid = part.content_id()?;
-                let blob_id = part.blob_id()?;
-                let ct = part.content_type().unwrap_or("application/octet-stream");
-                let cid_clean = cid.trim_matches('<').trim_matches('>');
-                let needle_dq = format!("src=\"cid:{}\"", cid_clean);
-                let needle_sq = format!("src='cid:{}'", cid_clean);
-                if !body_html.contains(&needle_dq) && !body_html.contains(&needle_sq) {
-                    return None;
+
+        let mut threads: Vec<MailThread> = thread_order.into_iter().filter_map(|id| thread_map.remove(&id)).collect();
+        threads.truncate(count as usize);
+
+        // Email/query above is intentionally restricted to the selected mailbox,
+        // so counting those rows alone misses messages that share the thread but
+        // remain in another mailbox (notably Sent). Thread/get returns the global
+        // emailIds for all visible rows in one batched request.
+        if !threads.is_empty() {
+            let thread_ids: Vec<String> = threads.iter()
+                .map(|thread| thread.conversation_id.clone())
+                .collect();
+            let mut count_request = client.build();
+            count_request.get_thread().ids(thread_ids.iter().map(|id| id.as_str()));
+            let mut count_response = count_request.send().await.map_err(|e| e.to_string())?;
+            let thread_get = count_response.method_response_by_pos(0)
+                .unwrap_get_thread()
+                .map_err(|e| e.to_string())?;
+            let global_counts: HashMap<&str, u32> = thread_get.list().iter()
+                .map(|thread| (thread.id(), thread.email_ids().len() as u32))
+                .collect();
+            for thread in &mut threads {
+                if let Some(global_count) = global_counts.get(thread.conversation_id.as_str()) {
+                    thread.message_count = *global_count;
                 }
-                let url = dl_template
-                    .replace("{blobId}", blob_id)
-                    .replace("{accountId}", &account_id)
-                    .replace("{name}", cid_clean)
-                    .replace("{type}", ct);
-                Some(InlinePart {
-                    needle_dq,
-                    needle_sq,
-                    url,
-                    content_type: ct.to_string(),
+            }
+        }
+        Ok(threads)
+    }
+
+    async fn get_thread(
+        &self,
+        conversation_id: &str,
+        _include_trash: Option<bool>,
+        _is_draft: Option<bool>,
+        _include_drafts: Option<bool>,
+    ) -> Result<Vec<MailMessage>, String> {
+        let client = get_client(&self.state, &self.config).await?;
+
+        let mut thread_request = client.build();
+        thread_request.get_thread().ids([conversation_id]);
+        let mut thread_response = thread_request.send().await.map_err(|e| e.to_string())?;
+        let thread_get = thread_response.method_response_by_pos(0).unwrap_get_thread().map_err(|e| e.to_string())?;
+        let thread = thread_get.list().first().ok_or("Thread not found")?;
+        let email_ids: Vec<String> = thread.email_ids().to_vec();
+
+        let mut email_request = client.build();
+        {
+            let get_req = email_request.get_email();
+            get_req.ids(email_ids.iter().map(|s| s.as_str()))
+                .properties([
+                    EmailProperty::Id,
+                    EmailProperty::ThreadId,
+                    EmailProperty::Subject,
+                    EmailProperty::From,
+                    EmailProperty::To,
+                    EmailProperty::Cc,
+                    EmailProperty::ReceivedAt,
+                    EmailProperty::Preview,
+                    EmailProperty::HasAttachment,
+                    EmailProperty::Keywords,
+                    EmailProperty::HtmlBody,
+                    EmailProperty::TextBody,
+                    EmailProperty::BodyValues,
+                    EmailProperty::Attachments,
+                    EmailProperty::MessageId,
+                    EmailProperty::InReplyTo,
+                    EmailProperty::References,
+                ]);
+            get_req.arguments()
+                .fetch_html_body_values(true)
+                .fetch_text_body_values(true)
+                .fetch_all_body_values(true);
+        }
+        let mut response = email_request.send().await.map_err(|e| e.to_string())?;
+        let emails = response.method_response_by_pos(0).unwrap_get_email().map_err(|e| e.to_string())?;
+
+        let auth_header = build_auth_header(&self.config);
+        let account_id = client.session().primary_accounts().next()
+            .map(|a| a.1.as_str()).unwrap_or_default().to_string();
+        let dl_template = client.session().download_url().to_string();
+        let dl_client = reqwest::Client::new();
+
+        let mut messages = Vec::new();
+        for email in emails.list() {
+            let body_text = email.text_body()
+                .and_then(|b| b.first())
+                .and_then(|p| p.part_id())
+                .and_then(|id| email.body_value(id))
+                .map(|v| v.value().to_string());
+
+            let html_part = email.html_body().and_then(|b| b.first());
+            let html_content_type = html_part.and_then(|p| p.content_type()).unwrap_or("text/html");
+            let is_plain_text_part = html_content_type == "text/plain";
+
+            let mut body_html = html_part
+                .and_then(|p| p.part_id())
+                .and_then(|id| email.body_value(id))
+                .map(|v| {
+                    let text = v.value().to_string();
+                    if is_plain_text_part {
+                        let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+                        format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
+                    } else {
+                        text
+                    }
                 })
-            })
-            .collect();
+                .or_else(|| body_text.as_deref().map(|t| {
+                    let escaped = t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+                    format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
+                }))
+                .unwrap_or_default();
 
-        // Download all inline images in parallel.
-        let dl_results: Vec<Option<String>> = join_all(inline_parts.iter().map(|p| {
-            let auth_header = auth_header.clone();
-            let dl_client = dl_client.clone();
-            let url = p.url.clone();
-            async move {
-                let resp = dl_client.get(&url).header("Authorization", auth_header).send().await.ok()?;
-                let bytes = resp.bytes().await.ok()?;
-                Some(base64::engine::general_purpose::STANDARD.encode(&bytes))
+            struct InlinePart {
+                needle_dq: String,
+                needle_sq: String,
+                url: String,
+                content_type: String,
             }
-        })).await;
+            let inline_parts: Vec<InlinePart> = email.attachments().unwrap_or(&[])
+                .iter()
+                .filter_map(|part| {
+                    let cid = part.content_id()?;
+                    let blob_id = part.blob_id()?;
+                    let ct = part.content_type().unwrap_or("application/octet-stream");
+                    let cid_clean = cid.trim_matches('<').trim_matches('>');
+                    let needle_dq = format!("src=\"cid:{}\"", cid_clean);
+                    let needle_sq = format!("src='cid:{}'", cid_clean);
+                    if !body_html.contains(&needle_dq) && !body_html.contains(&needle_sq) {
+                        return None;
+                    }
+                    let url = dl_template
+                        .replace("{blobId}", blob_id)
+                        .replace("{accountId}", &account_id)
+                        .replace("{name}", cid_clean)
+                        .replace("{type}", ct);
+                    Some(InlinePart { needle_dq, needle_sq, url, content_type: ct.to_string() })
+                })
+                .collect();
 
-        for (part, data_b64) in inline_parts.iter().zip(dl_results) {
-            if let Some(b64) = data_b64 {
-                let data_uri = format!("data:{};base64,{}", part.content_type, b64);
-                body_html = body_html.replace(&part.needle_dq, &format!("src=\"{}\"", data_uri));
-                body_html = body_html.replace(&part.needle_sq, &format!("src='{}'", data_uri));
+            let dl_results: Vec<Option<String>> = join_all(inline_parts.iter().map(|p| {
+                let auth_header = auth_header.clone();
+                let dl_client = dl_client.clone();
+                let url = p.url.clone();
+                async move {
+                    let resp = dl_client.get(&url).header("Authorization", auth_header).send().await.ok()?;
+                    let bytes = resp.bytes().await.ok()?;
+                    Some(base64::engine::general_purpose::STANDARD.encode(&bytes))
+                }
+            })).await;
+
+            for (part, data_b64) in inline_parts.iter().zip(dl_results) {
+                if let Some(b64) = data_b64 {
+                    let data_uri = format!("data:{};base64,{}", part.content_type, b64);
+                    body_html = body_html.replace(&part.needle_dq, &format!("src=\"{}\"", data_uri));
+                    body_html = body_html.replace(&part.needle_sq, &format!("src='{}'", data_uri));
+                }
             }
-        }
 
-        let mut attachments = Vec::new();
-        for part in email.attachments().unwrap_or(&[]) {
-            if part.content_id().is_some() { continue; }
-            attachments.push(JmapAttachment {
-                attachment_id: part.blob_id().unwrap_or_default().to_string(),
-                name: part.name().unwrap_or_default().to_string(),
-                content_type: part.content_type().unwrap_or_default().to_string(),
-                size: part.size() as u64,
-                is_inline: false,
+            let mut attachments = Vec::new();
+            for part in email.attachments().unwrap_or(&[]) {
+                if part.content_id().is_some() { continue; }
+                attachments.push(MailAttachment {
+                    attachment_id: part.blob_id().unwrap_or_default().to_string(),
+                    name: part.name().unwrap_or_default().to_string(),
+                    content_type: part.content_type().unwrap_or_default().to_string(),
+                    size: part.size() as u64,
+                    is_inline: false,
+                });
+            }
+
+            messages.push(MailMessage {
+                item_id: email.id().unwrap_or_default().to_string(),
+                change_key: String::new(),
+                subject: email.subject().unwrap_or_default().to_string(),
+                from_name: email.from().and_then(|f| f.first()).and_then(|a| a.name().map(|s| s.to_string())),
+                from_email: email.from().and_then(|f| f.first()).map(|a| a.email().to_string()),
+                to_recipients: email.to().map(|list| list.iter().map(|a| MailRecipient { name: a.name().map(|s| s.to_string()), email: a.email().to_string() }).collect()).unwrap_or_default(),
+                cc_recipients: email.cc().map(|list| list.iter().map(|a| MailRecipient { name: a.name().map(|s| s.to_string()), email: a.email().to_string() }).collect()).unwrap_or_default(),
+                body_html,
+                date_time_received: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
+                is_read: email.keywords().contains(&"$seen"),
+                has_attachments: !attachments.is_empty(),
+                attachments,
+                message_id: email.message_id()
+                    .and_then(|ids| ids.first())
+                    .map(|id| if id.starts_with('<') { id.to_string() } else { format!("<{}>", id) }),
+                references: email.references()
+                    .map(|ids| ids.iter()
+                        .map(|id| if id.starts_with('<') { id.to_string() } else { format!("<{}>", id) })
+                        .collect::<Vec<_>>()
+                        .join(" ")),
+                body_text,
+                ics_mime: None,
+                is_draft: None,
             });
         }
 
-        messages.push(JmapMessage {
-            item_id: email.id().unwrap_or_default().to_string(),
-            change_key: String::new(),
-            subject: email.subject().unwrap_or_default().to_string(),
-            from_name: email.from().and_then(|f| f.first()).and_then(|a| a.name().map(|s| s.to_string())),
-            from_email: email.from().and_then(|f| f.first()).map(|a| a.email().to_string()),
-            to_recipients: email.to().map(|list| list.iter().map(|a| JmapRecipient { name: a.name().map(|s| s.to_string()), email: a.email().to_string() }).collect()).unwrap_or_default(),
-            cc_recipients: email.cc().map(|list| list.iter().map(|a| JmapRecipient { name: a.name().map(|s| s.to_string()), email: a.email().to_string() }).collect()).unwrap_or_default(),
-            body_html,
-            date_time_received: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
-            is_read: email.keywords().contains(&"$seen"),
-            has_attachments: !attachments.is_empty(),
-            attachments,
-            message_id: email.message_id()
-                .and_then(|ids| ids.first())
-                .map(|id| if id.starts_with('<') { id.to_string() } else { format!("<{}>", id) }),
-            references: email.references()
-                .map(|ids| ids.iter()
-                    .map(|id| if id.starts_with('<') { id.to_string() } else { format!("<{}>", id) })
-                    .collect::<Vec<_>>()
-                    .join(" ")),
-            body_text,
-        });
+        messages.sort_by(|a, b| a.date_time_received.cmp(&b.date_time_received));
+        Ok(messages)
     }
 
-    messages.sort_by(|a, b| a.date_time_received.cmp(&b.date_time_received));
-    Ok(messages)
+    async fn mark_read(&self, items: &[MailItemRef]) -> Result<(), String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let mut request = client.build();
+        let set = request.set_email();
+        for item in items {
+            set.update(&item.item_id).keyword("$seen", true);
+        }
+        request.send().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn mark_unread(&self, items: &[MailItemRef]) -> Result<(), String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let mut request = client.build();
+        let set = request.set_email();
+        for item in items {
+            set.update(&item.item_id).keyword("$seen", false);
+        }
+        request.send().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn move_to_trash(&self, item_id: &str) -> Result<(), String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let folder_ids = get_folder_ids(&self.state, &client, &self.config).await?;
+        let trash_id = folder_ids.get("deleteditems").cloned().ok_or("Trash mailbox not found")?;
+        let sent_id = folder_ids.get("sentitems").cloned();
+        jmap_move_email(&client, item_id, &trash_id, sent_id.as_deref()).await?;
+        Ok(())
+    }
+
+    async fn permanently_delete(&self, item_id: &str) -> Result<(), String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let mut request = client.build();
+        request.set_email().destroy([item_id]);
+        let mut response = request.send().await.map_err(|e| e.to_string())?;
+        let set_resp = response.method_response_by_pos(0)
+            .unwrap_set_email()
+            .map_err(|e| format!("Email/set response error: {}", e))?;
+        if let Some(mut not_destroyed) = set_resp.not_destroyed_ids() {
+            if not_destroyed.any(|i| i == item_id) {
+                return Err(format!("Email/set destroy refused by server for {}", item_id));
+            }
+        }
+        Ok(())
+    }
+
+    async fn bulk_move_to_trash(&self, item_ids: Vec<String>) -> Result<(), String> {
+        if item_ids.is_empty() { return Ok(()); }
+        let client = get_client(&self.state, &self.config).await?;
+        let folder_ids = get_folder_ids(&self.state, &client, &self.config).await?;
+        let trash_id = folder_ids.get("deleteditems").cloned().ok_or("Trash mailbox not found")?;
+
+        let email_ids = jmap_thread_ids_to_email_ids(&client, &item_ids).await?;
+        if email_ids.is_empty() { return Ok(()); }
+
+        let trash_ref = trash_id.as_str();
+        let mut request = client.build();
+        let set = request.set_email();
+        for id in &email_ids {
+            set.update(id.as_str()).mailbox_ids([trash_ref]);
+        }
+        request.send().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn bulk_permanently_delete(&self, item_ids: Vec<String>) -> Result<(), String> {
+        if item_ids.is_empty() { return Ok(()); }
+        let client = get_client(&self.state, &self.config).await?;
+        let email_ids = jmap_thread_ids_to_email_ids(&client, &item_ids).await?;
+        if email_ids.is_empty() { return Ok(()); }
+        let mut request = client.build();
+        request.set_email().destroy(email_ids.iter().map(|s| s.as_str()));
+        request.send().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn send_mail(&self, params: SendMailParams) -> Result<(), String> {
+        let client = get_client(&self.state, &self.config).await?;
+
+        let mut req = client.build();
+        req.add_capability(URI::Submission);
+        req.get_identity();
+        req.get_mailbox();
+        let mut resp = req.send().await.map_err(|e| format!("Identity+Mailbox/get: {}", e))?;
+        let identities = resp.method_response_by_pos(0)
+            .unwrap_get_identity()
+            .map_err(|e| format!("Identity/get: {}", e))?;
+        let mailboxes = resp.method_response_by_pos(0)
+            .unwrap_get_mailbox()
+            .map_err(|e| format!("Mailbox/get: {}", e))?;
+
+        let identity = if let Some(ref id) = params.identity_id {
+            identities.list().iter().find(|i| i.id() == Some(id.as_str()))
+                .or_else(|| identities.list().iter().find(|i| !i.may_delete()))
+                .or_else(|| identities.list().first())
+        } else {
+            identities.list().iter().find(|i| !i.may_delete())
+                .or_else(|| identities.list().first())
+        };
+
+        let from_email = identity.and_then(|i| i.email()).unwrap_or(self.config.email.as_str());
+        let from_name = identity.and_then(|i| i.name()).unwrap_or_default();
+        let resolved_identity_id = identity.and_then(|i| i.id())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+
+        let from_header = if from_name.is_empty() {
+            from_email.to_string()
+        } else {
+            format!("{} <{}>", from_name, from_email)
+        };
+
+        let sent_id = mailboxes.list().iter()
+            .find(|m| m.role() == Role::Sent)
+            .and_then(|m| m.id())
+            .map(|s| s.to_string());
+
+        let normalised_body = params.body_html.replace('\r', "").replace('\n', "\r\n");
+        let safe_subject = params.subject.replace(['\r', '\n'], " ");
+
+        let mut headers = format!(
+            "From: {}\r\nTo: {}\r\nSubject: {}\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n",
+            from_header,
+            params.to.join(", "),
+            safe_subject,
+        );
+        if !params.cc.is_empty() {
+            headers.push_str(&format!("Cc: {}\r\n", params.cc.join(", ")));
+        }
+        if !params.bcc.is_empty() {
+            headers.push_str(&format!("Bcc: {}\r\n", params.bcc.join(", ")));
+        }
+        if let Some(ref irt) = params.in_reply_to {
+            headers.push_str(&format!("In-Reply-To: {}\r\n", irt));
+        }
+        if let Some(ref refs) = params.references {
+            headers.push_str(&format!("References: {}\r\n", refs));
+        }
+        let raw_message = format!("{}\r\n{}", headers, normalised_body).into_bytes();
+
+        let mailbox_ids: Vec<String> = sent_id.into_iter().collect();
+        let email = client.email_import(raw_message, mailbox_ids, None::<Vec<&str>>, None)
+            .await
+            .map_err(|e| format!("Email/import: {}", e))?;
+        let email_id = email.id().unwrap_or_default().to_string();
+
+        client.email_submission_create(&email_id, &resolved_identity_id)
+            .await
+            .map_err(|e| format!("EmailSubmission/set: {}", e))?;
+        Ok(())
+    }
+
+    async fn get_attachment_data(
+        &self,
+        attachment_id: &str,
+        _message_id: Option<&str>,
+        _folder: Option<&str>,
+    ) -> Result<String, String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let account_id = client.session().primary_accounts().next()
+            .map(|a| a.1.as_str().to_string()).unwrap_or_default();
+        let dl_template = client.session().download_url().to_string();
+        let download_url = dl_template
+            .replace("{blobId}", attachment_id)
+            .replace("{accountId}", &account_id)
+            .replace("{name}", "attachment")
+            .replace("{type}", "application/octet-stream");
+
+        let auth_header = build_auth_header(&self.config);
+        let response = reqwest::Client::new()
+            .get(&download_url)
+            .header("Authorization", &auth_header)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("{}", status));
+        }
+        let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+
+    async fn search_threads(&self, query: &MailSearchQuery, max_count: Option<u32>) -> Result<Vec<MailThread>, String> {
+        use jmap_client::core::query::Filter as QFilter;
+
+        let client = get_client(&self.state, &self.config).await?;
+        let count = max_count.unwrap_or(50);
+
+        let mut filters: Vec<EmailFilter> = Vec::new();
+        if let Some(ref from) = query.from { filters.push(EmailFilter::from(from.clone())); }
+        if let Some(ref to) = query.to { filters.push(EmailFilter::to(to.clone())); }
+        if let Some(ref subject) = query.subject { filters.push(EmailFilter::subject(subject.clone())); }
+        if let Some(ref text) = query.text { filters.push(EmailFilter::body(text.clone())); }
+
+        let mut request = client.build();
+        {
+            let q = request.query_email();
+            match filters.len() {
+                0 => {}
+                1 => { q.filter(filters.remove(0)); }
+                _ => { q.filter(QFilter::and(filters)); }
+            }
+            q.sort([EmailComparator::received_at().descending()])
+                .limit(count as usize);
+        }
+        let ref_ = request.last_result_reference("/ids");
+        request.get_email()
+            .ids_ref(ref_)
+            .properties([
+                EmailProperty::Id,
+                EmailProperty::ThreadId,
+                EmailProperty::Subject,
+                EmailProperty::From,
+                EmailProperty::To,
+                EmailProperty::Cc,
+                EmailProperty::ReceivedAt,
+                EmailProperty::Preview,
+                EmailProperty::HasAttachment,
+                EmailProperty::Keywords,
+            ]);
+
+        let mut response = request.send().await.map_err(|e| e.to_string())?;
+        let emails = response.method_response_by_pos(1).unwrap_get_email().map_err(|e| e.to_string())?;
+
+        let mut thread_map: HashMap<String, MailThread> = HashMap::new();
+        let mut thread_order: Vec<String> = Vec::new();
+
+        let own_email = self.config.email.to_lowercase();
+        for email in emails.list() {
+            let thread_id = email.thread_id().unwrap_or_default().to_string();
+            if !thread_map.contains_key(&thread_id) {
+                thread_order.push(thread_id.clone());
+                let from_addr = email.from().and_then(|f| f.first());
+                let from_name = from_addr.and_then(|a| a.name().map(|s| s.to_string()));
+                let from_email_str = from_addr.map(|a| a.email().to_string()).unwrap_or_default();
+                let to_recipients = email.to().map(|list| list.iter().map(|a| MailRecipient {
+                    name: a.name().map(|s| s.to_string()),
+                    email: a.email().to_string(),
+                }).collect::<Vec<_>>()).unwrap_or_default();
+                let cc_recipients = email.cc().map(|list| list.iter().map(|a| MailRecipient {
+                    name: a.name().map(|s| s.to_string()),
+                    email: a.email().to_string(),
+                }).collect::<Vec<_>>()).unwrap_or_default();
+                let unique_senders = if !from_email_str.is_empty() && from_email_str.to_lowercase() != own_email {
+                    vec![MailRecipient {
+                        name: from_addr.and_then(|a| a.name().map(|s| s.to_string())),
+                        email: from_email_str.clone(),
+                    }]
+                } else { vec![] };
+                thread_map.insert(thread_id.clone(), MailThread {
+                    conversation_id: thread_id,
+                    topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
+                    snippet: email.preview().map(|s| s.to_string()).unwrap_or_default(),
+                    last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
+                    message_count: 1,
+                    unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
+                    from_name,
+                    from_email: if from_email_str.is_empty() { None } else { Some(from_email_str) },
+                    has_attachments: email.has_attachment(),
+                    to_recipients,
+                    cc_recipients,
+                    unique_senders,
+                });
+            }
+        }
+
+        Ok(thread_order.into_iter().filter_map(|id| thread_map.remove(&id)).collect())
+    }
+
+    async fn move_to_folder(&self, item_id: &str, folder_id: &str) -> Result<(), String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let folder_ids = get_folder_ids(&self.state, &client, &self.config).await?;
+        let sent_id = folder_ids.get("sentitems").cloned();
+        let resolved_folder_id = folder_ids.get(folder_id).cloned().unwrap_or_else(|| folder_id.to_string());
+        jmap_move_email(&client, item_id, &resolved_folder_id, sent_id.as_deref()).await?;
+        Ok(())
+    }
+
+    async fn bulk_move_to_folder(&self, item_ids: Vec<String>, folder_id: &str) -> Result<(), String> {
+        if item_ids.is_empty() { return Ok(()); }
+        let client = get_client(&self.state, &self.config).await?;
+        let email_ids = jmap_thread_ids_to_email_ids(&client, &item_ids).await?;
+        if email_ids.is_empty() { return Ok(()); }
+        let folder_ids_map = get_folder_ids(&self.state, &client, &self.config).await?;
+        let resolved_folder_id = folder_ids_map.get(folder_id).cloned().unwrap_or_else(|| folder_id.to_string());
+        let sent_id = folder_ids_map.get("sentitems").cloned();
+
+        // Find which emails have Sent membership so we can preserve it.
+        let sent_email_ids: std::collections::HashSet<String> = if let Some(ref sid) = sent_id {
+            let mut fetch = client.build();
+            fetch.get_email()
+                .ids(email_ids.iter().map(|s| s.as_str()))
+                .properties([EmailProperty::Id, EmailProperty::MailboxIds]);
+            let mut fetch_resp = fetch.send().await.map_err(|e| format!("Email/get mailboxIds: {}", e))?;
+            let fetched = fetch_resp.method_response_by_pos(0)
+                .unwrap_get_email()
+                .map_err(|e| format!("Email/get mailboxIds parse: {}", e))?;
+            fetched.list().iter()
+                .filter(|e| {
+                    let mids: Vec<String> = e.mailbox_ids().iter().map(|s| s.to_string()).collect();
+                    mids.iter().any(|m| m == sid)
+                })
+                .filter_map(|e| e.id().map(|s| s.to_string()))
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+
+        let folder_ref = resolved_folder_id.as_str();
+        let mut request = client.build();
+        let set = request.set_email();
+        for id in &email_ids {
+            if sent_email_ids.contains(id.as_str()) {
+                if let Some(ref sid) = sent_id {
+                    set.update(id.as_str()).mailbox_ids([folder_ref, sid.as_str()]);
+                } else {
+                    set.update(id.as_str()).mailbox_ids([folder_ref]);
+                }
+            } else {
+                set.update(id.as_str()).mailbox_ids([folder_ref]);
+            }
+        }
+        request.send().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn find_or_create_snoozed_folder(&self) -> Result<String, String> {
+        let client = get_client(&self.state, &self.config).await?;
+        get_or_create_snoozed_id(&self.state, &client, &self.config).await
+    }
+
+    async fn snooze(&self, item_id: &str) -> Result<String, String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let snoozed_id = get_or_create_snoozed_id(&self.state, &client, &self.config).await?;
+        let folder_ids = get_folder_ids(&self.state, &client, &self.config).await?;
+        let sent_id = folder_ids.get("sentitems").cloned();
+        jmap_move_email(&client, item_id, &snoozed_id, sent_id.as_deref()).await?;
+        Ok(snoozed_id)
+    }
+
+    async fn list_identities(&self) -> Result<Vec<MailIdentity>, String> {
+        let client = get_client(&self.state, &self.config).await?;
+        let mut request = client.build();
+        request.add_capability(URI::Submission);
+        request.get_identity();
+        let mut response = request.send().await.map_err(|e| e.to_string())?;
+        let identity_get = response.method_response_by_pos(0)
+            .unwrap_get_identity()
+            .map_err(|e| e.to_string())?;
+        Ok(identity_get.list().iter().map(|i| MailIdentity {
+            id: i.id().unwrap_or_default().to_string(),
+            name: i.name().unwrap_or_default().to_string(),
+            email: i.email().unwrap_or_default().to_string(),
+            may_delete: i.may_delete(),
+        }).collect())
+    }
+}
+
+// ── Tauri commands (thin wrappers) ────────────────────────────────────────────
+
+#[command]
+pub async fn jmap_list_folders(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+) -> Result<Vec<MailFolder>, String> {
+    JmapProvider { config, state: Arc::clone(&state) }.list_folders().await
+}
+
+#[command]
+pub async fn jmap_get_inbox_unread(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+) -> Result<u32, String> {
+    JmapProvider { config, state: Arc::clone(&state) }.get_inbox_unread().await
+}
+
+#[command]
+pub async fn jmap_list_threads(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    folder: String,
+    max_count: Option<u32>,
+) -> Result<Vec<MailThread>, String> {
+    JmapProvider { config, state: Arc::clone(&state) }.list_threads(&folder, max_count).await
+}
+
+#[command]
+pub async fn jmap_search_threads(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    query: MailSearchQuery,
+    max_count: Option<u32>,
+) -> Result<Vec<MailThread>, String> {
+    JmapProvider { config, state: Arc::clone(&state) }.search_threads(&query, max_count).await
+}
+
+#[command]
+pub async fn jmap_get_thread(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    conversation_id: String,
+) -> Result<Vec<MailMessage>, String> {
+    JmapProvider { config, state: Arc::clone(&state) }.get_thread(&conversation_id, None, None, None).await
 }
 
 #[command]
 pub async fn jmap_mark_read(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     ids: Vec<String>,
 ) -> Result<(), String> {
-    let client = get_client(&state, &config).await?;
-    let mut request = client.build();
-    let set = request.set_email();
-    for id in &ids {
-        set.update(id).keyword("$seen", true);
-    }
-    request.send().await.map_err(|e| e.to_string())?;
-    Ok(())
+    let items: Vec<MailItemRef> = ids.into_iter()
+        .map(|id| MailItemRef { item_id: id, change_key: String::new(), conversation_id: None, folder: None })
+        .collect();
+    JmapProvider { config, state: Arc::clone(&state) }.mark_read(&items).await
 }
 
 #[command]
 pub async fn jmap_mark_unread(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     ids: Vec<String>,
 ) -> Result<(), String> {
-    let client = get_client(&state, &config).await?;
-    let mut request = client.build();
-    let set = request.set_email();
-    for id in &ids {
-        set.update(id).keyword("$seen", false);
-    }
-    request.send().await.map_err(|e| e.to_string())?;
-    Ok(())
+    let items: Vec<MailItemRef> = ids.into_iter()
+        .map(|id| MailItemRef { item_id: id, change_key: String::new(), conversation_id: None, folder: None })
+        .collect();
+    JmapProvider { config, state: Arc::clone(&state) }.mark_unread(&items).await
 }
 
 /// Move a single email to `target_mailbox_id`, preserving Sent membership.
@@ -705,17 +1009,9 @@ async fn jmap_move_email(
         .map(|e| e.mailbox_ids().iter().map(|s| s.to_string()).collect())
         .unwrap_or_default();
 
-    // Skip emails that live exclusively in Sent — they should not be moved.
-    if let Some(sent_id) = sent_mailbox_id {
-        let non_sent: Vec<&String> = current_mailbox_ids.iter()
-            .filter(|mid| mid.as_str() != sent_id)
-            .collect();
-        if non_sent.is_empty() {
-            return Ok(false);
-        }
-    }
-
     // Full mailboxIds replacement: target + Sent (if email was already in Sent).
+    // Sent-only emails are included — they get [target, Sent] so the full thread
+    // is visible in the destination folder while remaining in Sent.
     // We avoid the patch API because jmap-client serialises `false` instead of
     // `null`, and JMAP servers require `null` to remove map entries.
     let mut new_ids: Vec<&str> = vec![target_mailbox_id];
@@ -737,61 +1033,6 @@ async fn jmap_move_email(
     Ok(true)
 }
 
-#[command]
-pub async fn jmap_move_to_trash(
-    state: tauri::State<'_, JmapClientState>,
-    config: JmapConfig,
-    id: String,
-) -> Result<(), String> {
-    let client = get_client(&state, &config).await?;
-    let folder_ids = get_folder_ids(&state, &client, &config).await?;
-    let trash_id = folder_ids.get("deleteditems").cloned().ok_or("Trash mailbox not found")?;
-    let sent_id = folder_ids.get("sentitems").cloned();
-    jmap_move_email(&client, &id, &trash_id, sent_id.as_deref()).await?;
-    Ok(())
-}
-
-#[command]
-pub async fn jmap_move_to_folder(
-    state: tauri::State<'_, JmapClientState>,
-    config: JmapConfig,
-    id: String,
-    folder_id: String,
-) -> Result<(), String> {
-    let client = get_client(&state, &config).await?;
-    let folder_ids = get_folder_ids(&state, &client, &config).await?;
-    let sent_id = folder_ids.get("sentitems").cloned();
-    // Translate role names ("inbox", "sentitems", …) to actual JMAP mailbox IDs.
-    // Callers like handleUnsnooze pass "inbox" rather than the server-assigned ID.
-    let resolved_folder_id = folder_ids.get(&folder_id).cloned().unwrap_or(folder_id);
-    jmap_move_email(&client, &id, &resolved_folder_id, sent_id.as_deref()).await?;
-    Ok(())
-}
-
-#[command]
-pub async fn jmap_permanently_delete(
-    state: tauri::State<'_, JmapClientState>,
-    config: JmapConfig,
-    id: String,
-) -> Result<(), String> {
-    let client = get_client(&state, &config).await?;
-    let mut request = client.build();
-    request.set_email().destroy([id.as_str()]);
-    let mut response = request.send().await.map_err(|e| e.to_string())?;
-    let set_resp = response.method_response_by_pos(0)
-        .unwrap_set_email()
-        .map_err(|e| format!("Email/set response error: {}", e))?;
-    // Only fail on an explicit server refusal. Some servers (including Fastmail)
-    // omit the `destroyed` confirmation list when all requested IDs succeeded,
-    // so asserting presence in that list would produce false errors.
-    if let Some(mut not_destroyed) = set_resp.not_destroyed_ids() {
-        if not_destroyed.any(|i| i == &id) {
-            return Err(format!("Email/set destroy refused by server for {}", id));
-        }
-    }
-    Ok(())
-}
-
 /// Resolve thread IDs → email IDs via Thread/get in a single JMAP call.
 async fn jmap_thread_ids_to_email_ids(client: &Client, thread_ids: &[String]) -> Result<Vec<String>, String> {
     let mut thread_req = client.build();
@@ -804,128 +1045,89 @@ async fn jmap_thread_ids_to_email_ids(client: &Client, thread_ids: &[String]) ->
 }
 
 #[command]
+pub async fn jmap_move_to_trash(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    id: String,
+) -> Result<(), String> {
+    JmapProvider { config, state: Arc::clone(&state) }.move_to_trash(&id).await
+}
+
+#[command]
+pub async fn jmap_move_to_folder(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    id: String,
+    folder_id: String,
+) -> Result<(), String> {
+    JmapProvider { config, state: Arc::clone(&state) }.move_to_folder(&id, &folder_id).await
+}
+
+#[command]
+pub async fn jmap_permanently_delete(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    id: String,
+) -> Result<(), String> {
+    JmapProvider { config, state: Arc::clone(&state) }.permanently_delete(&id).await
+}
+
+#[command]
 pub async fn jmap_bulk_move_to_trash(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     thread_ids: Vec<String>,
 ) -> Result<(), String> {
-    if thread_ids.is_empty() {
-        return Ok(());
-    }
-    let client = get_client(&state, &config).await?;
-    let folder_ids = get_folder_ids(&state, &client, &config).await?;
-    let trash_id = folder_ids.get("deleteditems").cloned().ok_or("Trash mailbox not found")?;
-
-    let email_ids = jmap_thread_ids_to_email_ids(&client, &thread_ids).await?;
-    if email_ids.is_empty() {
-        return Ok(());
-    }
-
-    let trash_ref = trash_id.as_str();
-    let mut request = client.build();
-    let set = request.set_email();
-    for id in &email_ids {
-        set.update(id.as_str()).mailbox_ids([trash_ref]);
-    }
-    request.send().await.map_err(|e| e.to_string())?;
-    Ok(())
+    JmapProvider { config, state: Arc::clone(&state) }.bulk_move_to_trash(thread_ids).await
 }
 
 #[command]
 pub async fn jmap_bulk_permanently_delete(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     thread_ids: Vec<String>,
 ) -> Result<(), String> {
-    if thread_ids.is_empty() {
-        return Ok(());
-    }
-    let client = get_client(&state, &config).await?;
-    let email_ids = jmap_thread_ids_to_email_ids(&client, &thread_ids).await?;
-    if email_ids.is_empty() {
-        return Ok(());
-    }
-    let mut request = client.build();
-    request.set_email().destroy(email_ids.iter().map(|s| s.as_str()));
-    request.send().await.map_err(|e| e.to_string())?;
-    Ok(())
+    JmapProvider { config, state: Arc::clone(&state) }.bulk_permanently_delete(thread_ids).await
 }
 
 #[command]
 pub async fn jmap_bulk_move_to_folder(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     thread_ids: Vec<String>,
     folder_id: String,
 ) -> Result<(), String> {
-    if thread_ids.is_empty() {
-        return Ok(());
-    }
-    let client = get_client(&state, &config).await?;
-    let email_ids = jmap_thread_ids_to_email_ids(&client, &thread_ids).await?;
-    if email_ids.is_empty() {
-        return Ok(());
-    }
-    let folder_ids_map = get_folder_ids(&state, &client, &config).await?;
-    let resolved_folder_id = folder_ids_map.get(&folder_id).cloned().unwrap_or(folder_id);
-    let folder_ref = resolved_folder_id.as_str();
-    let mut request = client.build();
-    let set = request.set_email();
-    for id in &email_ids {
-        set.update(id.as_str()).mailbox_ids([folder_ref]);
-    }
-    request.send().await.map_err(|e| e.to_string())?;
-    Ok(())
+    JmapProvider { config, state: Arc::clone(&state) }.bulk_move_to_folder(thread_ids, &folder_id).await
 }
 
 #[command]
 pub async fn jmap_find_or_create_snoozed_folder(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
 ) -> Result<String, String> {
-    let client = get_client(&state, &config).await?;
-    get_or_create_snoozed_id(&state, &client, &config).await
+    JmapProvider { config, state: Arc::clone(&state) }.find_or_create_snoozed_folder().await
 }
 
 #[command]
 pub async fn jmap_snooze(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     id: String,
 ) -> Result<String, String> {
-    let client = get_client(&state, &config).await?;
-    // get_or_create_snoozed_id calls get_folder_ids internally, populating the cache.
-    let snoozed_id = get_or_create_snoozed_id(&state, &client, &config).await?;
-    let folder_ids = get_folder_ids(&state, &client, &config).await?;
-    let sent_id = folder_ids.get("sentitems").cloned();
-    jmap_move_email(&client, &id, &snoozed_id, sent_id.as_deref()).await?;
-    Ok(snoozed_id)
+    JmapProvider { config, state: Arc::clone(&state) }.snooze(&id).await
 }
 
 #[command]
 pub async fn jmap_list_identities(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
-) -> Result<Vec<JmapIdentity>, String> {
-    let client = get_client(&state, &config).await?;
-    let mut request = client.build();
-    request.add_capability(URI::Submission);
-    request.get_identity();
-    let mut response = request.send().await.map_err(|e| e.to_string())?;
-    let identity_get = response.method_response_by_pos(0)
-        .unwrap_get_identity()
-        .map_err(|e| e.to_string())?;
-    Ok(identity_get.list().iter().map(|i| JmapIdentity {
-        id: i.id().unwrap_or_default().to_string(),
-        name: i.name().unwrap_or_default().to_string(),
-        email: i.email().unwrap_or_default().to_string(),
-        may_delete: i.may_delete(),
-    }).collect())
+) -> Result<Vec<MailIdentity>, String> {
+    JmapProvider { config, state: Arc::clone(&state) }.list_identities().await
 }
 
 #[command]
 pub async fn jmap_send(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     to: Vec<String>,
     cc: Vec<String>,
@@ -936,116 +1138,27 @@ pub async fn jmap_send(
     in_reply_to: Option<String>,
     references: Option<String>,
 ) -> Result<(), String> {
-    let client = get_client(&state, &config).await?;
-
-    // Step 1+2 – resolve identity and find Sent mailbox in a single round trip.
-    let mut req = client.build();
-    req.add_capability(URI::Submission);
-    req.get_identity(); // method 0
-    req.get_mailbox();  // method 1
-    let mut resp = req.send().await
-        .map_err(|e| format!("Identity+Mailbox/get: {}", e))?;
-    let identities = resp.method_response_by_pos(0)
-        .unwrap_get_identity()
-        .map_err(|e| format!("Identity/get: {}", e))?;
-    // method_response_by_pos uses Vec::remove, so after removing index 0 above,
-    // the mailbox response (originally index 1) is now at index 0.
-    let mailboxes = resp.method_response_by_pos(0)
-        .unwrap_get_mailbox()
-        .map_err(|e| format!("Mailbox/get: {}", e))?;
-
-    let identity = if let Some(ref id) = identity_id {
-        identities.list().iter().find(|i| i.id() == Some(id.as_str()))
-            .or_else(|| identities.list().iter().find(|i| !i.may_delete()))
-            .or_else(|| identities.list().first())
-    } else {
-        identities.list().iter().find(|i| !i.may_delete())
-            .or_else(|| identities.list().first())
-    };
-
-    let from_email = identity.and_then(|i| i.email()).unwrap_or(config.email.as_str());
-    let from_name = identity.and_then(|i| i.name()).unwrap_or_default();
-    let resolved_identity_id = identity.and_then(|i| i.id())
-        .map(|s| s.to_string())
-        .unwrap_or_default();
-
-    let from_header = if from_name.is_empty() {
-        from_email.to_string()
-    } else {
-        format!("{} <{}>", from_name, from_email)
-    };
-
-    let sent_id = mailboxes.list().iter()
-        .find(|m| m.role() == Role::Sent)
-        .and_then(|m| m.id())
-        .map(|s| s.to_string());
-
-    // Step 3 – build RFC 5322 raw message and import into Sent.
-    let normalised_body = body_html.replace('\r', "").replace('\n', "\r\n");
-    let safe_subject = subject.replace(['\r', '\n'], " ");
-
-    let mut headers = format!(
-        "From: {}\r\nTo: {}\r\nSubject: {}\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n",
-        from_header,
-        to.join(", "),
-        safe_subject,
-    );
-    if !cc.is_empty() {
-        headers.push_str(&format!("Cc: {}\r\n", cc.join(", ")));
-    }
-    if !bcc.is_empty() {
-        headers.push_str(&format!("Bcc: {}\r\n", bcc.join(", ")));
-    }
-    if let Some(ref irt) = in_reply_to {
-        headers.push_str(&format!("In-Reply-To: {}\r\n", irt));
-    }
-    if let Some(ref refs) = references {
-        headers.push_str(&format!("References: {}\r\n", refs));
-    }
-    let raw_message = format!("{}\r\n{}", headers, normalised_body).into_bytes();
-
-    let mailbox_ids: Vec<String> = sent_id.into_iter().collect();
-    let email = client.email_import(raw_message, mailbox_ids, None::<Vec<&str>>, None)
-        .await
-        .map_err(|e| format!("Email/import: {}", e))?;
-    let email_id = email.id().unwrap_or_default().to_string();
-
-    // Step 4 – submit for delivery via EmailSubmission/set.
-    client.email_submission_create(&email_id, &resolved_identity_id)
-        .await
-        .map_err(|e| format!("EmailSubmission/set: {}", e))?;
-
-    Ok(())
+    JmapProvider { config, state: Arc::clone(&state) }.send_mail(SendMailParams {
+        to,
+        cc,
+        bcc,
+        subject,
+        body_html,
+        identity_id,
+        in_reply_to,
+        references,
+        reply_to_item_id: None,
+        reply_to_change_key: None,
+        attachments: None,
+        is_forward: None,
+    }).await
 }
 
 #[command]
 pub async fn jmap_get_attachment_data(
-    state: tauri::State<'_, JmapClientState>,
+    state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
     blob_id: String,
 ) -> Result<String, String> {
-    let client = get_client(&state, &config).await?;
-    let account_id = client.session().primary_accounts().next()
-        .map(|a| a.1.as_str().to_string()).unwrap_or_default();
-    let dl_template = client.session().download_url().to_string();
-    let download_url = dl_template
-        .replace("{blobId}", &blob_id)
-        .replace("{accountId}", &account_id)
-        .replace("{name}", "attachment")
-        .replace("{type}", "application/octet-stream");
-
-    let auth_header = build_auth_header(&config);
-    let response = reqwest::Client::new()
-        .get(&download_url)
-        .header("Authorization", &auth_header)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("{}", status));
-    }
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    JmapProvider { config, state: Arc::clone(&state) }.get_attachment_data(&blob_id, None, None).await
 }

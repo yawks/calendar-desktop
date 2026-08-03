@@ -3,6 +3,11 @@
     "calendar": "Calendar",
     "mail": "Mail"
   },
+  "welcome": {
+    "title": "Welcome to Courrier",
+    "description": "Bring your email and calendars together in one simple, organized app.",
+    "addSource": "Add my first source"
+  },
   "header": {
     "toggleSidebar": "Toggle sidebar",
     "appName": "Courrier",
@@ -10,6 +15,16 @@
     "prev": "Previous",
     "next": "Next",
     "refresh": "Refresh",
+    "events": "Events",
+    "eventFilters": "Filter displayed events",
+    "showEvents": "Show events",
+    "eventStatuses": {
+      "accepted": "Confirmed / accepted",
+      "tentative": "Tentative",
+      "pending": "Awaiting response",
+      "declined": "Declined",
+      "cancelled": "Cancelled"
+    },
     "theme": "Theme: {{preference}}",
     "configCalendars": "Configure",
     "configureBtn": "Calendars",
@@ -248,6 +263,13 @@
     "noSubject": "(No subject)",
     "noAccount": "No mail account configured. Add an Exchange or Google account in Settings.",
     "allAccounts": "All accounts",
+    "contactSync": {
+      "running": "Contacts: {{folder}} · {{scanned}} scanned · {{inserted}} new",
+      "complete": "Contacts: synchronized",
+      "error": "Contacts: synchronization error",
+      "sentFolder": "sent",
+      "inboxFolder": "received"
+    },
     "showSidebar": "Show sidebar",
     "hideSidebar": "Hide sidebar",
     "messageDeleted": "Message deleted",
@@ -265,6 +287,10 @@
     "reply": "Reply",
     "replyAll": "Reply all",
     "forward": "Forward",
+    "showOriginalMessage": "Show original message",
+    "originalMessage": "Original message",
+    "copy": "Copy",
+    "close": "Close",
     "delete": "Delete",
     "movedToTrash": "Conversation moved to trash",
     "deletedPermanently": "Conversation permanently deleted",
@@ -384,6 +410,10 @@
       "tabbed": "Tabs",
       "windows": "Separate Windows",
       "hint": "Restart the application to apply Separate Windows mode."
+    },
+    "logoDev": {
+      "sectionTitle": "Contact logos",
+      "hint": "logo.dev token to display company logos in contact avatars."
     }
   },
   "recurringChoice": {

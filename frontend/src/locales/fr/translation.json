@@ -3,6 +3,11 @@
     "calendar": "Calendrier",
     "mail": "Mail"
   },
+  "welcome": {
+    "title": "Bienvenue dans Courrier",
+    "description": "Réunissez vos emails et vos calendriers dans une seule application, simple et organisée.",
+    "addSource": "Ajouter ma première source"
+  },
   "header": {
     "toggleSidebar": "Afficher/masquer la sidebar",
     "appName": "Courrier",
@@ -10,6 +15,16 @@
     "prev": "Précédent",
     "next": "Suivant",
     "refresh": "Rafraîchir",
+    "events": "Événements",
+    "eventFilters": "Filtrer les événements affichés",
+    "showEvents": "Afficher les événements",
+    "eventStatuses": {
+      "accepted": "Confirmés / acceptés",
+      "tentative": "Tentatifs",
+      "pending": "En attente",
+      "declined": "Refusés",
+      "cancelled": "Annulés"
+    },
     "theme": "Thème : {{preference}}",
     "configCalendars": "Configurer les calendriers",
     "configureBtn": "Configurer",
@@ -248,6 +263,13 @@
     "noSubject": "(Pas d'objet)",
     "noAccount": "Aucun compte mail configuré. Ajoutez un compte Exchange ou Google dans les paramètres.",
     "allAccounts": "Tous les comptes",
+    "contactSync": {
+      "running": "Contacts : {{folder}} · {{scanned}} analysés · {{inserted}} nouveaux",
+      "complete": "Contacts : synchronisés",
+      "error": "Contacts : erreur de synchronisation",
+      "sentFolder": "envoyés",
+      "inboxFolder": "reçus"
+    },
     "showSidebar": "Afficher la barre latérale",
     "hideSidebar": "Masquer la barre latérale",
     "messageDeleted": "Message supprimé",
@@ -265,6 +287,10 @@
     "reply": "Répondre",
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
+    "showOriginalMessage": "Afficher le message original",
+    "originalMessage": "Message original",
+    "copy": "Copier",
+    "close": "Fermer",
     "delete": "Supprimer",
     "movedToTrash": "Conversation déplacée vers la corbeille",
     "deletedPermanently": "Conversation supprimée définitivement",
@@ -384,6 +410,10 @@
       "tabbed": "Onglets",
       "windows": "Fenêtres séparées",
       "hint": "Redémarrez l'application pour appliquer le mode Fenêtres séparées."
+    },
+    "logoDev": {
+      "sectionTitle": "Logos des contacts",
+      "hint": "Token logo.dev pour afficher les logos d'entreprise dans les avatars des contacts."
     }
   },
   "recurringChoice": {

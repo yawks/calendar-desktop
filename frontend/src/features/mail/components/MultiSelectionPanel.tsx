@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { FolderPickerPopover } from './FolderPickerPopover';
-import { avatarColor, decodeHtmlEntities, formatDate, initials } from '../utils';
+import { avatarColor, formatDate, formatMailPreview, initials } from '../utils';
 
 export interface MultiSelectionPanelProps {
   readonly threads: MailThread[];
@@ -55,7 +55,7 @@ export function MultiSelectionPanel({
 
   const selectedThreads = threads.filter(t => selectedIds.has(t.conversation_id));
   const count = selectedIds.size;
-  const allUnread = selectedThreads.every(t => t.unread_count > 0);
+  const hasUnread = selectedThreads.some(t => t.unread_count > 0);
 
   const { laterToday, tomorrowMorning, tomorrowAfternoon, nextWeek } = computeSnoozeOptions();
   const laterTodayLabel = laterToday.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -146,8 +146,8 @@ export function MultiSelectionPanel({
             <>
               <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => setMoreOpen(false)} />
               <div className="mail-actions-menu" style={{ right: 0, left: 'auto' }}>
-                <button className="mail-actions-menu__item" onClick={() => { onBulkToggleRead(allUnread); setMoreOpen(false); }}>
-                  {allUnread ? t('mail.markRead', 'Mark as read') : t('mail.markUnread', 'Mark as unread')}
+                <button className="mail-actions-menu__item" onClick={() => { onBulkToggleRead(hasUnread); setMoreOpen(false); }}>
+                  {hasUnread ? t('mail.markRead', 'Mark as read') : t('mail.markUnread', 'Mark as unread')}
                 </button>
                 <div className="mail-actions-menu__separator" />
                 <button className="mail-actions-menu__item mail-actions-menu__item--danger" onClick={() => setMoreOpen(false)}>
@@ -203,7 +203,7 @@ export function MultiSelectionPanel({
                   {thread.topic || t('mail.noSubject', '(no subject)')}
                 </div>
                 <div className="mail-multiselect-card__snippet">
-                  {decodeHtmlEntities(thread.snippet)}
+                  {formatMailPreview(thread.snippet)}
                 </div>
               </div>
             </div>

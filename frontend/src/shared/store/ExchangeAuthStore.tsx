@@ -57,8 +57,11 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
   });
 
   const accountsRef = useRef(accounts);
+  // Keep token lookups in sync during render. Waiting for the effect below leaves a
+  // short window where a calendar added with a new account cannot find its token;
+  // its first (non-retried) query then remains in an Unauthorized state.
+  accountsRef.current = accounts;
   useEffect(() => {
-    accountsRef.current = accounts;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
   }, [accounts]);
 
@@ -147,7 +150,10 @@ export function parseExchangeToken(accessToken: string): { email: string; displa
     const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
     const payload = JSON.parse(atob(padded)) as Record<string, unknown>;
     return {
-      email: (payload.unique_name as string) ?? (payload.upn as string) ?? '',
+      email: (payload.preferred_username as string)
+        ?? (payload.unique_name as string)
+        ?? (payload.upn as string)
+        ?? '',
       displayName: (payload.name as string) ?? '',
     };
   } catch {

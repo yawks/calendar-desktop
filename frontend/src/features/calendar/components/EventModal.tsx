@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X, Pencil, Trash2, Clock, MapPin, CalendarDays, FileText,
-  HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Loader2, Video, ChevronDown, Copy,
+  HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Video, ChevronDown, Copy,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
@@ -149,8 +149,9 @@ function RsvpRow({ current, onRsvp }: {
             className="rsvp-confirm-btn"
             onClick={handleConfirm}
             disabled={!selected || loading}
+            aria-busy={loading}
           >
-            {loading ? <Loader2 size={13} className="rsvp-spinner" /> : null}
+            {loading ? <span className="rsvp-spinner" aria-hidden="true" /> : null}
             {t('eventModal.rsvp.confirm')}
           </button>
           {error && <span className="rsvp-error">{error}</span>}
@@ -316,7 +317,12 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
       {event && (
         <div className="modal">
           <div className="modal-header" style={{ background: calendar?.color || '#888' }}>
-            <span className="modal-title">{event.title}</span>
+            <span
+              className="modal-title"
+              style={event.isDeclined || event.isCancelled ? { textDecoration: 'line-through' } : undefined}
+            >
+              {event.title}
+            </span>
             {tags.length > 0 && event && (
               <div style={{ marginLeft: 12 }}>
                 <button

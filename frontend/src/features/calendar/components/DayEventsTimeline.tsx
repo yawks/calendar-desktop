@@ -37,6 +37,7 @@ interface Placed {
   widthPct: number;
   bgColor: string;
   textColor: string;
+  rsvpStatus?: CalendarEvent['selfRsvpStatus'];
 }
 
 /** Assign non-overlapping column indices */
@@ -124,11 +125,12 @@ export function DayEventsTimeline({
       const cal = calendars.find(c => c.id === ev.calendarId);
       const color = cal?.color ?? '#888';
       const isHighlighted = ev.id === highlightedEventId;
+      const rsvpStatus = ev.selfRsvpStatus;
       const isPast = new Date(ev.end) < now;
 
       let bgColor: string;
       let textColor: string;
-      if (isHighlighted) {
+      if (isHighlighted && rsvpStatus !== 'ACCEPTED') {
         bgColor = 'transparent';
         textColor = color;
       } else if (isPast) {
@@ -144,7 +146,7 @@ export function DayEventsTimeline({
       const widthPct = 100 / totalCols;
       const leftPct  = col * widthPct;
 
-      return { ev, topPx, heightPx, color, isHighlighted, leftPct, widthPct, bgColor, textColor };
+      return { ev, topPx, heightPx, color, isHighlighted, leftPct, widthPct, bgColor, textColor, rsvpStatus };
     });
   }, [events, calendars, targetDate, highlightedEventId]);
 
@@ -179,12 +181,13 @@ export function DayEventsTimeline({
 
           {/* Absolute events layer */}
           <div className="det-events-layer">
-            {placed.map(({ ev, topPx, heightPx, color, isHighlighted, leftPct, widthPct, bgColor, textColor }) => {
+            {placed.map(({ ev, topPx, heightPx, color, isHighlighted, leftPct, widthPct, bgColor, textColor, rsvpStatus }) => {
               const isCancelledEv = ev.id === cancelledEventId;
+              const rsvpClass = rsvpStatus ? ` det-event--rsvp-${rsvpStatus.toLowerCase()}` : '';
               return (
                 <div
                   key={ev.id}
-                  className={`det-event${isHighlighted ? ' det-event--highlighted' : ''}${isCancelledEv ? ' det-event--cancelled' : ''}`}
+                  className={`det-event${isHighlighted ? ' det-event--highlighted' : ''}${isCancelledEv ? ' det-event--cancelled' : ''}${rsvpClass}`}
                   title={`${ev.title}\n${new Date(ev.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} – ${new Date(ev.end).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
                   style={{
                     top: `${topPx}px`,

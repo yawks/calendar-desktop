@@ -46,6 +46,24 @@ export interface SaveDraftParams {
   bodyHtml: string;
 }
 
+export interface Contact {
+  email: string;
+  name?: string;
+  source?: 'google-contact' | 'google-other-contact' | 'ews-contact' | 'ews-directory' | 'mail' | 'calendar';
+}
+
+export interface ContactBackfillBatch {
+  observations: Array<{
+    email: string;
+    displayName?: string;
+    kind: 'received' | 'sent';
+    occurredAt: number;
+    eventId: string;
+  }>;
+  itemCount: number;
+  oldestAt?: number;
+}
+
 /**
  * Abstraction over any mail backend (EWS, Gmail, …).
  * Add a new implementation to support additional providers without touching the UI.
@@ -58,6 +76,8 @@ export interface MailProvider {
   /** Search threads using a structured query. Results are not cached. */
   searchThreads(query: MailSearchQuery, maxCount?: number): Promise<MailThread[]>;
   getThread(conversationId: string, includeTrash?: boolean, isDraft?: boolean, includeDrafts?: boolean): Promise<MailMessage[]>;
+  /** Return the original RFC 5322/MIME source when supported by the provider. */
+  getRawMessageSource?(itemId: string): Promise<string>;
   listFolders(): Promise<MailFolder[]>;
   sendMail(params: SendMailParams): Promise<void>;
   markRead(items: MailItemRef[]): Promise<void>;
@@ -80,4 +100,9 @@ export interface MailProvider {
   snooze?(itemId: string): Promise<string>;
   getInboxUnread(): Promise<number>;
   listIdentities?(): Promise<MailIdentity[]>;
+  searchContacts?(query: string, maxCount?: number): Promise<Contact[]>;
+  /** Returns the contact photo as a base64 string (no data-URL prefix), or null if unavailable. */
+  getContactPhoto?(email: string): Promise<string | null>;
+  /** Efficient provider-native metadata scan used by the persistent contact index. */
+  backfillContacts?(folder: string, offset: number, maxCount: number): Promise<ContactBackfillBatch>;
 }
