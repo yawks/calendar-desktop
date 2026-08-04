@@ -180,29 +180,78 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
           <CloseComposerPopover onSaveDraft={handleClose} onDiscard={onDeleteDraft ?? onCancel} />
         </div>
 
-        {/* ── From: JMAP identities ── */}
+        {/* ── From: identities (all accounts or single account) ── */}
         {identities && identities.length >= 1 && (() => {
           const sel = identities.find(i => i.id === selectedIdentityId) ?? identities[0];
+
+          // Build account groups when identities span multiple accounts
+          const isMultiAccount = identities.some(
+            (i, _, arr) => i.accountId && i.accountId !== arr[0].accountId
+          );
+          const groups = isMultiAccount
+            ? (() => {
+                const map = new Map<string, { label: string; color?: string; items: typeof identities }>();
+                for (const id of identities) {
+                  const key = id.accountId ?? '__single__';
+                  if (!map.has(key)) map.set(key, { label: id.accountLabel ?? '', color: id.accountColor, items: [] });
+                  map.get(key)!.items.push(id);
+                }
+                return [...map.values()];
+              })()
+            : null;
+
           return (
             <div className="mail-composer__field" ref={fromRef} style={{ position: 'relative' }}>
               <span className="mail-composer__label">{t('mail.from', 'De')}:</span>
               <button type="button" className="from-account-btn" onClick={() => setFromOpen(o => !o)}>
-                <span className="from-account-name" style={{ color: 'var(--primary)' }}>{sel?.name ?? sel?.email}</span>
-                <span className="from-account-email">{sel?.name ? `<${sel.email}>` : ''}</span>
+                <span className="from-account-name" style={{ color: sel?.accountColor ?? 'var(--primary)' }}>
+                  {sel?.name ?? sel?.email}
+                </span>
+                <span className="from-account-email">
+                  {sel?.name && sel.name !== sel.email ? `<${sel.email}>` : ''}
+                </span>
                 {identities.length > 1 && <ChevronDown size={12} style={{ marginLeft: 'auto', opacity: 0.5 }} />}
               </button>
               {fromOpen && identities.length > 1 && (
                 <ul className="from-account-dropdown">
-                  {identities.map(id => (
-                    <li
-                      key={id.id}
-                      className={`from-account-option${id.id === selectedIdentityId ? ' from-account-option--active' : ''}`}
-                      onClick={() => { onIdentityChange?.(id.id); setFromOpen(false); }}
-                    >
-                      <span className="from-account-name">{id.name ?? id.email}</span>
-                      <span className="from-account-email">{id.name ? `<${id.email}>` : ''}</span>
-                    </li>
-                  ))}
+                  {groups ? (
+                    groups.map(group => (
+                      <React.Fragment key={group.label}>
+                        <li className="from-account-group-header" style={{ color: group.color }}>
+                          {group.label}
+                        </li>
+                        {group.items.map(id => (
+                          <li
+                            key={id.id}
+                            className={`from-account-option from-account-option--grouped${id.id === selectedIdentityId ? ' from-account-option--active' : ''}`}
+                            onClick={() => { onIdentityChange?.(id.id); setFromOpen(false); }}
+                          >
+                            <span className="from-account-name" style={{ color: group.color ?? 'var(--primary)' }}>
+                              {id.name ?? id.email}
+                            </span>
+                            <span className="from-account-email">
+                              {id.name && id.name !== id.email ? `<${id.email}>` : ''}
+                            </span>
+                          </li>
+                        ))}
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    identities.map(id => (
+                      <li
+                        key={id.id}
+                        className={`from-account-option${id.id === selectedIdentityId ? ' from-account-option--active' : ''}`}
+                        onClick={() => { onIdentityChange?.(id.id); setFromOpen(false); }}
+                      >
+                        <span className="from-account-name" style={{ color: id.accountColor ?? 'var(--primary)' }}>
+                          {id.name ?? id.email}
+                        </span>
+                        <span className="from-account-email">
+                          {id.name && id.name !== id.email ? `<${id.email}>` : ''}
+                        </span>
+                      </li>
+                    ))
+                  )}
                 </ul>
               )}
             </div>

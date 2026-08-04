@@ -206,6 +206,62 @@ export function useMailIdentities(accountId: string, provider: MailProvider | nu
   );
 }
 
+/**
+ * Loads identities for all accounts in parallel.
+ * For accounts without identity support (EWS, IMAP), returns a synthetic single-identity
+ * using the account email, so the unified "From" picker always has all accounts.
+ */
+export function useAllAccountIdentities(
+  accounts: { id: string; email: string; name?: string; label: string; provider: MailProvider | null; color?: string }[]
+): MailIdentity[] {
+  const accountIds = accounts.map(a => a.id).join(',');
+
+  const results = useQueries({
+    queries: accounts.map(acc => ({
+      queryKey: MAIL_KEYS.identities(acc.id),
+      queryFn: async () => {
+        if (!acc.provider?.listIdentities) throw new Error('No identity support');
+        return await acc.provider.listIdentities!();
+      },
+      enabled: !!acc.provider?.listIdentities,
+      staleTime: 5 * 60 * 1000,
+      retry: false,
+    })),
+  });
+
+  const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+
+  return useMemo((): MailIdentity[] => {
+    return accounts.flatMap((acc, idx) => {
+      const result = results[idx];
+      const supportsIdentities = !!acc.provider?.listIdentities;
+
+      if (supportsIdentities && result?.data && result.data.length > 0) {
+        return result.data.map(i => ({
+          ...i,
+          accountId: acc.id,
+          accountColor: acc.color,
+          accountLabel: acc.label,
+        }));
+      }
+      if (!supportsIdentities) {
+        return [{
+          id: acc.email,
+          name: acc.name || acc.email,
+          email: acc.email,
+          mayDelete: false,
+          accountId: acc.id,
+          accountColor: acc.color,
+          accountLabel: acc.label,
+        }];
+      }
+      // Provider supports identities but query still loading or returned empty
+      return [];
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataTimestamps, accountIds]);
+}
+
 export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null, isDraft = false, includeTrash = false) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), isDraft, includeTrash],

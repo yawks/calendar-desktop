@@ -431,6 +431,12 @@ body {
 }
 .from-account-option:hover { background: var(--hover); }
 .from-account-option--active { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.from-account-group-header {
+  padding: 6px 10px 2px; font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  opacity: 0.75; cursor: default; user-select: none;
+}
+.from-account-option--grouped { padding-left: 40px; }
 
 /* Recipient input (chips + autocomplete) */
 .recipient-input { position: relative; flex: 1; }

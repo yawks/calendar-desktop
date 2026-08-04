@@ -107,6 +107,10 @@ export interface MailIdentity {
   name: string;
   email: string;
   mayDelete: boolean;
+  /** Populated in all-accounts mode to route sends and show grouping in the composer. */
+  accountId?: string;
+  accountColor?: string;
+  accountLabel?: string;
 }
 
 export type ThreadFilter = 'all' | 'unread';
