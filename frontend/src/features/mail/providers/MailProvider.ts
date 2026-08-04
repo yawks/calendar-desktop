@@ -6,6 +6,10 @@ export type ProviderType = 'ews' | 'gmail' | 'imap' | 'jmap';
  * contract instead of inferring support from the provider type. */
 export interface MailProviderCapabilities {
   readonly snooze: boolean;
+  readonly scheduledSend: {
+    readonly supported: boolean;
+    readonly maxDelaySeconds?: number;
+  };
 }
 
 export interface MailItemRef {
@@ -42,6 +46,8 @@ export interface SendMailParams {
   inReplyTo?: string;
   /** RFC 5322 References value (space-separated chain of Message-IDs). */
   references?: string;
+  /** Server-side delivery date (ISO 8601). Omit for immediate delivery. */
+  sendAt?: string;
 }
 
 export interface SaveDraftParams {
@@ -78,6 +84,8 @@ export interface MailProvider {
   readonly providerType: ProviderType;
   readonly accountId: string;
   readonly capabilities: MailProviderCapabilities;
+  /** Resolve account/server-dependent capabilities (notably JMAP limits). */
+  getCapabilities?(): Promise<MailProviderCapabilities>;
 
   listThreads(folder: string, maxCount?: number, offset?: number): Promise<MailThread[]>;
   /** Search threads using a structured query. Results are not cached. */

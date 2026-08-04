@@ -38,6 +38,7 @@ impl EmailSubmission<Set> {
         self.undo_status = Some(undo_status);
         self
     }
+
 }
 
 impl SetObject for EmailSubmission<Set> {

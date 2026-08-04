@@ -147,6 +147,8 @@ pub struct SendMailParams {
     pub in_reply_to: Option<String>,
     /// RFC 5322 References chain (JMAP only).
     pub references: Option<String>,
+    /// Server-side delivery date (RFC 3339), or immediate when omitted.
+    pub send_at: Option<String>,
 }
 
 pub struct SaveDraftParams {

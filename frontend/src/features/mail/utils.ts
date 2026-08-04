@@ -209,6 +209,8 @@ export const DISPLAY_TO_STATIC: Record<string, string> = {
   'junk e-mail': 'spam',
   'indésirables': 'spam',
   'snoozed': 'snoozed',
+  'scheduled': 'scheduled',
+  'programmés': 'scheduled',
 };
 
 export function buildUnreadCounts(folders: import('./types').MailFolder[]): Record<string, number> {

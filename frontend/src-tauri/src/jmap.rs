@@ -4,6 +4,8 @@ use jmap_client::client::{Client, Credentials};
 use jmap_client::email::Property as EmailProperty;
 use jmap_client::email::query::Filter as EmailFilter;
 use jmap_client::email::query::Comparator as EmailComparator;
+use jmap_client::email_submission::Property as SubmissionProperty;
+use jmap_client::email_submission::query::Comparator as SubmissionComparator;
 use jmap_client::mailbox::Role;
 use jmap_client::URI;
 use std::collections::HashMap;
@@ -169,6 +171,7 @@ mod mime_tests {
             identity_id: None,
             in_reply_to: None,
             references: None,
+            send_at: None,
         };
 
         let raw = String::from_utf8(build_mime_message("sender@example.com", &params).unwrap()).unwrap();
@@ -346,6 +349,68 @@ impl MailProvider for JmapProvider {
         let client = get_client(&self.state, &self.config).await?;
         let count = max_count.unwrap_or(50);
         let email_limit = count * 4;
+
+        if folder == "scheduled" {
+            let mut query_request = client.build();
+            query_request.query_email_submission()
+                .sort([SubmissionComparator::sent_at().descending()])
+                .limit((count * 4) as usize);
+            let mut query_response = query_request.send().await.map_err(|e| e.to_string())?;
+            let submission_ids = query_response.method_response_by_pos(0)
+                .unwrap_query_email_submission().map_err(|e| e.to_string())?.take_ids();
+            if submission_ids.is_empty() { return Ok(vec![]); }
+
+            let mut submission_request = client.build();
+            submission_request.get_email_submission()
+                .ids(submission_ids.iter().map(String::as_str))
+                .properties([SubmissionProperty::EmailId, SubmissionProperty::ThreadId, SubmissionProperty::Envelope, SubmissionProperty::SendAt]);
+            let mut submission_response = submission_request.send().await.map_err(|e| e.to_string())?;
+            let submissions = submission_response.method_response_by_pos(0)
+                .unwrap_get_email_submission().map_err(|e| e.to_string())?;
+            let now = chrono::Utc::now();
+            let scheduled: Vec<(String, String, String)> = submissions.list().iter().filter_map(|submission| {
+                let hold_until = submission.send_at()
+                    .and_then(|timestamp| chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0))
+                    .or_else(|| submission.mail_from()
+                        .and_then(|from| from.parameter("HOLDUNTIL"))
+                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                        .map(|date| date.with_timezone(&chrono::Utc)))?;
+                if hold_until <= now { return None; }
+                Some((submission.email_id()?.to_string(), submission.thread_id()?.to_string(), hold_until.to_rfc3339()))
+            }).collect();
+            if scheduled.is_empty() { return Ok(vec![]); }
+
+            let mut email_request = client.build();
+            email_request.get_email()
+                .ids(scheduled.iter().map(|(email_id, _, _)| email_id.as_str()))
+                .properties([EmailProperty::Id, EmailProperty::Subject, EmailProperty::From, EmailProperty::To, EmailProperty::Cc, EmailProperty::Preview, EmailProperty::HasAttachment]);
+            let mut email_response = email_request.send().await.map_err(|e| e.to_string())?;
+            let emails = email_response.method_response_by_pos(0).unwrap_get_email().map_err(|e| e.to_string())?;
+            let schedule_by_email: HashMap<&str, (&str, &str)> = scheduled.iter()
+                .map(|(email_id, thread_id, date)| (email_id.as_str(), (thread_id.as_str(), date.as_str())))
+                .collect();
+            let mut threads: Vec<MailThread> = emails.list().iter().filter_map(|email| {
+                let (thread_id, scheduled_at) = schedule_by_email.get(email.id()?)?;
+                let from = email.from().and_then(|addresses| addresses.first());
+                let recipients = |addresses: Option<&[jmap_client::email::EmailAddress]>| addresses.unwrap_or_default().iter().map(|address| MailRecipient {
+                    name: address.name().map(str::to_string), email: address.email().to_string(),
+                }).collect();
+                Some(MailThread {
+                    conversation_id: (*thread_id).to_string(),
+                    topic: email.subject().unwrap_or_default().to_string(),
+                    snippet: email.preview().unwrap_or_default().to_string(),
+                    last_delivery_time: (*scheduled_at).to_string(),
+                    message_count: 1, unread_count: 0,
+                    from_name: from.and_then(|address| address.name().map(str::to_string)),
+                    from_email: from.map(|address| address.email().to_string()),
+                    has_attachments: email.has_attachment(),
+                    to_recipients: recipients(email.to()), cc_recipients: recipients(email.cc()), unique_senders: vec![],
+                })
+            }).collect();
+            threads.sort_by(|a, b| a.last_delivery_time.cmp(&b.last_delivery_time));
+            threads.truncate(count as usize);
+            return Ok(threads);
+        }
 
         let mailbox_id = match folder {
             "inbox" | "sentitems" | "deleteditems" | "drafts" | "spam" => {
@@ -786,9 +851,39 @@ impl MailProvider for JmapProvider {
             .map_err(|e| format!("Email/import: {}", e))?;
         let email_id = email.id().unwrap_or_default().to_string();
 
-        client.email_submission_create(&email_id, &resolved_identity_id)
-            .await
-            .map_err(|e| format!("EmailSubmission/set: {}", e))?;
+        if let Some(send_at) = params.send_at.as_deref() {
+            let send_at = chrono::DateTime::parse_from_rfc3339(send_at)
+                .map_err(|e| format!("Invalid scheduled-send date: {e}"))?
+                .with_timezone(&chrono::Utc);
+            let session = client.session();
+            let max_delay = session.submission_capabilities()
+                .map(|c| c.max_delayed_send())
+                .unwrap_or(0);
+            let requested_delay = (send_at.timestamp() - chrono::Utc::now().timestamp()).max(0) as usize;
+            if max_delay == 0 || requested_delay > max_delay {
+                return Err(format!("JMAP delayed send unsupported or exceeds server limit ({max_delay}s)"));
+            }
+            let mut submission = client.build();
+            submission.add_capability(URI::Submission);
+            let hold_until = send_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let mail_from = jmap_client::email_submission::Address::new(from_email)
+                .parameter("HOLDUNTIL", Some(hold_until));
+            let recipients = params.to.iter().chain(&params.cc).chain(&params.bcc)
+                .map(|address| jmap_client::email_submission::Address::new(address));
+            submission.set_email_submission().create()
+                .email_id(&email_id)
+                .identity_id(&resolved_identity_id)
+                .envelope(mail_from, recipients);
+            let mut response = submission.send().await.map_err(|e| format!("EmailSubmission/set: {e}"))?;
+            let set_response = response.method_response_by_pos(0)
+                .unwrap_set_email_submission()
+                .map_err(|e| format!("EmailSubmission/set response: {e}"))?;
+            set_response.unwrap_create_errors().map_err(|e| format!("EmailSubmission/set rejected: {e}"))?;
+        } else {
+            client.email_submission_create(&email_id, &resolved_identity_id)
+                .await
+                .map_err(|e| format!("EmailSubmission/set: {}", e))?;
+        }
         Ok(())
     }
 
@@ -1266,6 +1361,7 @@ pub async fn jmap_send(
     identity_id: Option<String>,
     in_reply_to: Option<String>,
     references: Option<String>,
+    send_at: Option<String>,
 ) -> Result<(), String> {
     JmapProvider { config, state: Arc::clone(&state) }.send_mail(SendMailParams {
         to,
@@ -1280,7 +1376,43 @@ pub async fn jmap_send(
         reply_to_change_key: None,
         attachments,
         is_forward: None,
+        send_at,
     }).await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JmapProviderCapabilities {
+    snooze: bool,
+    scheduled_send: ScheduledSendCapability,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledSendCapability {
+    supported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_delay_seconds: Option<usize>,
+}
+
+#[command]
+pub async fn jmap_get_capabilities(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+) -> Result<JmapProviderCapabilities, String> {
+    let client = get_client(&state, &config).await?;
+    let session = client.session();
+    // maxDelayedSend is a server-level capability, not account-level.
+    let max_delay = session.submission_capabilities()
+        .map(|c| c.max_delayed_send())
+        .unwrap_or(0);
+    Ok(JmapProviderCapabilities {
+        snooze: false,
+        scheduled_send: ScheduledSendCapability {
+            supported: max_delay > 0,
+            max_delay_seconds: (max_delay > 0).then_some(max_delay),
+        },
+    })
 }
 
 #[command]

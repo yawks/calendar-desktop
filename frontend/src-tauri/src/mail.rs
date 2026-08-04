@@ -343,6 +343,60 @@ impl MailProvider for EwsProvider {
         let access_token = &self.access_token;
         let count = max_count.unwrap_or(50);
 
+        if folder == "scheduled" {
+            let soap_body = format!(r#"<m:FindItem Traversal="Shallow">
+  <m:ItemShape>
+    <t:BaseShape>AllProperties</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:ExtendedFieldURI PropertyTag="0x3FEF" PropertyType="SystemTime"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="0" BasePoint="Beginning"/>
+  <m:ParentFolderIds><t:DistinguishedFolderId Id="outbox"/></m:ParentFolderIds>
+</m:FindItem>"#);
+            let xml = send(access_token, &soap_body).await?;
+            if xml.contains("ResponseClass=\"Error\"") {
+                return Err(ews_err(&xml, "EWS error listing scheduled messages"));
+            }
+            let mut threads = Vec::new();
+            for msg_xml in xml_all_ns(&xml, "t:Message") {
+                let item_id = msg_xml.find("<t:ItemId ")
+                    .or_else(|| msg_xml.find("<ItemId "))
+                    .and_then(|start| msg_xml[start..].find("/>").map(|end| &msg_xml[start..start + end]))
+                    .and_then(|element| xml_attr(element, "Id"));
+                let conversation_id = msg_xml.find("<t:ConversationId ")
+                    .or_else(|| msg_xml.find("<ConversationId "))
+                    .and_then(|start| msg_xml[start..].find("/>").map(|end| &msg_xml[start..start + end]))
+                    .and_then(|element| xml_attr(element, "Id"))
+                    .or(item_id);
+                let Some(conversation_id) = conversation_id else { continue };
+                let deferred_until = xml_content_ns(&msg_xml, "t:ExtendedProperty")
+                    .and_then(|property| xml_content_ns(&property, "t:Value"))
+                    .unwrap_or_else(|| xml_content_ns(&msg_xml, "t:DateTimeCreated").unwrap_or_default());
+                let recipients_xml = xml_content_ns(&msg_xml, "t:ToRecipients").unwrap_or_default();
+                let to_recipients = xml_all_ns(&recipients_xml, "t:Mailbox").into_iter().filter_map(|mailbox| {
+                    let email = xml_content_ns(&mailbox, "t:EmailAddress")?;
+                    Some(MailRecipient { name: xml_content_ns(&mailbox, "t:Name"), email })
+                }).collect();
+                threads.push(MailThread {
+                    conversation_id,
+                    topic: xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default(),
+                    snippet: xml_content_ns(&msg_xml, "t:Preview").unwrap_or_default(),
+                    last_delivery_time: deferred_until,
+                    message_count: 1,
+                    unread_count: 0,
+                    from_name: None,
+                    from_email: None,
+                    has_attachments: xml_content_ns(&msg_xml, "t:HasAttachments").is_some_and(|value| value == "true"),
+                    to_recipients,
+                    cc_recipients: vec![],
+                    unique_senders: vec![],
+                });
+            }
+            threads.sort_by(|a, b| a.last_delivery_time.cmp(&b.last_delivery_time));
+            return Ok(threads);
+        }
+
         if folder == "drafts" {
             let soap_body = format!(
                 r#"<m:FindItem Traversal="Shallow">
@@ -1060,6 +1114,24 @@ impl MailProvider for EwsProvider {
         let access_token = &self.access_token;
         let atts = params.attachments.unwrap_or_default();
         let forward = params.is_forward.unwrap_or(false);
+        let is_scheduled = params.send_at.is_some();
+        let deferred_property = if let Some(send_at) = params.send_at.as_deref() {
+            let date = chrono::DateTime::parse_from_rfc3339(send_at)
+                .map_err(|e| format!("Invalid scheduled-send date: {e}"))?
+                .with_timezone(&chrono::Utc);
+            if date <= chrono::Utc::now() {
+                return Err("Scheduled-send date must be in the future".to_string());
+            }
+            if params.reply_to_item_id.is_some() {
+                return Err("EWS scheduled send is currently supported for new messages only".to_string());
+            }
+            format!(r#"<t:ExtendedProperty>
+        <t:ExtendedFieldURI PropertyTag="0x3FEF" PropertyType="SystemTime"/>
+        <t:Value>{}</t:Value>
+      </t:ExtendedProperty>"#, date.to_rfc3339())
+        } else {
+            String::new()
+        };
 
         if atts.is_empty() {
             let soap_body = match (&params.reply_to_item_id, &params.reply_to_change_key) {
@@ -1093,8 +1165,30 @@ impl MailProvider for EwsProvider {
                 ),
                 _ => {
                     let (to_block, cc_block, bcc_block) = build_recipients_blocks(&params.to, &params.cc, &params.bcc);
-                    format!(
-                        r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
+                    if is_scheduled {
+                        format!(
+                            r#"<m:CreateItem MessageDisposition="SaveOnly">
+  <m:SavedItemFolderId>
+    <t:DistinguishedFolderId Id="outbox"/>
+  </m:SavedItemFolderId>
+  <m:Items>
+    <t:Message>
+      <t:Subject>{subject}</t:Subject>
+      {deferred_property}
+      <t:Body BodyType="HTML">{body}</t:Body>
+      <t:ToRecipients>
+        {to_block}
+      </t:ToRecipients>{cc_block}{bcc_block}
+    </t:Message>
+  </m:Items>
+</m:CreateItem>"#,
+                            subject = xml_escape(&params.subject),
+                            deferred_property = deferred_property,
+                            body = xml_escape(&params.body_html),
+                        )
+                    } else {
+                        format!(
+                            r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
   <m:SavedItemFolderId>
     <t:DistinguishedFolderId Id="sentitems"/>
   </m:SavedItemFolderId>
@@ -1108,9 +1202,10 @@ impl MailProvider for EwsProvider {
     </t:Message>
   </m:Items>
 </m:CreateItem>"#,
-                        subject = xml_escape(&params.subject),
-                        body = xml_escape(&params.body_html),
-                    )
+                            subject = xml_escape(&params.subject),
+                            body = xml_escape(&params.body_html),
+                        )
+                    }
                 }
             };
             let xml = send(access_token, &soap_body).await?;
@@ -1121,16 +1216,19 @@ impl MailProvider for EwsProvider {
         }
 
         // With attachments: 3-step flow (SaveOnly → CreateAttachment → SendItem)
+        // For scheduled sends, save to outbox; for immediate sends, save to drafts.
         let create_body = {
             let (to_block, cc_block, bcc_block) = build_recipients_blocks(&params.to, &params.cc, &params.bcc);
+            let folder = if is_scheduled { "outbox" } else { "drafts" };
             format!(
                 r#"<m:CreateItem MessageDisposition="SaveOnly">
   <m:SavedItemFolderId>
-    <t:DistinguishedFolderId Id="drafts"/>
+    <t:DistinguishedFolderId Id="{folder}"/>
   </m:SavedItemFolderId>
   <m:Items>
     <t:Message>
       <t:Subject>{subject}</t:Subject>
+      {deferred_property}
       <t:Body BodyType="HTML">{body}</t:Body>
       <t:ToRecipients>
         {to_block}
@@ -1139,6 +1237,7 @@ impl MailProvider for EwsProvider {
   </m:Items>
 </m:CreateItem>"#,
                 subject = xml_escape(&params.subject),
+                deferred_property = deferred_property,
                 body = xml_escape(&params.body_html),
             )
         };
@@ -1204,6 +1303,12 @@ impl MailProvider for EwsProvider {
         if let Some((fresh_id, fresh_ck)) = parse_item_id(&get_xml) {
             item_id = fresh_id;
             change_key = fresh_ck;
+        }
+
+        // Scheduled sends are already in outbox with PR_DEFERRED_SEND_TIME set;
+        // Exchange dispatches them automatically — no SendItem needed.
+        if is_scheduled {
+            return Ok(());
         }
 
         let send_body = format!(
@@ -1613,13 +1718,14 @@ pub async fn mail_send(
     reply_to_change_key: Option<String>,
     attachments: Option<Vec<ComposerAttachment>>,
     is_forward: Option<bool>,
+    send_at: Option<String>,
 ) -> Result<(), String> {
     EwsProvider::new(access_token)
         .send_mail(SendMailParams {
             to, cc, bcc, subject, body_html,
             reply_to_item_id, reply_to_change_key,
             attachments, is_forward,
-            identity_id: None, in_reply_to: None, references: None,
+            identity_id: None, in_reply_to: None, references: None, send_at,
         })
         .await
 }

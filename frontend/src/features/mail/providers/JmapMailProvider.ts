@@ -6,7 +6,13 @@ import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams } from './Ma
 export class JmapMailProvider implements MailProvider {
   readonly providerType = 'jmap';
   // Standard JMAP tokens cannot access Fastmail's private dev/mail snooze API.
-  readonly capabilities = { snooze: false } as const;
+  readonly capabilities = { snooze: false, scheduledSend: { supported: false } } as const;
+
+  async getCapabilities() {
+    return invoke<import('./MailProvider').MailProviderCapabilities>('jmap_get_capabilities', {
+      config: this.rustConfig,
+    });
+  }
   readonly accountId: string;
   private readonly config: JmapAccount;
 
@@ -72,6 +78,7 @@ export class JmapMailProvider implements MailProvider {
       identityId: params.fromIdentityId ?? null,
       inReplyTo: params.inReplyTo ?? null,
       references: params.references ?? null,
+      sendAt: params.sendAt ?? null,
     });
   }
 

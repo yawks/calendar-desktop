@@ -5,14 +5,17 @@ import { RecipientEntry, RecipientInput } from './RecipientInput';
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel';
 import { MailEditor, MailEditorHandle } from './MailEditor';
 import { CloseComposerPopover } from './MailComposer';
-import { ChevronDown, Paperclip, Send } from 'lucide-react';
+import { ChevronDown, Paperclip } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import type { MailProviderCapabilities } from '../providers/MailProvider';
+import { ScheduledSendMenu } from './ScheduledSendMenu';
 
 export interface NewMessageComposerProps {
   readonly contacts: { email: string; name?: string }[];
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly restoreData: ComposerRestoreData | null;
-  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId: string | undefined, recipients: { to: RecipientEntry[]; cc: RecipientEntry[]; bcc: RecipientEntry[] }) => Promise<void>;
+  readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId: string | undefined, recipients: { to: RecipientEntry[]; cc: RecipientEntry[]; bcc: RecipientEntry[] }, sendAt?: string) => Promise<void>;
+  readonly scheduledSend?: MailProviderCapabilities['scheduledSend'];
   readonly onCancel: () => void;
   readonly onSaveDraft: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => void;
   readonly onDeleteDraft?: () => void;
@@ -33,7 +36,7 @@ export interface NewMessageComposerHandle {
 export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessageComposerProps>(function NewMessageComposer({
   contacts, provider, restoreData, onSend, onCancel, onSaveDraft, onDeleteDraft,
   fromAccounts, fromAccountId, onFromAccountChange,
-  identities, selectedIdentityId, onIdentityChange,
+  identities, selectedIdentityId, onIdentityChange, scheduledSend,
 }: NewMessageComposerProps, ref) {
   const { t } = useTranslation();
 
@@ -84,7 +87,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
     return () => document.removeEventListener('mousedown', handler);
   }, [fromOpen]);
 
-  const doSend = async () => {
+  const doSend = async (sendAt?: string) => {
     if (toRecipients.length === 0) return;
     setSending(true);
     try {
@@ -97,6 +100,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
         attachments,
         selectedIdentityId,
         { to: toRecipients, cc: ccRecipients, bcc: bccRecipients },
+        sendAt,
       );
     } finally {
       setSending(false);
@@ -167,10 +171,16 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
       >
         {/* ── Top action bar ── */}
         <div className="mail-new-composer__toolbar">
-          <button type="submit" className="btn-primary" disabled={sending || toRecipients.length === 0}>
-            <Send size={15} />
-            {sending ? t('mail.sending', 'Envoi…') : t('mail.send', 'Envoyer')}
-          </button>
+          <div className={`mail-send-button${scheduledSend?.supported ? ' mail-send-button--split' : ''}`}>
+            <button type="submit" className="btn-primary mail-send-button__main" disabled={sending || toRecipients.length === 0}>
+              {sending ? t('mail.sending', 'Envoi…') : t('mail.send', 'Envoyer')}
+            </button>
+            <ScheduledSendMenu
+              capability={scheduledSend}
+              disabled={sending || toRecipients.length === 0}
+              onSchedule={sendAt => { void doSend(sendAt); }}
+            />
+          </div>
           <button type="button" className="btn-ghost" onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={15} />
             {t('mail.attach', 'Joindre')}

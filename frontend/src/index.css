@@ -1259,6 +1259,34 @@ body {
   right: auto;
 }
 
+.mail-scheduled-send {
+  display: flex;
+  align-items: stretch;
+}
+
+.mail-send-button { display: inline-flex; align-items: stretch; }
+.mail-send-button--split { border-radius: 7px; box-shadow: 0 3px 8px color-mix(in srgb, var(--primary) 30%, transparent); }
+.mail-send-button__main { border-radius: 7px; min-height: 40px; font-size: calc(15px * var(--font-scale, 1)); }
+.mail-send-button--split .mail-send-button__main { border-radius: 7px 0 0 7px; padding-left: 22px; padding-right: 22px; }
+.mail-send-button--split .mail-scheduled-send__toggle { border-radius: 0 7px 7px 0; }
+
+.mail-scheduled-send__toggle {
+  border-left: 1px solid color-mix(in srgb, white 35%, transparent);
+  border-radius: 0 999px 999px 0;
+  padding: 0 14px 0 12px;
+}
+
+.mail-scheduled-send .mail-actions-menu {
+  left: 0;
+  right: auto;
+}
+
+.mail-scheduled-send__time {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: calc(11px * var(--font-scale, 1));
+}
+
 .mail-detail-action-btn:disabled {
   opacity: 0.4;
   cursor: default;
@@ -2241,8 +2269,8 @@ body {
   flex: 1;
   align-items: center;
   gap: 8px;
-  height: 42px;
-  padding: 0 14px;
+  height: 40px;
+  padding: 0 12px;
 }
 
 .mail-compose-btn__chevron {
@@ -2343,6 +2371,16 @@ body {
 .mail-thread-item.unread {
   padding-left: 10px;
   border-left: 0;
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg));
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.mail-thread-item.unread:hover {
+  background: color-mix(in srgb, var(--primary) 11%, var(--bg-hover));
+}
+
+.mail-thread-item.selected.unread {
+  background: color-mix(in srgb, var(--primary) 14%, var(--bg));
 }
 
 .mail-thread-item__avatar {
@@ -2656,11 +2694,24 @@ body {
   background: var(--bg-sidebar);
 }
 
+[data-theme="dark"] .mail-thread-item.unread {
+  background: color-mix(in srgb, var(--primary) 15%, var(--bg));
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+[data-theme="dark"] .mail-thread-item.unread:hover {
+  background: color-mix(in srgb, var(--primary) 20%, var(--bg-hover));
+}
+
 [data-theme="dark"] .mail-folder-btn.active,
 [data-theme="dark"] .mail-folder-row.active,
 [data-theme="dark"] .mail-thread-item.selected {
   background: #30353b;
   color: var(--text);
+}
+
+[data-theme="dark"] .mail-thread-item.selected.unread {
+  background: color-mix(in srgb, var(--primary) 22%, #30353b);
 }
 
 @media (max-width: 900px) {

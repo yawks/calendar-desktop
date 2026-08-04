@@ -216,6 +216,9 @@ export default function MailApp() {
                   }}
                   folderUnreadCounts={folderUnreadCounts}
                   dynamicFolders={sidebarDynamicFolders}
+                  supportsScheduledSend={isAllMode
+                    ? allMailAccounts.some(account => mailCapabilitiesByAccount.get(account.id)?.scheduledSend.supported)
+                    : mailCapabilitiesByAccount.get(selectedAccountId)?.scheduledSend.supported === true}
                 />
                 {contactBackfillStatus.state !== 'idle' && (
                   <div style={{ padding: '6px 12px', fontSize: 11, opacity: 0.65 }} title={contactBackfillStatus.error}>
@@ -310,7 +313,8 @@ export default function MailApp() {
                 contacts={contacts}
                 provider={composerProvider}
                 restoreData={composerRestoreData}
-                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients) =>
+                scheduledSend={mailCapabilitiesByAccount.get(composingAccountId || selectedAccountId)?.scheduledSend}
+                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients, sendAt) =>
                   scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: true,
                     toRecipients: recipients.to,
@@ -324,7 +328,7 @@ export default function MailApp() {
                     replyingToMsg: null,
                     fromAccountId: composingAccountId || undefined,
                     fromIdentityId,
-                  }, attachments)
+                  }, attachments, sendAt)
                 }
                 onCancel={() => { setComposing(false); }}
                 onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) =>
@@ -368,7 +372,8 @@ export default function MailApp() {
                     fromAccountId: draftAccountId,
                     draftItemId: draft.item_id,
                   }}
-                  onSend={(to, cc, bcc, subject, body, attachments, fromIdentityId, recipients) =>
+                  scheduledSend={mailCapabilitiesByAccount.get(draftAccountId)?.scheduledSend}
+                  onSend={(to, cc, bcc, subject, body, attachments, fromIdentityId, recipients, sendAt) =>
                     scheduleSend(to, cc, bcc, subject, body, {
                       isNewMessage: true,
                       toRecipients: recipients.to,
@@ -383,7 +388,7 @@ export default function MailApp() {
                       fromAccountId: draftAccountId,
                       fromIdentityId,
                       draftItemId: draft.item_id,
-                    }, attachments)
+                    }, attachments, sendAt)
                   }
                   onCancel={() => setSelectedThread(null)}
                   onSaveDraft={(to, cc, bcc, subject, bodyHtml) =>

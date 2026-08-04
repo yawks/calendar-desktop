@@ -100,7 +100,7 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
       return folders
         .filter(f => {
           const normalized = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
-          return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed', 'spam'].includes(normalized);
+          return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'scheduled', 'snoozed', 'spam'].includes(normalized);
         })
         .map(f => ({ ...f, accountId: acc.id, accountColor: color }));
     });
