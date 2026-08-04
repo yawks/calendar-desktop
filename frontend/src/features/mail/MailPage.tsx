@@ -88,19 +88,31 @@ export default function MailApp() {
   // Identity selection state remains local to the component for UI control
   const [selectedIdentityId, setSelectedIdentityId] = useState('');
 
-  // Sync selected identity when list changes or account changes
+  // Sync selected identity when the identity list changes (account switch or initial load)
   useEffect(() => {
     const primary = accountIdentities.find(i => !i.mayDelete) ?? accountIdentities[0];
     setSelectedIdentityId(primary?.id ?? '');
   }, [accountIdentities]);
 
-  // When a reply is opened, pre-select the identity that matches a "to" recipient
+  // When a reply is opened, pre-select the identity whose email appears in To or Cc
   useEffect(() => {
     if (!replyingTo || accountIdentities.length === 0) return;
-    const toEmails = replyingTo.to_recipients.map(r => r.email.toLowerCase());
-    const match = accountIdentities.find(i => toEmails.includes(i.email.toLowerCase()));
+    const recipientEmails = new Set([
+      ...replyingTo.to_recipients.map(r => r.email.toLowerCase()),
+      ...(replyingTo.cc_recipients ?? []).map(r => r.email.toLowerCase()),
+    ]);
+    const match = accountIdentities.find(i => recipientEmails.has(i.email.toLowerCase()));
     if (match) setSelectedIdentityId(match.id);
   }, [replyingTo, accountIdentities]);
+
+  // In all-mode, switching identity also switches the active composing account
+  const handleIdentityChange = (id: string) => {
+    setSelectedIdentityId(id);
+    if (isAllMode) {
+      const identity = accountIdentities.find(i => i.id === id);
+      if (identity?.accountId) setComposingAccountId(identity.accountId);
+    }
+  };
 
   return (
     <div className="mail-app">
@@ -342,7 +354,7 @@ export default function MailApp() {
                 onFromAccountChange={setComposingAccountId}
                 identities={accountIdentities}
                 selectedIdentityId={selectedIdentityId}
-                onIdentityChange={setSelectedIdentityId}
+                onIdentityChange={handleIdentityChange}
               />
             ) : selectedThread === null ? (
               <div className="mail-detail-empty">
@@ -400,7 +412,7 @@ export default function MailApp() {
                   onFromAccountChange={setComposingAccountId}
                   identities={accountIdentities}
                   selectedIdentityId={selectedIdentityId}
-                  onIdentityChange={setSelectedIdentityId}
+                  onIdentityChange={handleIdentityChange}
                 />
               );
             })() : (
@@ -446,7 +458,7 @@ export default function MailApp() {
                 onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
                 identities={accountIdentities}
                 selectedIdentityId={selectedIdentityId}
-                onIdentityChange={setSelectedIdentityId}
+                onIdentityChange={handleIdentityChange}
                 onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId?: string) =>
                   scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: false,

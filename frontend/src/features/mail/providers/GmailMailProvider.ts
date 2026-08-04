@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { MailAttachment, MailFolder, MailMessage, MailRecipient, MailSearchQuery, MailThread } from '../types';
+import type { MailAttachment, MailFolder, MailIdentity, MailMessage, MailRecipient, MailSearchQuery, MailThread } from '../types';
 import type { Contact, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
 
 // ── Gmail REST API types ──────────────────────────────────────────────────────
@@ -309,6 +309,7 @@ export class GmailMailProvider implements MailProvider {
   /** Page token per label — for load-more pagination. */
   private readonly nextPageTokens = new Map<string, string>();
   private contactSearchWarmup?: Promise<void>;
+  private cachedIdentities?: MailIdentity[];
 
   constructor(accountId: string, getValidToken: (id: string) => Promise<string | null>, userEmail = '') {
     this.accountId = accountId;
@@ -346,6 +347,28 @@ export class GmailMailProvider implements MailProvider {
       method: 'POST',
       body: JSON.stringify(body),
     });
+  }
+
+  // ── Identities / send-as aliases ──────────────────────────────────────────
+
+  async listIdentities(): Promise<MailIdentity[]> {
+    const token = await this.token();
+    const res = await this.gFetch<{
+      sendAs?: Array<{
+        sendAsEmail: string;
+        displayName?: string;
+        isPrimary?: boolean;
+        verificationStatus?: string;
+      }>;
+    }>(token, '/users/me/settings/sendAs');
+    const identities = (res.sendAs ?? []).map(a => ({
+      id: a.sendAsEmail,
+      name: a.displayName || a.sendAsEmail,
+      email: a.sendAsEmail,
+      mayDelete: !(a.isPrimary ?? false),
+    }));
+    this.cachedIdentities = identities;
+    return identities;
   }
 
   // ── Threads ────────────────────────────────────────────────────────────────
@@ -594,7 +617,7 @@ export class GmailMailProvider implements MailProvider {
 
   // ── Send ───────────────────────────────────────────────────────────────────
 
-  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, attachments }: SendMailParams): Promise<void> {
+  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, attachments, fromIdentityId }: SendMailParams): Promise<void> {
     const token = await this.token();
 
     let inReplyToMsgId: string | null = null;
@@ -616,6 +639,13 @@ export class GmailMailProvider implements MailProvider {
       `Subject: ${subject.replace(/\r?\n/g, ' ')}`,
       'MIME-Version: 1.0',
     ];
+    if (fromIdentityId) {
+      const identity = this.cachedIdentities?.find(i => i.id === fromIdentityId);
+      const fromHeader = identity?.name && identity.name !== fromIdentityId
+        ? `From: ${identity.name} <${fromIdentityId}>`
+        : `From: ${fromIdentityId}`;
+      headerLines.push(fromHeader);
+    }
     if (inReplyToMsgId) {
       headerLines.push(`In-Reply-To: ${inReplyToMsgId}`);
       headerLines.push(`References: ${inReplyToMsgId}`);
