@@ -142,20 +142,22 @@ export function useProviderContactSearch(
     staleTime: 30 * 1000,
     placeholderData: [],
   });
-  const merged = new Map<string, RecipientEntry>();
-  // The local relevance index covers regular correspondents who are absent from
-  // the provider's explicit address book or corporate directory.
-  for (const contact of indexedData ?? []) {
-    merged.set(contact.email.toLowerCase(), { email: contact.email, name: contact.name, source: 'mail' });
-  }
-  for (const contact of providerData ?? []) {
-    const key = contact.email.toLowerCase();
-    const local = merged.get(key);
-    merged.set(key, {
-      email: contact.email,
-      name: usableContactName(contact.name, contact.email) ?? local?.name,
-      source: contact.source,
-    });
-  }
-  return [...merged.values()];
+  return useMemo(() => {
+    const merged = new Map<string, RecipientEntry>();
+    // The local relevance index covers regular correspondents who are absent from
+    // the provider's explicit address book or corporate directory.
+    for (const contact of indexedData ?? []) {
+      merged.set(contact.email.toLowerCase(), { email: contact.email, name: contact.name, source: 'mail' });
+    }
+    for (const contact of providerData ?? []) {
+      const key = contact.email.toLowerCase();
+      const local = merged.get(key);
+      merged.set(key, {
+        email: contact.email,
+        name: usableContactName(contact.name, contact.email) ?? local?.name,
+        source: contact.source,
+      });
+    }
+    return [...merged.values()];
+  }, [indexedData, providerData]);
 }

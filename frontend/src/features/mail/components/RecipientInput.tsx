@@ -317,6 +317,7 @@ export function RecipientInput({ value, onChange, contacts, provider, autoFocus,
           items={filtered}
           activeIndex={activeIndex}
           onSelect={addRecipient}
+          provider={provider}
         />
       )}
     </div>

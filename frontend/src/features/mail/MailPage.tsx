@@ -115,7 +115,7 @@ export default function MailApp() {
         <AppViewMenu current="mail" />
 
         <div className="header-spacer" />
-        <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} />
+        <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} provider={provider} />
         <div className="header-spacer" />
 
         <button className="btn-icon" onClick={reloadThreads} disabled={threadsRefreshing}
