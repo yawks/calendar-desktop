@@ -1698,7 +1698,7 @@ body {
 .mail-composer__field {
   display: flex; align-items: baseline; gap: 6px;
   padding: 6px 16px; border-bottom: 1px solid var(--border); font-size: calc(13px * var(--font-scale, 1));
-  line-height: 24px;
+  line-height: 28px;
 }
 .mail-composer__label { color: var(--text-muted); flex-shrink: 0; font-weight: bold; margin-right:6px; font-size: 1.1em;}
 .mail-composer__cc-btn {
@@ -4818,7 +4818,7 @@ body {
 
 .attendee-dropdown-item {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 7px 12px;
   cursor: pointer;

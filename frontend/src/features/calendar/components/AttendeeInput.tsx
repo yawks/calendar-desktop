@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CalendarEvent } from '../../../shared/types';
+import { ContactAvatar } from '../../mail/components/ContactAvatar';
 
 interface AttendeeEntry {
   email: string;
@@ -39,8 +40,11 @@ export default function AttendeeInput({ value, onChange, allEvents }: Props) {
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const activeRef = useRef<HTMLLIElement>(null);
 
   const suggestions = useMemo(() => buildSuggestions(allEvents), [allEvents]);
 
@@ -56,6 +60,19 @@ export default function AttendeeInput({ value, onChange, allEvents }: Props) {
     const added = new Set(value.map((a) => a.email.toLowerCase()));
     return base.filter((s) => !added.has(s.email.toLowerCase())).slice(0, 8);
   }, [inputValue, suggestions, value]);
+
+  useEffect(() => { setActiveIndex(0); }, [filtered]);
+
+  useEffect(() => {
+    if (!activeRef.current || !listRef.current) return;
+    const list = listRef.current;
+    const item = activeRef.current;
+    if (item.offsetTop < list.scrollTop) {
+      list.scrollTop = item.offsetTop;
+    } else if (item.offsetTop + item.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = item.offsetTop + item.offsetHeight - list.clientHeight;
+    }
+  }, [activeIndex]);
 
   const addAttendee = (entry: AttendeeEntry) => {
     const normalized = entry.email.toLowerCase();
@@ -75,12 +92,23 @@ export default function AttendeeInput({ value, onChange, allEvents }: Props) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!open && filtered.length > 0) { setOpen(true); }
+      else { setActiveIndex(i => Math.min(i + 1, filtered.length - 1)); }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex(i => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter') {
       e.preventDefault();
       const trimmed = inputValue.trim();
       if (!trimmed) return;
-      const exact = filtered.find((s) => s.email.toLowerCase() === trimmed.toLowerCase());
-      addAttendee(exact ?? { email: trimmed });
+      if (open && filtered.length > 0) {
+        addAttendee(filtered[activeIndex] ?? { email: trimmed });
+      } else {
+        const exact = filtered.find((s) => s.email.toLowerCase() === trimmed.toLowerCase());
+        addAttendee(exact ?? { email: trimmed });
+      }
     } else if (e.key === 'Escape') {
       setOpen(false);
     }
@@ -109,13 +137,15 @@ export default function AttendeeInput({ value, onChange, allEvents }: Props) {
         autoComplete="off"
       />
       {open && filtered.length > 0 && (
-        <ul className="attendee-dropdown">
-          {filtered.map((s) => (
+        <ul ref={listRef} className="attendee-dropdown">
+          {filtered.map((s, i) => (
             <li
               key={s.email}
-              className="attendee-dropdown-item"
+              ref={i === activeIndex ? activeRef : null}
+              className={`attendee-dropdown-item${i === activeIndex ? ' attendee-dropdown-item--active' : ''}`}
               onMouseDown={(e) => { e.preventDefault(); addAttendee(s); }}
             >
+              <ContactAvatar email={s.email} name={s.name} size={28} />
               {s.name ? (
                 <>
                   <span className="attendee-dropdown-name">{s.name}</span>

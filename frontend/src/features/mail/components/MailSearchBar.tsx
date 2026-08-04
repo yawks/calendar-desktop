@@ -2,6 +2,7 @@ import { KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 
 import { ContactDropdown } from './ContactDropdown';
+import type { MailProvider } from '../providers/MailProvider';
 import type { MailSearchQuery } from '../types';
 import type { RecipientEntry } from './RecipientInput';
 import { isValidEmail } from '../utils';
@@ -132,9 +133,10 @@ export interface MailSearchBarProps {
   readonly activeQuery: MailSearchQuery | null;
   readonly onSearch: (query: MailSearchQuery | null) => void;
   readonly contacts?: RecipientEntry[];
+  readonly provider?: Pick<MailProvider, 'accountId' | 'providerType' | 'getContactPhoto'> | null;
 }
 
-export function MailSearchBar({ activeQuery, onSearch, contacts = [] }: MailSearchBarProps) {
+export function MailSearchBar({ activeQuery, onSearch, contacts = [], provider }: MailSearchBarProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -337,6 +339,7 @@ export function MailSearchBar({ activeQuery, onSearch, contacts = [] }: MailSear
           items={filteredContacts}
           activeIndex={activeIndex}
           onSelect={insertContact}
+          provider={provider}
         />
       )}
 

@@ -1,14 +1,17 @@
 import { useEffect, useRef } from 'react';
 
+import type { MailProvider } from '../providers/MailProvider';
+import { ContactAvatar } from './ContactAvatar';
 import type { RecipientEntry } from './RecipientInput';
 
 interface ContactDropdownProps {
   readonly items: RecipientEntry[];
   readonly activeIndex: number;
   readonly onSelect: (entry: RecipientEntry) => void;
+  readonly provider?: Pick<MailProvider, 'accountId' | 'providerType' | 'getContactPhoto'> | null;
 }
 
-export function ContactDropdown({ items, activeIndex, onSelect }: ContactDropdownProps) {
+export function ContactDropdown({ items, activeIndex, onSelect, provider }: ContactDropdownProps) {
   const listRef = useRef<HTMLUListElement>(null);
   const activeRef = useRef<HTMLLIElement>(null);
 
@@ -33,6 +36,7 @@ export function ContactDropdown({ items, activeIndex, onSelect }: ContactDropdow
           className={`attendee-dropdown-item${i === activeIndex ? ' attendee-dropdown-item--active' : ''}`}
           onMouseDown={e => { e.preventDefault(); onSelect(c); }}
         >
+          <ContactAvatar email={c.email} name={c.name} provider={provider} size={28} />
           {c.name ? (
             <>
               <span className="attendee-dropdown-name">{c.name}</span>

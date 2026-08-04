@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 
 import { useLogoDevToken } from '../../../shared/store/LogoDevTokenStore';
 import type { MailProvider } from '../providers/MailProvider';
@@ -17,14 +17,32 @@ interface ContactAvatarProps {
 export function ContactAvatar({ email, name, provider, size = 32, className = '' }: ContactAvatarProps) {
   const [failed, setFailed] = useState<Set<string>>(new Set());
   const { token: logoDevToken } = useLogoDevToken();
+  const queryClient = useQueryClient();
   const displayName = name || email;
+  const emailKey = email.toLowerCase();
 
   const hasNativePhotoProvider = !!provider?.getContactPhoto;
   const { data: photoBase64, isFetched: nativePhotoFetched } = useQuery<string | null>({
-    queryKey: ['contact-photo', provider?.accountId, provider?.providerType, email.toLowerCase()],
+    queryKey: ['contact-photo', provider?.accountId, provider?.providerType, emailKey],
     queryFn: () => provider?.getContactPhoto?.(email) ?? Promise.resolve(null),
     staleTime: 10 * 60 * 1000,
     enabled: hasNativePhotoProvider,
+  });
+
+  // Populate a provider-agnostic cache so contexts without a provider (calendar,
+  // search bar) can display the same photo already fetched by the mail view.
+  useEffect(() => {
+    if (photoBase64) {
+      queryClient.setQueryData(['contact-photo-by-email', emailKey], photoBase64);
+    }
+  }, [photoBase64, emailKey, queryClient]);
+
+  // When no provider is available, fall back to the email-keyed photo cache.
+  const { data: cachedPhotoByEmail } = useQuery<string | null>({
+    queryKey: ['contact-photo-by-email', emailKey],
+    queryFn: () => Promise.resolve(null),
+    enabled: !hasNativePhotoProvider,
+    staleTime: 10 * 60 * 1000,
   });
 
   // Gravatar and logo.dev are image-only fallbacks. They never participate in
@@ -36,12 +54,14 @@ export function ContactAvatar({ email, name, provider, size = 32, className = ''
   });
 
   const providerSrc = photoBase64 ? `data:image/jpeg;base64,${photoBase64}` : null;
+  const cachedSrc = cachedPhotoByEmail ? `data:image/jpeg;base64,${cachedPhotoByEmail}` : null;
   const domainSrc = domainLogoUrl(email, logoDevToken) || null;
 
   const nativeLookupComplete = !hasNativePhotoProvider || nativePhotoFetched;
+  const effectiveSrc = providerSrc ?? cachedSrc;
   const sources = [
-    providerSrc,
-    ...(nativeLookupComplete && !providerSrc ? [gravatarSrc ?? null, domainSrc] : []),
+    effectiveSrc,
+    ...(nativeLookupComplete && !effectiveSrc ? [gravatarSrc ?? null, domainSrc] : []),
   ].filter((s): s is string => !!s);
   const currentSrc = sources.find(s => !failed.has(s));
 
