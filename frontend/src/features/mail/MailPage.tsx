@@ -1,7 +1,8 @@
 import { ALL_ACCOUNTS_ID, buildUnreadCounts } from './utils';
 import {
+  BarChart2,
+  ChartNoAxesCombined,
   Download,
-  HelpCircle,
   Inbox,
   Layers,
   Mail,
@@ -11,17 +12,18 @@ import {
   X,
 } from 'lucide-react';
 import { MailMessage, MailThread } from './types';
+import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
 import { useEffect, useRef, useState } from "react";
 
-import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
 import AppViewMenu from '../../shared/components/AppViewMenu';
+import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
 import { ComposerAttachment } from './providers/MailProvider';
 import { Link } from 'react-router-dom';
 import { MailComposerHandle } from './components/MailComposer';
 import { MailSearchBar } from './components/MailSearchBar';
 import { MailSidebar } from './components/MailSidebar';
+import { MailStatsModal } from "./components/MailStatsModal";
 import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
-import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
 import { ThreadDetail } from "./components/ThreadDetail";
 import { ThreadList } from "./components/ThreadList";
 import { createPortal } from 'react-dom';
@@ -50,6 +52,7 @@ export default function MailApp() {
     searchQuery, searchResults, searchLoading, handleSearch,
     accountIdentities, loadMoreThreads, hasMoreThreads,
     draftConversationIds, dismissDraftForConversation,
+    allProviders,
   } = useMailPageLogic();
 
   useDockBadge(allAccountsUnreadCounts);
@@ -84,6 +87,8 @@ export default function MailApp() {
     }
     openThread(thread);
   };
+
+  const [statsOpen, setStatsOpen] = useState(false);
 
   // Identity selection state remains local to the component for UI control
   const [selectedIdentityId, setSelectedIdentityId] = useState('');
@@ -134,8 +139,8 @@ export default function MailApp() {
           title={t('header.refresh', 'Refresh')}>
           <RefreshCw size={18} className={threadsRefreshing ? 'spin' : ''} />
         </button>
-        <button className="btn-icon header-help" title={t('header.help', 'Help')}>
-          <HelpCircle size={20} />
+        <button className="btn-icon" onClick={() => setStatsOpen(true)} title={t('mail.stats.title', 'Statistiques mail')}>
+          <ChartNoAxesCombined size={20} />
         </button>
         <Link to="/config" className="btn-config btn-config--icon-only">
           <Settings size={17} />
@@ -544,6 +549,14 @@ export default function MailApp() {
           onClose={() => setAttachmentPreview(null)}
         />
       )}
+
+      <MailStatsModal
+        isOpen={statsOpen}
+        onClose={() => setStatsOpen(false)}
+        allMailAccounts={allMailAccounts}
+        allProviders={allProviders}
+        accountIdentities={accountIdentities}
+      />
     </div>
   );
 }
