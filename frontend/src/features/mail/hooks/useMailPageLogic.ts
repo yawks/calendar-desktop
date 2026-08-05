@@ -387,9 +387,26 @@ export function useMailPageLogic() {
     } catch { return new Map(); }
   };
   const persistDraftReplyMap = (map: Map<string, DraftReplyEntry>) => {
-    const obj: Record<string, DraftReplyEntry> = {};
-    map.forEach((v, k) => { obj[k] = v; });
-    localStorage.setItem(DRAFT_MAP_KEY, JSON.stringify(obj));
+    const toObj = (m: Map<string, DraftReplyEntry>) => {
+      const obj: Record<string, DraftReplyEntry> = {};
+      m.forEach((v, k) => { obj[k] = v; });
+      return JSON.stringify(obj);
+    };
+    // If the write exceeds the quota, evict entries (oldest-first by insertion order)
+    // one at a time until it fits or the map is empty.
+    let current = new Map(map);
+    while (current.size >= 0) {
+      try {
+        localStorage.setItem(DRAFT_MAP_KEY, toObj(current));
+        return;
+      } catch (e) {
+        if (!(e instanceof DOMException) || current.size === 0) return;
+        // Remove the first (oldest) entry and retry
+        const firstKey = current.keys().next().value as string | undefined;
+        if (firstKey === undefined) return;
+        current.delete(firstKey);
+      }
+    }
   };
 
   const [draftReplyMap, setDraftReplyMap] = useState<Map<string, DraftReplyEntry>>(loadDraftReplyMap);

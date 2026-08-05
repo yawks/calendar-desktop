@@ -1,13 +1,15 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { MailAttachment, MailIdentity, MailMessage, ComposerRestoreData } from '../types';
-import { ChevronDown, Paperclip, Send, X } from 'lucide-react';
+import { Paperclip, Send, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ComposerAttachment } from '../providers/MailProvider';
 import { RecipientEntry, RecipientInput } from './RecipientInput';
 import { ComposerAttachmentPanel } from './ComposerAttachmentPanel';
 import { MailEditor, MailEditorHandle } from './MailEditor';
+import { IdentitySelector } from './IdentitySelector';
 import { formatFullDate } from '../utils';
 import { formatEmailQuotesForEditor } from '../utils/emailQuoteParser';
+import { useSignatures, buildInitialHTMLWithSignature } from '../../../shared/store/SignatureStore';
 
 // ── Helper: build the initial HTML for a reply/forward ────────────────────────
 
@@ -76,6 +78,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
   onGetAttachmentData, onSend, onCancel, onSaveDraft,
 }: MailComposerProps, ref) {
   const { t } = useTranslation();
+  const { getSignature, signaturePosition } = useSignatures();
 
   const [toRecipients,  setToRecipients]  = useState<RecipientEntry[]>([]);
   const [ccRecipients,  setCcRecipients]  = useState<RecipientEntry[]>([]);
@@ -85,29 +88,33 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
   const [subject, setSubject] = useState('');
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [isSending, setIsSending] = useState(false);
-  const [fromOpen, setFromOpen] = useState(false);
   const fieldsModifiedRef = useRef(false);
 
   const editorRef   = useRef<MailEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const fromRef     = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!fromOpen) return;
-    const handler = (e: Event) => {
-      if (fromRef.current && !fromRef.current.contains(e.target as Node)) setFromOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [fromOpen]);
+  // Capture initial identity + signature at mount (useMemo has empty deps)
+  const initialIdentityId = selectedIdentityId ?? identities?.[0]?.id ?? '';
+  const initialSignatureRef = useRef(initialIdentityId ? getSignature(initialIdentityId) : '');
+  const initialPositionRef  = useRef(signaturePosition);
 
-  // Compute initial HTML once (draft restore OR quoted reply block)
+  // Compute initial HTML once (draft restore OR quoted reply + signature)
   const initialHTML = useMemo(() => {
     if (restoreData?.body) return restoreData.body;
-    if (replyTo && mode)   return buildReplyHTML(replyTo, t);
-    return '';
+    const base = replyTo && mode ? buildReplyHTML(replyTo, t) : '';
+    return buildInitialHTMLWithSignature(base, initialSignatureRef.current, initialPositionRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Swap signature when the selected identity changes mid-composition
+  const prevIdentityIdRef = useRef(initialIdentityId);
+  useEffect(() => {
+    const newId = selectedIdentityId ?? identities?.[0]?.id ?? '';
+    if (newId === prevIdentityIdRef.current) return;
+    prevIdentityIdRef.current = newId;
+    editorRef.current?.replaceSignatureBlock(getSignature(newId), signaturePosition);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIdentityId, identities]);
 
   // Initialise form fields from restoreData or reply props
   useEffect(() => {
@@ -276,81 +283,16 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
 
       {/* ── Fields ── */}
       <div className="mail-composer__fields">
-        {identities && identities.length >= 1 && (() => {
-          const sel = identities.find(i => i.id === selectedIdentityId) ?? identities[0];
-
-          const isMultiAccount = identities.some(
-            (i, _, arr) => i.accountId && i.accountId !== arr[0].accountId
-          );
-          const groups = isMultiAccount
-            ? (() => {
-                const map = new Map<string, { label: string; color?: string; items: typeof identities }>();
-                for (const id of identities) {
-                  const key = id.accountId ?? '__single__';
-                  if (!map.has(key)) map.set(key, { label: id.accountLabel ?? '', color: id.accountColor, items: [] });
-                  map.get(key)!.items.push(id);
-                }
-                return [...map.values()];
-              })()
-            : null;
-
-          return (
-            <div className="mail-composer__field" ref={fromRef} style={{ position: 'relative' }}>
-              <span className="mail-composer__label">{t('mail.from', 'De')}</span>
-              <button type="button" className="from-account-btn" onClick={() => setFromOpen(o => !o)}>
-                <span className="from-account-name" style={{ color: sel?.accountColor ?? 'var(--primary)' }}>
-                  {sel?.name ?? sel?.email}
-                </span>
-                <span className="from-account-email">
-                  {sel?.name && sel.name !== sel.email ? `<${sel.email}>` : ''}
-                </span>
-                {identities.length > 1 && <ChevronDown size={12} style={{ marginLeft: 'auto', opacity: 0.5 }} />}
-              </button>
-              {fromOpen && identities.length > 1 && (
-                <ul className="from-account-dropdown">
-                  {groups ? (
-                    groups.map(group => (
-                      <React.Fragment key={group.label}>
-                        <li className="from-account-group-header" style={{ color: group.color }}>
-                          {group.label}
-                        </li>
-                        {group.items.map(id => (
-                          <li
-                            key={id.id}
-                            className={`from-account-option from-account-option--grouped${id.id === selectedIdentityId ? ' from-account-option--active' : ''}`}
-                            onClick={() => { onIdentityChange?.(id.id); setFromOpen(false); }}
-                          >
-                            <span className="from-account-name" style={{ color: group.color ?? 'var(--primary)' }}>
-                              {id.name ?? id.email}
-                            </span>
-                            <span className="from-account-email">
-                              {id.name && id.name !== id.email ? `<${id.email}>` : ''}
-                            </span>
-                          </li>
-                        ))}
-                      </React.Fragment>
-                    ))
-                  ) : (
-                    identities.map(id => (
-                      <li
-                        key={id.id}
-                        className={`from-account-option${id.id === selectedIdentityId ? ' from-account-option--active' : ''}`}
-                        onClick={() => { onIdentityChange?.(id.id); setFromOpen(false); }}
-                      >
-                        <span className="from-account-name" style={{ color: id.accountColor ?? 'var(--primary)' }}>
-                          {id.name ?? id.email}
-                        </span>
-                        <span className="from-account-email">
-                          {id.name && id.name !== id.email ? `<${id.email}>` : ''}
-                        </span>
-                      </li>
-                    ))
-                  )}
-                </ul>
-              )}
-            </div>
-          );
-        })()}
+        {identities && identities.length >= 1 && (
+          <div className="mail-composer__field">
+            <IdentitySelector
+              label={t('mail.from', 'De')}
+              identities={identities}
+              selectedIdentityId={selectedIdentityId}
+              onSelect={(id) => onIdentityChange?.(id)}
+            />
+          </div>
+        )}
 
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>

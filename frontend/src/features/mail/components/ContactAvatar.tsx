@@ -20,6 +20,7 @@ export function ContactAvatar({ email, name, provider, size = 32, className = ''
   const queryClient = useQueryClient();
   const displayName = name || email;
   const emailKey = email.toLowerCase();
+  const nameKey = name?.trim().toLowerCase() || null;
 
   const hasNativePhotoProvider = !!provider?.getContactPhoto;
   const { data: photoBase64, isFetched: nativePhotoFetched } = useQuery<string | null>({
@@ -34,14 +35,27 @@ export function ContactAvatar({ email, name, provider, size = 32, className = ''
   useEffect(() => {
     if (photoBase64) {
       queryClient.setQueryData(['contact-photo-by-email', emailKey], photoBase64);
+      if (nameKey) {
+        queryClient.setQueryData(['contact-photo-by-name', nameKey], photoBase64);
+      }
     }
-  }, [photoBase64, emailKey, queryClient]);
+  }, [photoBase64, emailKey, nameKey, queryClient]);
 
   // When no provider is available, fall back to the email-keyed photo cache.
   const { data: cachedPhotoByEmail } = useQuery<string | null>({
     queryKey: ['contact-photo-by-email', emailKey],
     queryFn: () => Promise.resolve(null),
     enabled: !hasNativePhotoProvider,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Exchange conversation summaries may only expose the sender's display name,
+  // whereas the expanded message contains their SMTP address. Reuse the photo
+  // fetched by the message header so both places render the same contact avatar.
+  const { data: cachedPhotoByName } = useQuery<string | null>({
+    queryKey: ['contact-photo-by-name', nameKey],
+    queryFn: () => Promise.resolve(null),
+    enabled: !!nameKey,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -58,7 +72,8 @@ export function ContactAvatar({ email, name, provider, size = 32, className = ''
   const domainSrc = domainLogoUrl(email, logoDevToken) || null;
 
   const nativeLookupComplete = !hasNativePhotoProvider || nativePhotoFetched;
-  const effectiveSrc = providerSrc ?? cachedSrc;
+  const nameCachedSrc = cachedPhotoByName ? `data:image/jpeg;base64,${cachedPhotoByName}` : null;
+  const effectiveSrc = providerSrc ?? cachedSrc ?? nameCachedSrc;
   const sources = [
     effectiveSrc,
     ...(nativeLookupComplete && !effectiveSrc ? [gravatarSrc ?? null, domainSrc] : []),
