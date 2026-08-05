@@ -15,7 +15,7 @@ interface FolderNode {
 
 interface MailSidebarProps {
   readonly selectedFolder: Folder;
-  readonly onSelectFolder: (f: Folder) => void;
+  readonly onSelectFolder: (f: Folder, accountId?: string) => void;
   readonly onCompose: () => void;
   readonly folderUnreadCounts?: Record<string, number>;
   /** The folders to display in the sidebar (excluding static ones). */
@@ -113,7 +113,7 @@ function FolderTreeNode({
   readonly node: FolderNode;
   readonly depth: number;
   readonly selectedFolder: Folder;
-  readonly onSelectFolder: (f: Folder) => void;
+  readonly onSelectFolder: (f: Folder, accountId?: string) => void;
   readonly folderUnreadCounts: Record<string, number>;
   readonly expandedFolders: Set<string>;
   readonly onToggleExpand: (id: string) => void;
@@ -128,7 +128,7 @@ function FolderTreeNode({
     if (isVirtual) {
       onToggleExpand(entry.folder_id);
     } else {
-      onSelectFolder(entry.folder_id);
+      onSelectFolder(entry.folder_id, entry.accountId);
     }
   };
 

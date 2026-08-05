@@ -161,6 +161,7 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
   const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
   const isLoading = results.some(r => r.isLoading);
   const isFetching = results.some(r => r.isFetching);
+  const hasMore = results.some(r => (r.data?.length ?? 0) >= limit);
 
   const data = useMemo(() => {
     return results
@@ -183,9 +184,10 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
     data,
     isLoading,
     isFetching,
+    hasMore,
     errors,
     refetch,
-  }), [data, isLoading, isFetching, errors, refetch]);
+  }), [data, isLoading, isFetching, hasMore, errors, refetch]);
 }
 
 export function useMailIdentities(accountId: string, provider: MailProvider | null) {

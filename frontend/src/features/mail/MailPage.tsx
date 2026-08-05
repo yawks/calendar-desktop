@@ -39,7 +39,7 @@ export default function MailApp() {
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
-    selectAccount, setSelectedFolder, setComposing, setComposingAccountId,
+    selectAccount, selectFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
@@ -47,7 +47,7 @@ export default function MailApp() {
     downloadAttachment, getRawAttachmentData, scheduleSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
     setSelectedThreadIds, setAttachmentPreview, setReplyingTo, setReplyMode, setActionToast,
-    setSelectedThread, threadSupportsSnooze, mailCapabilitiesByAccount, provider, composerProvider,
+    setSelectedThread, threadSupportsSnooze, mailCapabilitiesByAccount, provider, composerProvider, resolveProvider,
     searchQuery, searchResults, searchLoading, handleSearch,
     accountIdentities, loadMoreThreads, hasMoreThreads,
     draftConversationIds, dismissDraftForConversation,
@@ -222,9 +222,9 @@ export default function MailApp() {
               <div style={{ width: sidebarWidth, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 <MailSidebar
                   selectedFolder={selectedFolder}
-                  onSelectFolder={(folder) => {
+                  onSelectFolder={(folder, accountId) => {
                     if (searchQuery) handleSearch(null);
-                    setSelectedFolder(folder);
+                    selectFolder(folder, accountId);
                   }}
                   onCompose={() => {
                     setComposing(true);
@@ -297,6 +297,7 @@ export default function MailApp() {
               onSelectAll={() => setSelectedThreadIds(new Set(threads.map(t => t.conversation_id)))}
               onClearSelection={() => setSelectedThreadIds(new Set())}
               provider={provider}
+              resolveProvider={(thread) => resolveProvider(thread.accountId)}
             />
           </div>
           <div

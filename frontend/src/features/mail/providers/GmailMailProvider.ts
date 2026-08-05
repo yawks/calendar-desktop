@@ -54,9 +54,9 @@ const FOLDER_TO_LABEL: Record<string, string> = {
 
 function folderToLabel(folder: string): string | null {
   if (FOLDER_TO_LABEL[folder]) return FOLDER_TO_LABEL[folder];
-  // EWS/Exchange folder IDs are base64-encoded blobs containing /, +, = — never valid Gmail label IDs
-  if (/[+/=]/.test(folder)) return null;
-  return folder;
+  // Google user-label IDs are generated as Label_… . Do not forward arbitrary
+  // dynamic folder IDs from EWS/JMAP while switching sources in the unified view.
+  return folder.startsWith('Label_') ? folder : null;
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -419,12 +419,21 @@ export class GmailMailProvider implements MailProvider {
     const label = folderToLabel(folder);
     if (!label) return 0;
     const params = folder === 'snoozed'
-      ? new URLSearchParams({ q: 'is:snoozed', maxResults: '1' })
-      : new URLSearchParams({ labelIds: label, maxResults: '1' });
-    const result = await this.gFetch<{ threads?: Array<{ id: string }>; resultSizeEstimate?: number }>(
+      ? new URLSearchParams({ q: 'is:snoozed', maxResults: '500' })
+      : new URLSearchParams({ labelIds: label, maxResults: '500' });
+    const result = await this.gFetch<{
+      threads?: Array<{ id: string }>;
+      nextPageToken?: string;
+      resultSizeEstimate?: number;
+    }>(
       token, `/users/me/threads?${params}`,
     );
-    return result.resultSizeEstimate ?? result.threads?.length ?? 0;
+    const returnedCount = result.threads?.length ?? 0;
+    // Gmail only promises an estimate. When the whole result fits in one page,
+    // the returned IDs give us an exact count; otherwise never report less than
+    // the number of threads already observed on that first page.
+    if (!result.nextPageToken) return returnedCount;
+    return Math.max(returnedCount, result.resultSizeEstimate ?? 0);
   }
 
   private async fetchThreadSummary(

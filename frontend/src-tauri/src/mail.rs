@@ -424,7 +424,6 @@ impl MailProvider for EwsProvider {
       <t:FieldURI FieldURI="item:Subject"/>
       <t:FieldURI FieldURI="item:DateTimeReceived"/>
       <t:FieldURI FieldURI="item:HasAttachments"/>
-      <t:FieldURI FieldURI="item:Preview"/>
       <t:FieldURI FieldURI="message:ToRecipients"/>
       <t:FieldURI FieldURI="message:Sender"/>
     </t:AdditionalProperties>
@@ -460,7 +459,6 @@ impl MailProvider for EwsProvider {
                 let has_attachments = xml_content_ns(&msg_xml, "t:HasAttachments")
                     .map(|v| v == "true")
                     .unwrap_or(false);
-                let snippet = xml_content_ns(&msg_xml, "t:Preview").unwrap_or_default();
                 let sender_xml = xml_content_ns(&msg_xml, "t:Sender").unwrap_or_default();
                 let sender_mb = xml_content_ns(&sender_xml, "t:Mailbox").unwrap_or_default();
                 let sender_name = xml_content_ns(&sender_mb, "t:Name")
@@ -469,7 +467,7 @@ impl MailProvider for EwsProvider {
                 threads.push(MailThread {
                     conversation_id: item_id,
                     topic,
-                    snippet,
+                    snippet: String::new(),
                     last_delivery_time,
                     message_count: 1,
                     unread_count: 0,
@@ -508,7 +506,17 @@ impl MailProvider for EwsProvider {
     {parent_folder_id}
   </m:ParentFolderId>
   <m:ConversationShape>
-    <t:BaseShape>AllProperties</t:BaseShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="conversation:ConversationTopic"/>
+      <t:FieldURI FieldURI="conversation:LastDeliveryTime"/>
+      <t:FieldURI FieldURI="conversation:GlobalMessageCount"/>
+      <t:FieldURI FieldURI="conversation:GlobalUnreadCount"/>
+      <t:FieldURI FieldURI="conversation:GlobalHasAttachments"/>
+      <t:FieldURI FieldURI="conversation:UniqueUnreadSenders"/>
+      <t:FieldURI FieldURI="conversation:GlobalUniqueSenders"/>
+      <t:FieldURI FieldURI="conversation:GlobalUniqueRecipients"/>
+    </t:AdditionalProperties>
   </m:ConversationShape>
 </m:FindConversation>"#,
             offset = self.list_offset,
@@ -543,13 +551,10 @@ impl MailProvider for EwsProvider {
             let unread_count = xml_content_ns(&conv_xml, "t:GlobalUnreadCount")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0u32);
-            let has_attachments = xml_content_ns(&conv_xml, "t:HasAttachments")
+            let has_attachments = xml_content_ns(&conv_xml, "t:GlobalHasAttachments")
+                .or_else(|| xml_content_ns(&conv_xml, "t:HasAttachments"))
                 .map(|v| v == "true")
                 .unwrap_or(false);
-
-            let snippet = xml_content_ns(&conv_xml, "t:GlobalPreview")
-                .or_else(|| xml_content_ns(&conv_xml, "t:Preview"))
-                .unwrap_or_default();
 
             let from_name = xml_content_ns(&conv_xml, "t:UniqueUnreadSenders")
                 .as_deref()
@@ -612,7 +617,7 @@ impl MailProvider for EwsProvider {
             threads.push(MailThread {
                 conversation_id,
                 topic,
-                snippet,
+                snippet: String::new(),
                 last_delivery_time,
                 message_count,
                 unread_count,
@@ -1646,10 +1651,8 @@ pub async fn mail_get_thread_count(access_token: String, folder: String) -> Resu
 </m:FindConversation>"#);
     let xml = send(&access_token, &body).await?;
     if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error counting conversations")); }
-    let root = xml_all_ns(&xml, "m:RootFolder").into_iter().next()
-        .or_else(|| xml.find("<m:RootFolder ").and_then(|start| xml[start..].find('>').map(|end| xml[start..start + end].to_string())))
-        .ok_or_else(|| "EWS did not return a conversation count".to_string())?;
-    xml_attr(&root, "TotalItemsInView").and_then(|value| value.parse().ok())
+    xml_content_ns(&xml, "m:TotalConversationsInView")
+        .and_then(|value| value.parse().ok())
         .ok_or_else(|| "EWS returned an invalid conversation count".to_string())
 }
 
@@ -1735,8 +1738,21 @@ pub async fn mail_get_thread_snippet(access_token: String, conversation_id: Stri
   <m:Conversations><t:Conversation><t:ConversationId Id="{conversation_id}"/></t:Conversation></m:Conversations>
 </m:GetConversationItems>"#);
     let xml = send(&access_token, &body).await?;
-    if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error getting conversation preview")); }
-    Ok(xml_content_ns(&xml, "t:Preview").unwrap_or_default())
+    if !xml.contains("ResponseClass=\"Error\"") {
+        return Ok(xml_content_ns(&xml, "t:Preview").unwrap_or_default());
+    }
+
+    // Draft lists use an item id as their row identifier rather than a
+    // conversation id. Keep the UI contract opaque by accepting either form.
+    let item_body = format!(r#"<m:GetItem>
+  <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="item:Preview"/></t:AdditionalProperties></m:ItemShape>
+  <m:ItemIds><t:ItemId Id="{conversation_id}"/></m:ItemIds>
+</m:GetItem>"#);
+    let item_xml = send(&access_token, &item_body).await?;
+    if item_xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&item_xml, "EWS error getting item preview"));
+    }
+    Ok(xml_content_ns(&item_xml, "t:Preview").unwrap_or_default())
 }
 
 fn thread_header_shape() -> &'static str {

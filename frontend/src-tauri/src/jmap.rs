@@ -468,7 +468,6 @@ impl MailProvider for JmapProvider {
                 EmailProperty::To,
                 EmailProperty::Cc,
                 EmailProperty::ReceivedAt,
-                EmailProperty::Preview,
                 EmailProperty::HasAttachment,
                 EmailProperty::Keywords,
             ]);
@@ -533,7 +532,7 @@ impl MailProvider for JmapProvider {
                 thread_map.insert(thread_id.clone(), MailThread {
                     conversation_id: thread_id,
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
-                    snippet: email.preview().map(|s| s.to_string()).unwrap_or_default(),
+                    snippet: String::new(),
                     last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
                     message_count: 1,
                     unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
@@ -981,7 +980,6 @@ impl MailProvider for JmapProvider {
                 EmailProperty::To,
                 EmailProperty::Cc,
                 EmailProperty::ReceivedAt,
-                EmailProperty::Preview,
                 EmailProperty::HasAttachment,
                 EmailProperty::Keywords,
             ]);
@@ -1017,7 +1015,7 @@ impl MailProvider for JmapProvider {
                 thread_map.insert(thread_id.clone(), MailThread {
                     conversation_id: thread_id,
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
-                    snippet: email.preview().map(|s| s.to_string()).unwrap_or_default(),
+                    snippet: String::new(),
                     last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
                     message_count: 1,
                     unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
@@ -1159,6 +1157,72 @@ pub async fn jmap_list_threads(
 ) -> Result<Vec<MailThread>, String> {
     config.list_offset = offset.unwrap_or(0);
     JmapProvider { config, state: Arc::clone(&state) }.list_threads(&folder, max_count).await
+}
+
+#[command]
+pub async fn jmap_get_thread_count(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    folder: String,
+) -> Result<u32, String> {
+    let client = get_client(&state, &config).await?;
+    let mailbox_id = match folder.as_str() {
+        "inbox" | "sentitems" | "deleteditems" | "drafts" | "spam" => {
+            let ids = get_folder_ids(&state, &client, &config).await?;
+            ids.get(&folder).cloned().unwrap_or(folder)
+        }
+        "snoozed" => get_or_create_snoozed_id(&state, &client, &config).await?,
+        _ => folder,
+    };
+
+    let mut request = client.build();
+    {
+        let query = request.query_email()
+            .filter(EmailFilter::in_mailbox(&mailbox_id))
+            .limit(1)
+            .calculate_total(true);
+        query.arguments().collapse_threads(true);
+    }
+    let mut response = request.send().await.map_err(|e| e.to_string())?;
+    let result = response.method_response_by_pos(0)
+        .unwrap_query_email()
+        .map_err(|e| e.to_string())?;
+    Ok(result.total().unwrap_or(result.ids().len()) as u32)
+}
+
+#[command]
+pub async fn jmap_get_thread_snippet(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    conversation_id: String,
+) -> Result<String, String> {
+    let client = get_client(&state, &config).await?;
+    // Thread/get is part of the standard JMAP mail model and gives us the
+    // ordered email ids. Some servers do not implement the non-standard
+    // Email/query `inThread` filter, which previously left the skeleton stuck.
+    let mut thread_request = client.build();
+    thread_request.get_thread().ids([conversation_id.as_str()]);
+    let mut thread_response = thread_request.send().await.map_err(|e| e.to_string())?;
+    let threads = thread_response.method_response_by_pos(0)
+        .unwrap_get_thread()
+        .map_err(|e| e.to_string())?;
+    let newest_email_id = threads.list().first()
+        .and_then(|thread| thread.email_ids().last())
+        .cloned()
+        .ok_or_else(|| "JMAP thread contains no email".to_string())?;
+
+    let mut email_request = client.build();
+    email_request.get_email()
+        .ids([newest_email_id.as_str()])
+        .properties([EmailProperty::Preview]);
+    let mut email_response = email_request.send().await.map_err(|e| e.to_string())?;
+    let emails = email_response.method_response_by_pos(0)
+        .unwrap_get_email()
+        .map_err(|e| e.to_string())?;
+    Ok(emails.list().first()
+        .and_then(|email| email.preview())
+        .unwrap_or_default()
+        .to_string())
 }
 
 #[command]
