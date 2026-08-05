@@ -1150,5 +1150,6 @@ export function useMailPageLogic() {
     accountIdentities,
     draftConversationIds,
     dismissDraftForConversation,
+    allProviders,
   };
 }

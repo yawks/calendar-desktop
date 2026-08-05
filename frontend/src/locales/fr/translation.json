@@ -394,6 +394,38 @@
     "attachment": {
       "preview": "Aperçu",
       "download": "Télécharger"
+    },
+    "stats": {
+      "title": "Statistiques mail",
+      "loading": "Chargement des données…",
+      "total": "Total",
+      "received": "Reçus",
+      "sent": "Envoyés",
+      "evolutionNew": "Nouveau",
+      "comparedToPrevious": "Par rapport à la période précédente",
+      "evolution": "Activité des messages",
+      "byAccount": "Messages par instance",
+      "topContacts": "Messages par contact",
+      "noData": "Aucune donnée sur cette période.",
+      "prevPage": "Page précédente",
+      "nextPage": "Page suivante",
+      "page": "{{from}}–{{to}} sur {{total}}",
+      "period": {
+        "today": "Aujourd'hui",
+        "yesterday": "Hier",
+        "thisweek": "Cette semaine",
+        "lastweek": "Semaine dernière",
+        "thismonth": "Ce mois",
+        "lastmonth": "Mois dernier",
+        "custom": "Personnalisé"
+      },
+      "col": {
+        "contact": "Contact",
+        "source": "Instance",
+        "total": "Total",
+        "sent": "Envoyés",
+        "received": "Reçus"
+      }
     }
   },
   "settings": {

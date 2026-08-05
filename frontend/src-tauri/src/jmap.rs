@@ -315,6 +315,10 @@ impl MailProvider for JmapProvider {
         for mailbox in mailboxes.list() {
             let raw_id = mailbox.id().unwrap_or_default().to_string();
             let folder_id = match mailbox.role() {
+                Role::Inbox => "inbox".to_string(),
+                Role::Sent => "sentitems".to_string(),
+                Role::Drafts => "drafts".to_string(),
+                Role::Trash => "deleteditems".to_string(),
                 Role::Junk => "spam".to_string(),
                 _ => raw_id,
             };

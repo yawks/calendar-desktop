@@ -259,9 +259,13 @@ async fn update_is_read(
 impl MailProvider for EwsProvider {
     async fn list_folders(&self) -> Result<Vec<MailFolder>, String> {
         let access_token = &self.access_token;
+        let inbox_id = get_distinguished_folder_id(access_token, "inbox").await;
+        let sentitems_id = get_distinguished_folder_id(access_token, "sentitems").await;
+        let drafts_id = get_distinguished_folder_id(access_token, "drafts").await;
+        let deleteditems_id = get_distinguished_folder_id(access_token, "deleteditems").await;
         let junkemail_id = get_distinguished_folder_id(access_token, "junkemail").await;
 
-        let soap_body = r#"<m:FindFolder Traversal="Shallow">
+        let soap_body = r#"<m:FindFolder Traversal="Deep">
   <m:FolderShape>
     <t:BaseShape>AllProperties</t:BaseShape>
   </m:FolderShape>
@@ -300,7 +304,17 @@ impl MailProvider for EwsProvider {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0u32);
 
-            let folder_id = if display_name == "Snoozed" {
+            // EWS returns opaque IDs for distinguished folders. Expose stable keys so
+            // callers can reliably identify them regardless of the mailbox language.
+            let folder_id = if inbox_id.as_deref() == Some(folder_id.as_str()) {
+                "inbox".to_string()
+            } else if sentitems_id.as_deref() == Some(folder_id.as_str()) {
+                "sentitems".to_string()
+            } else if drafts_id.as_deref() == Some(folder_id.as_str()) {
+                "drafts".to_string()
+            } else if deleteditems_id.as_deref() == Some(folder_id.as_str()) {
+                "deleteditems".to_string()
+            } else if display_name == "Snoozed" {
                 "snoozed".to_string()
             } else if junkemail_id.as_deref() == Some(folder_id.as_str()) {
                 "spam".to_string()
@@ -561,6 +575,10 @@ impl MailProvider for EwsProvider {
                 r#"<m:GetConversationItems>
   <m:ItemShape>
     <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:ConversationId"/>
+      <t:FieldURI FieldURI="message:From"/>
+    </t:AdditionalProperties>
   </m:ItemShape>
   <m:FoldersToIgnore>
     <t:DistinguishedFolderId Id="deleteditems"/>
@@ -591,6 +609,30 @@ impl MailProvider for EwsProvider {
                                 .and_then(|elem| xml_attr(elem, "Id"));
                             if let Some(id) = conversation_id {
                                 *counts.entry(id.to_string()).or_default() += 1;
+
+                                // FindConversation often exposes only display names in
+                                // GlobalUniqueSenders. GetConversationItems gives us the
+                                // SMTP address, which lets stats merge sent and received
+                                // activity for the same contact.
+                                let from_xml = xml_content_ns(&item_xml, "t:From").unwrap_or_default();
+                                let email = xml_content_ns(&from_xml, "t:EmailAddress").unwrap_or_default();
+                                let name = xml_content_ns(&from_xml, "t:Name").filter(|v| !v.is_empty());
+                                let is_own = self.user_email.as_deref()
+                                    .map(|own| own.eq_ignore_ascii_case(&email))
+                                    .unwrap_or(false);
+                                if !email.is_empty() && !is_own {
+                                    if let Some(thread) = threads.iter_mut().find(|t| t.conversation_id == id) {
+                                        if let Some(ref resolved_name) = name {
+                                            thread.unique_senders.retain(|sender| {
+                                                sender.email.contains('@')
+                                                    || !sender.email.eq_ignore_ascii_case(resolved_name)
+                                            });
+                                        }
+                                        if !thread.unique_senders.iter().any(|s| s.email.eq_ignore_ascii_case(&email)) {
+                                            thread.unique_senders.push(MailRecipient { name, email });
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
