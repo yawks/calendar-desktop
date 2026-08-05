@@ -89,6 +89,8 @@ export function NewCalendarModal({
   const [jmapToken, setJmapToken] = useState('');
   const [jmapAuthType, setJmapAuthType] = useState<'bearer' | 'basic'>('bearer');
   const [jmapColor, setJmapColor] = useState(() => nextColor(calendars));
+  const [jmapFastmailToken, setJmapFastmailToken] = useState('');
+  const [jmapAdvancedOpen, setJmapAdvancedOpen] = useState(false);
 
   const handleNcTest = async () => {
     setNcTesting(true);
@@ -264,6 +266,7 @@ export function NewCalendarModal({
       token: jmapToken.trim(),
       authType: jmapAuthType,
       color: jmapColor,
+      fastmailToken: jmapFastmailToken.trim() || undefined,
     });
     onClose();
   };
@@ -487,6 +490,16 @@ export function NewCalendarModal({
                 <div className="form-row">
                   <label>{jmapAuthType === 'basic' ? t('config.jmapAppPassword', 'App password') : t('config.jmapApiToken', 'API token')}</label>
                   <input type="password" value={jmapToken} onChange={(e) => setJmapToken(e.target.value)} required />
+                </div>
+                <div className="jmap-advanced">
+                  <button type="button" className="jmap-advanced__toggle" onClick={() => setJmapAdvancedOpen(value => !value)}>
+                    {t('config.advanced', 'Avancé')}
+                  </button>
+                  {jmapAdvancedOpen && <div className="jmap-advanced__content form-row">
+                    <label>{t('config.fastmailWebToken', 'Jeton web Fastmail')}</label>
+                    <input type="password" autoComplete="off" value={jmapFastmailToken} onChange={(e) => setJmapFastmailToken(e.target.value)} placeholder="fma1-…" />
+                    <small>{t('config.fastmailWebTokenHelp', 'Optionnel. Active les fonctions privées Fastmail comme le snooze et l’envoi différé.')}</small>
+                  </div>}
                 </div>
               </div>
               <div className="form-actions" style={{ marginTop: 24 }}>

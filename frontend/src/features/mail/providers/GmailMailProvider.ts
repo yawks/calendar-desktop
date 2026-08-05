@@ -414,6 +414,19 @@ export class GmailMailProvider implements MailProvider {
     return results.filter((t): t is MailThread => t !== null);
   }
 
+  async getThreadCount(folder: string): Promise<number> {
+    const token = await this.token();
+    const label = folderToLabel(folder);
+    if (!label) return 0;
+    const params = folder === 'snoozed'
+      ? new URLSearchParams({ q: 'is:snoozed', maxResults: '1' })
+      : new URLSearchParams({ labelIds: label, maxResults: '1' });
+    const result = await this.gFetch<{ threads?: Array<{ id: string }>; resultSizeEstimate?: number }>(
+      token, `/users/me/threads?${params}`,
+    );
+    return result.resultSizeEstimate ?? result.threads?.length ?? 0;
+  }
+
   private async fetchThreadSummary(
     token: string,
     threadId: string,

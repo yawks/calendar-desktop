@@ -27,14 +27,16 @@ export class JmapMailProvider implements MailProvider {
       session_url: this.config.sessionUrl,
       token: this.config.token,
       auth_type: this.config.authType ?? 'bearer',
+      fastmail_token: this.config.fastmailToken ?? null,
     };
   }
 
-  async listThreads(folder: string, maxCount?: number): Promise<MailThread[]> {
+  async listThreads(folder: string, maxCount?: number, offset = 0): Promise<MailThread[]> {
     return invoke<MailThread[]>('jmap_list_threads', {
       config: this.rustConfig,
       folder,
       maxCount,
+      offset,
     });
   }
 

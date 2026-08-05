@@ -140,6 +140,9 @@
     "remove": "Remove {{name}}"
   },
   "config": {
+    "advanced": "Advanced",
+    "fastmailWebToken": "Fastmail web token",
+    "fastmailWebTokenHelp": "Optional. Enables private Fastmail features such as snooze and scheduled send.",
     "backToCalendar": "← Back to Calendar",
     "pageTitle": "Settings",
     "sectCalendars": "Calendars",

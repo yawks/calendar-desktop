@@ -129,6 +129,7 @@ export function ThreadDetail({
   const isUnread = thread.unread_count > 0;
   const isSnoozed = !snoozeBannerDismissed && (isInSnoozedFolder || (!!snoozeUntil && new Date(snoozeUntil) > new Date()));
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+  const initiallyExpandedId = messages.find(message => !message.is_read)?.item_id ?? lastMsg?.item_id;
 
 
   return (
@@ -318,7 +319,7 @@ export function ThreadDetail({
             <RefreshCw size={32} strokeWidth={1.5} className="spin" style={{ opacity: 0.4 }} />
           </div>
         )}
-        {!messagesLoading && messages.length > 5 && !middleExpanded && (
+        {!messagesLoading && messages.length > 5 && !middleExpanded && initiallyExpandedId === lastMsg?.item_id && (
           <>
             <CollapsedMessagesBar
               messages={messages.slice(0, messages.length - 1)}
@@ -326,7 +327,7 @@ export function ThreadDetail({
             />
             <MessageBlock
               message={messages[messages.length - 1]}
-              defaultExpanded={true}
+            defaultExpanded={messages[messages.length - 1].item_id === initiallyExpandedId}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
               provider={provider}
@@ -343,11 +344,11 @@ export function ThreadDetail({
             />
           </>
         )}
-        {!messagesLoading && !(messages.length > 5 && !middleExpanded) && messages.map((msg, idx) => (
+        {!messagesLoading && !(messages.length > 5 && !middleExpanded && initiallyExpandedId === lastMsg?.item_id) && messages.map((msg) => (
           <MessageBlock
             key={msg.item_id}
             message={msg}
-            defaultExpanded={!msg.is_read || idx === messages.length - 1}
+            defaultExpanded={msg.item_id === initiallyExpandedId}
             currentUserEmail={currentUserEmail}
             mailProviderType={mailProviderType}
             provider={provider}

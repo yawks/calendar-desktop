@@ -1,6 +1,5 @@
 import { ALL_ACCOUNTS_ID, buildUnreadCounts } from './utils';
 import {
-  BarChart2,
   ChartNoAxesCombined,
   Download,
   Inbox,
@@ -13,7 +12,7 @@ import {
 } from 'lucide-react';
 import { MailMessage, MailThread } from './types';
 import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import AppViewMenu from '../../shared/components/AppViewMenu';
 import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
@@ -34,13 +33,13 @@ import { useMailPageLogic } from './hooks/useMailPageLogic';
 export default function MailApp() {
   const {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
-    threads, threadsLoading, threadsRefreshing, threadsLoadingMore, selectedThread,
+    threads, threadsLoading, threadsRefreshing, threadsLoadingMore, threadTotalCount, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
     contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
-    setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
+    selectAccount, setSelectedFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
@@ -99,17 +98,6 @@ export default function MailApp() {
     setSelectedIdentityId(primary?.id ?? '');
   }, [accountIdentities]);
 
-  // When a reply is opened, pre-select the identity whose email appears in To or Cc
-  useEffect(() => {
-    if (!replyingTo || accountIdentities.length === 0) return;
-    const recipientEmails = new Set([
-      ...replyingTo.to_recipients.map(r => r.email.toLowerCase()),
-      ...(replyingTo.cc_recipients ?? []).map(r => r.email.toLowerCase()),
-    ]);
-    const match = accountIdentities.find(i => recipientEmails.has(i.email.toLowerCase()));
-    if (match) setSelectedIdentityId(match.id);
-  }, [replyingTo, accountIdentities]);
-
   // In all-mode, switching identity also switches the active composing account
   const handleIdentityChange = (id: string) => {
     setSelectedIdentityId(id);
@@ -117,6 +105,19 @@ export default function MailApp() {
       const identity = accountIdentities.find(i => i.id === id);
       if (identity?.accountId) setComposingAccountId(identity.accountId);
     }
+  };
+
+  // Pre-select the identity matching the recipients of a message being replied to.
+  // Called synchronously in the reply handlers (same batch as setReplyingTo) so that
+  // MailComposer mounts with the correct identity and injects the right signature.
+  const preselectIdentityForMsg = (msg: MailMessage) => {
+    if (accountIdentities.length === 0) return;
+    const recipientEmails = new Set([
+      ...msg.to_recipients.map(r => r.email.toLowerCase()),
+      ...(msg.cc_recipients ?? []).map(r => r.email.toLowerCase()),
+    ]);
+    const match = accountIdentities.find(i => recipientEmails.has(i.email.toLowerCase()));
+    if (match) handleIdentityChange(match.id);
   };
 
   return (
@@ -169,7 +170,7 @@ export default function MailApp() {
               <button
                 type="button"
                 className={`mail-account-tab${isAllMode ? ' mail-account-tab--active' : ''}`}
-                onClick={() => setSelectedAccountId(ALL_ACCOUNTS_ID)}
+                onClick={() => selectAccount(ALL_ACCOUNTS_ID)}
                 title={t('mail.allAccounts', 'All accounts')}
               >
                 <span className="mail-account-tab__stripe" style={{ background: 'var(--text-muted)' }} />
@@ -192,12 +193,11 @@ export default function MailApp() {
                 const isSelected = acc.id === selectedAccountId;
                 const accInboxUnread = buildUnreadCounts(allAccountFolders.get(acc.id) ?? [])['inbox'] ?? 0;
                 return (
-                  <>
+                  <Fragment key={acc.id}>
                     <button
-                      key={acc.id}
                       type="button"
                       className={`mail-account-tab${isSelected ? ' mail-account-tab--active' : ''}`}
-                      onClick={() => setSelectedAccountId(acc.id)}
+                      onClick={() => selectAccount(acc.id)}
                       title={acc.email}
                       >
                       <span
@@ -212,7 +212,7 @@ export default function MailApp() {
                       )}
                     </button>
                   <div className="mail-account-tab__divider" />
-                    </>
+                  </Fragment>
                 );
               })}
             </nav>
@@ -267,6 +267,8 @@ export default function MailApp() {
               threads={searchQuery ? searchResults : threads}
               loading={searchQuery ? searchLoading : threadsLoading}
               loadingMore={searchQuery ? false : threadsLoadingMore}
+              totalCount={searchQuery ? undefined : threadTotalCount}
+              scrollResetKey={`${selectedAccountId}:${selectedFolder}:${searchQuery ? 'search' : 'threads'}`}
               hasMore={!searchQuery && hasMoreThreads}
               onLoadMore={searchQuery ? undefined : loadMoreThreads}
               isSearchMode={!!searchQuery}
@@ -444,9 +446,9 @@ export default function MailApp() {
                 onDownloadAttachment={downloadAttachment}
                 loadingAttachmentId={loadingAttachmentId}
                 onGetAttachmentData={getRawAttachmentData}
-                onReply={(msg: MailMessage) => { setReplyMode('reply'); setReplyingTo(msg); }}
-                onReplyAll={(msg: MailMessage) => { setReplyMode('replyAll'); setReplyingTo(msg); }}
-                onForward={(msg: MailMessage) => { setReplyMode('forward'); setReplyingTo(msg); }}
+                onReply={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('reply'); setReplyingTo(msg); }}
+                onReplyAll={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('replyAll'); setReplyingTo(msg); }}
+                onForward={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('forward'); setReplyingTo(msg); }}
                 onToggleRead={toggleRead}
                 replyMode={replyMode}
                 onCancelReply={() => {

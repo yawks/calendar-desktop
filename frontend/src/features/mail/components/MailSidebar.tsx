@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronDown, ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
+import { CalendarClock, ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
 import { Folder, MailFolder } from '../types';
 import { useEffect, useRef, useState } from 'react';
 

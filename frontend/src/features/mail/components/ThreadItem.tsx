@@ -1,5 +1,6 @@
 import { Archive, BellOff, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { decodeHtmlEntities, formatDate, formatMailPreview, formatSnoozeDate, senderColor } from '../utils';
 
 import { MailRecipient, MailThread } from '../types';
@@ -105,6 +106,26 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   const isDark = preference === 'dark';
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const itemRef = useRef<HTMLDivElement>(null);
+  const [snippetNearViewport, setSnippetNearViewport] = useState(false);
+  useEffect(() => {
+    if (thread.snippet || !provider?.getThreadSnippet) return;
+    const element = itemRef.current;
+    if (!element) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setSnippetNearViewport(true); observer.disconnect(); }
+    }, { rootMargin: '300px 0px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [thread.conversation_id, thread.snippet, provider]);
+  const snippetQuery = useQuery({
+    queryKey: ['mail', provider?.accountId, 'thread-snippet', thread.conversation_id],
+    queryFn: () => provider!.getThreadSnippet!(thread.conversation_id),
+    enabled: snippetNearViewport && !thread.snippet && !!provider?.getThreadSnippet,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const snippet = thread.snippet || snippetQuery.data || '';
 
   const showTooltip = (e: React.MouseEvent, text: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -146,6 +167,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
 
   return (
     <div
+      ref={itemRef}
       className={`mail-thread-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''} ${isChecked ? 'checked' : ''}`}
       onClick={() => onSelect(thread)}
       onMouseEnter={() => setIsHovered(true)}
@@ -203,7 +225,11 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           {hasDraft && (
             <span className="mail-thread-item__draft-badge">{t('mail.draftBadge', 'Brouillon')}</span>
           )}
-          <span className="mail-thread-item__snippet-text">{formatMailPreview(thread.snippet)}</span>
+          {snippet ? (
+            <span className="mail-thread-item__snippet-text">{formatMailPreview(snippet)}</span>
+          ) : provider?.getThreadSnippet && !snippetQuery.isError ? (
+            <span className="mail-thread-item__snippet-skeleton" aria-hidden="true" />
+          ) : null}
         </div>
 
         {isInSnoozedFolder && isSnoozed && (

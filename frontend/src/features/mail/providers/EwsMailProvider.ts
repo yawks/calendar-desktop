@@ -67,6 +67,11 @@ export class EwsMailProvider implements MailProvider {
     return invoke<MailThread[]>('mail_list_threads', { accessToken, folder, maxCount, offset, userEmail: this.userEmail || null });
   }
 
+  async getThreadCount(folder: string): Promise<number> {
+    const accessToken = await this.token();
+    return invoke<number>('mail_get_thread_count', { accessToken, folder });
+  }
+
   async searchThreads(query: MailSearchQuery, maxCount = 50): Promise<MailThread[]> {
     const accessToken = await this.token();
     console.log('[EWS.searchThreads] query:', JSON.stringify(query), '| maxCount:', maxCount);
@@ -77,7 +82,24 @@ export class EwsMailProvider implements MailProvider {
 
   async getThread(conversationId: string, includeTrash = false, isDraft = false, includeDrafts = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
-    return invoke<MailMessage[]>('mail_get_thread', { accessToken, conversationId, includeTrash, isDraft, includeDrafts });
+    // Keep list loading lightweight, but fetch a complete conversation once it
+    // is selected. The reduced header + per-message body path proved unreliable
+    // for conversations opened from the unified account view.
+    return invoke<MailMessage[]>('mail_get_thread', {
+      accessToken, conversationId, includeTrash, isDraft, includeDrafts,
+    });
+  }
+
+  async getMessageContent(messageId: string) {
+    const accessToken = await this.token();
+    const message = await invoke<MailMessage>('mail_get_message_content', { accessToken, itemId: messageId });
+    return {
+      body_html: message.body_html,
+      body_text: message.body_text,
+      ics_mime: message.ics_mime,
+      attachments: message.attachments,
+      has_attachments: message.has_attachments,
+    };
   }
 
   async getRawMessageSource(itemId: string): Promise<string> {
