@@ -35,6 +35,20 @@ export class JmapMailProvider implements MailProvider {
     });
   }
 
+  async getThreadCount(folder: string): Promise<number> {
+    return invoke<number>('jmap_get_thread_count', {
+      config: this.rustConfig,
+      folder,
+    });
+  }
+
+  async getThreadSnippet(conversationId: string): Promise<string> {
+    return invoke<string>('jmap_get_thread_snippet', {
+      config: this.rustConfig,
+      conversationId,
+    });
+  }
+
   async searchThreads(query: MailSearchQuery, maxCount?: number): Promise<MailThread[]> {
     return invoke<MailThread[]>('jmap_search_threads', {
       config: this.rustConfig,

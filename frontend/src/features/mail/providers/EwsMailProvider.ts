@@ -72,6 +72,11 @@ export class EwsMailProvider implements MailProvider {
     return invoke<number>('mail_get_thread_count', { accessToken, folder });
   }
 
+  async getThreadSnippet(conversationId: string): Promise<string> {
+    const accessToken = await this.token();
+    return invoke<string>('mail_get_thread_snippet', { accessToken, conversationId });
+  }
+
   async searchThreads(query: MailSearchQuery, maxCount = 50): Promise<MailThread[]> {
     const accessToken = await this.token();
     console.log('[EWS.searchThreads] query:', JSON.stringify(query), '| maxCount:', maxCount);

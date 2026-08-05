@@ -708,10 +708,16 @@ body {
   overflow: hidden; line-height: 1.4;
 }
 .mail-thread-item__snippet-skeleton {
-  display: inline-block; width: 72%; height: 10px; border-radius: 5px;
+  display: grid; width: 100%; gap: 5px; margin-top: 4px;
+}
+.mail-thread-item__snippet-skeleton::before,
+.mail-thread-item__snippet-skeleton::after {
+  content: ""; display: block; height: 8px; border-radius: 4px;
   background: linear-gradient(90deg, var(--skeleton-base), var(--skeleton-highlight), var(--skeleton-base));
   background-size: 200% 100%; animation: mail-skeleton-pulse 1.2s ease-in-out infinite;
 }
+.mail-thread-item__snippet-skeleton::before { width: 88%; }
+.mail-thread-item__snippet-skeleton::after { width: 62%; }
 .mail-thread-list-skeleton { display: flex; gap: 12px; min-height: 88px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .mail-thread-list-skeleton__avatar { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 50%; }
 .mail-thread-list-skeleton__content { display: grid; flex: 1; gap: 8px; min-width: 0; }

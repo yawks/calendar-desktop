@@ -26,6 +26,7 @@ export interface ThreadListProps {
   readonly onSelectAll: () => void;
   readonly onClearSelection: () => void;
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
+  readonly resolveProvider?: (thread: MailThread) => import('../providers/MailProvider').MailProvider | null;
 }
 
 export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
@@ -52,6 +53,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       onSelectAll,
       onClearSelection,
       provider,
+      resolveProvider,
     },
     ref
   ) => {
@@ -190,7 +192,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
         <span>
           {totalCount === undefined || filter === 'unread'
             ? visibleThreads.length
-            : `${visibleThreads.length} / ${totalCount}`}{' '}
+            : `${visibleThreads.length} / ${Math.max(visibleThreads.length, totalCount)}`}{' '}
           {t('mail.conversations', 'conversations')}
         </span>
       </div>
@@ -231,7 +233,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={isSentFolder}
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
-              provider={provider}
+              provider={resolveProvider?.(thread) ?? provider}
               onSelect={onSelect}
               onToggleRead={onToggleRead}
               onDelete={onDelete}
