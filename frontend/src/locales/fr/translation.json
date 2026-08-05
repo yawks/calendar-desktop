@@ -246,7 +246,16 @@
     "email": "E-mail",
     "displayName": "Nom d'affichage",
     "server": "Serveur",
-    "port": "Port"
+    "port": "Port",
+    "signatures": {
+      "title": "Signatures",
+      "hint": "Définissez une signature par alias. Elle sera insérée automatiquement lors de la rédaction.",
+      "placeholder": "Votre signature…",
+      "position": "Position dans les réponses",
+      "posBottom": "Tout en bas",
+      "posAboveQuoted": "Au-dessus du fil cité",
+      "save": "Enregistrer"
+    }
   },
   "freeBusy": {
     "title": "Disponibilités",

@@ -395,6 +395,8 @@ export interface MailEditorHandle {
   getHTML: () => string;
   focus: () => void;
   isModified: () => boolean;
+  /** Replace (or remove) the signature block in the editor without clearing content. */
+  replaceSignatureBlock: (signatureHtml: string, position: 'bottom' | 'above-quoted') => void;
 }
 
 export interface MailEditorProps {
@@ -467,6 +469,25 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
       getHTML:    () => editor?.getHTML() ?? '',
       focus:      () => { editor?.commands.focus('start'); },
       isModified: () => isDirtyRef.current,
+      replaceSignatureBlock: (signatureHtml: string, position: 'bottom' | 'above-quoted') => {
+        if (!editor) return;
+        const current = editor.getHTML();
+        // Strip existing signature block
+        const withoutSig = current.replace(/<div[^>]*data-courrier-sig[^>]*>[\s\S]*?<\/div>/, '');
+        const sigBlock = signatureHtml
+          ? `<div data-courrier-sig="1">${signatureHtml}</div>`
+          : '';
+        let next: string;
+        if (position === 'above-quoted') {
+          const idx = withoutSig.indexOf('<div class="mail-quoted');
+          next = idx !== -1
+            ? withoutSig.slice(0, idx) + sigBlock + withoutSig.slice(idx)
+            : withoutSig + sigBlock;
+        } else {
+          next = withoutSig + sigBlock;
+        }
+        editor.commands.setContent(next);
+      },
     }), [editor]);
 
     // Auto-focus the editor body on mount (skip when the caller wants focus elsewhere)

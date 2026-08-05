@@ -120,8 +120,6 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   const showRecipients = isSentFolder && totalRecipients > 0;
   const recipientsLabel = toRecipients.map(r => r.name || r.email).join(', ');
 
-  const uniqueSenders = thread.unique_senders ?? [];
-
   let avatarContent: React.ReactNode;
   if (isHovered || isChecked) {
     avatarContent = (
@@ -131,12 +129,14 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
     );
   } else if (showRecipients) {
     avatarContent = <RecipientAvatars recipients={toRecipients} provider={provider} />;
-  } else if (uniqueSenders.length >= 2) {
-    avatarContent = <RecipientAvatars recipients={uniqueSenders} provider={provider} />;
   } else {
+    const sender = thread.from_name ?? thread.from_email ?? '?';
+    const matchingSender = thread.unique_senders?.find(candidate =>
+      candidate.name?.trim().toLowerCase() === thread.from_name?.trim().toLowerCase()
+    );
     avatarContent = (
       <ContactAvatar
-        email={thread.from_email ?? thread.from_name ?? ''}
+        email={thread.from_email ?? matchingSender?.email ?? sender}
         name={thread.from_name ?? undefined}
         provider={provider}
         size={36}

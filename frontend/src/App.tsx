@@ -4,6 +4,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 import { FontSizeProvider } from './shared/store/FontSizeStore';
+import { SignatureProvider } from './shared/store/SignatureStore';
 
 import { CalendarGroupProvider } from './features/calendar/store/CalendarGroupStore';
 import CalendarPage from './features/calendar/CalendarPage';
@@ -61,6 +62,7 @@ export default function App() {
       <ThemeProvider>
         <LanguageProvider>
           <FontSizeProvider>
+            <SignatureProvider>
             <LogoDevTokenProvider>
             <LayoutProvider>
             <GoogleAuthProvider>
@@ -86,6 +88,7 @@ export default function App() {
             </GoogleAuthProvider>
           </LayoutProvider>
             </LogoDevTokenProvider>
+            </SignatureProvider>
           </FontSizeProvider>
         </LanguageProvider>
       </ThemeProvider>

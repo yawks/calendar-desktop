@@ -246,7 +246,16 @@
     "email": "Email",
     "displayName": "Display Name",
     "server": "Server",
-    "port": "Port"
+    "port": "Port",
+    "signatures": {
+      "title": "Signatures",
+      "hint": "Define a signature per alias. It will be automatically inserted when composing.",
+      "placeholder": "Your signature…",
+      "position": "Position in replies",
+      "posBottom": "At the very bottom",
+      "posAboveQuoted": "Above the quoted thread",
+      "save": "Save"
+    }
   },
   "freeBusy": {
     "title": "Availability",
