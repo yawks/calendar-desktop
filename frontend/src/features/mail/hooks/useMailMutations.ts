@@ -367,8 +367,8 @@ export function useMailMutations() {
   });
 
   const sendMailMutation = useMutation({
-    mutationFn: async ({ provider, to, cc, bcc, subject, bodyHtml, attachments, fromIdentityId, inReplyTo, references, replyToItemId, replyToChangeKey, isForward }: MutationParams & { to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string, attachments?: ComposerAttachment[], fromIdentityId?: string; conversationId?: string; inReplyTo?: string; references?: string; replyToItemId?: string; replyToChangeKey?: string; isForward?: boolean }) => {
-      await provider.sendMail({ to, cc, bcc, subject, bodyHtml, attachments, fromIdentityId, inReplyTo, references, replyToItemId, replyToChangeKey, isForward });
+    mutationFn: async ({ provider, to, cc, bcc, subject, bodyHtml, attachments, fromIdentityId, inReplyTo, references, replyToItemId, replyToChangeKey, isForward, sendAt }: MutationParams & { to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string, attachments?: ComposerAttachment[], fromIdentityId?: string; conversationId?: string; inReplyTo?: string; references?: string; replyToItemId?: string; replyToChangeKey?: string; isForward?: boolean; sendAt?: string }) => {
+      await provider.sendMail({ to, cc, bcc, subject, bodyHtml, attachments, fromIdentityId, inReplyTo, references, replyToItemId, replyToChangeKey, isForward, sendAt });
     },
     // No onMutate/onSettled: scheduleSend owns the optimistic update and post-send polling.
   });

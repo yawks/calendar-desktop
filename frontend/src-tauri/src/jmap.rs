@@ -21,6 +21,19 @@ pub struct JmapConfig {
     pub token: String,
     pub auth_type: Option<String>,
     pub color: Option<String>,
+    pub fastmail_token: Option<String>,
+    /// Internal cursor used only by jmap_list_threads; never persisted in an account.
+    #[serde(default)]
+    pub list_offset: u32,
+}
+
+fn fastmail_config(config: &JmapConfig) -> Option<JmapConfig> {
+    let token = config.fastmail_token.as_deref()?.trim();
+    if token.is_empty() { return None; }
+    let mut private = config.clone();
+    private.token = token.to_string();
+    private.auth_type = Some("bearer".to_string());
+    Some(private)
 }
 
 // ── Persistent client + folder-ID cache ──────────────────────────────────────
@@ -169,6 +182,7 @@ mod mime_tests {
             identity_id: None,
             in_reply_to: None,
             references: None,
+            send_at: None,
         };
 
         let raw = String::from_utf8(build_mime_message("sender@example.com", &params).unwrap()).unwrap();
@@ -358,12 +372,18 @@ impl MailProvider for JmapProvider {
 
         let is_snoozed = folder == "snoozed";
         let query_limit = if is_snoozed { count as usize } else { email_limit as usize };
+        let query_position = if is_snoozed {
+            self.config.list_offset
+        } else {
+            self.config.list_offset.saturating_mul(4)
+        };
 
         let mut request = client.build();
         {
             let q = request.query_email()
                 .filter(EmailFilter::in_mailbox(&mailbox_id))
                 .sort([EmailComparator::received_at().descending()])
+                .position(query_position as i32)
                 .limit(query_limit);
             if is_snoozed {
                 q.arguments().collapse_threads(true);
@@ -738,7 +758,12 @@ impl MailProvider for JmapProvider {
     }
 
     async fn send_mail(&self, params: SendMailParams) -> Result<(), String> {
-        let client = get_client(&self.state, &self.config).await?;
+        let action_config = if params.send_at.is_some() {
+            fastmail_config(&self.config).ok_or_else(|| "Fastmail web token required for scheduled send".to_string())?
+        } else {
+            self.config.clone()
+        };
+        let client = get_client(&self.state, &action_config).await?;
 
         let mut req = client.build();
         req.add_capability(URI::Submission);
@@ -748,7 +773,7 @@ impl MailProvider for JmapProvider {
         let identities = resp.method_response_by_pos(0)
             .unwrap_get_identity()
             .map_err(|e| format!("Identity/get: {}", e))?;
-        let mailboxes = resp.method_response_by_pos(0)
+        let mailboxes = resp.method_response_by_pos(1)
             .unwrap_get_mailbox()
             .map_err(|e| format!("Mailbox/get: {}", e))?;
 
@@ -786,9 +811,30 @@ impl MailProvider for JmapProvider {
             .map_err(|e| format!("Email/import: {}", e))?;
         let email_id = email.id().unwrap_or_default().to_string();
 
-        client.email_submission_create(&email_id, &resolved_identity_id)
-            .await
-            .map_err(|e| format!("EmailSubmission/set: {}", e))?;
+        if let Some(send_at) = params.send_at.as_deref() {
+            let send_at = chrono::DateTime::parse_from_rfc3339(send_at)
+                .map_err(|e| format!("Invalid scheduled-send date: {e}"))?
+                .with_timezone(&chrono::Utc);
+            if send_at <= chrono::Utc::now() { return Err("Scheduled-send date must be in the future".to_string()); }
+            let hold_until = send_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let mail_from = jmap_client::email_submission::Address::new(from_email)
+                .parameter("HOLDUNTIL", Some(hold_until));
+            let recipients = params.to.iter().chain(&params.cc).chain(&params.bcc)
+                .map(|address| jmap_client::email_submission::Address::new(address));
+            let mut submission = client.build();
+            submission.add_capability(URI::Submission);
+            submission.set_email_submission().create()
+                .email_id(&email_id)
+                .identity_id(&resolved_identity_id)
+                .envelope(mail_from, recipients);
+            let mut response = submission.send().await.map_err(|e| format!("EmailSubmission/set: {e}"))?;
+            let set_response = response.method_response_by_pos(0).unwrap_set_email_submission()
+                .map_err(|e| format!("EmailSubmission/set response: {e}"))?;
+            set_response.unwrap_create_errors().map_err(|e| format!("EmailSubmission/set rejected: {e}"))?;
+        } else {
+            client.email_submission_create(&email_id, &resolved_identity_id)
+                .await.map_err(|e| format!("EmailSubmission/set: {}", e))?;
+        }
         Ok(())
     }
 
@@ -1029,10 +1075,12 @@ pub async fn jmap_get_inbox_unread(
 #[command]
 pub async fn jmap_list_threads(
     state: tauri::State<'_, Arc<JmapClientState>>,
-    config: JmapConfig,
+    mut config: JmapConfig,
     folder: String,
     max_count: Option<u32>,
+    offset: Option<u32>,
 ) -> Result<Vec<MailThread>, String> {
+    config.list_offset = offset.unwrap_or(0);
     JmapProvider { config, state: Arc::clone(&state) }.list_threads(&folder, max_count).await
 }
 
@@ -1204,9 +1252,10 @@ pub async fn jmap_snooze(
     id: String,
     until: Option<String>,
 ) -> Result<String, String> {
-    let client = get_client(&state, &config).await?;
-    let snoozed_id = get_or_create_snoozed_id(&state, &client, &config).await?;
-    let folders = get_folder_ids(&state, &client, &config).await?;
+    let private_config = fastmail_config(&config).ok_or_else(|| "Fastmail web token required for snooze".to_string())?;
+    let client = get_client(&state, &private_config).await?;
+    let snoozed_id = get_or_create_snoozed_id(&state, &client, &private_config).await?;
+    let folders = get_folder_ids(&state, &client, &private_config).await?;
     let inbox_id = folders.get("inbox").cloned();
     let sent_id = folders.get("sentitems").cloned();
     let until = until.ok_or_else(|| "JMAP snooze requires an awaken time".to_string())?;
@@ -1266,6 +1315,7 @@ pub async fn jmap_send(
     identity_id: Option<String>,
     in_reply_to: Option<String>,
     references: Option<String>,
+    send_at: Option<String>,
 ) -> Result<(), String> {
     JmapProvider { config, state: Arc::clone(&state) }.send_mail(SendMailParams {
         to,
@@ -1280,6 +1330,7 @@ pub async fn jmap_send(
         reply_to_change_key: None,
         attachments,
         is_forward: None,
+        send_at,
     }).await
 }
 

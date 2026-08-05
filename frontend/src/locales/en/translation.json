@@ -140,6 +140,9 @@
     "remove": "Remove {{name}}"
   },
   "config": {
+    "advanced": "Advanced",
+    "fastmailWebToken": "Fastmail web token",
+    "fastmailWebTokenHelp": "Optional. Enables private Fastmail features such as snooze and scheduled send.",
     "backToCalendar": "← Back to Calendar",
     "pageTitle": "Settings",
     "sectCalendars": "Calendars",
@@ -347,6 +350,10 @@
     "originalMessage": "----- Original Message -----",
     "send": "Send",
     "sending": "Sending…",
+    "scheduleSend": "Schedule send",
+    "schedule": "Schedule",
+    "sendTomorrowMorning": "Tomorrow morning",
+    "chooseSendDateTime": "Choose date and time",
     "attach": "Attach",
     "close": "Close",
     "saveDraft": "Save draft",

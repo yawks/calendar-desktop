@@ -57,7 +57,7 @@ export default function App() {
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister: indexedDBPersister }}
+      persistOptions={{ persister: indexedDBPersister, buster: 'mail-provider-loading-v4' }}
     >
       <ThemeProvider>
         <LanguageProvider>

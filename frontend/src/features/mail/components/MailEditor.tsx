@@ -242,6 +242,22 @@ const QuotedBlock = Node.create({
   },
 });
 
+// SignatureBlock: thin wrapper so Tiptap preserves data-courrier-sig through
+// its HTML parser/serialiser instead of stripping the attribute.
+const SignatureBlock = Node.create({
+  name: 'signatureBlock',
+  group: 'block',
+  content: 'block+',
+
+  parseHTML() {
+    return [{ tag: 'div[data-courrier-sig]' }];
+  },
+
+  renderHTML() {
+    return ['div', { 'data-courrier-sig': '1' }, 0];
+  },
+});
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const FONT_SIZES = ['10', '12', '14', '16', '18', '20', '24', '28', '36'];
@@ -425,6 +441,7 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
         ResizableImage.configure({ inline: true, allowBase64: true }),
         Placeholder.configure({ placeholder: placeholder ?? '' }),
         QuotedBlock,
+        SignatureBlock,
       ],
       content: initialHTML ?? '',
       onUpdate: () => { isDirtyRef.current = true; },
@@ -471,12 +488,17 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
       isModified: () => isDirtyRef.current,
       replaceSignatureBlock: (signatureHtml: string, position: 'bottom' | 'above-quoted') => {
         if (!editor) return;
-        const current = editor.getHTML();
-        // Strip existing signature block
-        const withoutSig = current.replace(/<div[^>]*data-courrier-sig[^>]*>[\s\S]*?<\/div>/, '');
-        const sigBlock = signatureHtml
-          ? `<div data-courrier-sig="1">${signatureHtml}</div>`
-          : '';
+        // DOM-based removal handles multi-paragraph sigs and nested divs correctly
+        const parsed = new DOMParser().parseFromString(editor.getHTML(), 'text/html');
+        parsed.body.querySelector('[data-courrier-sig]')?.remove();
+        const withoutSig = parsed.body.innerHTML;
+
+        if (!signatureHtml) {
+          editor.commands.setContent(withoutSig);
+          return;
+        }
+
+        const sigBlock = `<div data-courrier-sig="1">${signatureHtml}</div>`;
         let next: string;
         if (position === 'above-quoted') {
           const idx = withoutSig.indexOf('<div class="mail-quoted');

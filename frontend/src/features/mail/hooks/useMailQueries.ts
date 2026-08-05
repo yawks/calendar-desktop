@@ -271,6 +271,10 @@ export function useMailConversation(accountId: string, conversationId: string | 
     },
     enabled: !!provider && !!conversationId,
     staleTime: 60 * 1000,
+    // A conversation can have been populated from a transient provider
+    // response while switching accounts in the unified view. Keep cached data
+    // for instant paint, but always validate it when the user opens a thread.
+    refetchOnMount: 'always',
     retry: false,
   });
   return useMemo(

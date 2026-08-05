@@ -5,14 +5,15 @@ import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams } from './Ma
 
 export class JmapMailProvider implements MailProvider {
   readonly providerType = 'jmap';
-  // Standard JMAP tokens cannot access Fastmail's private dev/mail snooze API.
-  readonly capabilities = { snooze: false } as const;
+  readonly capabilities: import('./MailProvider').MailProviderCapabilities;
   readonly accountId: string;
   private readonly config: JmapAccount;
 
   constructor(account: JmapAccount) {
     this.accountId = account.id;
     this.config = account;
+    const hasFastmailToken = !!account.fastmailToken?.trim();
+    this.capabilities = { snooze: hasFastmailToken, scheduledSend: hasFastmailToken };
   }
 
   private get rustConfig() {
@@ -21,14 +22,16 @@ export class JmapMailProvider implements MailProvider {
       session_url: this.config.sessionUrl,
       token: this.config.token,
       auth_type: this.config.authType ?? 'bearer',
+      fastmail_token: this.config.fastmailToken ?? null,
     };
   }
 
-  async listThreads(folder: string, maxCount?: number): Promise<MailThread[]> {
+  async listThreads(folder: string, maxCount?: number, offset = 0): Promise<MailThread[]> {
     return invoke<MailThread[]>('jmap_list_threads', {
       config: this.rustConfig,
       folder,
       maxCount,
+      offset,
     });
   }
 
@@ -72,6 +75,7 @@ export class JmapMailProvider implements MailProvider {
       identityId: params.fromIdentityId ?? null,
       inReplyTo: params.inReplyTo ?? null,
       references: params.references ?? null,
+      sendAt: params.sendAt ?? null,
     });
   }
 

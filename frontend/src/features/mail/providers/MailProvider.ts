@@ -6,6 +6,7 @@ export type ProviderType = 'ews' | 'gmail' | 'imap' | 'jmap';
  * contract instead of inferring support from the provider type. */
 export interface MailProviderCapabilities {
   readonly snooze: boolean;
+  readonly scheduledSend: boolean;
 }
 
 export interface MailItemRef {
@@ -42,6 +43,8 @@ export interface SendMailParams {
   inReplyTo?: string;
   /** RFC 5322 References value (space-separated chain of Message-IDs). */
   references?: string;
+  /** Server-side delivery date (ISO 8601). */
+  sendAt?: string;
 }
 
 export interface SaveDraftParams {
@@ -80,9 +83,15 @@ export interface MailProvider {
   readonly capabilities: MailProviderCapabilities;
 
   listThreads(folder: string, maxCount?: number, offset?: number): Promise<MailThread[]>;
+  /** Total number of conversations in a folder, when the protocol exposes it. */
+  getThreadCount?(folder: string): Promise<number>;
+  /** Load a preview lazily when listThreads intentionally omits it. */
+  getThreadSnippet?(conversationId: string): Promise<string>;
   /** Search threads using a structured query. Results are not cached. */
   searchThreads(query: MailSearchQuery, maxCount?: number): Promise<MailThread[]>;
   getThread(conversationId: string, includeTrash?: boolean, isDraft?: boolean, includeDrafts?: boolean): Promise<MailMessage[]>;
+  /** Lazily load a single message body. Providers may omit this when getThread already returns bodies. */
+  getMessageContent?(messageId: string): Promise<Pick<MailMessage, 'body_html' | 'body_text' | 'ics_mime' | 'attachments' | 'has_attachments'>>;
   /** Return the original RFC 5322/MIME source when supported by the provider. */
   getRawMessageSource?(itemId: string): Promise<string>;
   listFolders(): Promise<MailFolder[]>;
