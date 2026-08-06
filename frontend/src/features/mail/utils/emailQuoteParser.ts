@@ -52,12 +52,39 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
     // compact; large containers must be traversed instead.
     const fullText = normaliseText(el.textContent ?? '');
     if (fullText.length > 2000) return false;
+    // A parent message container may contain header labels somewhere deep in
+    // its quoted subtree. It is not itself a header and must never be removed.
+    if (el.querySelector(
+      'hr,[data-marker="__DIVIDER__"],[data-marker="__QUOTED_TEXT__"],table',
+    )) return false;
     const labels = Array.from(el.querySelectorAll('b,strong'))
       .map(label => normaliseText(label.textContent ?? '').replace(/\s+/g, '').toLowerCase());
     const headerLabels = labels.filter(label =>
       /^(?:de|from|envoyé|sent|à|to|objet|subject):$/.test(label),
     );
-    return headerLabels.length >= 3;
+    if (headerLabels.length >= 3) return true;
+
+    // EWS may strip the <b> elements and data-marker attributes from forwarded
+    // HTML. Fall back to the visible sequence of header labels.
+    const text = normaliseText(el.textContent ?? '').toLowerCase();
+    const groups = [
+      text.startsWith('de:') || text.startsWith('from:'),
+      text.includes('envoyé:') || text.includes('sent:') || text.includes('date:'),
+      text.includes('à:') || text.includes('to:'),
+      text.includes('objet:') || text.includes('subject:'),
+    ];
+    return groups.filter(Boolean).length >= 3;
+  }
+
+  function nextMeaningfulElement(el: Element): Element | null {
+    let next = el.nextElementSibling;
+    let skipped = 0;
+    while (next && skipped < 3 && normaliseText(next.textContent ?? '') === '' &&
+      !next.matches('img,table,[data-marker="__QUOTED_TEXT__"]')) {
+      next = next.nextElementSibling;
+      skipped++;
+    }
+    return next;
   }
 
   function isQuote(el: Element, depth: number): boolean {
@@ -187,7 +214,13 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
         );
         // Some Outlook desktop messages expose only an <hr>; the following
         // sibling is the unclassified De/Envoyé/À/Objet header block.
-        const isOutlookHr = child.tagName === 'HR' && looksLikeOutlookHeader(child.nextElementSibling);
+        const nextAfterDivider = nextMeaningfulElement(child);
+        const isOutlookHr = child.tagName === 'HR' && (
+          child.id.toLowerCase() === 'zwchr' || looksLikeOutlookHeader(nextAfterDivider)
+        );
+        // Zimbra and some Outlook Web forwards preserve explicit boundary
+        // markers. Prefer these over visual/text heuristics when available.
+        const isExplicitMailDivider = child.getAttribute('data-marker') === '__DIVIDER__';
         // Gmail puts the attribution directly before its blockquote. The
         // blockquote is the boundary; wrapping both would create a duplicate
         // empty level and discard the attribution line.
@@ -195,14 +228,15 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
         if (isContainedGmailAttribution) child.removeAttribute('data-qt-contained-attribution');
         const isLeafLike = child.children.length === 0 || text.length < 300 || isOutlookHeader;
         const isDiv = !isContainedGmailAttribution && isLeafLike && (
+          isExplicitMailDivider ||
           isOutlookHr ||
           isOutlookHeader ||
           (marker != null && (text === marker || text.startsWith(marker))) ||
           isDividerText(childText)
         );
         if (isDiv) {
-          if (isOutlookHr) {
-            child.nextElementSibling?.setAttribute('data-qt-contained-outlook-header', '');
+          if (isOutlookHr || isExplicitMailDivider) {
+            nextAfterDivider?.setAttribute('data-qt-contained-outlook-header', '');
           }
           if (child.matches('.gmail_attr') && child.nextElementSibling?.tagName === 'BLOCKQUOTE') {
             child.nextElementSibling.setAttribute('data-qt-gmail-body', '');

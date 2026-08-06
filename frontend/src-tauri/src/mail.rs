@@ -1771,18 +1771,13 @@ fn thread_header_shape() -> &'static str {
 
 #[command]
 pub async fn mail_get_message_content(access_token: String, item_id: String) -> Result<MailMessage, String> {
-    let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:BodyType>HTML</t:BodyType><t:IncludeMimeContent>true</t:IncludeMimeContent><t:AdditionalProperties><t:FieldURI FieldURI="message:IsRead"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="{item_id}"/></m:ItemIds></m:GetItem>"#);
+    let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:BodyType>HTML</t:BodyType><t:AdditionalProperties><t:FieldURI FieldURI="message:IsRead"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="{item_id}"/></m:ItemIds></m:GetItem>"#);
     let xml = send(&access_token, &body).await?;
     if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error getting message body")); }
     for item_type in ["t:Message", "t:MeetingRequest", "t:MeetingResponse", "t:MeetingCancellation"] {
         if let Some(msg_xml) = xml_all_ns(&xml, item_type).into_iter().next() {
             if let Some(mut msg) = parse_message(&msg_xml) {
                 if item_type != "t:Message" { msg.ics_mime = build_meeting_ics(&msg_xml, item_type); }
-                if let Some(mime_body) = best_mime_body(&msg_xml) {
-                    if strip_html_tags(&mime_body).trim().len() > strip_html_tags(&msg.body_html).trim().len() {
-                        msg.body_html = mime_body;
-                    }
-                }
                 let inline = parse_inline_images(&msg_xml);
                 msg.body_html = inject_inline_images(&access_token, msg.body_html, inline).await;
                 return Ok(msg);
@@ -1790,38 +1785,6 @@ pub async fn mail_get_message_content(access_token: String, item_id: String) -> 
         }
     }
     Err("EWS message not found".into())
-}
-
-fn best_mime_body(msg_xml: &str) -> Option<String> {
-    let encoded = xml_content_ns(msg_xml, "t:MimeContent")?;
-    let compact: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
-    let raw = BASE64.decode(compact.as_bytes()).ok()?;
-    let parsed = mailparse::parse_mail(&raw).ok()?;
-    let mut html_parts = Vec::new();
-    let mut text_parts = Vec::new();
-
-    fn collect(part: &mailparse::ParsedMail<'_>, html: &mut Vec<String>, text: &mut Vec<String>) {
-        if part.subparts.is_empty() {
-            if part.get_content_disposition().disposition == mailparse::DispositionType::Attachment { return; }
-            if let Ok(body) = part.get_body() {
-                match part.ctype.mimetype.as_str() {
-                    "text/html" => html.push(body),
-                    "text/plain" => text.push(body),
-                    _ => {}
-                }
-            }
-            return;
-        }
-        for subpart in &part.subparts { collect(subpart, html, text); }
-    }
-
-    collect(&parsed, &mut html_parts, &mut text_parts);
-    html_parts.into_iter().max_by_key(|body| strip_html_tags(body).len()).or_else(|| {
-        text_parts.into_iter().max_by_key(String::len).map(|body| {
-            let escaped = body.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-            format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{escaped}</pre>")
-        })
-    })
 }
 
 #[command]

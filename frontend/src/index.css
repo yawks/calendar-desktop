@@ -1499,13 +1499,14 @@ body {
 .mail-message-body-retry { border: 0; background: transparent; color: var(--text-muted); cursor: pointer; padding: 20px 0; }
 .mail-message-body-reload {
   display: block;
+  width: fit-content;
   border: 0;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   font-size: calc(11px * var(--font-scale, 1));
   padding: 2px 0;
-  margin-top: 2px;
+  margin: 2px 0 0 auto;
 }
 .mail-message-body-reload:disabled { cursor: default; opacity: .65; }
 @keyframes mail-skeleton-pulse { to { background-position: -200% 0; } }
