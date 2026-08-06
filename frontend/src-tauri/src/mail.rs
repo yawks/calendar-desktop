@@ -415,6 +415,7 @@ impl MailProvider for EwsProvider {
                     to_recipients,
                     cc_recipients: vec![],
                     unique_senders: vec![],
+                    snoozed_until: None,
                 });
             }
             threads.sort_by(|a, b| a.last_delivery_time.cmp(&b.last_delivery_time));
@@ -483,6 +484,7 @@ impl MailProvider for EwsProvider {
                     to_recipients: vec![],
                     cc_recipients: vec![],
                     unique_senders: vec![],
+                    snoozed_until: None,
                 });
             }
             return Ok(threads);
@@ -633,6 +635,7 @@ impl MailProvider for EwsProvider {
                 to_recipients,
                 cc_recipients: vec![],
                 unique_senders,
+                snoozed_until: None,
             });
         }
 
@@ -778,6 +781,7 @@ impl MailProvider for EwsProvider {
                     to_recipients: vec![],
                     cc_recipients: vec![],
                     unique_senders: vec![],
+                    snoozed_until: None,
                 });
             }
             if order.len() >= thread_limit && by_conv.len() >= thread_limit {

@@ -44,6 +44,7 @@ export function JmapAccountManageModal({ account, onClose }: {
   const [authType, setAuthType] = useState<'bearer' | 'basic'>(account.authType ?? 'bearer');
   const [color, setColor] = useState(account.color || DEFAULT_COLORS[0]);
   const [fastmailToken, setFastmailToken] = useState(account.fastmailToken ?? '');
+  const [fastmailCookie, setFastmailCookie] = useState(account.fastmailCookie ?? '');
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const handleSave = (e: FormEvent) => {
@@ -57,6 +58,7 @@ export function JmapAccountManageModal({ account, onClose }: {
       authType,
       color,
       fastmailToken: fastmailToken.trim() || undefined,
+      fastmailCookie: fastmailCookie.trim() || undefined,
     });
     onClose();
   };
@@ -110,7 +112,12 @@ export function JmapAccountManageModal({ account, onClose }: {
                     <div className="form-row">
                       <label>{t('config.fastmailWebToken', 'Jeton web Fastmail')}</label>
                       <input type="password" autoComplete="off" value={fastmailToken} onChange={(e) => setFastmailToken(e.target.value)} placeholder="fma1-…" />
-                      <small>{t('config.fastmailWebTokenHelp', 'Optionnel. Active les fonctions privées Fastmail comme le snooze et l’envoi différé.')}</small>
+                      <small>{t('config.fastmailWebTokenHelp', 'Optionnel. Collez uniquement la valeur fma1…, sans le préfixe Bearer.')}</small>
+                    </div>
+                    <div className="form-row">
+                      <label>{t('config.fastmailCookie', 'Cookie Fastmail')}</label>
+                      <textarea rows={3} value={fastmailCookie} onChange={(e) => setFastmailCookie(e.target.value)} placeholder="seenlogin=1; __Http-f_…; __Http-s_…" spellCheck={false} />
+                      <small>{t('config.fastmailCookieHelp', 'Copiez la valeur complète passée à curl avec -b. Elle doit correspondre au jeton fma1.')}</small>
                     </div>
                   </div>
                 )}

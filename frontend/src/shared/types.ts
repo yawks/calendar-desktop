@@ -85,6 +85,8 @@ export interface JmapAccount {
   authType?: 'bearer' | 'basic';
   /** Optional Fastmail web token used only for private webmail extensions. */
   fastmailToken?: string;
+  /** Cookie header paired with the private Fastmail web token. */
+  fastmailCookie?: string;
   /** UI color for this account (used in mail) */
   color?: string;
 }

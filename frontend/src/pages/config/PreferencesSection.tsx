@@ -8,7 +8,7 @@ import { useLogoDevToken } from '../../shared/store/LogoDevTokenStore';
 import { useTheme, ThemePreference } from '../../shared/store/ThemeStore';
 
 function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference; active: boolean; onClick: () => void; label: string }) {
-  const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : 1.2;
+  const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : size === 'intermediate' ? 1.1 : 1.2;
   return (
     <button
       type="button"
@@ -172,6 +172,7 @@ export function PreferencesSection() {
         <div style={{ display: 'flex', gap: 12 }}>
           <FontSizeOption size="small" label={t('settings.fontSize.small', 'Petite')} active={fontSize === 'small'} onClick={() => setFontSize('small')} />
           <FontSizeOption size="medium" label={t('settings.fontSize.medium', 'Moyenne')} active={fontSize === 'medium'} onClick={() => setFontSize('medium')} />
+          <FontSizeOption size="intermediate" label={t('settings.fontSize.intermediate', 'Intermédiaire')} active={fontSize === 'intermediate'} onClick={() => setFontSize('intermediate')} />
           <FontSizeOption size="large" label={t('settings.fontSize.large', 'Grande')} active={fontSize === 'large'} onClick={() => setFontSize('large')} />
         </div>
       </div>

@@ -20,6 +20,8 @@ pub struct MailThread {
     pub cc_recipients: Vec<MailRecipient>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unique_senders: Vec<MailRecipient>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]

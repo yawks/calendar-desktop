@@ -22,6 +22,8 @@ export interface MailThread {
   accountLabel?: string;
   /** Account color for the badge. Only set in All-accounts mode. */
   accountColor?: string;
+  /** Provider-reported wake-up time for a snoozed thread. */
+  snoozed_until?: string;
 }
 
 export interface MailMessage {

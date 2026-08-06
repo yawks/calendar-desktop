@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-export type FontSizePreference = 'small' | 'medium' | 'large';
+export type FontSizePreference = 'small' | 'medium' | 'intermediate' | 'large';
 
 const STORAGE_KEY = 'calendar-desktop-font-size';
 

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MailMessage, MailAttachment } from '../types';
 import { MessageBlockHeader } from './MessageBlockHeader';
 import { EmailHtmlBody } from './EmailHtmlBody';
 import { AttachmentList } from './AttachmentList';
 import { ICSInvitationCard } from './ICSInvitationCard';
 import { useTranslation } from 'react-i18next';
+import { CalendarClock } from 'lucide-react';
 
 export interface MessageBlockProps {
   readonly message: MailMessage;
@@ -24,6 +25,8 @@ export interface MessageBlockProps {
   readonly onDownloadAttachment: (att: MailAttachment) => void;
   readonly onGetAttachmentData: (att: MailAttachment) => Promise<string>;
   readonly loadingAttachmentId?: string | null;
+  readonly isInScheduledFolder?: boolean;
+  readonly onScheduledSendCanceled?: (message: MailMessage) => void;
 }
 
 function findScrollParent(el: HTMLElement): HTMLElement | null {
@@ -55,9 +58,13 @@ export function MessageBlock({
   message, conversationId, defaultExpanded = false, currentUserEmail, mailProviderType, provider,
   onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
+  isInScheduledFolder = false, onScheduledSendCanceled,
 }: MessageBlockProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [cancelingScheduled, setCancelingScheduled] = useState(false);
+  const [scheduledCanceled, setScheduledCanceled] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);
 
@@ -78,6 +85,30 @@ export function MessageBlock({
   });
   const displayedMessage = contentQuery.data ? { ...message, ...contentQuery.data, body_loaded: true } : message;
   const bodyLoading = isExpanded && displayedMessage.body_loaded === false && !contentQuery.isError;
+  const scheduledQuery = useQuery({
+    queryKey: ['mail-scheduled-send', provider?.accountId, message.item_id],
+    queryFn: () => provider!.getScheduledSend!(message.item_id),
+    enabled: isExpanded && isInScheduledFolder && !!provider?.getScheduledSend && !scheduledCanceled,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const cancelScheduled = async () => {
+    if (!scheduledQuery.data || !provider?.cancelScheduledSend) return;
+    setCancelingScheduled(true);
+    try {
+      let draftMessage = displayedMessage;
+      if (draftMessage.body_loaded === false && provider.getMessageContent) {
+        const result = await contentQuery.refetch();
+        if (result.data) draftMessage = { ...message, ...result.data, body_loaded: true };
+      }
+      await provider.cancelScheduledSend(scheduledQuery.data.submissionId);
+      setScheduledCanceled(true);
+      await queryClient.invalidateQueries({ queryKey: ['mail'] });
+      onScheduledSendCanceled?.(draftMessage);
+    } finally {
+      setCancelingScheduled(false);
+    }
+  };
   const withContent = async (action: (loaded: MailMessage) => void) => {
     if (displayedMessage.body_loaded !== false) { action(displayedMessage); return; }
     const result = await contentQuery.refetch();
@@ -122,6 +153,24 @@ export function MessageBlock({
         onToggleRead={onToggleRead}
         provider={provider}
       />
+
+      {isExpanded && scheduledQuery.data && !scheduledCanceled && (() => {
+        const scheduledDate = new Date(scheduledQuery.data.scheduledAt);
+        const remainingMs = scheduledDate.getTime() - Date.now();
+        const remainingHours = Math.max(1, Math.round(remainingMs / 3_600_000));
+        return <div className="mail-scheduled-banner">
+          <CalendarClock size={26} className="mail-scheduled-banner__icon" />
+          <div className="mail-scheduled-banner__content">
+            <strong>{t('mail.willBeSentAt', 'Sera envoyé le {{date}}', { date: scheduledDate.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) })}</strong>
+            <span>{remainingHours < 24
+              ? t('mail.inHours', 'Dans {{count}} heure(s)', { count: remainingHours })
+              : t('mail.inDaysHours', 'Dans {{days}} j {{hours}} h', { days: Math.floor(remainingHours / 24), hours: remainingHours % 24 })}</span>
+          </div>
+          <button type="button" className="mail-scheduled-banner__cancel" disabled={cancelingScheduled} onClick={() => void cancelScheduled()}>
+            {cancelingScheduled ? t('mail.cancelingSend', 'Annulation…') : t('mail.cancelSend', 'Annuler l’envoi')}
+          </button>
+        </div>;
+      })()}
 
       {isExpanded && (
         <div className="mail-message-block__body">

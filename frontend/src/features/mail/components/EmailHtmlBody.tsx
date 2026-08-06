@@ -14,7 +14,7 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   const { t } = useTranslation();
   const { resolved } = useTheme();
   const { fontSize } = useFontSize();
-  const fontScale = fontSize === 'small' ? 0.85 : fontSize === 'medium' ? 1 : 1.2;
+  const fontScale = fontSize === 'small' ? 0.85 : fontSize === 'medium' ? 1 : fontSize === 'intermediate' ? 1.1 : 1.2;
   const isDark = resolved === 'dark';
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeHeight, setIframeHeight] = useState(200);

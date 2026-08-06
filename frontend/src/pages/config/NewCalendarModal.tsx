@@ -90,6 +90,7 @@ export function NewCalendarModal({
   const [jmapAuthType, setJmapAuthType] = useState<'bearer' | 'basic'>('bearer');
   const [jmapColor, setJmapColor] = useState(() => nextColor(calendars));
   const [jmapFastmailToken, setJmapFastmailToken] = useState('');
+  const [jmapFastmailCookie, setJmapFastmailCookie] = useState('');
   const [jmapAdvancedOpen, setJmapAdvancedOpen] = useState(false);
 
   const handleNcTest = async () => {
@@ -267,6 +268,7 @@ export function NewCalendarModal({
       authType: jmapAuthType,
       color: jmapColor,
       fastmailToken: jmapFastmailToken.trim() || undefined,
+      fastmailCookie: jmapFastmailCookie.trim() || undefined,
     });
     onClose();
   };
@@ -498,7 +500,10 @@ export function NewCalendarModal({
                   {jmapAdvancedOpen && <div className="jmap-advanced__content form-row">
                     <label>{t('config.fastmailWebToken', 'Jeton web Fastmail')}</label>
                     <input type="password" autoComplete="off" value={jmapFastmailToken} onChange={(e) => setJmapFastmailToken(e.target.value)} placeholder="fma1-…" />
-                    <small>{t('config.fastmailWebTokenHelp', 'Optionnel. Active les fonctions privées Fastmail comme le snooze et l’envoi différé.')}</small>
+                    <small>{t('config.fastmailWebTokenHelp', 'Optionnel. Collez uniquement la valeur fma1…, sans le préfixe Bearer.')}</small>
+                    <label>{t('config.fastmailCookie', 'Cookie Fastmail')}</label>
+                    <textarea rows={3} value={jmapFastmailCookie} onChange={(e) => setJmapFastmailCookie(e.target.value)} placeholder="seenlogin=1; __Http-f_…; __Http-s_…" spellCheck={false} />
+                    <small>{t('config.fastmailCookieHelp', 'Copiez la valeur complète passée à curl avec -b. Elle doit correspondre au jeton fma1.')}</small>
                   </div>}
                 </div>
               </div>

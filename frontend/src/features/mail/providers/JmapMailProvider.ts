@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { JmapAccount } from '../../../shared/types';
 import { MailAttachment, MailFolder, MailIdentity, MailMessage, MailSearchQuery, MailThread } from '../types';
-import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams } from './MailProvider';
+import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams, ScheduledSendInfo } from './MailProvider';
 
 export class JmapMailProvider implements MailProvider {
   readonly providerType = 'jmap';
@@ -28,6 +28,7 @@ export class JmapMailProvider implements MailProvider {
       token: this.config.token,
       auth_type: this.config.authType ?? 'bearer',
       fastmail_token: this.config.fastmailToken ?? null,
+      fastmail_cookie: this.config.fastmailCookie ?? null,
     };
   }
 
@@ -123,6 +124,20 @@ export class JmapMailProvider implements MailProvider {
       inReplyTo: params.inReplyTo ?? null,
       references: params.references ?? null,
       sendAt: params.sendAt ?? null,
+    });
+  }
+
+  async getScheduledSend(emailId: string): Promise<ScheduledSendInfo | null> {
+    return invoke<ScheduledSendInfo | null>('jmap_get_scheduled_send', {
+      config: this.rustConfig,
+      emailId,
+    });
+  }
+
+  async cancelScheduledSend(submissionId: string): Promise<void> {
+    await invoke('jmap_cancel_scheduled_send', {
+      config: this.rustConfig,
+      submissionId,
     });
   }
 

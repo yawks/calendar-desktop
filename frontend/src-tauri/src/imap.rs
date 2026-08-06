@@ -600,6 +600,7 @@ impl MailProvider for ImapProvider {
                 to_recipients: newest.to_recipients.clone(),
                 cc_recipients: newest.cc_recipients.clone(),
                 unique_senders,
+                snoozed_until: None,
             }
         }).collect();
 

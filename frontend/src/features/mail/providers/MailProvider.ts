@@ -12,6 +12,12 @@ export interface MailProviderCapabilities {
   };
 }
 
+export interface ScheduledSendInfo {
+  submissionId: string;
+  emailId: string;
+  scheduledAt: string;
+}
+
 export interface MailItemRef {
   item_id: string;
   change_key: string;
@@ -101,6 +107,8 @@ export interface MailProvider {
   getRawMessageSource?(itemId: string): Promise<string>;
   listFolders(): Promise<MailFolder[]>;
   sendMail(params: SendMailParams): Promise<void>;
+  getScheduledSend?(emailId: string): Promise<ScheduledSendInfo | null>;
+  cancelScheduledSend?(submissionId: string): Promise<void>;
   markRead(items: MailItemRef[]): Promise<void>;
   markUnread(items: MailItemRef[]): Promise<void>;
   moveToTrash(itemId: string): Promise<void>;

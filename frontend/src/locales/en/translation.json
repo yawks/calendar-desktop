@@ -142,7 +142,9 @@
   "config": {
     "advanced": "Advanced",
     "fastmailWebToken": "Fastmail web token",
-    "fastmailWebTokenHelp": "Optional. Enables private Fastmail features such as snooze and scheduled send.",
+    "fastmailWebTokenHelp": "Optional. Paste only the fma1… value, without the Bearer prefix.",
+    "fastmailCookie": "Fastmail cookie",
+    "fastmailCookieHelp": "Copy the complete value passed to curl with -b. It must match the fma1 token.",
     "backToCalendar": "← Back to Calendar",
     "pageTitle": "Settings",
     "sectCalendars": "Calendars",
@@ -354,6 +356,11 @@
     "send": "Send",
     "sending": "Sending…",
     "scheduleSend": "Schedule send",
+    "willBeSentAt": "Will be sent {{date}}",
+    "inHours": "In {{count}} hour(s)",
+    "inDaysHours": "In {{days}}d {{hours}}h",
+    "cancelSend": "Cancel send",
+    "cancelingSend": "Canceling…",
     "scheduled": "Scheduled",
     "schedule": "Schedule",
     "sendLaterToday": "Later today",
@@ -457,6 +464,7 @@
       "sectionTitle": "Font Size",
       "small": "Small",
       "medium": "Medium",
+      "intermediate": "Intermediate",
       "large": "Large"
     },
     "layout": {

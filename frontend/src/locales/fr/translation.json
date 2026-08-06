@@ -142,7 +142,9 @@
   "config": {
     "advanced": "Avancé",
     "fastmailWebToken": "Jeton web Fastmail",
-    "fastmailWebTokenHelp": "Optionnel. Active les fonctions privées Fastmail comme le snooze et l’envoi différé.",
+    "fastmailWebTokenHelp": "Optionnel. Collez uniquement la valeur fma1…, sans le préfixe Bearer.",
+    "fastmailCookie": "Cookie Fastmail",
+    "fastmailCookieHelp": "Copiez la valeur complète passée à curl avec -b. Elle doit correspondre au jeton fma1.",
     "backToCalendar": "← Retour au calendrier",
     "pageTitle": "Paramètres",
     "sectCalendars": "Calendriers",
@@ -354,6 +356,11 @@
     "send": "Envoyer",
     "sending": "Envoi…",
     "scheduleSend": "Programmer l’envoi",
+    "willBeSentAt": "Sera envoyé le {{date}}",
+    "inHours": "Dans {{count}} heure(s)",
+    "inDaysHours": "Dans {{days}} j {{hours}} h",
+    "cancelSend": "Annuler l’envoi",
+    "cancelingSend": "Annulation…",
     "scheduled": "Programmés",
     "schedule": "Programmer",
     "sendLaterToday": "Plus tard aujourd’hui",
@@ -457,6 +464,7 @@
       "sectionTitle": "Taille de la police",
       "small": "Petite",
       "medium": "Moyenne",
+      "intermediate": "Intermédiaire",
       "large": "Grande"
     },
     "layout": {
