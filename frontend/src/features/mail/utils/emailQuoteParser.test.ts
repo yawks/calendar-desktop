@@ -163,6 +163,78 @@ describe('processEmailQuotes — blockquote', () => {
 // ─── processEmailQuotes — text-based dividers ─────────────────────────────────
 
 describe('processEmailQuotes — Outlook-style separators', () => {
+  it('preserves Zimbra marker headers and rich HTML inside one folded block', () => {
+    const el = parse(`
+      <div><br></div>
+      <hr id="zwchr" data-marker="__DIVIDER__">
+      <div data-marker="__HEADERS__">
+        <b>De: </b>&quot;Kiera Martin&quot; &lt;enquire@iqpc.co.uk&gt;<br>
+        <b>À: </b>&quot;Gerard CHOLLET&quot; &lt;gerard@example.com&gt;<br>
+        <b>Envoyé: </b>Jeudi 6 Août 2026 12:10:27<br>
+        <b>Objet: </b>More trends shaping CX in 2026<br>
+      </div>
+      <div><style>.inner-body { width: 100%; }</style></div>
+      <div data-marker="__QUOTED_TEXT__">
+        <table><tbody><tr><td>
+          <a href="https://example.com/events">More trends shaping CX in 2026</a>
+        </td></tr></tbody></table>
+      </div>
+    `);
+    expect(qtCount(el)).toBe(1);
+    const inner = el.querySelector('.qt-inner');
+    expect(inner?.textContent).toContain('Kiera Martin');
+    expect(inner?.querySelector('a')?.getAttribute('href')).toBe('https://example.com/events');
+    expect(inner?.querySelector('[data-marker="__QUOTED_TEXT__"]')).not.toBeNull();
+  });
+
+  it('does not mistake a short parent containing the forwarded HTML for its header', () => {
+    const el = parse(`
+      <div class="external-warning">ATTENTION: email externe.</div>
+      <div class="forward-container">
+        <div><br></div>
+        <hr id="zwchr" data-marker="__DIVIDER__">
+        <div data-marker="__HEADERS__">
+          <b>De: </b>Kiera Martin<br><b>À: </b>Gerard<br>
+          <b>Envoyé: </b>Jeudi 6 Août 2026<br><b>Objet: </b>More trends shaping CX
+        </div>
+        <div data-marker="__QUOTED_TEXT__">
+          <table><tbody><tr><td><a href="https://example.com/events">More trends shaping CX</a></td></tr></tbody></table>
+        </div>
+      </div>
+    `);
+    expect(qtCount(el)).toBe(1);
+    expect(el.textContent).toContain('ATTENTION: email externe.');
+    expect(el.querySelector('.qt-inner a')?.getAttribute('href')).toBe('https://example.com/events');
+  });
+
+  it('recognises the same Zimbra forward after EWS strips markers and bold tags', () => {
+    const el = parse(`
+      <p>Current message</p>
+      <hr>
+      <div><br></div>
+      <div>
+        De: "Kiera Martin" &lt;enquire@example.com&gt;<br>
+        À: "Gerard" &lt;gerard@example.com&gt;<br>
+        Envoyé: Jeudi 6 Août 2026 12:10:27<br>
+        Objet: More trends shaping CX in 2026
+      </div>
+      <div><a href="https://example.com/events">More trends shaping CX in 2026</a></div>
+    `);
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelector('.qt-inner a')?.getAttribute('href')).toBe('https://example.com/events');
+  });
+
+  it('recognises a Zimbra divider id even when all marker attributes are stripped', () => {
+    const el = parse(`
+      <p>Current message</p>
+      <hr id="zwchr">
+      <div>Forwarded header with formatting removed</div>
+      <div><a href="https://example.com/events">Rich original message</a></div>
+    `);
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelector('.qt-inner a')).not.toBeNull();
+  });
+
   it('recognises an Outlook HR followed by an unclassified header block', () => {
     const el = parse(`
       <p>Current message</p>
