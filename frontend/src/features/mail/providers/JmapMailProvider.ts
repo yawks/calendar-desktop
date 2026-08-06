@@ -63,10 +63,38 @@ export class JmapMailProvider implements MailProvider {
   }
 
   async getThread(conversationId: string): Promise<MailMessage[]> {
-    return invoke<MailMessage[]>('jmap_get_thread', {
+    const messages = await invoke<MailMessage[]>('jmap_get_thread', {
       config: this.rustConfig,
       conversationId,
     });
+    return messages.map(message => ({ ...message, body_loaded: false }));
+  }
+
+  async getMessageContent(messageId: string, conversationId?: string) {
+    let message: MailMessage;
+    try {
+      message = await invoke<MailMessage>('jmap_get_message_content', {
+        config: this.rustConfig,
+        messageId,
+        conversationId: conversationId ?? null,
+      });
+    } catch (error) {
+      console.error('[JMAP.getMessageContent]', { messageId, error });
+      const describeId = (id?: string) => id
+        ? `${id.slice(0, 4)}…${id.slice(-4)} (${id.length})`
+        : 'absent';
+      throw new Error(
+        `JMAP [message=${describeId(messageId)}, thread=${describeId(conversationId)}]: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return {
+      body_html: message.body_html,
+      body_text: message.body_text,
+      ics_mime: message.ics_mime,
+      attachments: message.attachments,
+      has_attachments: message.has_attachments,
+    };
   }
 
   async listFolders(): Promise<MailFolder[]> {

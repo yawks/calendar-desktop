@@ -87,12 +87,10 @@ export class EwsMailProvider implements MailProvider {
 
   async getThread(conversationId: string, includeTrash = false, isDraft = false, includeDrafts = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
-    // Keep list loading lightweight, but fetch a complete conversation once it
-    // is selected. The reduced header + per-message body path proved unreliable
-    // for conversations opened from the unified account view.
-    return invoke<MailMessage[]>('mail_get_thread', {
+    const messages = await invoke<MailMessage[]>('mail_get_thread_headers', {
       accessToken, conversationId, includeTrash, isDraft, includeDrafts,
     });
+    return messages.map(message => ({ ...message, body_loaded: false }));
   }
 
   async getMessageContent(messageId: string) {

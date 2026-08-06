@@ -327,6 +327,7 @@ export function ThreadDetail({
             />
             <MessageBlock
               message={messages[messages.length - 1]}
+              conversationId={thread.conversation_id}
             defaultExpanded={messages[messages.length - 1].item_id === initiallyExpandedId}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
@@ -348,6 +349,7 @@ export function ThreadDetail({
           <MessageBlock
             key={msg.item_id}
             message={msg}
+            conversationId={thread.conversation_id}
             defaultExpanded={msg.item_id === initiallyExpandedId}
             currentUserEmail={currentUserEmail}
             mailProviderType={mailProviderType}

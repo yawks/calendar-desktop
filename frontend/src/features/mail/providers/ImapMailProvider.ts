@@ -86,8 +86,25 @@ export class ImapMailProvider implements MailProvider {
     });
     return messages.map(m => ({
       ...m,
-      item_id: `${targetFolder}:${m.item_id}`
+      item_id: `${targetFolder}:${m.item_id}`,
+      body_loaded: false,
     }));
+  }
+
+  async getMessageContent(messageId: string) {
+    const separator = messageId.indexOf(':');
+    const folder = separator >= 0 ? messageId.slice(0, separator) : 'INBOX';
+    const id = separator >= 0 ? messageId.slice(separator + 1) : messageId;
+    const message = await invoke<MailMessage>('imap_get_message_content', {
+      config: this.getBackendConfig(), folder, messageId: id,
+    });
+    return {
+      body_html: message.body_html,
+      body_text: message.body_text,
+      ics_mime: message.ics_mime,
+      attachments: message.attachments,
+      has_attachments: message.has_attachments,
+    };
   }
 
   async listFolders(): Promise<MailFolder[]> {

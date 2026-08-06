@@ -5,9 +5,11 @@ import { MessageBlockHeader } from './MessageBlockHeader';
 import { EmailHtmlBody } from './EmailHtmlBody';
 import { AttachmentList } from './AttachmentList';
 import { ICSInvitationCard } from './ICSInvitationCard';
+import { useTranslation } from 'react-i18next';
 
 export interface MessageBlockProps {
   readonly message: MailMessage;
+  readonly conversationId: string;
   readonly defaultExpanded?: boolean;
   readonly currentUserEmail?: string;
   readonly mailProviderType?: 'gmail' | 'ews';
@@ -50,27 +52,32 @@ async function decodeInlineImages(html: string): Promise<void> {
 }
 
 export function MessageBlock({
-  message, defaultExpanded = false, currentUserEmail, mailProviderType, provider,
+  message, conversationId, defaultExpanded = false, currentUserEmail, mailProviderType, provider,
   onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
 }: MessageBlockProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const blockRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);
 
   const contentQuery = useQuery({
-    queryKey: ['mail', provider?.accountId, 'message-content', message.item_id],
+    queryKey: ['mail', provider?.accountId, 'message-content', conversationId, message.item_id],
     queryFn: async () => {
-      const content = await provider!.getMessageContent!(message.item_id);
-      await decodeInlineImages(content.body_html);
+      const content = await provider!.getMessageContent!(message.item_id, conversationId);
+      void decodeInlineImages(content.body_html);
       return content;
     },
     enabled: isExpanded && message.body_loaded === false && !!provider?.getMessageContent,
     staleTime: Infinity,
+    // Keep cached content for immediate paint, but validate it whenever the
+    // message block is mounted again so a partial provider response cannot
+    // poison the cache permanently.
+    refetchOnMount: 'always',
     retry: false,
   });
   const displayedMessage = contentQuery.data ? { ...message, ...contentQuery.data, body_loaded: true } : message;
-  const bodyLoading = isExpanded && displayedMessage.body_loaded === false;
+  const bodyLoading = isExpanded && displayedMessage.body_loaded === false && !contentQuery.isError;
   const withContent = async (action: (loaded: MailMessage) => void) => {
     if (displayedMessage.body_loaded !== false) { action(displayedMessage); return; }
     const result = await contentQuery.refetch();
@@ -151,11 +158,28 @@ export function MessageBlock({
               <span /><span /><span /><span />
             </div>
           ) : contentQuery.isError ? (
-            <button type="button" className="mail-message-body-retry" onClick={() => contentQuery.refetch()}>
-              Impossible de charger le message — réessayer
-            </button>
+            <div className="mail-message-body-error">
+              <div>{contentQuery.error instanceof Error ? contentQuery.error.message : String(contentQuery.error)}</div>
+              <button type="button" className="mail-message-body-retry" onClick={() => contentQuery.refetch()}>
+                {t('mail.messageContentLoadError', 'Impossible de charger le message — réessayer')}
+              </button>
+            </div>
           ) : (
-            <EmailHtmlBody html={displayedMessage.body_html || ''} bodyText={displayedMessage.body_text} />
+            <>
+              <EmailHtmlBody html={displayedMessage.body_html || ''} bodyText={displayedMessage.body_text} />
+              {message.body_loaded === false && contentQuery.data && (
+                <button
+                  type="button"
+                  className="mail-message-body-reload"
+                  disabled={contentQuery.isFetching}
+                  onClick={() => void contentQuery.refetch()}
+                >
+                  {contentQuery.isFetching
+                    ? t('mail.messageContentReloading', 'Rechargement…')
+                    : t('mail.messageContentReload', 'Recharger le contenu')}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

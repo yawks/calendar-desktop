@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { processEmailQuotes, findQuoteMarker, formatEmailQuotesForEditor } from './emailQuoteParser';
 
@@ -88,13 +89,69 @@ describe('processEmailQuotes — blockquote', () => {
     expect(qtCount(el)).toBe(2);
   });
 
-  it.each(['gmail_quote', 'yahoo_quoted', 'protonmail_quote'])('wraps %s containers', className => {
+  it.each(['yahoo_quoted', 'protonmail_quote'])('wraps %s containers', className => {
     const el = parse(`<p>Reply</p><div class="${className}">A short quoted message</div>`);
     expect(qtCount(el)).toBe(1);
   });
 
+  it('wraps a real Gmail quote container', () => {
+    const el = parse(`
+      <p>Reply</p>
+      <div class="gmail_quote">
+        <div class="gmail_attr">On Thursday Alice wrote:</div>
+        <blockquote><p>Previous message body</p></blockquote>
+      </div>
+    `);
+    expect(qtCount(el)).toBe(1);
+  });
+
+  it('does not treat Outlook-imported gmail_quote paragraphs as separate levels', () => {
+    const el = parse(`
+      <div class="gmail_attr">Le jeudi, Kelly a écrit :</div>
+      <blockquote>
+        <div class="gmail_quote">Hello Delphine,</div>
+        <div class="gmail_quote"><br></div>
+        <div class="gmail_quote">This subject was already discussed internally.</div>
+        <div class="gmail_quote">We can discuss it again later.</div>
+      </blockquote>
+    `);
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelectorAll('.qt .qt')).toHaveLength(0);
+  });
+
+  it('does not create quote levels for Gmail signature fragments', () => {
+    const el = parse(`
+      <blockquote>
+        <p>This previous message is long enough to establish the quote level.</p>
+        <blockquote><div class="gmail_signature">Name and company</div></blockquote>
+        <blockquote><div class="gmail_signature">Job title</div></blockquote>
+      </blockquote>
+    `);
+    expect(qtCount(el)).toBe(1);
+  });
+
+  it('collapses empty blockquote shells around a Gmail attribution', () => {
+    const el = parse(`
+      <p>Current quoted message ending</p>
+      <blockquote>
+        <blockquote>
+          <blockquote>
+            <div class="gmail_quote"><br></div>
+            <div class="gmail_attr">Le lundi Alice a écrit :</div>
+            <blockquote>
+              <div class="gmail_quote">Actual older message body with enough text to be meaningful.</div>
+            </blockquote>
+          </blockquote>
+        </blockquote>
+      </blockquote>
+    `);
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelectorAll('.qt .qt')).toHaveLength(0);
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('Actual older message body');
+  });
+
   it('exposes an accessible three-dot toggle', () => {
-    const el = parse('<div class="gmail_quote">Quoted message</div>');
+    const el = parse('<div class="yahoo_quoted">Quoted message</div>');
     const button = el.querySelector<HTMLButtonElement>('.qt-toggle');
     expect(button?.textContent).toBe('•••');
     expect(button?.getAttribute('aria-expanded')).toBe('false');
@@ -106,6 +163,24 @@ describe('processEmailQuotes — blockquote', () => {
 // ─── processEmailQuotes — text-based dividers ─────────────────────────────────
 
 describe('processEmailQuotes — Outlook-style separators', () => {
+  it('recognises an Outlook HR followed by an unclassified header block', () => {
+    const el = parse(`
+      <p>Current message</p>
+      <hr style="display:inline-block;width:98%">
+      <div>
+        <b>De:</b> Alice &lt;alice@example.com&gt;<br>
+        <b>Envoyé:</b> Mercredi 5 août 2026<br>
+        <b>À:</b> Bob &lt;bob@example.com&gt;<br>
+        <b>Objet:</b> Long report
+      </div>
+      <h2>1. Contexte</h2>
+      <p>The complete previous message body follows here.</p>
+    `, '________________________________');
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('Long report');
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('1. Contexte');
+  });
+
   it('recognises an Outlook reply header container', () => {
     const el = parse('<p>Reply</p><div id="divRplyFwdMsg"><b>From:</b> Alice</div><p>Old message</p>');
     expect(qtCount(el)).toBe(1);
@@ -205,6 +280,26 @@ describe('processEmailQuotes — quoteMarker', () => {
       'On Mon wrote:',
     );
     expect(qtCount(el)).toBe(1);
+  });
+});
+
+describe('processEmailQuotes — Outlook message containers', () => {
+  it('keeps a large current message wrapper that contains nested Outlook headers', () => {
+    const currentBody = 'Current message content '.repeat(120);
+    const el = parse(`
+      <p>External email warning</p>
+      <div class="message-wrapper">
+        <p>${currentBody}</p>
+        <div id="divRplyFwdMsg">
+          <b>From:</b> Alice<br><b>Sent:</b> Today<br><b>To:</b> Bob<br><b>Subject:</b> Previous
+        </div>
+        <div>Previous message</div>
+      </div>
+    `);
+
+    expect(el.textContent).toContain('Current message content');
+    expect(el.textContent).toContain('External email warning');
+    expect(el.querySelector('.message-wrapper')).not.toBeNull();
   });
 });
 
