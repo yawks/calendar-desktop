@@ -277,7 +277,8 @@ export function useMailConversation(accountId: string, conversationId: string | 
     // response while switching accounts in the unified view. Keep cached data
     // for instant paint, but always validate it when the user opens a thread.
     refetchOnMount: 'always',
-    retry: false,
+    retry: 2,
+    retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailMessage[]), isLoading, isFetching, error, refetch }),

@@ -273,6 +273,9 @@
   },
   "mail": {
     "noSubject": "(Pas d'objet)",
+    "messageContentLoadError": "Impossible de charger le message — réessayer",
+    "messageContentReloading": "Rechargement…",
+    "messageContentReload": "Recharger le contenu",
     "noAccount": "Aucun compte mail configuré. Ajoutez un compte Exchange ou Google dans les paramètres.",
     "allAccounts": "Tous les comptes",
     "contactSync": {

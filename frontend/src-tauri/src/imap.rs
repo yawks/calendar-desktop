@@ -31,14 +31,18 @@ pub struct ImapConfig {
 pub struct ImapProvider {
     config: ImapConfig,
     folder: Option<String>,
+    load_bodies: bool,
 }
 
 impl ImapProvider {
     pub fn new(config: ImapConfig) -> Self {
-        Self { config, folder: None }
+        Self { config, folder: None, load_bodies: false }
     }
     pub fn with_folder(config: ImapConfig, folder: String) -> Self {
-        Self { config, folder: Some(folder) }
+        Self { config, folder: Some(folder), load_bodies: false }
+    }
+    pub fn with_folder_and_bodies(config: ImapConfig, folder: String) -> Self {
+        Self { config, folder: Some(folder), load_bodies: true }
     }
 }
 
@@ -729,33 +733,23 @@ impl MailProvider for ImapProvider {
 
         let mut messages = Vec::new();
         for p in pending {
-            let section_str = section_path_str(&p.body_section);
-            let fetch_cmd = format!("BODY.PEEK[{}]", section_str);
-
-            let body_stream = session.fetch(&p.seq_num.to_string(), &fetch_cmd)
-                .await
-                .map_err(|e| format!("IMAP body fetch error: {}", e))?;
-            let body_results: Vec<_> = body_stream.collect().await;
-
-            let body_html = body_results.into_iter().next()
-                .and_then(|r| r.ok())
-                .and_then(|bf| {
+            let body_html = if self.load_bodies {
+                let section_str = section_path_str(&p.body_section);
+                let fetch_cmd = format!("BODY.PEEK[{}]", section_str);
+                let body_stream = session.fetch(&p.seq_num.to_string(), &fetch_cmd)
+                    .await.map_err(|e| format!("IMAP body fetch error: {}", e))?;
+                let body_results: Vec<_> = body_stream.collect().await;
+                body_results.into_iter().next().and_then(|r| r.ok()).and_then(|bf| {
                     let sp = SectionPath::Part(p.body_section.clone(), None);
                     bf.section(&sp).map(|data| {
                         let text = String::from_utf8_lossy(data).to_string();
-                        if p.body_is_html {
-                            text
-                        } else {
-                            let escaped = text
-                                .replace('&', "&amp;")
-                                .replace('<', "&lt;")
-                                .replace('>', "&gt;");
+                        if p.body_is_html { text } else {
+                            let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
                             format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
                         }
                     })
-                })
-                .unwrap_or_default();
-
+                }).unwrap_or_default()
+            } else { String::new() };
             let body_text = if body_html.is_empty() { None } else { Some(strip_html(&body_html)) };
 
             messages.push(MailMessage {
@@ -1003,6 +997,13 @@ pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Op
 #[command]
 pub async fn imap_get_thread(config: ImapConfig, conversation_id: String, folder: String) -> Result<Vec<MailMessage>, String> {
     ImapProvider::with_folder(config, folder).get_thread(&conversation_id, None, None, None).await
+}
+
+#[command]
+pub async fn imap_get_message_content(config: ImapConfig, message_id: String, folder: String) -> Result<MailMessage, String> {
+    ImapProvider::with_folder_and_bodies(config, folder)
+        .get_thread(&message_id, None, None, None).await?
+        .into_iter().next().ok_or_else(|| "IMAP message not found".to_string())
 }
 
 #[command]

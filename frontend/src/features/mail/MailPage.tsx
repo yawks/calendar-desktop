@@ -423,7 +423,7 @@ export default function MailApp() {
                 messagesLoading={messagesLoading}
                 replyingTo={replyingTo}
                 contacts={contacts}
-                provider={composerProvider}
+                provider={resolveProvider(selectedThread.accountId)}
                 currentUserEmail={
                   isAllMode
                     ? allMailAccounts.find(a => a.id === selectedThread.accountId)?.email

@@ -273,6 +273,9 @@
   },
   "mail": {
     "noSubject": "(No subject)",
+    "messageContentLoadError": "Unable to load message — retry",
+    "messageContentReloading": "Reloading…",
+    "messageContentReload": "Reload content",
     "noAccount": "No mail account configured. Add an Exchange or Google account in Settings.",
     "allAccounts": "All accounts",
     "contactSync": {

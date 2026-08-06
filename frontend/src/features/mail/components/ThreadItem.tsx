@@ -10,6 +10,36 @@ import { createPortal } from 'react-dom';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useTranslation } from 'react-i18next';
 
+// Loading every visible row at once is especially expensive in the unified
+// view (JMAP needs Thread/get + Email/get). Limit work independently per
+// account so one provider cannot reject a whole burst of previews.
+const snippetQueues = new Map<string, {
+  active: number;
+  limit: number;
+  pending: Array<() => void>;
+}>();
+
+function scheduleSnippet<T>(accountId: string, limit: number, task: () => Promise<T>): Promise<T> {
+  const queue = snippetQueues.get(accountId) ?? { active: 0, limit, pending: [] };
+  snippetQueues.set(accountId, queue);
+
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      queue.active += 1;
+      void task().then(resolve, reject).finally(() => {
+        queue.active -= 1;
+        queue.pending.shift()?.();
+        if (queue.active === 0 && queue.pending.length === 0) {
+          snippetQueues.delete(accountId);
+        }
+      });
+    };
+
+    if (queue.active < queue.limit) run();
+    else queue.pending.push(run);
+  });
+}
+
 // ── Stacked recipient avatars ───────────────────────────────────────────────
 
 interface RecipientAvatarsProps {
@@ -118,12 +148,26 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
     observer.observe(element);
     return () => observer.disconnect();
   }, [thread.conversation_id, thread.snippet, provider]);
+  // In unified mode the provider map may be rebuilt briefly while switching
+  // source tabs. The thread keeps its account id throughout that transition,
+  // so use it to keep observing the same cached preview instead of switching
+  // temporarily to a query key containing `undefined`.
+  const snippetAccountId = thread.accountId ?? provider?.accountId;
   const snippetQuery = useQuery({
-    queryKey: ['mail', provider?.accountId, 'thread-snippet', thread.conversation_id],
-    queryFn: () => provider!.getThreadSnippet!(thread.conversation_id),
+    // Keep previews separate from the `mail` namespace: list refreshes and
+    // account switches invalidate/cancel that namespace. The delivery date
+    // versions the cache so a new message still causes a fresh preview.
+    queryKey: ['mail-thread-snippet', snippetAccountId, thread.conversation_id, thread.last_delivery_time],
+    queryFn: () => scheduleSnippet(
+      provider!.accountId,
+      provider!.providerType === 'jmap' ? 1 : 3,
+      () => provider!.getThreadSnippet!(thread.conversation_id),
+    ),
     enabled: snippetNearViewport && !thread.snippet && !!provider?.getThreadSnippet,
     staleTime: Infinity,
-    retry: false,
+    gcTime: Infinity,
+    retry: 2,
+    retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   const snippet = thread.snippet || snippetQuery.data || '';
 
@@ -227,7 +271,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           )}
           {snippet ? (
             <span className="mail-thread-item__snippet-text">{formatMailPreview(snippet)}</span>
-          ) : provider?.getThreadSnippet && !snippetQuery.isError ? (
+          ) : provider?.getThreadSnippet && snippetQuery.isPending ? (
             <span className="mail-thread-item__snippet-skeleton" aria-hidden="true" />
           ) : null}
         </div>

@@ -540,26 +540,40 @@ export class GmailMailProvider implements MailProvider {
     const token = await this.token();
     const thread = await this.gFetch<GmailThread>(
       token,
-      `/users/me/threads/${conversationId}?format=full`,
+      `/users/me/threads/${conversationId}?format=metadata` +
+        `&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date` +
+        `&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Message-ID` +
+        `&metadataHeaders=References`,
     );
 
     const messages = (thread.messages ?? []).filter(
       m => includeTrash || !m.labelIds?.includes('TRASH'),
     );
 
-    return Promise.all(
-      messages.map(async m => {
-        const msg = this.parseMessage(m);
-        const body_html = await injectGmailInlineImages(
-          token,
-          m.id,
-          msg.body_html,
-          m.payload ?? {},
-          this.gFetch.bind(this),
-        );
-        return { ...msg, body_html };
-      }),
+    return messages.map(m => ({ ...this.parseMessage(m), body_loaded: false }));
+  }
+
+  async getMessageContent(messageId: string) {
+    const token = await this.token();
+    const message = await this.gFetch<GmailMessage>(
+      token,
+      `/users/me/messages/${messageId}?format=full`,
     );
+    const parsed = this.parseMessage(message);
+    const body_html = await injectGmailInlineImages(
+      token,
+      message.id,
+      parsed.body_html,
+      message.payload ?? {},
+      this.gFetch.bind(this),
+    );
+    return {
+      body_html,
+      body_text: parsed.body_text,
+      ics_mime: parsed.ics_mime,
+      attachments: parsed.attachments,
+      has_attachments: parsed.has_attachments,
+    };
   }
 
   async getRawMessageSource(itemId: string): Promise<string> {
