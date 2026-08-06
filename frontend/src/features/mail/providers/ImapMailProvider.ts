@@ -5,7 +5,7 @@ import { MailProvider, ProviderType, SendMailParams, SaveDraftParams, MailItemRe
 
 export class ImapMailProvider implements MailProvider {
   readonly providerType: ProviderType = 'imap' as ProviderType;
-  readonly capabilities = { snooze: false } as const;
+  readonly capabilities = { snooze: false, scheduledSend: false } as const;
   readonly accountId: string;
   private readonly config: ImapAccount;
   private folderMapping: Record<string, string> = {};
@@ -47,12 +47,13 @@ export class ImapMailProvider implements MailProvider {
     };
   }
 
-  async listThreads(folder: string, maxCount?: number, _offset?: number): Promise<MailThread[]> {
+  async listThreads(folder: string, maxCount?: number, offset = 0): Promise<MailThread[]> {
     const targetFolder = this.resolveFolder(folder);
     const threads = await invoke<MailThread[]>('imap_list_threads', {
       config: this.getBackendConfig(),
       folder: targetFolder,
       maxCount,
+      offset,
     });
     // For IMAP, we encode the folder in the conversation_id because UIDs are folder-specific
     return threads.map(t => ({
@@ -65,6 +66,15 @@ export class ImapMailProvider implements MailProvider {
     return this.listThreads(query.folder || 'INBOX', maxCount);
   }
 
+  async getThreadSnippet(conversationId: string): Promise<string> {
+    const separator = conversationId.indexOf(':');
+    const folder = separator >= 0 ? conversationId.slice(0, separator) : 'INBOX';
+    const ids = separator >= 0 ? conversationId.slice(separator + 1) : conversationId;
+    return invoke<string>('imap_get_thread_snippet', {
+      config: this.getBackendConfig(), folder, conversationId: ids,
+    });
+  }
+
   async getThread(conversationId: string, _includeTrash?: boolean, _isDraft?: boolean): Promise<MailMessage[]> {
     const [folder, uid] = conversationId.split(':');
     const targetFolder = folder || 'INBOX';
@@ -75,8 +85,25 @@ export class ImapMailProvider implements MailProvider {
     });
     return messages.map(m => ({
       ...m,
-      item_id: `${targetFolder}:${m.item_id}`
+      item_id: `${targetFolder}:${m.item_id}`,
+      body_loaded: false,
     }));
+  }
+
+  async getMessageContent(messageId: string) {
+    const separator = messageId.indexOf(':');
+    const folder = separator >= 0 ? messageId.slice(0, separator) : 'INBOX';
+    const id = separator >= 0 ? messageId.slice(separator + 1) : messageId;
+    const message = await invoke<MailMessage>('imap_get_message_content', {
+      config: this.getBackendConfig(), folder, messageId: id,
+    });
+    return {
+      body_html: message.body_html,
+      body_text: message.body_text,
+      ics_mime: message.ics_mime,
+      attachments: message.attachments,
+      has_attachments: message.has_attachments,
+    };
   }
 
   async listFolders(): Promise<MailFolder[]> {

@@ -54,9 +54,9 @@ const FOLDER_TO_LABEL: Record<string, string> = {
 
 function folderToLabel(folder: string): string | null {
   if (FOLDER_TO_LABEL[folder]) return FOLDER_TO_LABEL[folder];
-  // EWS/Exchange folder IDs are base64-encoded blobs containing /, +, = — never valid Gmail label IDs
-  if (/[+/=]/.test(folder)) return null;
-  return folder;
+  // Google user-label IDs are generated as Label_… . Do not forward arbitrary
+  // dynamic folder IDs from EWS/JMAP while switching sources in the unified view.
+  return folder.startsWith('Label_') ? folder : null;
 }
 
 // ── Parsing helpers ───────────────────────────────────────────────────────────
@@ -301,7 +301,7 @@ function replaceNextEmptySrc(html: string, dataUri: string): string {
  */
 export class GmailMailProvider implements MailProvider {
   readonly providerType = 'gmail' as const;
-  readonly capabilities = { snooze: false } as const;
+  readonly capabilities = { snooze: false, scheduledSend: false } as const;
   readonly accountId: string;
   readonly userEmail: string;
 
@@ -413,6 +413,28 @@ export class GmailMailProvider implements MailProvider {
     return results.filter((t): t is MailThread => t !== null);
   }
 
+  async getThreadCount(folder: string): Promise<number> {
+    const token = await this.token();
+    const label = folderToLabel(folder);
+    if (!label) return 0;
+    const params = folder === 'snoozed'
+      ? new URLSearchParams({ q: 'is:snoozed', maxResults: '500' })
+      : new URLSearchParams({ labelIds: label, maxResults: '500' });
+    const result = await this.gFetch<{
+      threads?: Array<{ id: string }>;
+      nextPageToken?: string;
+      resultSizeEstimate?: number;
+    }>(
+      token, `/users/me/threads?${params}`,
+    );
+    const returnedCount = result.threads?.length ?? 0;
+    // Gmail only promises an estimate. When the whole result fits in one page,
+    // the returned IDs give us an exact count; otherwise never report less than
+    // the number of threads already observed on that first page.
+    if (!result.nextPageToken) return returnedCount;
+    return Math.max(returnedCount, result.resultSizeEstimate ?? 0);
+  }
+
   private async fetchThreadSummary(
     token: string,
     threadId: string,
@@ -518,26 +540,40 @@ export class GmailMailProvider implements MailProvider {
     const token = await this.token();
     const thread = await this.gFetch<GmailThread>(
       token,
-      `/users/me/threads/${conversationId}?format=full`,
+      `/users/me/threads/${conversationId}?format=metadata` +
+        `&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date` +
+        `&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Message-ID` +
+        `&metadataHeaders=References`,
     );
 
     const messages = (thread.messages ?? []).filter(
       m => includeTrash || !m.labelIds?.includes('TRASH'),
     );
 
-    return Promise.all(
-      messages.map(async m => {
-        const msg = this.parseMessage(m);
-        const body_html = await injectGmailInlineImages(
-          token,
-          m.id,
-          msg.body_html,
-          m.payload ?? {},
-          this.gFetch.bind(this),
-        );
-        return { ...msg, body_html };
-      }),
+    return messages.map(m => ({ ...this.parseMessage(m), body_loaded: false }));
+  }
+
+  async getMessageContent(messageId: string) {
+    const token = await this.token();
+    const message = await this.gFetch<GmailMessage>(
+      token,
+      `/users/me/messages/${messageId}?format=full`,
     );
+    const parsed = this.parseMessage(message);
+    const body_html = await injectGmailInlineImages(
+      token,
+      message.id,
+      parsed.body_html,
+      message.payload ?? {},
+      this.gFetch.bind(this),
+    );
+    return {
+      body_html,
+      body_text: parsed.body_text,
+      ics_mime: parsed.ics_mime,
+      attachments: parsed.attachments,
+      has_attachments: parsed.has_attachments,
+    };
   }
 
   async getRawMessageSource(itemId: string): Promise<string> {

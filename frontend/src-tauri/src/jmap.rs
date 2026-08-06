@@ -21,6 +21,23 @@ pub struct JmapConfig {
     pub token: String,
     pub auth_type: Option<String>,
     pub color: Option<String>,
+    pub fastmail_token: Option<String>,
+    /// Internal cursor used only by jmap_list_threads; never persisted in an account.
+    #[serde(default)]
+    pub list_offset: u32,
+    #[serde(default)]
+    pub load_message_bodies: bool,
+    #[serde(default)]
+    pub single_message_id: Option<String>,
+}
+
+fn fastmail_config(config: &JmapConfig) -> Option<JmapConfig> {
+    let token = config.fastmail_token.as_deref()?.trim();
+    if token.is_empty() { return None; }
+    let mut private = config.clone();
+    private.token = token.to_string();
+    private.auth_type = Some("bearer".to_string());
+    Some(private)
 }
 
 // ── Persistent client + folder-ID cache ──────────────────────────────────────
@@ -169,6 +186,7 @@ mod mime_tests {
             identity_id: None,
             in_reply_to: None,
             references: None,
+            send_at: None,
         };
 
         let raw = String::from_utf8(build_mime_message("sender@example.com", &params).unwrap()).unwrap();
@@ -362,12 +380,18 @@ impl MailProvider for JmapProvider {
 
         let is_snoozed = folder == "snoozed";
         let query_limit = if is_snoozed { count as usize } else { email_limit as usize };
+        let query_position = if is_snoozed {
+            self.config.list_offset
+        } else {
+            self.config.list_offset.saturating_mul(4)
+        };
 
         let mut request = client.build();
         {
             let q = request.query_email()
                 .filter(EmailFilter::in_mailbox(&mailbox_id))
                 .sort([EmailComparator::received_at().descending()])
+                .position(query_position as i32)
                 .limit(query_limit);
             if is_snoozed {
                 q.arguments().collapse_threads(true);
@@ -384,7 +408,6 @@ impl MailProvider for JmapProvider {
                 EmailProperty::To,
                 EmailProperty::Cc,
                 EmailProperty::ReceivedAt,
-                EmailProperty::Preview,
                 EmailProperty::HasAttachment,
                 EmailProperty::Keywords,
             ]);
@@ -400,6 +423,9 @@ impl MailProvider for JmapProvider {
 
         for email in emails.list() {
             let thread_id = email.thread_id().unwrap_or_default().to_string();
+            // threadId is mandatory in JMAP, but never expose a malformed row:
+            // an empty id cannot be used by either Thread/get or snippet loading.
+            if thread_id.is_empty() { continue; }
             let from_addr = email.from().and_then(|f| f.first());
             let from_email_str = from_addr.map(|a| a.email().to_string()).unwrap_or_default();
 
@@ -449,7 +475,7 @@ impl MailProvider for JmapProvider {
                 thread_map.insert(thread_id.clone(), MailThread {
                     conversation_id: thread_id,
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
-                    snippet: email.preview().map(|s| s.to_string()).unwrap_or_default(),
+                    snippet: String::new(),
                     last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
                     message_count: 1,
                     unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
@@ -501,18 +527,31 @@ impl MailProvider for JmapProvider {
     ) -> Result<Vec<MailMessage>, String> {
         let client = get_client(&self.state, &self.config).await?;
 
-        let mut thread_request = client.build();
-        thread_request.get_thread().ids([conversation_id]);
-        let mut thread_response = thread_request.send().await.map_err(|e| e.to_string())?;
-        let thread_get = thread_response.method_response_by_pos(0).unwrap_get_thread().map_err(|e| e.to_string())?;
-        let thread = thread_get.list().first().ok_or("Thread not found")?;
-        let email_ids: Vec<String> = thread.email_ids().to_vec();
+        let email_ids: Vec<String> = if conversation_id.is_empty() {
+            let message_id = self.config.single_message_id.as_ref().ok_or("JMAP message id required")?;
+            vec![message_id.clone()]
+        } else {
+            let mut thread_request = client.build();
+            thread_request.get_thread().ids([conversation_id]);
+            let mut thread_response = thread_request.send().await
+                .map_err(|e| format!("Thread/get request failed: {e}"))?;
+            let thread_get = thread_response.method_response_by_pos(0).unwrap_get_thread()
+                .map_err(|e| format!("Thread/get response failed: {e}"))?;
+            let thread = thread_get.list().first().ok_or("Thread not found")?;
+            let ids = thread.email_ids().to_vec();
+            if let Some(message_id) = self.config.single_message_id.as_ref() {
+                ids.into_iter().filter(|id| id == message_id).collect()
+            } else {
+                ids
+            }
+        };
+        if email_ids.is_empty() { return Err("JMAP message not found in thread".to_string()); }
 
         let mut email_request = client.build();
         {
             let get_req = email_request.get_email();
-            get_req.ids(email_ids.iter().map(|s| s.as_str()))
-                .properties([
+            get_req.ids(email_ids.iter().map(|s| s.as_str()));
+            let properties = if self.config.load_message_bodies { vec![
                     EmailProperty::Id,
                     EmailProperty::ThreadId,
                     EmailProperty::Subject,
@@ -530,20 +569,32 @@ impl MailProvider for JmapProvider {
                     EmailProperty::MessageId,
                     EmailProperty::InReplyTo,
                     EmailProperty::References,
-                ]);
-            get_req.arguments()
-                .fetch_html_body_values(true)
-                .fetch_text_body_values(true)
-                .fetch_all_body_values(true);
+                ] } else { vec![
+                    EmailProperty::Id, EmailProperty::ThreadId, EmailProperty::Subject,
+                    EmailProperty::From, EmailProperty::To, EmailProperty::Cc,
+                    EmailProperty::ReceivedAt, EmailProperty::HasAttachment,
+                    EmailProperty::Keywords, EmailProperty::MessageId,
+                    EmailProperty::InReplyTo, EmailProperty::References,
+                ] };
+            get_req.properties(properties);
+            if self.config.load_message_bodies {
+                get_req.arguments().fetch_html_body_values(true)
+                    .fetch_text_body_values(true).fetch_all_body_values(true);
+            }
         }
-        let mut response = email_request.send().await.map_err(|e| e.to_string())?;
-        let emails = response.method_response_by_pos(0).unwrap_get_email().map_err(|e| e.to_string())?;
+        let mut response = email_request.send().await
+            .map_err(|e| format!("Email/get request failed: {e}"))?;
+        let emails = response.method_response_by_pos(0).unwrap_get_email()
+            .map_err(|e| format!("Email/get response failed: {e}"))?;
 
         let auth_header = build_auth_header(&self.config);
         let account_id = client.session().primary_accounts().next()
             .map(|a| a.1.as_str()).unwrap_or_default().to_string();
         let dl_template = client.session().download_url().to_string();
-        let dl_client = reqwest::Client::new();
+        let dl_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("JMAP download client error: {e}"))?;
 
         let mut messages = Vec::new();
         for email in emails.list() {
@@ -644,7 +695,7 @@ impl MailProvider for JmapProvider {
                 body_html,
                 date_time_received: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
                 is_read: email.keywords().contains(&"$seen"),
-                has_attachments: !attachments.is_empty(),
+                has_attachments: email.has_attachment(),
                 attachments,
                 message_id: email.message_id()
                     .and_then(|ids| ids.first())
@@ -742,7 +793,12 @@ impl MailProvider for JmapProvider {
     }
 
     async fn send_mail(&self, params: SendMailParams) -> Result<(), String> {
-        let client = get_client(&self.state, &self.config).await?;
+        let action_config = if params.send_at.is_some() {
+            fastmail_config(&self.config).ok_or_else(|| "Fastmail web token required for scheduled send".to_string())?
+        } else {
+            self.config.clone()
+        };
+        let client = get_client(&self.state, &action_config).await?;
 
         let mut req = client.build();
         req.add_capability(URI::Submission);
@@ -752,7 +808,7 @@ impl MailProvider for JmapProvider {
         let identities = resp.method_response_by_pos(0)
             .unwrap_get_identity()
             .map_err(|e| format!("Identity/get: {}", e))?;
-        let mailboxes = resp.method_response_by_pos(0)
+        let mailboxes = resp.method_response_by_pos(1)
             .unwrap_get_mailbox()
             .map_err(|e| format!("Mailbox/get: {}", e))?;
 
@@ -790,9 +846,30 @@ impl MailProvider for JmapProvider {
             .map_err(|e| format!("Email/import: {}", e))?;
         let email_id = email.id().unwrap_or_default().to_string();
 
-        client.email_submission_create(&email_id, &resolved_identity_id)
-            .await
-            .map_err(|e| format!("EmailSubmission/set: {}", e))?;
+        if let Some(send_at) = params.send_at.as_deref() {
+            let send_at = chrono::DateTime::parse_from_rfc3339(send_at)
+                .map_err(|e| format!("Invalid scheduled-send date: {e}"))?
+                .with_timezone(&chrono::Utc);
+            if send_at <= chrono::Utc::now() { return Err("Scheduled-send date must be in the future".to_string()); }
+            let hold_until = send_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let mail_from = jmap_client::email_submission::Address::new(from_email)
+                .parameter("HOLDUNTIL", Some(hold_until));
+            let recipients = params.to.iter().chain(&params.cc).chain(&params.bcc)
+                .map(|address| jmap_client::email_submission::Address::new(address));
+            let mut submission = client.build();
+            submission.add_capability(URI::Submission);
+            submission.set_email_submission().create()
+                .email_id(&email_id)
+                .identity_id(&resolved_identity_id)
+                .envelope(mail_from, recipients);
+            let mut response = submission.send().await.map_err(|e| format!("EmailSubmission/set: {e}"))?;
+            let set_response = response.method_response_by_pos(0).unwrap_set_email_submission()
+                .map_err(|e| format!("EmailSubmission/set response: {e}"))?;
+            set_response.unwrap_create_errors().map_err(|e| format!("EmailSubmission/set rejected: {e}"))?;
+        } else {
+            client.email_submission_create(&email_id, &resolved_identity_id)
+                .await.map_err(|e| format!("EmailSubmission/set: {}", e))?;
+        }
         Ok(())
     }
 
@@ -862,7 +939,6 @@ impl MailProvider for JmapProvider {
                 EmailProperty::To,
                 EmailProperty::Cc,
                 EmailProperty::ReceivedAt,
-                EmailProperty::Preview,
                 EmailProperty::HasAttachment,
                 EmailProperty::Keywords,
             ]);
@@ -876,6 +952,7 @@ impl MailProvider for JmapProvider {
         let own_email = self.config.email.to_lowercase();
         for email in emails.list() {
             let thread_id = email.thread_id().unwrap_or_default().to_string();
+            if thread_id.is_empty() { continue; }
             if !thread_map.contains_key(&thread_id) {
                 thread_order.push(thread_id.clone());
                 let from_addr = email.from().and_then(|f| f.first());
@@ -898,7 +975,7 @@ impl MailProvider for JmapProvider {
                 thread_map.insert(thread_id.clone(), MailThread {
                     conversation_id: thread_id,
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
-                    snippet: email.preview().map(|s| s.to_string()).unwrap_or_default(),
+                    snippet: String::new(),
                     last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
                     message_count: 1,
                     unread_count: if email.keywords().contains(&"$seen") { 0 } else { 1 },
@@ -1033,11 +1110,79 @@ pub async fn jmap_get_inbox_unread(
 #[command]
 pub async fn jmap_list_threads(
     state: tauri::State<'_, Arc<JmapClientState>>,
-    config: JmapConfig,
+    mut config: JmapConfig,
     folder: String,
     max_count: Option<u32>,
+    offset: Option<u32>,
 ) -> Result<Vec<MailThread>, String> {
+    config.list_offset = offset.unwrap_or(0);
     JmapProvider { config, state: Arc::clone(&state) }.list_threads(&folder, max_count).await
+}
+
+#[command]
+pub async fn jmap_get_thread_count(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    folder: String,
+) -> Result<u32, String> {
+    let client = get_client(&state, &config).await?;
+    let mailbox_id = match folder.as_str() {
+        "inbox" | "sentitems" | "deleteditems" | "drafts" | "spam" => {
+            let ids = get_folder_ids(&state, &client, &config).await?;
+            ids.get(&folder).cloned().unwrap_or(folder)
+        }
+        "snoozed" => get_or_create_snoozed_id(&state, &client, &config).await?,
+        _ => folder,
+    };
+
+    let mut request = client.build();
+    {
+        let query = request.query_email()
+            .filter(EmailFilter::in_mailbox(&mailbox_id))
+            .limit(1)
+            .calculate_total(true);
+        query.arguments().collapse_threads(true);
+    }
+    let mut response = request.send().await.map_err(|e| e.to_string())?;
+    let result = response.method_response_by_pos(0)
+        .unwrap_query_email()
+        .map_err(|e| e.to_string())?;
+    Ok(result.total().unwrap_or(result.ids().len()) as u32)
+}
+
+#[command]
+pub async fn jmap_get_thread_snippet(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    conversation_id: String,
+) -> Result<String, String> {
+    let client = get_client(&state, &config).await?;
+    // Thread/get is part of the standard JMAP mail model and gives us the
+    // ordered email ids. Some servers do not implement the non-standard
+    // Email/query `inThread` filter, which previously left the skeleton stuck.
+    let mut thread_request = client.build();
+    thread_request.get_thread().ids([conversation_id.as_str()]);
+    let mut thread_response = thread_request.send().await.map_err(|e| e.to_string())?;
+    let threads = thread_response.method_response_by_pos(0)
+        .unwrap_get_thread()
+        .map_err(|e| e.to_string())?;
+    let newest_email_id = threads.list().first()
+        .and_then(|thread| thread.email_ids().last())
+        .cloned()
+        .ok_or_else(|| "JMAP thread contains no email".to_string())?;
+
+    let mut email_request = client.build();
+    email_request.get_email()
+        .ids([newest_email_id.as_str()])
+        .properties([EmailProperty::Preview]);
+    let mut email_response = email_request.send().await.map_err(|e| e.to_string())?;
+    let emails = email_response.method_response_by_pos(0)
+        .unwrap_get_email()
+        .map_err(|e| e.to_string())?;
+    Ok(emails.list().first()
+        .and_then(|email| email.preview())
+        .unwrap_or_default()
+        .to_string())
 }
 
 #[command]
@@ -1057,6 +1202,22 @@ pub async fn jmap_get_thread(
     conversation_id: String,
 ) -> Result<Vec<MailMessage>, String> {
     JmapProvider { config, state: Arc::clone(&state) }.get_thread(&conversation_id, None, None, None).await
+}
+
+#[command]
+pub async fn jmap_get_message_content(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    mut config: JmapConfig,
+    message_id: String,
+    conversation_id: Option<String>,
+) -> Result<MailMessage, String> {
+    config.load_message_bodies = true;
+    config.single_message_id = Some(message_id.clone());
+    JmapProvider { config, state: Arc::clone(&state) }
+        .get_thread(conversation_id.as_deref().unwrap_or(""), None, None, None).await?
+        .into_iter()
+        .find(|message| message.item_id == message_id)
+        .ok_or_else(|| "JMAP message not found in thread".to_string())
 }
 
 #[command]
@@ -1208,9 +1369,10 @@ pub async fn jmap_snooze(
     id: String,
     until: Option<String>,
 ) -> Result<String, String> {
-    let client = get_client(&state, &config).await?;
-    let snoozed_id = get_or_create_snoozed_id(&state, &client, &config).await?;
-    let folders = get_folder_ids(&state, &client, &config).await?;
+    let private_config = fastmail_config(&config).ok_or_else(|| "Fastmail web token required for snooze".to_string())?;
+    let client = get_client(&state, &private_config).await?;
+    let snoozed_id = get_or_create_snoozed_id(&state, &client, &private_config).await?;
+    let folders = get_folder_ids(&state, &client, &private_config).await?;
     let inbox_id = folders.get("inbox").cloned();
     let sent_id = folders.get("sentitems").cloned();
     let until = until.ok_or_else(|| "JMAP snooze requires an awaken time".to_string())?;
@@ -1270,6 +1432,7 @@ pub async fn jmap_send(
     identity_id: Option<String>,
     in_reply_to: Option<String>,
     references: Option<String>,
+    send_at: Option<String>,
 ) -> Result<(), String> {
     JmapProvider { config, state: Arc::clone(&state) }.send_mail(SendMailParams {
         to,
@@ -1284,6 +1447,7 @@ pub async fn jmap_send(
         reply_to_change_key: None,
         attachments,
         is_forward: None,
+        send_at,
     }).await
 }
 

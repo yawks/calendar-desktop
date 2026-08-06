@@ -31,14 +31,18 @@ pub struct ImapConfig {
 pub struct ImapProvider {
     config: ImapConfig,
     folder: Option<String>,
+    load_bodies: bool,
 }
 
 impl ImapProvider {
     pub fn new(config: ImapConfig) -> Self {
-        Self { config, folder: None }
+        Self { config, folder: None, load_bodies: false }
     }
     pub fn with_folder(config: ImapConfig, folder: String) -> Self {
-        Self { config, folder: Some(folder) }
+        Self { config, folder: Some(folder), load_bodies: false }
+    }
+    pub fn with_folder_and_bodies(config: ImapConfig, folder: String) -> Self {
+        Self { config, folder: Some(folder), load_bodies: true }
     }
 }
 
@@ -452,7 +456,7 @@ impl MailProvider for ImapProvider {
 
         let query = ids[..fetch_limit].iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
 
-        let fetches_stream = session.fetch(query, "(FLAGS INTERNALDATE RFC822.SIZE ENVELOPE RFC822.HEADER BODY.PEEK[TEXT]<0.4096>)")
+        let fetches_stream = session.fetch(query, "(FLAGS INTERNALDATE RFC822.SIZE ENVELOPE RFC822.HEADER)")
             .await
             .map_err(|e| format!("IMAP fetch error: {}", e))?;
         let fetches: Vec<_> = fetches_stream.collect().await;
@@ -729,33 +733,23 @@ impl MailProvider for ImapProvider {
 
         let mut messages = Vec::new();
         for p in pending {
-            let section_str = section_path_str(&p.body_section);
-            let fetch_cmd = format!("BODY.PEEK[{}]", section_str);
-
-            let body_stream = session.fetch(&p.seq_num.to_string(), &fetch_cmd)
-                .await
-                .map_err(|e| format!("IMAP body fetch error: {}", e))?;
-            let body_results: Vec<_> = body_stream.collect().await;
-
-            let body_html = body_results.into_iter().next()
-                .and_then(|r| r.ok())
-                .and_then(|bf| {
+            let body_html = if self.load_bodies {
+                let section_str = section_path_str(&p.body_section);
+                let fetch_cmd = format!("BODY.PEEK[{}]", section_str);
+                let body_stream = session.fetch(&p.seq_num.to_string(), &fetch_cmd)
+                    .await.map_err(|e| format!("IMAP body fetch error: {}", e))?;
+                let body_results: Vec<_> = body_stream.collect().await;
+                body_results.into_iter().next().and_then(|r| r.ok()).and_then(|bf| {
                     let sp = SectionPath::Part(p.body_section.clone(), None);
                     bf.section(&sp).map(|data| {
                         let text = String::from_utf8_lossy(data).to_string();
-                        if p.body_is_html {
-                            text
-                        } else {
-                            let escaped = text
-                                .replace('&', "&amp;")
-                                .replace('<', "&lt;")
-                                .replace('>', "&gt;");
+                        if p.body_is_html { text } else {
+                            let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
                             format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
                         }
                     })
-                })
-                .unwrap_or_default();
-
+                }).unwrap_or_default()
+            } else { String::new() };
             let body_text = if body_html.is_empty() { None } else { Some(strip_html(&body_html)) };
 
             messages.push(MailMessage {
@@ -992,13 +986,40 @@ pub async fn imap_get_inbox_unread(config: ImapConfig, folder: String) -> Result
 }
 
 #[command]
-pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Option<u32>) -> Result<Vec<MailThread>, String> {
-    ImapProvider::new(config).list_threads(&folder, max_count).await
+pub async fn imap_list_threads(config: ImapConfig, folder: String, max_count: Option<u32>, offset: Option<u32>) -> Result<Vec<MailThread>, String> {
+    let offset = offset.unwrap_or(0);
+    let count = max_count.unwrap_or(50);
+    let threads = ImapProvider::new(config)
+        .list_threads(&folder, Some(count.saturating_add(offset))).await?;
+    Ok(threads.into_iter().skip(offset as usize).take(count as usize).collect())
 }
 
 #[command]
 pub async fn imap_get_thread(config: ImapConfig, conversation_id: String, folder: String) -> Result<Vec<MailMessage>, String> {
     ImapProvider::with_folder(config, folder).get_thread(&conversation_id, None, None, None).await
+}
+
+#[command]
+pub async fn imap_get_message_content(config: ImapConfig, message_id: String, folder: String) -> Result<MailMessage, String> {
+    ImapProvider::with_folder_and_bodies(config, folder)
+        .get_thread(&message_id, None, None, None).await?
+        .into_iter().next().ok_or_else(|| "IMAP message not found".to_string())
+}
+
+#[command]
+pub async fn imap_get_thread_snippet(config: ImapConfig, conversation_id: String, folder: String) -> Result<String, String> {
+    let newest = conversation_id.split(',').filter_map(|id| id.parse::<u32>().ok()).max()
+        .ok_or_else(|| "Invalid IMAP conversation id".to_string())?;
+    let mut session = get_imap_session(&config).await?;
+    session.examine(&folder).await.map_err(|e| format!("IMAP examine error: {}", e))?;
+    let stream = session.fetch(newest.to_string(), "BODY.PEEK[TEXT]<0.4096>").await
+        .map_err(|e| format!("IMAP snippet fetch error: {}", e))?;
+    let results: Vec<_> = stream.collect().await;
+    let text = results.into_iter().next().transpose()
+        .map_err(|e| format!("IMAP snippet item error: {}", e))?
+        .and_then(|fetch| fetch.text().map(|bytes| bytes.to_vec()))
+        .unwrap_or_default();
+    Ok(extract_snippet(&text))
 }
 
 #[command]
@@ -1060,6 +1081,7 @@ pub async fn imap_send(
         identity_id: None,
         in_reply_to: None,
         references: None,
+        send_at: None,
     }).await
 }
 

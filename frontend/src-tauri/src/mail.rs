@@ -14,14 +14,18 @@ const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
 pub struct EwsProvider {
     access_token: String,
     user_email: Option<String>,
+    list_offset: u32,
 }
 
 impl EwsProvider {
     pub fn new(access_token: String) -> Self {
-        Self { access_token, user_email: None }
+        Self { access_token, user_email: None, list_offset: 0 }
     }
     pub fn with_user_email(access_token: String, user_email: String) -> Self {
-        Self { access_token, user_email: Some(user_email) }
+        Self { access_token, user_email: Some(user_email), list_offset: 0 }
+    }
+    pub fn with_user_email_and_offset(access_token: String, user_email: Option<String>, list_offset: u32) -> Self {
+        Self { access_token, user_email, list_offset }
     }
 }
 
@@ -64,6 +68,12 @@ async fn send(access_token: &str, soap_body: &str) -> Result<String, String> {
         return Err("ews_unauthorized".to_string());
     }
     if !status.is_success() {
+        // A missing or non-SMTP contact photo is not a mail synchronization
+        // failure. EWS commonly reports it as an HTTP 500 SOAP fault; keep that
+        // expected fallback out of the console and out of query retries.
+        if soap_body.contains("<m:GetUserPhoto>") {
+            return Err("ews_photo_unavailable".to_string());
+        }
         eprintln!("[EWS send] HTTP {} body:\n{}", status, &body);
         return Err(format!("EWS HTTP {}: {}", status, &body[..body.len().min(2000)]));
     }
@@ -366,12 +376,11 @@ impl MailProvider for EwsProvider {
       <t:FieldURI FieldURI="item:Subject"/>
       <t:FieldURI FieldURI="item:DateTimeReceived"/>
       <t:FieldURI FieldURI="item:HasAttachments"/>
-      <t:FieldURI FieldURI="item:Preview"/>
       <t:FieldURI FieldURI="message:ToRecipients"/>
       <t:FieldURI FieldURI="message:Sender"/>
     </t:AdditionalProperties>
   </m:ItemShape>
-  <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="0" BasePoint="Beginning"/>
+  <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="{offset}" BasePoint="Beginning"/>
   <m:SortOrder>
     <t:FieldOrder Order="Descending">
       <t:FieldURI FieldURI="item:DateTimeReceived"/>
@@ -381,6 +390,7 @@ impl MailProvider for EwsProvider {
     <t:DistinguishedFolderId Id="drafts"/>
   </m:ParentFolderIds>
 </m:FindItem>"#,
+                offset = self.list_offset,
             );
             let xml = send(access_token, &soap_body).await?;
             if xml.contains("ResponseClass=\"Error\"") {
@@ -401,7 +411,6 @@ impl MailProvider for EwsProvider {
                 let has_attachments = xml_content_ns(&msg_xml, "t:HasAttachments")
                     .map(|v| v == "true")
                     .unwrap_or(false);
-                let snippet = xml_content_ns(&msg_xml, "t:Preview").unwrap_or_default();
                 let sender_xml = xml_content_ns(&msg_xml, "t:Sender").unwrap_or_default();
                 let sender_mb = xml_content_ns(&sender_xml, "t:Mailbox").unwrap_or_default();
                 let sender_name = xml_content_ns(&sender_mb, "t:Name")
@@ -410,7 +419,7 @@ impl MailProvider for EwsProvider {
                 threads.push(MailThread {
                     conversation_id: item_id,
                     topic,
-                    snippet,
+                    snippet: String::new(),
                     last_delivery_time,
                     message_count: 1,
                     unread_count: 0,
@@ -439,7 +448,7 @@ impl MailProvider for EwsProvider {
 
         let soap_body = format!(
             r#"<m:FindConversation>
-  <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="0" BasePoint="Beginning"/>
+  <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="{offset}" BasePoint="Beginning"/>
   <m:SortOrder>
     <t:FieldOrder Order="Descending">
       <t:FieldURI FieldURI="conversation:LastDeliveryTime"/>
@@ -449,9 +458,20 @@ impl MailProvider for EwsProvider {
     {parent_folder_id}
   </m:ParentFolderId>
   <m:ConversationShape>
-    <t:BaseShape>AllProperties</t:BaseShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="conversation:ConversationTopic"/>
+      <t:FieldURI FieldURI="conversation:LastDeliveryTime"/>
+      <t:FieldURI FieldURI="conversation:GlobalMessageCount"/>
+      <t:FieldURI FieldURI="conversation:GlobalUnreadCount"/>
+      <t:FieldURI FieldURI="conversation:GlobalHasAttachments"/>
+      <t:FieldURI FieldURI="conversation:UniqueUnreadSenders"/>
+      <t:FieldURI FieldURI="conversation:GlobalUniqueSenders"/>
+      <t:FieldURI FieldURI="conversation:GlobalUniqueRecipients"/>
+    </t:AdditionalProperties>
   </m:ConversationShape>
 </m:FindConversation>"#,
+            offset = self.list_offset,
         );
 
         let xml = send(access_token, &soap_body).await?;
@@ -483,18 +503,21 @@ impl MailProvider for EwsProvider {
             let unread_count = xml_content_ns(&conv_xml, "t:GlobalUnreadCount")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0u32);
-            let has_attachments = xml_content_ns(&conv_xml, "t:HasAttachments")
+            let has_attachments = xml_content_ns(&conv_xml, "t:GlobalHasAttachments")
+                .or_else(|| xml_content_ns(&conv_xml, "t:HasAttachments"))
                 .map(|v| v == "true")
                 .unwrap_or(false);
-
-            let snippet = xml_content_ns(&conv_xml, "t:GlobalPreview")
-                .or_else(|| xml_content_ns(&conv_xml, "t:Preview"))
-                .unwrap_or_default();
 
             let from_name = xml_content_ns(&conv_xml, "t:UniqueUnreadSenders")
                 .as_deref()
                 .and_then(|s| xml_content_ns(s, "t:String"))
                 .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    xml_content_ns(&conv_xml, "t:GlobalUniqueSenders")
+                        .as_deref()
+                        .and_then(|s| xml_content_ns(s, "t:String"))
+                        .filter(|s| !s.is_empty())
+                })
                 .or_else(|| {
                     xml_content_ns(&conv_xml, "t:UniqueSenders")
                         .as_deref()
@@ -546,7 +569,7 @@ impl MailProvider for EwsProvider {
             threads.push(MailThread {
                 conversation_id,
                 topic,
-                snippet,
+                snippet: String::new(),
                 last_delivery_time,
                 message_count,
                 unread_count,
@@ -644,7 +667,6 @@ impl MailProvider for EwsProvider {
                 }
             }
         }
-
         Ok(threads)
     }
 
@@ -1474,14 +1496,34 @@ impl MailProvider for EwsProvider {
     }
 
     async fn get_contact_photo(&self, email: &str) -> Result<Option<String>, String> {
+        let email = email.trim();
+        let valid_smtp_address = email
+            .split_once('@')
+            .is_some_and(|(local, domain)| {
+                !local.is_empty()
+                    && !domain.is_empty()
+                    && !domain.contains('@')
+                    && !email.chars().any(char::is_whitespace)
+            });
+        if !valid_smtp_address {
+            // Conversation summaries can contain a display name, an Exchange
+            // legacy identifier, or an empty value instead of an SMTP address.
+            // GetUserPhoto rejects those values with ErrorInvalidSmtpAddress.
+            return Ok(None);
+        }
+
         let soap_body = format!(
             r#"<m:GetUserPhoto>
   <m:Email>{}</m:Email>
   <m:SizeRequested>HR96x96</m:SizeRequested>
 </m:GetUserPhoto>"#,
-            xml_escape(email.trim())
+            xml_escape(email)
         );
-        let xml = send(&self.access_token, &soap_body).await?;
+        let xml = match send(&self.access_token, &soap_body).await {
+            Ok(xml) => xml,
+            Err(error) if error == "ews_photo_unavailable" => return Ok(None),
+            Err(error) => return Err(error),
+        };
         if xml.contains("ResponseClass=\"Error\"") {
             return Ok(None);
         }
@@ -1590,13 +1632,30 @@ pub async fn mail_list_threads(
     access_token: String,
     folder: String,
     max_count: Option<u32>,
+    offset: Option<u32>,
     user_email: Option<String>,
 ) -> Result<Vec<MailThread>, String> {
-    let provider = match user_email {
-        Some(email) => EwsProvider::with_user_email(access_token, email),
-        None => EwsProvider::new(access_token),
-    };
+    let provider = EwsProvider::with_user_email_and_offset(access_token, user_email, offset.unwrap_or(0));
     provider.list_threads(&folder, max_count).await
+}
+
+#[command]
+pub async fn mail_get_thread_count(access_token: String, folder: String) -> Result<u32, String> {
+    let parent_folder_id = match folder.as_str() {
+        "inbox" | "sentitems" | "deleteditems" => format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder),
+        "spam" => r#"<t:DistinguishedFolderId Id="junkemail"/>"#.to_string(),
+        id => format!(r#"<t:FolderId Id="{}"/>"#, xml_escape(id)),
+    };
+    let body = format!(r#"<m:FindConversation>
+  <m:IndexedPageItemView MaxEntriesReturned="1" Offset="0" BasePoint="Beginning"/>
+  <m:ParentFolderId>{parent_folder_id}</m:ParentFolderId>
+  <m:ConversationShape><t:BaseShape>IdOnly</t:BaseShape></m:ConversationShape>
+</m:FindConversation>"#);
+    let xml = send(&access_token, &body).await?;
+    if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error counting conversations")); }
+    xml_content_ns(&xml, "m:TotalConversationsInView")
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| "EWS returned an invalid conversation count".to_string())
 }
 
 #[command]
@@ -1619,6 +1678,150 @@ pub async fn mail_get_thread(
     EwsProvider::new(access_token)
         .get_thread(&conversation_id, include_trash, is_draft, include_drafts)
         .await
+}
+
+#[command]
+pub async fn mail_get_thread_headers(
+    access_token: String,
+    conversation_id: String,
+    include_trash: Option<bool>,
+    is_draft: Option<bool>,
+    include_drafts: Option<bool>,
+) -> Result<Vec<MailMessage>, String> {
+    // Draft conversation IDs are item IDs rather than EWS ConversationIds.
+    let ids_xml = if is_draft.unwrap_or(false) {
+        format!("<m:GetItem><m:ItemShape>{}</m:ItemShape><m:ItemIds><t:ItemId Id=\"{}\"/></m:ItemIds></m:GetItem>", thread_header_shape(), conversation_id)
+    } else {
+        let ignore = if include_trash.unwrap_or(false) {
+            if include_drafts.unwrap_or(false) { String::new() } else { "<m:FoldersToIgnore><t:DistinguishedFolderId Id=\"drafts\"/></m:FoldersToIgnore>".into() }
+        } else if include_drafts.unwrap_or(false) {
+            "<m:FoldersToIgnore><t:DistinguishedFolderId Id=\"deleteditems\"/></m:FoldersToIgnore>".into()
+        } else {
+            "<m:FoldersToIgnore><t:DistinguishedFolderId Id=\"deleteditems\"/><t:DistinguishedFolderId Id=\"drafts\"/></m:FoldersToIgnore>".into()
+        };
+        format!(r#"<m:GetConversationItems>
+  <m:ItemShape>{}</m:ItemShape>
+  {ignore}<m:MaxItemsToReturn>50</m:MaxItemsToReturn><m:SortOrder>TreeOrderDescending</m:SortOrder>
+  <m:Conversations><t:Conversation><t:ConversationId Id="{conversation_id}"/></t:Conversation></m:Conversations>
+</m:GetConversationItems>"#, thread_header_shape())
+    };
+    let xml = send(&access_token, &ids_xml).await?;
+    if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error getting thread headers")); }
+    const ITEM_TYPES: &[&str] = &["t:Message", "t:MeetingRequest", "t:MeetingResponse", "t:MeetingCancellation"];
+    let mut messages = Vec::new();
+    let containers = if is_draft.unwrap_or(false) {
+        vec![xml.clone()]
+    } else {
+        xml_all_ns(&xml, "t:ConversationNode").into_iter()
+            .filter_map(|node| xml_content_ns(&node, "t:Items"))
+            .collect()
+    };
+    for container in containers {
+        for &item_type in ITEM_TYPES {
+            for msg_xml in xml_all_ns(&container, item_type) {
+                if let Some(mut msg) = parse_message(&msg_xml) {
+                    msg.body_html.clear();
+                    msg.body_text = None;
+                    messages.push(msg);
+                }
+            }
+        }
+    }
+    messages.sort_by(|a, b| a.date_time_received.cmp(&b.date_time_received));
+    Ok(messages)
+}
+
+#[command]
+pub async fn mail_get_thread_snippet(access_token: String, conversation_id: String) -> Result<String, String> {
+    let body = format!(r#"<m:GetConversationItems>
+  <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="item:Preview"/></t:AdditionalProperties></m:ItemShape>
+  <m:FoldersToIgnore><t:DistinguishedFolderId Id="deleteditems"/><t:DistinguishedFolderId Id="drafts"/></m:FoldersToIgnore>
+  <m:MaxItemsToReturn>1</m:MaxItemsToReturn><m:SortOrder>TreeOrderDescending</m:SortOrder>
+  <m:Conversations><t:Conversation><t:ConversationId Id="{conversation_id}"/></t:Conversation></m:Conversations>
+</m:GetConversationItems>"#);
+    let xml = send(&access_token, &body).await?;
+    if !xml.contains("ResponseClass=\"Error\"") {
+        return Ok(xml_content_ns(&xml, "t:Preview").unwrap_or_default());
+    }
+
+    // Draft lists use an item id as their row identifier rather than a
+    // conversation id. Keep the UI contract opaque by accepting either form.
+    let item_body = format!(r#"<m:GetItem>
+  <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="item:Preview"/></t:AdditionalProperties></m:ItemShape>
+  <m:ItemIds><t:ItemId Id="{conversation_id}"/></m:ItemIds>
+</m:GetItem>"#);
+    let item_xml = send(&access_token, &item_body).await?;
+    if item_xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&item_xml, "EWS error getting item preview"));
+    }
+    Ok(xml_content_ns(&item_xml, "t:Preview").unwrap_or_default())
+}
+
+fn thread_header_shape() -> &'static str {
+    r#"<t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURI FieldURI="item:DateTimeReceived"/>
+      <t:FieldURI FieldURI="item:HasAttachments"/>
+      <t:FieldURI FieldURI="message:From"/>
+      <t:FieldURI FieldURI="message:ToRecipients"/>
+      <t:FieldURI FieldURI="message:CcRecipients"/>
+      <t:FieldURI FieldURI="message:IsRead"/>
+    </t:AdditionalProperties>"#
+}
+
+#[command]
+pub async fn mail_get_message_content(access_token: String, item_id: String) -> Result<MailMessage, String> {
+    let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:BodyType>HTML</t:BodyType><t:IncludeMimeContent>true</t:IncludeMimeContent><t:AdditionalProperties><t:FieldURI FieldURI="message:IsRead"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="{item_id}"/></m:ItemIds></m:GetItem>"#);
+    let xml = send(&access_token, &body).await?;
+    if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error getting message body")); }
+    for item_type in ["t:Message", "t:MeetingRequest", "t:MeetingResponse", "t:MeetingCancellation"] {
+        if let Some(msg_xml) = xml_all_ns(&xml, item_type).into_iter().next() {
+            if let Some(mut msg) = parse_message(&msg_xml) {
+                if item_type != "t:Message" { msg.ics_mime = build_meeting_ics(&msg_xml, item_type); }
+                if let Some(mime_body) = best_mime_body(&msg_xml) {
+                    if strip_html_tags(&mime_body).trim().len() > strip_html_tags(&msg.body_html).trim().len() {
+                        msg.body_html = mime_body;
+                    }
+                }
+                let inline = parse_inline_images(&msg_xml);
+                msg.body_html = inject_inline_images(&access_token, msg.body_html, inline).await;
+                return Ok(msg);
+            }
+        }
+    }
+    Err("EWS message not found".into())
+}
+
+fn best_mime_body(msg_xml: &str) -> Option<String> {
+    let encoded = xml_content_ns(msg_xml, "t:MimeContent")?;
+    let compact: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
+    let raw = BASE64.decode(compact.as_bytes()).ok()?;
+    let parsed = mailparse::parse_mail(&raw).ok()?;
+    let mut html_parts = Vec::new();
+    let mut text_parts = Vec::new();
+
+    fn collect(part: &mailparse::ParsedMail<'_>, html: &mut Vec<String>, text: &mut Vec<String>) {
+        if part.subparts.is_empty() {
+            if part.get_content_disposition().disposition == mailparse::DispositionType::Attachment { return; }
+            if let Ok(body) = part.get_body() {
+                match part.ctype.mimetype.as_str() {
+                    "text/html" => html.push(body),
+                    "text/plain" => text.push(body),
+                    _ => {}
+                }
+            }
+            return;
+        }
+        for subpart in &part.subparts { collect(subpart, html, text); }
+    }
+
+    collect(&parsed, &mut html_parts, &mut text_parts);
+    html_parts.into_iter().max_by_key(|body| strip_html_tags(body).len()).or_else(|| {
+        text_parts.into_iter().max_by_key(String::len).map(|body| {
+            let escaped = body.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+            format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{escaped}</pre>")
+        })
+    })
 }
 
 #[command]
@@ -1661,7 +1864,7 @@ pub async fn mail_send(
             to, cc, bcc, subject, body_html,
             reply_to_item_id, reply_to_change_key,
             attachments, is_forward,
-            identity_id: None, in_reply_to: None, references: None,
+            identity_id: None, in_reply_to: None, references: None, send_at: None,
         })
         .await
 }

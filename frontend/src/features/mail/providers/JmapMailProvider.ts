@@ -5,14 +5,15 @@ import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams } from './Ma
 
 export class JmapMailProvider implements MailProvider {
   readonly providerType = 'jmap';
-  // Standard JMAP tokens cannot access Fastmail's private dev/mail snooze API.
-  readonly capabilities = { snooze: false } as const;
+  readonly capabilities: import('./MailProvider').MailProviderCapabilities;
   readonly accountId: string;
   private readonly config: JmapAccount;
 
   constructor(account: JmapAccount) {
     this.accountId = account.id;
     this.config = account;
+    const hasFastmailToken = !!account.fastmailToken?.trim();
+    this.capabilities = { snooze: hasFastmailToken, scheduledSend: hasFastmailToken };
   }
 
   private get rustConfig() {
@@ -21,14 +22,30 @@ export class JmapMailProvider implements MailProvider {
       session_url: this.config.sessionUrl,
       token: this.config.token,
       auth_type: this.config.authType ?? 'bearer',
+      fastmail_token: this.config.fastmailToken ?? null,
     };
   }
 
-  async listThreads(folder: string, maxCount?: number): Promise<MailThread[]> {
+  async listThreads(folder: string, maxCount?: number, offset = 0): Promise<MailThread[]> {
     return invoke<MailThread[]>('jmap_list_threads', {
       config: this.rustConfig,
       folder,
       maxCount,
+      offset,
+    });
+  }
+
+  async getThreadCount(folder: string): Promise<number> {
+    return invoke<number>('jmap_get_thread_count', {
+      config: this.rustConfig,
+      folder,
+    });
+  }
+
+  async getThreadSnippet(conversationId: string): Promise<string> {
+    return invoke<string>('jmap_get_thread_snippet', {
+      config: this.rustConfig,
+      conversationId,
     });
   }
 
@@ -41,10 +58,38 @@ export class JmapMailProvider implements MailProvider {
   }
 
   async getThread(conversationId: string): Promise<MailMessage[]> {
-    return invoke<MailMessage[]>('jmap_get_thread', {
+    const messages = await invoke<MailMessage[]>('jmap_get_thread', {
       config: this.rustConfig,
       conversationId,
     });
+    return messages.map(message => ({ ...message, body_loaded: false }));
+  }
+
+  async getMessageContent(messageId: string, conversationId?: string) {
+    let message: MailMessage;
+    try {
+      message = await invoke<MailMessage>('jmap_get_message_content', {
+        config: this.rustConfig,
+        messageId,
+        conversationId: conversationId ?? null,
+      });
+    } catch (error) {
+      console.error('[JMAP.getMessageContent]', { messageId, error });
+      const describeId = (id?: string) => id
+        ? `${id.slice(0, 4)}…${id.slice(-4)} (${id.length})`
+        : 'absent';
+      throw new Error(
+        `JMAP [message=${describeId(messageId)}, thread=${describeId(conversationId)}]: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return {
+      body_html: message.body_html,
+      body_text: message.body_text,
+      ics_mime: message.ics_mime,
+      attachments: message.attachments,
+      has_attachments: message.has_attachments,
+    };
   }
 
   async listFolders(): Promise<MailFolder[]> {
@@ -72,6 +117,7 @@ export class JmapMailProvider implements MailProvider {
       identityId: params.fromIdentityId ?? null,
       inReplyTo: params.inReplyTo ?? null,
       references: params.references ?? null,
+      sendAt: params.sendAt ?? null,
     });
   }
 

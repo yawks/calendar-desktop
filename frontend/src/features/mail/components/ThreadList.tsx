@@ -8,6 +8,8 @@ export interface ThreadListProps {
   readonly threads: MailThread[];
   readonly loading: boolean;
   readonly loadingMore: boolean;
+  readonly totalCount?: number;
+  readonly scrollResetKey?: string;
   readonly hasMore?: boolean;
   readonly onLoadMore?: () => void;
   readonly selectedId: string | null;
@@ -24,6 +26,7 @@ export interface ThreadListProps {
   readonly onSelectAll: () => void;
   readonly onClearSelection: () => void;
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
+  readonly resolveProvider?: (thread: MailThread) => import('../providers/MailProvider').MailProvider | null;
 }
 
 export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
@@ -32,6 +35,8 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       threads,
       loading,
       loadingMore,
+      totalCount,
+      scrollResetKey,
       hasMore = false,
       onLoadMore,
       selectedId,
@@ -48,6 +53,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       onSelectAll,
       onClearSelection,
       provider,
+      resolveProvider,
     },
     ref
   ) => {
@@ -60,24 +66,32 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     }, [selectedThreadIds.size]);
     const [filterOpen, setFilterOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const loadMoreRequestedRef = useRef(false);
 
     useImperativeHandle(ref, () => containerRef.current!);
+
+    useEffect(() => {
+      if (containerRef.current) containerRef.current.scrollTop = 0;
+    }, [scrollResetKey]);
 
     useEffect(() => {
       const container = containerRef.current;
       if (!container || !onLoadMore) return;
 
+      if (!loadingMore) loadMoreRequestedRef.current = false;
+
       const handleScroll = () => {
-        if (!hasMore || loadingMore) return;
+        if (!hasMore || loadingMore || loadMoreRequestedRef.current) return;
         const { scrollTop, scrollHeight, clientHeight } = container;
         if (scrollHeight - scrollTop - clientHeight < 200) {
+          loadMoreRequestedRef.current = true;
           onLoadMore();
         }
       };
 
       container.addEventListener('scroll', handleScroll, { passive: true });
       return () => container.removeEventListener('scroll', handleScroll);
-    }, [onLoadMore, hasMore, loadingMore]);
+    }, [onLoadMore, hasMore, loadingMore, threads.length]);
 
     useEffect(() => {
       const el = containerRef.current;
@@ -157,8 +171,18 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     if (loading) {
       return (
         <div className="mail-thread-list-wrapper">
-          <div className="mail-thread-list mail-thread-list--empty">
-            <RefreshCw size={24} className="spin" style={{ opacity: 0.4 }} />
+          <div className="mail-thread-list mail-thread-list--loading">
+            {toolbar}
+            {Array.from({ length: 12 }, (_, index) => (
+              <div className="mail-thread-list-skeleton" key={index} aria-hidden="true">
+                <span className="mail-thread-list-skeleton__avatar" />
+                <span className="mail-thread-list-skeleton__content">
+                  <span className="mail-thread-list-skeleton__sender" />
+                  <span className="mail-thread-list-skeleton__subject" />
+                  <span className="mail-thread-list-skeleton__preview" />
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       );
@@ -166,7 +190,12 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
 
     const countChip = !isSearchMode && (
       <div className="mail-thread-list__count-chip">
-        <span>{visibleThreads.length} {t('mail.conversations', 'conversations')}</span>
+        <span>
+          {totalCount === undefined || filter === 'unread'
+            ? visibleThreads.length
+            : `${visibleThreads.length} / ${Math.max(visibleThreads.length, totalCount)}`}{' '}
+          {t('mail.conversations', 'conversations')}
+        </span>
       </div>
     );
 
@@ -205,7 +234,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={isSentFolder}
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
-              provider={provider}
+              provider={resolveProvider?.(thread) ?? provider}
               onSelect={onSelect}
               onToggleRead={onToggleRead}
               onDelete={onDelete}

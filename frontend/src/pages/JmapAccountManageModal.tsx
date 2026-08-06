@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { X, Mail, Trash2 } from 'lucide-react';
+import { ChevronDown, X, Mail, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { JmapAccount } from '../shared/types';
 import { useJmapAuth } from '../shared/store/JmapAuthStore';
@@ -43,6 +43,8 @@ export function JmapAccountManageModal({ account, onClose }: {
   const [token, setToken] = useState(account.token);
   const [authType, setAuthType] = useState<'bearer' | 'basic'>(account.authType ?? 'bearer');
   const [color, setColor] = useState(account.color || DEFAULT_COLORS[0]);
+  const [fastmailToken, setFastmailToken] = useState(account.fastmailToken ?? '');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const handleSave = (e: FormEvent) => {
     e.preventDefault();
@@ -54,6 +56,7 @@ export function JmapAccountManageModal({ account, onClose }: {
       token,
       authType,
       color,
+      fastmailToken: fastmailToken.trim() || undefined,
     });
     onClose();
   };
@@ -95,6 +98,22 @@ export function JmapAccountManageModal({ account, onClose }: {
                     <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
                   </div>
                 </div>
+              </div>
+
+              <div className="jmap-advanced">
+                <button type="button" className="jmap-advanced__toggle" onClick={() => setAdvancedOpen(value => !value)}>
+                  <ChevronDown size={14} style={{ transform: advancedOpen ? 'rotate(180deg)' : undefined }} />
+                  {t('config.advanced', 'Avancé')}
+                </button>
+                {advancedOpen && (
+                  <div className="jmap-advanced__content">
+                    <div className="form-row">
+                      <label>{t('config.fastmailWebToken', 'Jeton web Fastmail')}</label>
+                      <input type="password" autoComplete="off" value={fastmailToken} onChange={(e) => setFastmailToken(e.target.value)} placeholder="fma1-…" />
+                      <small>{t('config.fastmailWebTokenHelp', 'Optionnel. Active les fonctions privées Fastmail comme le snooze et l’envoi différé.')}</small>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div style={{ marginTop: 20 }}>

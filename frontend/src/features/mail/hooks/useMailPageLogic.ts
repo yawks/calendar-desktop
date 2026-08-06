@@ -15,7 +15,7 @@ import { JmapMailProvider } from '../providers/JmapMailProvider';
 import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, MailSearchQuery, MailFolder } from '../types';
 import { ALL_ACCOUNTS_ID, DISPLAY_TO_STATIC, THEME_CYCLE, buildUnreadCounts, getErrorMessage } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useMailIdentities, useAllAccountIdentities } from './useMailQueries';
 import { useMailMutations } from './useMailMutations';
 import { cleanupContactIndex, recordContactObservations, searchContactIndex, type ContactObservation } from '../utils/contactIndex';
@@ -86,12 +86,14 @@ export function useMailPageLogic() {
   const isAllMode = selectedAccountId === ALL_ACCOUNTS_ID;
   const provider = isAllMode ? null : (allProviders.get(selectedAccountId) ?? null);
   const [selectedFolder, setSelectedFolder] = useState<Folder>('inbox');
+  const [selectedFolderAccountId, setSelectedFolderAccountId] = useState<string | undefined>();
   const [selectedThread, setSelectedThread] = useState<MailThread | null>(null);
   // Needed before queries so we can load identities for the composing account in all-mode
   const [composingAccountId, setComposingAccountId] = useState<string>(() => allMailAccounts[0]?.id ?? '');
 
   // --- STATE ---
-  const [threadLimit, setThreadLimit] = useState(50);
+  const THREAD_PAGE_SIZE = 50;
+  const [threadOffset, setThreadOffset] = useState(0);
   const [stableThreads, setStableThreads] = useState<MailThread[]>([]);
   const [searchQuery, setSearchQuery] = useState<MailSearchQuery | null>(null);
 
@@ -114,9 +116,37 @@ export function useMailPageLogic() {
   const folderQuery = useMailFolders(selectedAccountId, provider);
   const allFoldersQuery = useAllAccountFolders(allAccountInfo);
 
-  const threadsQuery = useMailThreads(selectedAccountId, selectedFolder, provider, threadLimit, 0);
-  const allThreadsQuery = useAllAccountThreads(selectedFolder, allAccountInfo, threadLimit, 0);
+  const unifiedFolderAccounts = useMemo(() => {
+    const staticFolders = new Set(['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed', 'spam']);
+    if (staticFolders.has(selectedFolder)) return allAccountInfo;
+    const ownerIds = selectedFolderAccountId
+      ? new Set([selectedFolderAccountId])
+      : new Set([...allFoldersQuery.allAccountFolders.entries()]
+          .filter(([, folders]) => folders.some(folder => folder.folder_id === selectedFolder))
+          .map(([accountId]) => accountId));
+    return ownerIds.size > 0
+      ? allAccountInfo.filter(account => ownerIds.has(account.id))
+      : allAccountInfo;
+  }, [allAccountInfo, allFoldersQuery.allAccountFolders, selectedFolder, selectedFolderAccountId]);
 
+  const threadsQuery = useMailThreads(selectedAccountId, selectedFolder, provider, THREAD_PAGE_SIZE, threadOffset);
+  const allThreadsQuery = useAllAccountThreads(selectedFolder, unifiedFolderAccounts, THREAD_PAGE_SIZE, threadOffset);
+  const allThreadCountQueries = useQueries({
+    queries: unifiedFolderAccounts.map(account => ({
+      queryKey: ['mail', account.id, 'thread-count-v2', selectedFolder],
+      queryFn: () => account.provider!.getThreadCount!(selectedFolder),
+      enabled: isAllMode && !!account.provider?.getThreadCount,
+      staleTime: 60 * 1000,
+      retry: false,
+    })),
+  });
+  const threadCountQuery = useQuery({
+    queryKey: ['mail', selectedAccountId, 'thread-count-v2', selectedFolder],
+    queryFn: () => provider!.getThreadCount!(selectedFolder),
+    enabled: !isAllMode && !!provider?.getThreadCount,
+    staleTime: 60 * 1000,
+    retry: false,
+  });
   // Refs pour que loadThreads puisse appeler refetch sans avoir les queries dans ses deps.
   const threadsRefetchRef = useRef(threadsQuery.refetch);
   threadsRefetchRef.current = threadsQuery.refetch;
@@ -135,8 +165,29 @@ export function useMailPageLogic() {
     [stableThreads, pendingRemovalIds],
   );
 
-  const hasMoreThreads = rawThreads.length >= threadLimit;
-  const threadsLoadingMore = threadsFetching && stableThreads.length > 0;
+  const allThreadTotalCount = useMemo(() => {
+    if (!isAllMode || unifiedFolderAccounts.length === 0) return undefined;
+    let total = 0;
+    for (let index = 0; index < unifiedFolderAccounts.length; index += 1) {
+      const account = unifiedFolderAccounts[index];
+      if (!account.provider?.getThreadCount) return undefined;
+      const count = allThreadCountQueries[index]?.data;
+      if (typeof count !== 'number') return undefined;
+      total += count;
+    }
+    return total;
+  }, [allThreadCountQueries, isAllMode, unifiedFolderAccounts]);
+  const threadTotalCount = isAllMode ? allThreadTotalCount : threadCountQuery.data;
+
+  const hasMoreThreads = isAllMode
+    ? allThreadsQuery.hasMore
+    : rawThreads.length >= THREAD_PAGE_SIZE;
+  const threadsLoadingMore = threadsFetching && threadOffset > 0;
+  // A persisted empty array counts as "data" for React Query, so isLoading is
+  // false even while the first real network request is running. Treat that
+  // state as an initial load instead of rendering the empty-folder view.
+  const threadsInitialLoading = stableThreads.length === 0
+    && (threadsLoading || threadsFetching || rawThreads.length > 0);
 
   // Always keep a ref to the latest rawThreads so the reset effect can read it
   // synchronously without adding it to the dependency array.
@@ -146,14 +197,23 @@ export function useMailPageLogic() {
   // Accumulate threads without ever clearing during a load-more fetch.
   // Only reset when the user navigates to a different folder/account/search.
   useEffect(() => {
-    if (rawThreads.length > 0) setStableThreads(rawThreads);
-  }, [rawThreads]);
+    if (threadOffset === 0) {
+      setStableThreads(rawThreads);
+      return;
+    }
+    if (rawThreads.length === 0) return;
+    setStableThreads(previous => {
+      const known = new Set(previous.map(thread => `${thread.accountId ?? ''}:${thread.conversation_id}`));
+      const next = rawThreads.filter(thread => !known.has(`${thread.accountId ?? ''}:${thread.conversation_id}`));
+      return next.length ? [...previous, ...next] : previous;
+    });
+  }, [rawThreads, threadOffset]);
 
   useEffect(() => {
     // Initialise immediately with whatever the cache already has (may be [] if uncached).
     // Using the ref avoids a stale closure while keeping rawThreads out of the dep array.
     setStableThreads(rawThreadsRef.current);
-    setThreadLimit(50);
+    setThreadOffset(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, selectedFolder, searchQuery]);
 
@@ -185,6 +245,14 @@ export function useMailPageLogic() {
   }, [conversationQuery.data, selectedThread?.conversation_id, pendingOptimisticMsgs]);
 
   const messagesLoading = conversationQuery.isLoading;
+
+  useEffect(() => {
+    if (!conversationQuery.error) return;
+    const message = conversationQuery.error instanceof Error
+      ? conversationQuery.error.message
+      : String(conversationQuery.error);
+    setError(message);
+  }, [conversationQuery.error]);
 
   const searchSingleQuery = useMailSearch(selectedAccountId, searchQuery!, isAllMode ? null : provider);
   const searchAllQuery = useAllAccountSearch(searchQuery!, allAccountInfo);
@@ -496,6 +564,30 @@ export function useMailPageLogic() {
     [allProviders],
   );
 
+  const selectAccount = useCallback((accountId: string) => {
+    if (accountId === selectedAccountId) return;
+    // Tauri invocations already in flight cannot be killed at the transport
+    // level, but cancelling their queries prevents their results from being
+    // applied after the source switch.
+    void queryClient.cancelQueries({ queryKey: MAIL_KEYS.all });
+    setSelectedThread(null);
+    setReplyingTo(null);
+    setSelectedThreadIds(new Set());
+    setPendingRemovalIds(new Set());
+    setStableThreads([]);
+    setThreadOffset(0);
+    setSelectedFolderAccountId(undefined);
+    setSelectedFolder('inbox');
+    setSearchQuery(null);
+    setComposing(false);
+    setSelectedAccountId(accountId);
+  }, [queryClient, selectedAccountId]);
+
+  const selectFolder = useCallback((folder: Folder, accountId?: string) => {
+    setSelectedFolderAccountId(accountId);
+    setSelectedFolder(folder);
+  }, []);
+
   const openThread = useCallback((thread: MailThread) => {
     setSelectedThread(thread);
   }, []);
@@ -550,7 +642,7 @@ export function useMailPageLogic() {
   }, []);
 
   const reloadThreads = useCallback(async () => {
-    setThreadLimit(50);
+    setThreadOffset(0);
     if (isAllModeRef.current) {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.all });
     } else {
@@ -560,7 +652,7 @@ export function useMailPageLogic() {
 
   const loadMoreThreads = useCallback(async () => {
     if (threadsFetching || !hasMoreThreads) return;
-    setThreadLimit(prev => prev + 50);
+    setThreadOffset(prev => prev + THREAD_PAGE_SIZE);
   }, [threadsFetching, hasMoreThreads]);
 
   const markRead = useCallback((msgs: MailMessage[]) => {
@@ -624,12 +716,22 @@ export function useMailPageLogic() {
 
       const execute = () => {
         const isDraft = selectedFolder === 'drafts';
+        const clearPendingRemoval = () => setPendingRemovalIds(prev => {
+          const next = new Set(prev);
+          next.delete(thread.conversation_id);
+          return next;
+        });
         if (isInTrash) {
-          mutations.deletePermanently({ accountId, provider: p, conversationId: thread.conversation_id });
+          mutations.deletePermanently(
+            { accountId, provider: p, conversationId: thread.conversation_id },
+            { onSettled: clearPendingRemoval },
+          );
         } else {
-          mutations.moveToTrash({ accountId, provider: p, conversationId: thread.conversation_id, folderId: selectedFolder, threadUnreadCount: 0, isDraft });
+          mutations.moveToTrash(
+            { accountId, provider: p, conversationId: thread.conversation_id, folderId: selectedFolder, threadUnreadCount: 0, isDraft },
+            { onSettled: clearPendingRemoval },
+          );
         }
-        setPendingRemovalIds(prev => { const next = new Set(prev); next.delete(thread.conversation_id); return next; });
         setDeleteToast(null);
       };
 
@@ -852,7 +954,7 @@ export function useMailPageLogic() {
 
   const scheduleSend = useCallback(async (
     to: string[], cc: string[], bcc: string[], subject: string, body: string,
-    restoreData: ComposerRestoreData, attachments?: ComposerAttachment[],
+    restoreData: ComposerRestoreData, attachments?: ComposerAttachment[], sendAt?: string,
   ) => {
     const { fromAccountId, fromIdentityId, draftItemId } = restoreData;
     const p = fromAccountId ? (allProviders.get(fromAccountId) ?? null) : resolveProvider(selectedThread?.accountId);
@@ -951,6 +1053,7 @@ export function useMailPageLogic() {
           replyToItemId: replyingToMsg?.item_id,
           replyToChangeKey: replyingToMsg?.change_key,
           isForward: restoreData.isForward,
+          sendAt,
         });
         const sentAt = Math.floor(Date.now() / 1000);
         const recipientNames = new Map(
@@ -1130,20 +1233,20 @@ export function useMailPageLogic() {
 
   return {
     t, preference, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
-    threads, threadsLoading: threadsLoading && threadLimit === 50, threadsRefreshing: threadsFetching && stableThreads.length > 0, threadsLoadingMore, hasMoreThreads, selectedThread,
+    threads, threadsLoading: threadsInitialLoading && threadOffset === 0, threadsRefreshing: threadsFetching && stableThreads.length > 0 && threadOffset === 0, threadsLoadingMore, hasMoreThreads, threadTotalCount, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
     contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts: allFoldersQuery.mergedCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
-    setSelectedAccountId, setSelectedFolder, setComposing, setComposingAccountId,
+    selectAccount, selectFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, reloadThreads, loadMoreThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
     downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
-    setSelectedThreadIds, setAttachmentPreview, provider, composerProvider, setReplyingTo, setReplyMode, setActionToast,
+    setSelectedThreadIds, setAttachmentPreview, provider, composerProvider, resolveProvider, setReplyingTo, setReplyMode, setActionToast,
     handleFoldersLoaded, setSelectedThread, threadSupportsSnooze, mailCapabilitiesByAccount,
     searchQuery, searchResults, searchLoading, handleSearch,
     isSending: mutations.isSending,

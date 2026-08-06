@@ -161,6 +161,7 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
   const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
   const isLoading = results.some(r => r.isLoading);
   const isFetching = results.some(r => r.isFetching);
+  const hasMore = results.some(r => (r.data?.length ?? 0) >= limit);
 
   const data = useMemo(() => {
     return results
@@ -183,9 +184,10 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
     data,
     isLoading,
     isFetching,
+    hasMore,
     errors,
     refetch,
-  }), [data, isLoading, isFetching, errors, refetch]);
+  }), [data, isLoading, isFetching, hasMore, errors, refetch]);
 }
 
 export function useMailIdentities(accountId: string, provider: MailProvider | null) {
@@ -271,7 +273,12 @@ export function useMailConversation(accountId: string, conversationId: string | 
     },
     enabled: !!provider && !!conversationId,
     staleTime: 60 * 1000,
-    retry: false,
+    // A conversation can have been populated from a transient provider
+    // response while switching accounts in the unified view. Keep cached data
+    // for instant paint, but always validate it when the user opens a thread.
+    refetchOnMount: 'always',
+    retry: 2,
+    retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailMessage[]), isLoading, isFetching, error, refetch }),

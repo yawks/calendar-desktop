@@ -140,6 +140,9 @@
     "remove": "Supprimer {{name}}"
   },
   "config": {
+    "advanced": "Avancé",
+    "fastmailWebToken": "Jeton web Fastmail",
+    "fastmailWebTokenHelp": "Optionnel. Active les fonctions privées Fastmail comme le snooze et l’envoi différé.",
     "backToCalendar": "← Retour au calendrier",
     "pageTitle": "Paramètres",
     "sectCalendars": "Calendriers",
@@ -270,6 +273,9 @@
   },
   "mail": {
     "noSubject": "(Pas d'objet)",
+    "messageContentLoadError": "Impossible de charger le message — réessayer",
+    "messageContentReloading": "Rechargement…",
+    "messageContentReload": "Recharger le contenu",
     "noAccount": "Aucun compte mail configuré. Ajoutez un compte Exchange ou Google dans les paramètres.",
     "allAccounts": "Tous les comptes",
     "contactSync": {
@@ -347,6 +353,10 @@
     "originalMessage": "----- Message d'origine -----",
     "send": "Envoyer",
     "sending": "Envoi…",
+    "scheduleSend": "Programmer l’envoi",
+    "schedule": "Programmer",
+    "sendTomorrowMorning": "Demain matin",
+    "chooseSendDateTime": "Choisir une date et une heure",
     "attach": "Joindre",
     "close": "Fermer",
     "saveDraft": "Enregistrer le brouillon",

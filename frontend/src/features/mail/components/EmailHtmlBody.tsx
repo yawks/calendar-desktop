@@ -52,7 +52,21 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   const darkModeStyle = isDark ? `
   html, body { background: ${bgCss}; }
   .ew { filter: url(#dm); }
-  .ew img, .ew video, .ew canvas, .ew iframe, .ew svg, .ew .qt-toggle { filter: url(#dm); }` : '';
+  /* Applying the involutive filter a second time keeps media colours unchanged.
+     !important prevents styles embedded by the sender from overriding it. */
+  .ew img, .ew video, .ew canvas, .ew iframe, .ew svg, .ew .qt-toggle {
+    filter: url(#dm) !important;
+  }
+  .ew .ew-bg-media-host { isolation: isolate; }
+  .ew .ew-bg-media-layer {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: -1 !important;
+    display: block !important;
+    pointer-events: none !important;
+    border-radius: inherit;
+    filter: url(#dm) !important;
+  }` : '';
 
   const prevMsgLabel = t('mail.previousMessage', 'Previous message');
 
@@ -101,6 +115,31 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
 </head>
 <body>${darkModeSvg}<div class="ew">${safeHtml}</div>
 <script>
+  ${isDark ? `
+  // CSS background images cannot be counter-filtered independently from their
+  // element. Move each one to a dedicated layer so only the image is restored.
+  document.querySelectorAll('.ew *').forEach(function(element) {
+    if (element.matches('img, video, canvas, iframe, svg, .qt-toggle')) return;
+    var computed = getComputedStyle(element);
+    if (!computed.backgroundImage || computed.backgroundImage === 'none') return;
+
+    var layer = document.createElement('span');
+    layer.className = 'ew-bg-media-layer';
+    layer.style.setProperty('background-image', computed.backgroundImage, 'important');
+    layer.style.setProperty('background-size', computed.backgroundSize, 'important');
+    layer.style.setProperty('background-position', computed.backgroundPosition, 'important');
+    layer.style.setProperty('background-repeat', computed.backgroundRepeat, 'important');
+    layer.style.setProperty('background-origin', computed.backgroundOrigin, 'important');
+    layer.style.setProperty('background-clip', computed.backgroundClip, 'important');
+    layer.style.setProperty('background-attachment', computed.backgroundAttachment, 'important');
+
+    if (computed.position === 'static') {
+      element.style.setProperty('position', 'relative', 'important');
+    }
+    element.style.setProperty('background-image', 'none', 'important');
+    element.classList.add('ew-bg-media-host');
+    element.insertBefore(layer, element.firstChild);
+  });` : ''}
   document.addEventListener('click', function(e) {
     var a = e.target.closest('a');
     if (a && a.href && !a.href.startsWith('javascript:')) {

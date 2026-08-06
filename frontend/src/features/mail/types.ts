@@ -33,6 +33,8 @@ export interface MailMessage {
   to_recipients: MailRecipient[];
   cc_recipients: MailRecipient[];
   body_html: string;
+  /** False when only the message envelope/header has been loaded. */
+  body_loaded?: boolean;
   date_time_received: string;
   is_read: boolean;
   has_attachments: boolean;

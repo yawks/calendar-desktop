@@ -44,7 +44,7 @@ function extractInlineImages(html: string): { html: string; inlineImages: Compos
  */
 export class EwsMailProvider implements MailProvider {
   readonly providerType = 'ews' as const;
-  readonly capabilities = { snooze: true } as const;
+  readonly capabilities = { snooze: true, scheduledSend: false } as const;
   readonly accountId: string;
   readonly userEmail: string;
 
@@ -67,6 +67,16 @@ export class EwsMailProvider implements MailProvider {
     return invoke<MailThread[]>('mail_list_threads', { accessToken, folder, maxCount, offset, userEmail: this.userEmail || null });
   }
 
+  async getThreadCount(folder: string): Promise<number> {
+    const accessToken = await this.token();
+    return invoke<number>('mail_get_thread_count', { accessToken, folder });
+  }
+
+  async getThreadSnippet(conversationId: string): Promise<string> {
+    const accessToken = await this.token();
+    return invoke<string>('mail_get_thread_snippet', { accessToken, conversationId });
+  }
+
   async searchThreads(query: MailSearchQuery, maxCount = 50): Promise<MailThread[]> {
     const accessToken = await this.token();
     console.log('[EWS.searchThreads] query:', JSON.stringify(query), '| maxCount:', maxCount);
@@ -77,7 +87,22 @@ export class EwsMailProvider implements MailProvider {
 
   async getThread(conversationId: string, includeTrash = false, isDraft = false, includeDrafts = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
-    return invoke<MailMessage[]>('mail_get_thread', { accessToken, conversationId, includeTrash, isDraft, includeDrafts });
+    const messages = await invoke<MailMessage[]>('mail_get_thread_headers', {
+      accessToken, conversationId, includeTrash, isDraft, includeDrafts,
+    });
+    return messages.map(message => ({ ...message, body_loaded: false }));
+  }
+
+  async getMessageContent(messageId: string) {
+    const accessToken = await this.token();
+    const message = await invoke<MailMessage>('mail_get_message_content', { accessToken, itemId: messageId });
+    return {
+      body_html: message.body_html,
+      body_text: message.body_text,
+      ics_mime: message.ics_mime,
+      attachments: message.attachments,
+      has_attachments: message.has_attachments,
+    };
   }
 
   async getRawMessageSource(itemId: string): Promise<string> {
