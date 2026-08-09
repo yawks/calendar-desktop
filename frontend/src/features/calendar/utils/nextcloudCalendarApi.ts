@@ -1,4 +1,4 @@
-import { CalendarConfig, CreateEventPayload } from '../../../shared/types';
+import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../../../shared/types';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – ical.js has no bundled types for v1.x
@@ -123,6 +123,48 @@ export async function deleteNextcloudEvent(cal: CalendarConfig, uid: string): Pr
     url,
     username: cal.nextcloudUsername ?? '',
     password: cal.nextcloudPassword ?? '',
+  });
+}
+
+export async function cancelNextcloudEvent(
+  cal: CalendarConfig,
+  uid: string,
+  event: CalendarEvent,
+  wholeSeries: boolean,
+): Promise<void> {
+  const url = eventResourceUrl(cal, uid);
+  const { invoke } = await import('@tauri-apps/api/core');
+  const currentIcs = await invoke<string>('fetch_url_with_auth', {
+    url,
+    username: cal.nextcloudUsername ?? '',
+    password: cal.nextcloudPassword ?? '',
+  });
+  const calendar = new ICAL.Component(ICAL.parse(currentIcs));
+  const master = calendar.getAllSubcomponents('vevent').find((component: any) => !component.hasProperty('recurrence-id'));
+  if (!master) throw new Error('Événement CalDAV introuvable');
+
+  const sequence = Number(master.getFirstPropertyValue('sequence') ?? 0) + 1;
+  if (wholeSeries || !event.isRecurringInstance) {
+    master.updatePropertyWithValue('status', 'CANCELLED');
+    master.updatePropertyWithValue('sequence', sequence);
+  } else {
+    const exception = new ICAL.Component(master.toJSON());
+    exception.removeAllProperties('rrule');
+    exception.removeAllProperties('rdate');
+    exception.updatePropertyWithValue('recurrence-id', ICAL.Time.fromJSDate(new Date(event.start), true));
+    exception.updatePropertyWithValue('dtstart', ICAL.Time.fromJSDate(new Date(event.start), true));
+    exception.updatePropertyWithValue('dtend', ICAL.Time.fromJSDate(new Date(event.end), true));
+    exception.updatePropertyWithValue('status', 'CANCELLED');
+    exception.updatePropertyWithValue('sequence', sequence);
+    calendar.addSubcomponent(exception);
+  }
+  calendar.updatePropertyWithValue('method', 'CANCEL');
+
+  await invoke('put_caldav_event', {
+    url,
+    username: cal.nextcloudUsername ?? '',
+    password: cal.nextcloudPassword ?? '',
+    icsContent: calendar.toString(),
   });
 }
 

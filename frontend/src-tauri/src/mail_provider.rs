@@ -20,6 +20,8 @@ pub struct MailThread {
     pub cc_recipients: Vec<MailRecipient>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unique_senders: Vec<MailRecipient>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -147,6 +149,7 @@ pub struct SendMailParams {
     pub in_reply_to: Option<String>,
     /// RFC 5322 References chain (JMAP only).
     pub references: Option<String>,
+    /// Server-side delivery date (RFC 3339), or immediate when omitted.
     pub send_at: Option<String>,
 }
 

@@ -38,6 +38,11 @@ function ewsResponseToRsvp(ewsStatus: string): any {
   }
 }
 
+function displayableEwsAddress(address?: string): string {
+  const value = address?.trim() ?? '';
+  return value.toUpperCase().startsWith('/O=') ? '' : value;
+}
+
 async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise<CalendarEvent[]> {
   const now = new Date();
   const start = new Date(now);
@@ -80,10 +85,11 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
       status: ewsResponseToRsvp(a.response_type),
       isOrganizer: false,
     }));
-    if (ev.organizer_email) {
+    if (ev.organizer_email || ev.organizer_name) {
+      const organizerEmail = displayableEwsAddress(ev.organizer_email);
       attendees.unshift({
-        name: ev.organizer_name ?? ev.organizer_email,
-        email: ev.organizer_email,
+        name: ev.organizer_name ?? organizerEmail,
+        email: organizerEmail,
         status: 'ACCEPTED',
         isOrganizer: true,
       });

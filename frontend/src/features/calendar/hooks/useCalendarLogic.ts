@@ -14,7 +14,7 @@ import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { DEMO_CALENDARS, DEMO_EVENTS } from '../../../demo/demoData';
 import i18n from '../../../i18n';
 import { createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } from '../utils/googleCalendarApi';
-import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
+import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, cancelNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
 import { useQueryClient } from '@tanstack/react-query';
 import { CALENDAR_KEYS } from './useCalendarQueries';
 
@@ -229,7 +229,7 @@ export function useCalendarLogic() {
     }
   }, []);
 
-  const saveExchangeEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
+  const saveExchangeEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent, updateSeries = false): Promise<string | undefined> => {
     if (!cal.exchangeAccountId) throw new Error('Compte Exchange introuvable');
     const token = await getExchangeToken(cal.exchangeAccountId);
     if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
@@ -247,6 +247,7 @@ export function useCalendarLogic() {
         isAllDay: payload.isAllday,
         location: payload.location ?? null,
         description: payload.description ?? null,
+        updateSeries,
       });
       return sourceEvent.seriesId;
     } else {
@@ -276,21 +277,24 @@ export function useCalendarLogic() {
     }
   }, [getValidToken]);
 
-  const handleSaveEvent = useCallback(async (payload: CreateEventPayload, sourceEvent?: CalendarEvent) => {
+  const handleSaveEvent = useCallback(async (payload: CreateEventPayload, sourceEvent?: CalendarEvent, recurringScope?: 'this' | 'future') => {
     const cal = calendars.find((c) => c.id === payload.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
 
+    const seriesSourceEvent = recurringScope === 'future' && sourceEvent?.seriesId && cal.type !== 'exchange'
+      ? { ...sourceEvent, sourceId: sourceEvent.seriesId }
+      : sourceEvent;
     const doSave = () => {
-      if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, sourceEvent);
-      if (cal.type === 'eventkit') return saveEventKitEvent(cal, payload, sourceEvent);
-      if (cal.type === 'exchange') return saveExchangeEvent(cal, payload, sourceEvent);
-      return saveGoogleEvent(cal, payload, sourceEvent);
+      if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, seriesSourceEvent);
+      if (cal.type === 'eventkit') return saveEventKitEvent(cal, payload, seriesSourceEvent);
+      if (cal.type === 'exchange') return saveExchangeEvent(cal, payload, sourceEvent, recurringScope === 'future');
+      return saveGoogleEvent(cal, payload, seriesSourceEvent);
     };
     const doRefresh = async () => {
-      if (cal.type === 'nextcloud') await ncRefresh();
-      else if (cal.type === 'eventkit') await ekRefresh();
-      else if (cal.type === 'exchange') await ewsRefresh();
-      else await googleRefresh();
+      if (cal.type === 'nextcloud') await ncRefresh(cal.id);
+      else if (cal.type === 'eventkit') await ekRefresh(cal.id);
+      else if (cal.type === 'exchange') await ewsRefresh(cal.id);
+      else await googleRefresh(cal.id);
     };
 
     if (sourceEvent) {
@@ -313,12 +317,13 @@ export function useCalendarLogic() {
           if (payload.tagId) setEventTag(finalSeriesId, payload.tagId);
           else if (payload.tagId === null) removeEventTag(finalSeriesId);
         }
-        await doRefresh();
+        void doRefresh().finally(() => {
+          setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(sourceEvent.id); return n; });
+        });
       } catch (e) {
         setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(sourceEvent.id); return n; });
         throw e;
       }
-      setOptimisticUpdated((prev) => { const n = new Map(prev); n.delete(sourceEvent.id); return n; });
     } else {
       const tempId = `temp-${Date.now()}`;
       const optimistic: CalendarEvent = {
@@ -421,12 +426,12 @@ export function useCalendarLogic() {
         const token = await getValidToken(cal.googleAccountId);
         if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
         await respondToGoogleEvent(token, cal, rsvpSourceId, cal.ownerEmail, status, comment);
-        await googleRefresh();
+        await googleRefresh(cal.id);
       } else if (cal.type === 'nextcloud') {
         if (!event.sourceId || !cal.ownerEmail)
           throw new Error(i18n.t('calendarPage.missingInfo'));
         await respondToNextcloudEvent(cal, event.sourceId, cal.ownerEmail, status, comment);
-        await ncRefresh();
+        await ncRefresh(cal.id);
       } else if (cal.type === 'exchange') {
         if (!cal.exchangeAccountId || !rsvpSourceId)
           throw new Error(i18n.t('calendarPage.missingInfo'));
@@ -466,7 +471,7 @@ export function useCalendarLogic() {
     }
   }, [calendars, events, isEventRecurring, askRecurringScope, getValidToken, getExchangeToken, googleRefresh, ncRefresh, queryClient]);
 
-  const handleDeleteEvent = useCallback(async (event: CalendarEvent) => {
+  const deleteOrCancelEvent = useCallback(async (event: CalendarEvent, requestedScope?: 'this' | 'all', sendCancellation = false) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
     console.log('[recurring] handleDeleteEvent cal=', cal?.type, 'event.isRecurringInstance=', event.isRecurringInstance, 'seriesId=', event.seriesId);
     if (!cal) return;
@@ -474,7 +479,8 @@ export function useCalendarLogic() {
     let deleteSourceId = event.sourceId;
     let affectedIds = [event.id];
 
-    if (isEventRecurring(event)) {
+    let recurringScope = requestedScope;
+    if (isEventRecurring(event) && !recurringScope) {
       console.log('[recurring] event IS recurring → showing scope modal');
       const scope = await askRecurringScope();
       if (scope === null) {
@@ -482,59 +488,116 @@ export function useCalendarLogic() {
         err.cancelled = true;
         throw err;
       }
-      if (scope === 'all' && event.seriesId) {
-        deleteSourceId = event.seriesId;
-        affectedIds = events.filter((e) => e.seriesId === event.seriesId).map((e) => e.id);
-      }
+      recurringScope = scope;
+    }
+    if (recurringScope === 'all' && event.seriesId) {
+      deleteSourceId = event.seriesId;
+      affectedIds = events.filter((e) => e.seriesId === event.seriesId).map((e) => e.id);
     }
 
-    setDeletedEventIds((prev) => new Set([...prev, ...affectedIds]));
+    const cancellationRemovesEvent = sendCancellation && cal.type === 'exchange';
+    if (sendCancellation && !cancellationRemovesEvent) {
+      setOptimisticUpdated((prev) => {
+        const next = new Map(prev);
+        for (const id of affectedIds) {
+          const affected = events.find((candidate) => candidate.id === id);
+          if (affected) next.set(id, { ...affected, isCancelled: true });
+        }
+        return next;
+      });
+    } else {
+      setDeletedEventIds((prev) => new Set([...prev, ...affectedIds]));
+    }
 
     try {
       console.log('[deleteEvent] sourceId=', event.sourceId, 'deleteSourceId=', deleteSourceId, 'cal.type=', cal.type, 'event.id=', event.id);
       if (cal.type === 'google') {
         const token = await getValidToken(cal.googleAccountId!);
-        await deleteGoogleEvent(token!, cal, deleteSourceId!);
-        await googleRefresh();
+        await deleteGoogleEvent(token!, cal, deleteSourceId!, sendCancellation);
+        await googleRefresh(cal.id);
       } else if (cal.type === 'nextcloud') {
-        await deleteNextcloudEvent(cal, event.sourceId!);
-        await ncRefresh();
+        if (sendCancellation) await cancelNextcloudEvent(cal, event.sourceId!, event, recurringScope === 'all');
+        else await deleteNextcloudEvent(cal, event.sourceId!);
+        await ncRefresh(cal.id);
       } else if (cal.type === 'eventkit') {
         const { invoke } = await import('@tauri-apps/api/core');
         await invoke('delete_eventkit_event', { eventId: event.sourceId ?? event.id });
-        await ekRefresh();
+        await ekRefresh(cal.id);
       } else if (cal.type === 'exchange') {
         const token = await getExchangeToken(cal.exchangeAccountId!);
         const [itemId, changeKey] = event.sourceId!.split('|');
         console.log('[deleteEvent] exchange itemId=', itemId, 'changeKey=', changeKey);
-        const account = exchangeAccounts.find((a) => a.id === cal.exchangeAccountId);
-        const isOrganizer = !event.attendees?.length || event.attendees.some((a) => {
-          if (!a.isOrganizer) return false;
-          if (account && a.email.toLowerCase() === account.email.toLowerCase()) return true;
-          return !!(account?.displayName && a.name.toLowerCase() === account.displayName.toLowerCase());
-        });
         const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('ews_delete_event', { accessToken: token, itemId, changeKey, sendCancellations: isOrganizer });
-        await ewsRefresh();
+        if (sendCancellation) {
+          await invoke('ews_cancel_event', {
+            accessToken: token,
+            itemId,
+            changeKey,
+            cancelSeries: recurringScope === 'all',
+          });
+        } else {
+          await invoke('ews_delete_event', {
+            accessToken: token,
+            itemId,
+            changeKey,
+            sendCancellations: false,
+            deleteSeries: recurringScope === 'all',
+          });
+        }
+        await ewsRefresh(cal.id);
+      }
+      if (sendCancellation && !cancellationRemovesEvent) {
+        setOptimisticUpdated((prev) => {
+          const next = new Map(prev);
+          for (const id of affectedIds) next.delete(id);
+          return next;
+        });
+      }
+      if (!sendCancellation || cancellationRemovesEvent) {
+        setDeletedEventIds((prev) => {
+          const next = new Set(prev);
+          for (const id of affectedIds) next.delete(id);
+          return next;
+        });
       }
     } catch (err) {
       console.error('[deleteEvent] failed', err);
-      setDeletedEventIds((prev) => {
-        const next = new Set(prev);
-        for (const id of affectedIds) next.delete(id);
-        return next;
-      });
+      const message = String(err).toLowerCase();
+      const alreadyMissingOnEws = cal.type === 'exchange' && (
+        message.includes("item not found") ||
+        message.includes("occurrence couldn't be found") ||
+        message.includes('erroritemnotfound')
+      );
+      if (alreadyMissingOnEws) {
+        void ewsRefresh(cal.id);
+        return;
+      }
+      if (sendCancellation && !cancellationRemovesEvent) {
+        setOptimisticUpdated((prev) => {
+          const next = new Map(prev);
+          for (const id of affectedIds) next.delete(id);
+          return next;
+        });
+      } else {
+        setDeletedEventIds((prev) => {
+          const next = new Set(prev);
+          for (const id of affectedIds) next.delete(id);
+          return next;
+        });
+      }
       throw new Error(i18n.t('eventModal.deleteError'));
     }
   }, [calendars, events, exchangeAccounts, isEventRecurring, askRecurringScope, getValidToken, getExchangeToken, googleRefresh, ncRefresh, ekRefresh, ewsRefresh]);
 
-  const isEventEditable = useCallback((event: CalendarEvent) => {
-    const cal = calendars.find((c) => c.id === event.calendarId);
-    if (!cal) return false;
-    if (cal.type !== 'google' && cal.type !== 'eventkit' && cal.type !== 'nextcloud') return false;
-    const attendees = event.attendees;
-    return !attendees?.length || attendees.some((a) => a.isOrganizer && a.email === cal.ownerEmail);
-  }, [calendars]);
+  const handleDeleteEvent = useCallback(
+    (event: CalendarEvent, scope?: 'this' | 'all') => deleteOrCancelEvent(event, scope, false),
+    [deleteOrCancelEvent],
+  );
+
+  const handleCancelEvent = useCallback(
+    (event: CalendarEvent, scope?: 'this' | 'all') => deleteOrCancelEvent(event, scope, true),
+    [deleteOrCancelEvent],
+  );
 
   const isExchangeOrganizer = useCallback((event: CalendarEvent) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
@@ -549,19 +612,22 @@ export function useCalendarLogic() {
     });
   }, [calendars, exchangeAccounts]);
 
+  const isEventEditable = useCallback((event: CalendarEvent) => {
+    const cal = calendars.find((c) => c.id === event.calendarId);
+    if (!cal) return false;
+    if (cal.type === 'exchange') return isExchangeOrganizer(event);
+    if (cal.type !== 'google' && cal.type !== 'eventkit' && cal.type !== 'nextcloud') return false;
+    const attendees = event.attendees;
+    const ownerEmail = cal.ownerEmail?.toLowerCase();
+    return !attendees?.length || !!ownerEmail && attendees.some((a) =>
+      a.isOrganizer && a.email.toLowerCase() === ownerEmail
+    );
+  }, [calendars, isExchangeOrganizer]);
+
   const handleStartEdit = useCallback(async (event: CalendarEvent) => {
-    if (isEventRecurring(event)) {
-      const scope = await askRecurringScope();
-      if (scope === null) return;
-      if (scope === 'all' && event.seriesId) {
-        setEditEvent({ ...event, sourceId: event.seriesId });
-        setSelectedEvent(null);
-        return;
-      }
-    }
     setEditEvent(event);
     setSelectedEvent(null);
-  }, [isEventRecurring, askRecurringScope]);
+  }, []);
 
   const handleBeforeUpdateEvent = useCallback(
     ({ event, changes }: { event: any; changes: any }) => {
@@ -664,6 +730,7 @@ export function useCalendarLogic() {
     handleSaveEvent,
     handleRsvp,
     handleDeleteEvent,
+    handleCancelEvent,
     handleStartEdit,
     isEventEditable,
     isExchangeOrganizer,

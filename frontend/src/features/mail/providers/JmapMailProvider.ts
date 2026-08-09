@@ -1,19 +1,24 @@
 import { invoke } from '@tauri-apps/api/core';
 import { JmapAccount } from '../../../shared/types';
 import { MailAttachment, MailFolder, MailIdentity, MailMessage, MailSearchQuery, MailThread } from '../types';
-import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams } from './MailProvider';
+import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams, ScheduledSendInfo } from './MailProvider';
 
 export class JmapMailProvider implements MailProvider {
   readonly providerType = 'jmap';
-  readonly capabilities: import('./MailProvider').MailProviderCapabilities;
+  // Standard JMAP tokens cannot access Fastmail's private dev/mail snooze API.
+  readonly capabilities = { snooze: false, scheduledSend: { supported: false } } as const;
+
+  async getCapabilities() {
+    return invoke<import('./MailProvider').MailProviderCapabilities>('jmap_get_capabilities', {
+      config: this.rustConfig,
+    });
+  }
   readonly accountId: string;
   private readonly config: JmapAccount;
 
   constructor(account: JmapAccount) {
     this.accountId = account.id;
     this.config = account;
-    const hasFastmailToken = !!account.fastmailToken?.trim();
-    this.capabilities = { snooze: hasFastmailToken, scheduledSend: hasFastmailToken };
   }
 
   private get rustConfig() {
@@ -23,6 +28,7 @@ export class JmapMailProvider implements MailProvider {
       token: this.config.token,
       auth_type: this.config.authType ?? 'bearer',
       fastmail_token: this.config.fastmailToken ?? null,
+      fastmail_cookie: this.config.fastmailCookie ?? null,
     };
   }
 
@@ -92,6 +98,13 @@ export class JmapMailProvider implements MailProvider {
     };
   }
 
+  async getRawMessageSource(itemId: string): Promise<string> {
+    return invoke<string>('jmap_get_raw_message', {
+      config: this.rustConfig,
+      itemId,
+    });
+  }
+
   async listFolders(): Promise<MailFolder[]> {
     return invoke<MailFolder[]>('jmap_list_folders', {
       config: this.rustConfig,
@@ -118,6 +131,20 @@ export class JmapMailProvider implements MailProvider {
       inReplyTo: params.inReplyTo ?? null,
       references: params.references ?? null,
       sendAt: params.sendAt ?? null,
+    });
+  }
+
+  async getScheduledSend(emailId: string): Promise<ScheduledSendInfo | null> {
+    return invoke<ScheduledSendInfo | null>('jmap_get_scheduled_send', {
+      config: this.rustConfig,
+      emailId,
+    });
+  }
+
+  async cancelScheduledSend(submissionId: string): Promise<void> {
+    await invoke('jmap_cancel_scheduled_send', {
+      config: this.rustConfig,
+      submissionId,
     });
   }
 

@@ -299,7 +299,7 @@ export function useMailPageLogic() {
     return (folderQuery.data ?? [])
       .filter(f => {
         const normalized = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
-        return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed', 'spam'].includes(normalized);
+        return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'scheduled', 'snoozed', 'spam'].includes(normalized);
       })
       .map(f => ({ ...f, accountId: selectedAccountId, accountColor: info?.color, accountLabel: info?.label }));
   }, [isAllMode, allModeDynamicFolders, folderQuery.data, selectedAccountId, allAccountInfo]);
@@ -559,10 +559,26 @@ export function useMailPageLogic() {
     return p?.capabilities.snooze ?? false;
   }, [resolveProvider, selectedThread?.accountId]);
 
-  const mailCapabilitiesByAccount = useMemo(
+  const [mailCapabilitiesByAccount, setMailCapabilitiesByAccount] = useState(
     () => new Map([...allProviders].map(([accountId, mailProvider]) => [accountId, mailProvider.capabilities] as const)),
-    [allProviders],
   );
+  useEffect(() => {
+    let cancelled = false;
+    const baseline = new Map([...allProviders].map(([accountId, mailProvider]) => [accountId, mailProvider.capabilities] as const));
+    setMailCapabilitiesByAccount(baseline);
+    void Promise.all([...allProviders].map(async ([accountId, mailProvider]) => {
+      if (!mailProvider.getCapabilities) return [accountId, mailProvider.capabilities] as const;
+      try {
+        return [accountId, await mailProvider.getCapabilities()] as const;
+      } catch (error) {
+        console.warn(`[mail:capabilities] ${accountId}`, error);
+        return [accountId, mailProvider.capabilities] as const;
+      }
+    })).then(entries => {
+      if (!cancelled) setMailCapabilitiesByAccount(new Map(entries));
+    });
+    return () => { cancelled = true; };
+  }, [allProviders]);
 
   const selectAccount = useCallback((accountId: string) => {
     if (accountId === selectedAccountId) return;
@@ -916,6 +932,10 @@ export function useMailPageLogic() {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) return;
     const canPreviewInApp = att.content_type.startsWith('image/') || att.content_type.includes('pdf');
+    if (att.local_data && canPreviewInApp) {
+      setAttachmentPreview({ attachment: att, loading: false, data: att.local_data });
+      return;
+    }
     if (!canPreviewInApp) {
       setLoadingAttachmentId(`preview:${att.attachment_id}`);
       try { await p.openAttachment(att); } catch (e) { setError(String(e)); }
@@ -937,7 +957,7 @@ export function useMailPageLogic() {
     if (!p) return;
     setLoadingAttachmentId(`download:${att.attachment_id}`);
     try {
-      const data = await p.getAttachmentData(att);
+      const data = att.local_data ?? await p.getAttachmentData(att);
       const path = await invoke<string>('save_file_to_downloads', { filename: att.name, data });
       if (downloadToastTimerRef.current) clearTimeout(downloadToastTimerRef.current);
       setDownloadToast({ name: att.name, path });
@@ -947,6 +967,7 @@ export function useMailPageLogic() {
   }, [resolveProvider, selectedThread]);
 
   const getRawAttachmentData = useCallback(async (att: MailAttachment): Promise<string> => {
+    if (att.local_data) return att.local_data;
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) throw new Error('Provider introuvable');
     return p.getAttachmentData(att);
@@ -966,6 +987,14 @@ export function useMailPageLogic() {
 
     const account = allMailAccounts.find(a => a.id === accountId);
     const optimisticId = '__optimistic__' + Date.now();
+    const optimisticAttachments: MailAttachment[] = (attachments ?? []).map((attachment, index) => ({
+      attachment_id: `${optimisticId}:attachment:${index}`,
+      name: attachment.name,
+      content_type: attachment.contentType,
+      size: attachment.size,
+      is_inline: attachment.isInline ?? false,
+      local_data: attachment.data,
+    }));
     const optimisticMsg: MailMessage = {
       item_id: optimisticId,
       change_key: '',
@@ -977,8 +1006,8 @@ export function useMailPageLogic() {
       body_html: body,
       date_time_received: new Date().toISOString(),
       is_read: true,
-      has_attachments: (attachments?.length ?? 0) > 0,
-      attachments: [],
+      has_attachments: optimisticAttachments.length > 0,
+      attachments: optimisticAttachments,
     };
 
     if (conversationId) {
@@ -1068,6 +1097,10 @@ export function useMailPageLogic() {
           eventId: `send:${optimisticId}`,
         }));
         await recordContactObservations(accountId, sentObservations);
+        if (sendAt) {
+          void queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(accountId, 'scheduled') });
+          void queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads', 'scheduled'] });
+        }
         void queryClient.invalidateQueries({ queryKey: ['contact-index'] });
         void queryClient.invalidateQueries({ queryKey: ['contact-index-search'] });
         if (conversationId) setTimeout(() => doPoll(1), 3000);

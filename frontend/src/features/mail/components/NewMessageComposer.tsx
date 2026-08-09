@@ -6,9 +6,10 @@ import { ComposerAttachmentPanel } from './ComposerAttachmentPanel';
 import { MailEditor, MailEditorHandle } from './MailEditor';
 import { CloseComposerPopover } from './MailComposer';
 import { IdentitySelector } from './IdentitySelector';
-import { Paperclip, Send } from 'lucide-react';
+import { Paperclip } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSignatures, buildInitialHTMLWithSignature } from '../../../shared/store/SignatureStore';
+import type { MailProviderCapabilities } from '../providers/MailProvider';
 import { ScheduledSendMenu } from './ScheduledSendMenu';
 
 export interface NewMessageComposerProps {
@@ -16,7 +17,7 @@ export interface NewMessageComposerProps {
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly restoreData: ComposerRestoreData | null;
   readonly onSend: (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId: string | undefined, recipients: { to: RecipientEntry[]; cc: RecipientEntry[]; bcc: RecipientEntry[] }, sendAt?: string) => Promise<void>;
-  readonly supportsScheduledSend?: boolean;
+  readonly scheduledSend?: MailProviderCapabilities['scheduledSend'];
   readonly onCancel: () => void;
   readonly onSaveDraft: (to: string[], cc: string[], bcc: string[], subject: string, body: string) => void;
   readonly onDeleteDraft?: () => void;
@@ -37,7 +38,7 @@ export interface NewMessageComposerHandle {
 export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessageComposerProps>(function NewMessageComposer({
   contacts, provider, restoreData, onSend, onCancel, onSaveDraft, onDeleteDraft,
   fromAccounts, fromAccountId, onFromAccountChange,
-  identities, selectedIdentityId, onIdentityChange, supportsScheduledSend,
+  identities, selectedIdentityId, onIdentityChange, scheduledSend,
 }: NewMessageComposerProps, ref) {
   const { t } = useTranslation();
   const { getSignature, signaturePosition } = useSignatures();
@@ -177,11 +178,15 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
       >
         {/* ── Top action bar ── */}
         <div className="mail-new-composer__toolbar">
-          <div className={`mail-send-button${supportsScheduledSend ? ' mail-send-button--split' : ''}`}>
+          <div className={`mail-send-button${scheduledSend?.supported ? ' mail-send-button--split' : ''}`}>
             <button type="submit" className="btn-primary mail-send-button__main" disabled={sending || toRecipients.length === 0}>
-              <Send size={15} /> {sending ? t('mail.sending', 'Envoi…') : t('mail.send', 'Envoyer')}
+              {sending ? t('mail.sending', 'Envoi…') : t('mail.send', 'Envoyer')}
             </button>
-            {supportsScheduledSend && <ScheduledSendMenu disabled={sending || toRecipients.length === 0} onSchedule={date => { void doSend(date); }} />}
+            <ScheduledSendMenu
+              capability={scheduledSend}
+              disabled={sending || toRecipients.length === 0}
+              onSchedule={sendAt => { void doSend(sendAt); }}
+            />
           </div>
           <button type="button" className="btn-ghost" onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={15} />

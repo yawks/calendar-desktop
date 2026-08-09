@@ -42,7 +42,7 @@ export function useContactBackfill(accounts: BackfillAccount[]): ContactBackfill
       // backfill contract before they can safely resume across app restarts.
       for (const account of accounts.filter(item => item.providerType === 'ews' && item.provider?.backfillContacts)) {
         const folders = await account.provider!.listFolders();
-        const excluded = new Set(['drafts', 'deleteditems', 'spam', 'snoozed']);
+        const excluded = new Set(['drafts', 'deleteditems', 'spam', 'snoozed', 'scheduled']);
         const dynamicFolders = folders.flatMap(folder => {
           const normalized = DISPLAY_TO_STATIC[folder.display_name.toLowerCase()] ?? folder.folder_id;
           if (excluded.has(normalized) || normalized === 'inbox' || normalized === 'sentitems') return [];

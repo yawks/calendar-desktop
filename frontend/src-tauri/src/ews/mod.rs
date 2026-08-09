@@ -355,8 +355,11 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         let my_response_type = xml_content(&item_xml, "t:MyResponseType")
             .unwrap_or_else(|| "Unknown".to_string());
 
-        // RecurringMasterId is included for recurring exceptions; use it as a stable series identifier.
-        let recurring_master_id = xml_content(&item_xml, "t:RecurringMasterId").filter(|s| !s.is_empty());
+        // CalendarView expands recurring series into occurrences and exceptions.
+        let calendar_item_type = xml_content(&item_xml, "t:CalendarItemType").unwrap_or_default();
+        let recurring_master_id =
+            (calendar_item_type == "Occurrence" || calendar_item_type == "Exception")
+                .then(|| item_id.clone());
 
         // recurring_master_id may be enriched later via batch GetItem (CleanGlobalObjectId) if available.
         let recurring_master_id = recurring_master_id;

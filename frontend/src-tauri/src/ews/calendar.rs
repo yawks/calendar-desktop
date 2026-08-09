@@ -129,7 +129,7 @@ pub async fn ews_create_event(
 
     let body_xml = description
         .filter(|s| !s.is_empty())
-        .map(|s| format!(r#"<t:Body BodyType="Text">{}</t:Body>"#, xml_escape(&s)))
+        .map(|s| format!(r#"<t:Body BodyType="HTML">{}</t:Body>"#, xml_escape(&s)))
         .unwrap_or_default();
 
     let attendees_xml = attendees
@@ -213,6 +213,7 @@ pub async fn ews_update_event(
     is_all_day: bool,
     location: Option<String>,
     description: Option<String>,
+    update_series: bool,
 ) -> Result<(), String> {
     fn set_field(field_uri: &str, element: &str, value: &str) -> String {
         format!(
@@ -244,25 +245,32 @@ pub async fn ews_update_event(
         updates.push(format!(
             r#"<t:SetItemField>
   <t:FieldURI FieldURI="item:Body"/>
-  <t:CalendarItem><t:Body BodyType="Text">{}</t:Body></t:CalendarItem>
+  <t:CalendarItem><t:Body BodyType="HTML">{}</t:Body></t:CalendarItem>
 </t:SetItemField>"#,
-            desc
+            xml_escape(&desc)
         ));
     }
+
+    // RecurringMasterItemId lets EWS resolve the master from the occurrence
+    // currently being edited, without confusing it with our local series key.
+    let target_id = if update_series {
+        format!(r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#, item_id, change_key)
+    } else {
+        format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, item_id, change_key)
+    };
 
     let soap_body = format!(
         r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AutoResolve" SendMeetingInvitationsOrCancellations="SendToAllAndSaveCopy">
   <m:ItemChanges>
     <t:ItemChange>
-      <t:ItemId Id="{item_id}" ChangeKey="{change_key}"/>
+      {target_id}
       <t:Updates>
         {updates}
       </t:Updates>
     </t:ItemChange>
   </m:ItemChanges>
 </m:UpdateItem>"#,
-        item_id = item_id,
-        change_key = change_key,
+        target_id = target_id,
         updates = updates.join("\n"),
     );
 
@@ -283,19 +291,25 @@ pub async fn ews_delete_event(
     item_id: String,
     change_key: String,
     send_cancellations: bool,
+    delete_series: bool,
 ) -> Result<(), String> {
     let cancellation_mode = if send_cancellations {
         "SendToAllAndSaveCopy"
     } else {
         "SendToNone"
     };
+    let target_id = if delete_series {
+        format!(r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#, item_id, change_key)
+    } else {
+        format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, item_id, change_key)
+    };
     let soap_body = format!(
         r#"<m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="{}">
   <m:ItemIds>
-    <t:ItemId Id="{}" ChangeKey="{}"/>
+    {}
   </m:ItemIds>
 </m:DeleteItem>"#,
-        cancellation_mode, item_id, change_key
+        cancellation_mode, target_id
     );
 
     let xml = send_ews_request(&access_token, &soap_body, None).await?;
@@ -303,6 +317,61 @@ pub async fn ews_delete_event(
     if xml.contains("ResponseClass=\"Error\"") {
         let msg = xml_content(&xml, "m:MessageText")
             .unwrap_or_else(|| "EWS delete error".to_string());
+        return Err(msg);
+    }
+    Ok(())
+}
+
+/// Cancel an organizer meeting using the same EWS response object as Outlook.
+#[command]
+pub async fn ews_cancel_event(
+    access_token: String,
+    item_id: String,
+    change_key: String,
+    cancel_series: bool,
+) -> Result<(), String> {
+    let (reference_id, reference_change_key) = if cancel_series {
+        let get_master_body = format!(
+            r#"<m:GetItem>
+  <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
+  <m:ItemIds>
+    <t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>
+  </m:ItemIds>
+</m:GetItem>"#,
+            item_id, change_key,
+        );
+        let master_xml = send_ews_request(&access_token, &get_master_body, None).await?;
+        if master_xml.contains("ResponseClass=\"Error\"") {
+            let msg = xml_content(&master_xml, "m:MessageText")
+                .unwrap_or_else(|| "EWS recurring master lookup error".to_string());
+            return Err(msg);
+        }
+        let item_element = master_xml
+            .find("<t:ItemId ")
+            .and_then(|start| master_xml[start..].find("/>").map(|end| &master_xml[start..start + end]))
+            .ok_or_else(|| "EWS recurring master ID missing".to_string())?;
+        (
+            xml_attr(item_element, "Id").ok_or_else(|| "EWS recurring master ID missing".to_string())?,
+            xml_attr(item_element, "ChangeKey").unwrap_or_default(),
+        )
+    } else {
+        (item_id, change_key)
+    };
+
+    let soap_body = format!(
+        r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
+  <m:Items>
+    <t:CancelCalendarItem>
+      <t:ReferenceItemId Id="{}" ChangeKey="{}"/>
+    </t:CancelCalendarItem>
+  </m:Items>
+</m:CreateItem>"#,
+        reference_id, reference_change_key,
+    );
+    let xml = send_ews_request(&access_token, &soap_body, None).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        let msg = xml_content(&xml, "m:MessageText")
+            .unwrap_or_else(|| "EWS cancel error".to_string());
         return Err(msg);
     }
     Ok(())

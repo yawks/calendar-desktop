@@ -301,7 +301,7 @@ function replaceNextEmptySrc(html: string, dataUri: string): string {
  */
 export class GmailMailProvider implements MailProvider {
   readonly providerType = 'gmail' as const;
-  readonly capabilities = { snooze: false, scheduledSend: false } as const;
+  readonly capabilities = { snooze: false, scheduledSend: { supported: false } } as const;
   readonly accountId: string;
   readonly userEmail: string;
 
@@ -374,6 +374,7 @@ export class GmailMailProvider implements MailProvider {
   // ── Threads ────────────────────────────────────────────────────────────────
 
   async listThreads(folder: string, maxCount = 50, offset = 0): Promise<MailThread[]> {
+    if (folder === 'scheduled') return [];
     const token = await this.token();
     const label = folderToLabel(folder);
     if (!label) return [];

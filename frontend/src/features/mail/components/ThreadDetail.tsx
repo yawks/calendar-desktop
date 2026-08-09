@@ -53,6 +53,8 @@ export interface ThreadDetailProps {
   readonly onSnooze: (snoozeUntil: string) => void;
   readonly snoozeUntil?: string;
   readonly isInSnoozedFolder?: boolean;
+  readonly isInScheduledFolder?: boolean;
+  readonly onScheduledSendCanceled?: (message: MailMessage) => void;
   readonly onUnsnooze: () => void;
   readonly moveFolders: import('../types').MailFolder[];
   readonly onMove: (folderId: string) => void;
@@ -93,7 +95,7 @@ export function ThreadDetail({
   onReply, onReplyAll, onForward, onToggleRead,
   replyMode, onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
-  supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, onUnsnooze,
+  supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, isInScheduledFolder, onScheduledSendCanceled, onUnsnooze,
   moveFolders, onMove, isInSpamFolder, onMarkAsSpam, composerRef,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
@@ -304,7 +306,7 @@ export function ThreadDetail({
           <AlarmClock size={18} className="mail-snooze-banner__icon" />
           <span className="mail-snooze-banner__text">
             {snoozeUntil
-              ? <>{t('mail.snoozedUntilLabel', 'Snoozed until')}{' '}<strong>{formatSnoozeDate(snoozeUntil, t)}</strong></>
+              ? <>{t('mail.snoozedUntilLabel', 'Snoozed until')}{' '}<strong title={new Date(snoozeUntil).toLocaleString()}>{formatSnoozeDate(snoozeUntil, t)}</strong></>
               : t('mail.snoozed', 'Snoozed')}
           </span>
           <button className="mail-snooze-banner__btn" onClick={() => { setSnoozeBannerDismissed(true); onUnsnooze(); }}>
@@ -342,6 +344,8 @@ export function ThreadDetail({
               onDownloadAttachment={onDownloadAttachment}
               onGetAttachmentData={onGetAttachmentData}
               loadingAttachmentId={loadingAttachmentId}
+              isInScheduledFolder={isInScheduledFolder}
+              onScheduledSendCanceled={onScheduledSendCanceled}
             />
           </>
         )}
@@ -364,6 +368,8 @@ export function ThreadDetail({
             onDownloadAttachment={onDownloadAttachment}
             onGetAttachmentData={onGetAttachmentData}
             loadingAttachmentId={loadingAttachmentId}
+            isInScheduledFolder={isInScheduledFolder}
+            onScheduledSendCanceled={onScheduledSendCanceled}
           />
         ))}
 

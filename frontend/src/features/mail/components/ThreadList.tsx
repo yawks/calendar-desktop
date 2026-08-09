@@ -16,8 +16,10 @@ export interface ThreadListProps {
   readonly snoozedMap: Record<string, string>;
   readonly isInSnoozedFolder: boolean;
   readonly isSentFolder?: boolean;
+  readonly isInScheduledFolder?: boolean;
   readonly isSearchMode?: boolean;
   readonly draftConversationIds?: Set<string>;
+  readonly sourceColor?: string;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
@@ -43,8 +45,10 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       snoozedMap,
       isInSnoozedFolder,
       isSentFolder = false,
+      isInScheduledFolder = false,
       isSearchMode = false,
       draftConversationIds,
+      sourceColor,
       onSelect,
       onToggleRead,
       onDelete,
@@ -230,10 +234,12 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               thread={thread}
               isSelected={thread.conversation_id === selectedId}
               isChecked={selectedThreadIds.has(thread.conversation_id)}
-              snoozeUntil={snoozedMap[thread.conversation_id]}
+              snoozeUntil={thread.snoozed_until ?? snoozedMap[thread.conversation_id]}
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={isSentFolder}
+              isInScheduledFolder={isInScheduledFolder}
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
+              sourceColor={sourceColor}
               provider={resolveProvider?.(thread) ?? provider}
               onSelect={onSelect}
               onToggleRead={onToggleRead}

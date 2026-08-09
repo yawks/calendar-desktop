@@ -54,7 +54,11 @@ export function IdentitySelector({
   const activeId = selectedIdentityId ?? identities[0]?.id;
 
   return (
-    <div ref={ref} className={className} style={{ position: 'relative', ...style }}>
+    <div
+      ref={ref}
+      className={`identity-selector${className ? ` ${className}` : ''}`}
+      style={{ position: 'relative', ...style }}
+    >
       {label && <span className="mail-composer__label">{label}</span>}
       <button type="button" className="from-account-btn" onClick={() => setOpen(o => !o)}>
         <span className="from-account-name" style={{ color: sel.accountColor ?? 'var(--primary)' }}>

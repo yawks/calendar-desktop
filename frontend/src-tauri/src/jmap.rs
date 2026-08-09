@@ -4,6 +4,8 @@ use jmap_client::client::{Client, Credentials};
 use jmap_client::email::Property as EmailProperty;
 use jmap_client::email::query::Filter as EmailFilter;
 use jmap_client::email::query::Comparator as EmailComparator;
+use jmap_client::email_submission::Property as SubmissionProperty;
+use jmap_client::email_submission::query::Comparator as SubmissionComparator;
 use jmap_client::mailbox::Role;
 use jmap_client::URI;
 use std::collections::HashMap;
@@ -22,6 +24,7 @@ pub struct JmapConfig {
     pub auth_type: Option<String>,
     pub color: Option<String>,
     pub fastmail_token: Option<String>,
+    pub fastmail_cookie: Option<String>,
     /// Internal cursor used only by jmap_list_threads; never persisted in an account.
     #[serde(default)]
     pub list_offset: u32,
@@ -29,15 +32,6 @@ pub struct JmapConfig {
     pub load_message_bodies: bool,
     #[serde(default)]
     pub single_message_id: Option<String>,
-}
-
-fn fastmail_config(config: &JmapConfig) -> Option<JmapConfig> {
-    let token = config.fastmail_token.as_deref()?.trim();
-    if token.is_empty() { return None; }
-    let mut private = config.clone();
-    private.token = token.to_string();
-    private.auth_type = Some("bearer".to_string());
-    Some(private)
 }
 
 // ── Persistent client + folder-ID cache ──────────────────────────────────────
@@ -125,6 +119,11 @@ fn build_mime_message(
     }
     if let Some(ref value) = params.references {
         headers.push_str(&format!("References: {}\r\n", sanitise_mime_header(value)));
+    }
+    if let Some(ref value) = params.send_at {
+        let date = chrono::DateTime::parse_from_rfc3339(value)
+            .map_err(|e| format!("Invalid scheduled-send date: {e}"))?;
+        headers.push_str(&format!("Date: {}\r\n", date.to_rfc2822()));
     }
 
     let body = params.body_html.replace('\r', "").replace('\n', "\r\n");
@@ -254,6 +253,67 @@ async fn get_client(state: &JmapClientState, config: &JmapConfig) -> Result<Arc<
     Ok(client)
 }
 
+async fn fastmail_private_call(
+    client: &Client,
+    config: &JmapConfig,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let raw_token = config.fastmail_token.as_deref()
+        .filter(|token| !token.trim().is_empty())
+        .ok_or_else(|| "Fastmail web token required".to_string())?;
+    let raw_cookie = config.fastmail_cookie.as_deref()
+        .filter(|cookie| !cookie.trim().is_empty())
+        .ok_or_else(|| "Fastmail session cookie required; copy the complete curl -b value".to_string())?;
+    let trimmed = raw_token.trim();
+    let token = trimmed.strip_prefix("Bearer ")
+        .or_else(|| trimmed.strip_prefix("bearer "))
+        .unwrap_or(trimmed)
+        .trim();
+    if token.is_empty() || token.chars().any(char::is_whitespace) {
+        return Err("Fastmail web token has an invalid format; paste only the fma1… value".to_string());
+    }
+    let cookie = raw_cookie.trim()
+        .strip_prefix("Cookie:").or_else(|| raw_cookie.trim().strip_prefix("cookie:"))
+        .unwrap_or(raw_cookie.trim()).trim().trim_matches(['\'', '"']);
+    let account_id = client.default_account_id();
+    let separator = if client.session().api_url().contains('?') { '&' } else { '?' };
+    let user_id = account_id.strip_prefix('u').unwrap_or(account_id);
+    let url = format!("{}{}u={}", client.session().api_url(), separator, user_id);
+    let response = reqwest::Client::new()
+        .post(url)
+        // Keep this byte-for-byte equivalent to Fastmail's web client. This
+        // explicit form was validated against the private endpoint; do not use
+        // reqwest's bearer_auth convenience here.
+        .header("authorization", format!("Bearer {token}"))
+        .header("cookie", cookie)
+        .header("Origin", "https://app.fastmail.com")
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send().await.map_err(|e| format!("Fastmail private API request: {e}"))?;
+    let status = response.status();
+    let text = response.text().await.map_err(|e| format!("Fastmail private API response: {e}"))?;
+    if !status.is_success() {
+        let token_shape = if token.starts_with("fma1-") { "fma1" } else { "unexpected-prefix" };
+        return Err(format!(
+            "Fastmail private API: {status}: {text} (token format: {token_shape}, length: {})",
+            token.len()
+        ));
+    }
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Fastmail private API invalid JSON: {e}"))?;
+    if let Some(error) = value.get("methodResponses").and_then(|responses| responses.as_array())
+        .and_then(|responses| responses.iter().find(|response| response.get(0).and_then(|v| v.as_str()) == Some("error"))) {
+        return Err(format!("Fastmail private API rejected request: {error}"));
+    }
+    Ok(value)
+}
+
+fn config_has_fastmail_credentials(config: &JmapConfig) -> bool {
+    config.fastmail_token.as_deref().is_some_and(|value| !value.trim().is_empty())
+        && config.fastmail_cookie.as_deref().is_some_and(|value| !value.trim().is_empty())
+}
+
 // ── Folder ID cache ───────────────────────────────────────────────────────────
 
 /// Returns a map of role/name → JMAP mailbox ID for the account.
@@ -290,6 +350,9 @@ async fn get_folder_ids(
         if let Some(name) = m.name() {
             if name.eq_ignore_ascii_case("Snoozed") {
                 folders.insert("snoozed".to_string(), id.to_string());
+            }
+            if name.eq_ignore_ascii_case("Scheduled") || name.eq_ignore_ascii_case("Programmés") {
+                folders.insert("scheduled".to_string(), id.to_string());
             }
         }
     }
@@ -369,6 +432,69 @@ impl MailProvider for JmapProvider {
         let count = max_count.unwrap_or(50);
         let email_limit = count * 4;
 
+        if folder == "scheduled" {
+            let mut query_request = client.build();
+            query_request.query_email_submission()
+                .sort([SubmissionComparator::sent_at().descending()])
+                .limit((count * 4) as usize);
+            let mut query_response = query_request.send().await.map_err(|e| e.to_string())?;
+            let submission_ids = query_response.method_response_by_pos(0)
+                .unwrap_query_email_submission().map_err(|e| e.to_string())?.take_ids();
+            if submission_ids.is_empty() { return Ok(vec![]); }
+
+            let mut submission_request = client.build();
+            submission_request.get_email_submission()
+                .ids(submission_ids.iter().map(String::as_str))
+                .properties([SubmissionProperty::EmailId, SubmissionProperty::ThreadId, SubmissionProperty::Envelope, SubmissionProperty::SendAt]);
+            let mut submission_response = submission_request.send().await.map_err(|e| e.to_string())?;
+            let submissions = submission_response.method_response_by_pos(0)
+                .unwrap_get_email_submission().map_err(|e| e.to_string())?;
+            let now = chrono::Utc::now();
+            let scheduled: Vec<(String, String, String)> = submissions.list().iter().filter_map(|submission| {
+                let hold_until = submission.send_at()
+                    .and_then(|timestamp| chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0))
+                    .or_else(|| submission.mail_from()
+                        .and_then(|from| from.parameter("holdUntil"))
+                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                        .map(|date| date.with_timezone(&chrono::Utc)))?;
+                if hold_until <= now { return None; }
+                Some((submission.email_id()?.to_string(), submission.thread_id()?.to_string(), hold_until.to_rfc3339()))
+            }).collect();
+            if scheduled.is_empty() { return Ok(vec![]); }
+
+            let mut email_request = client.build();
+            email_request.get_email()
+                .ids(scheduled.iter().map(|(email_id, _, _)| email_id.as_str()))
+                .properties([EmailProperty::Id, EmailProperty::Subject, EmailProperty::From, EmailProperty::To, EmailProperty::Cc, EmailProperty::Preview, EmailProperty::HasAttachment]);
+            let mut email_response = email_request.send().await.map_err(|e| e.to_string())?;
+            let emails = email_response.method_response_by_pos(0).unwrap_get_email().map_err(|e| e.to_string())?;
+            let schedule_by_email: HashMap<&str, (&str, &str)> = scheduled.iter()
+                .map(|(email_id, thread_id, date)| (email_id.as_str(), (thread_id.as_str(), date.as_str())))
+                .collect();
+            let mut threads: Vec<MailThread> = emails.list().iter().filter_map(|email| {
+                let (thread_id, scheduled_at) = schedule_by_email.get(email.id()?)?;
+                let from = email.from().and_then(|addresses| addresses.first());
+                let recipients = |addresses: Option<&[jmap_client::email::EmailAddress]>| addresses.unwrap_or_default().iter().map(|address| MailRecipient {
+                    name: address.name().map(str::to_string), email: address.email().to_string(),
+                }).collect();
+                Some(MailThread {
+                    conversation_id: (*thread_id).to_string(),
+                    topic: email.subject().unwrap_or_default().to_string(),
+                    snippet: email.preview().unwrap_or_default().to_string(),
+                    last_delivery_time: (*scheduled_at).to_string(),
+                    message_count: 1, unread_count: 0,
+                    from_name: from.and_then(|address| address.name().map(str::to_string)),
+                    from_email: from.map(|address| address.email().to_string()),
+                    has_attachments: email.has_attachment(),
+                    to_recipients: recipients(email.to()), cc_recipients: recipients(email.cc()), unique_senders: vec![],
+                    snoozed_until: None,
+                })
+            }).collect();
+            threads.sort_by(|a, b| a.last_delivery_time.cmp(&b.last_delivery_time));
+            threads.truncate(count as usize);
+            return Ok(threads);
+        }
+
         let mailbox_id = match folder {
             "inbox" | "sentitems" | "deleteditems" | "drafts" | "spam" => {
                 let ids = get_folder_ids(&self.state, &client, &self.config).await?;
@@ -414,6 +540,41 @@ impl MailProvider for JmapProvider {
 
         let mut response = request.send().await.map_err(|e| e.to_string())?;
         let emails = response.method_response_by_pos(1).unwrap_get_email().map_err(|e| e.to_string())?;
+
+        // Fastmail's wake-up time is a private Email property. The standard
+        // client deliberately does not deserialize it, so enrich rows from
+        // the same private endpoint used to create snoozes.
+        let snoozed_by_thread: HashMap<String, String> = if is_snoozed
+            && config_has_fastmail_credentials(&self.config)
+        {
+            let ids: Vec<String> = emails.list().iter()
+                .filter_map(|email| email.id().map(str::to_string))
+                .collect();
+            let body = serde_json::json!({
+                "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "https://www.fastmail.com/dev/mail"],
+                "methodCalls": [["Email/get", {
+                    "accountId": client.default_account_id(),
+                    "ids": ids,
+                    "properties": ["id", "threadId", "snoozed"]
+                }, "0"]]
+            });
+            match fastmail_private_call(&client, &self.config, body).await {
+                Ok(value) => value.pointer("/methodResponses/0/1/list")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter().flatten()
+                    .filter_map(|email| Some((
+                        email.get("threadId")?.as_str()?.to_string(),
+                        email.pointer("/snoozed/until")?.as_str()?.to_string(),
+                    )))
+                    .collect(),
+                Err(error) => {
+                    eprintln!("[jmap] Could not load Fastmail snooze dates: {error}");
+                    HashMap::new()
+                }
+            }
+        } else {
+            HashMap::new()
+        };
 
         let mut thread_map: HashMap<String, MailThread> = HashMap::new();
         let mut thread_order: Vec<String> = Vec::new();
@@ -473,7 +634,7 @@ impl MailProvider for JmapProvider {
                     sender_seen.entry(thread_id.clone()).or_default();
                 }
                 thread_map.insert(thread_id.clone(), MailThread {
-                    conversation_id: thread_id,
+                    conversation_id: thread_id.clone(),
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
                     snippet: String::new(),
                     last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
@@ -485,6 +646,7 @@ impl MailProvider for JmapProvider {
                     to_recipients,
                     cc_recipients,
                     unique_senders,
+                    snoozed_until: snoozed_by_thread.get(&thread_id).cloned(),
                 });
             }
         }
@@ -793,12 +955,10 @@ impl MailProvider for JmapProvider {
     }
 
     async fn send_mail(&self, params: SendMailParams) -> Result<(), String> {
-        let action_config = if params.send_at.is_some() {
-            fastmail_config(&self.config).ok_or_else(|| "Fastmail web token required for scheduled send".to_string())?
-        } else {
-            self.config.clone()
-        };
-        let client = get_client(&self.state, &action_config).await?;
+        if params.send_at.is_some() && self.config.fastmail_token.as_deref().is_none_or(|token| token.trim().is_empty()) {
+            return Err("Fastmail web token required for scheduled send".to_string());
+        }
+        let client = get_client(&self.state, &self.config).await?;
 
         let mut req = client.build();
         req.add_capability(URI::Submission);
@@ -808,7 +968,9 @@ impl MailProvider for JmapProvider {
         let identities = resp.method_response_by_pos(0)
             .unwrap_get_identity()
             .map_err(|e| format!("Identity/get: {}", e))?;
-        let mailboxes = resp.method_response_by_pos(1)
+        // method_response_by_pos removes the selected entry. After consuming
+        // Identity/get at index 0, Mailbox/get has shifted to index 0 as well.
+        let mailboxes = resp.method_response_by_pos(0)
             .unwrap_get_mailbox()
             .map_err(|e| format!("Mailbox/get: {}", e))?;
 
@@ -837,38 +999,103 @@ impl MailProvider for JmapProvider {
             .find(|m| m.role() == Role::Sent)
             .and_then(|m| m.id())
             .map(|s| s.to_string());
+        let drafts_id = mailboxes.list().iter()
+            .find(|m| m.role() == Role::Drafts)
+            .and_then(|m| m.id()).map(str::to_string);
+        let scheduled_id = mailboxes.list().iter()
+            .find(|m| m.name().is_some_and(|name| {
+                name.eq_ignore_ascii_case("scheduled") || name.eq_ignore_ascii_case("programmés")
+            }))
+            .and_then(|m| m.id()).map(str::to_string);
 
+        let scheduled_at = params.send_at.as_deref().map(|value| {
+            chrono::DateTime::parse_from_rfc3339(value)
+                .map(|date| date.with_timezone(&chrono::Utc))
+                .map_err(|e| format!("Invalid scheduled-send date: {e}"))
+        }).transpose()?;
+        if scheduled_at.is_some_and(|date| date <= chrono::Utc::now()) {
+            return Err("Scheduled-send date must be in the future".to_string());
+        }
         let raw_message = build_mime_message(&from_header, &params)?;
 
-        let mailbox_ids: Vec<String> = sent_id.into_iter().collect();
-        let email = client.email_import(raw_message, mailbox_ids, None::<Vec<&str>>, None)
+        let is_scheduled = params.send_at.is_some();
+        let mailbox_ids: Vec<String> = if is_scheduled {
+            vec![drafts_id.clone().ok_or("Fastmail Drafts mailbox not found")?]
+        } else {
+            sent_id.clone().into_iter().collect()
+        };
+        let keywords = is_scheduled.then_some(vec!["$seen", "$draft", "$x-me-annot-2"]);
+        let email = client.email_import(
+            raw_message,
+            mailbox_ids,
+            keywords,
+            scheduled_at.as_ref().map(|date| date.timestamp()),
+        )
             .await
             .map_err(|e| format!("Email/import: {}", e))?;
         let email_id = email.id().unwrap_or_default().to_string();
 
-        if let Some(send_at) = params.send_at.as_deref() {
-            let send_at = chrono::DateTime::parse_from_rfc3339(send_at)
-                .map_err(|e| format!("Invalid scheduled-send date: {e}"))?
-                .with_timezone(&chrono::Utc);
-            if send_at <= chrono::Utc::now() { return Err("Scheduled-send date must be in the future".to_string()); }
+        if let Some(send_at) = scheduled_at {
             let hold_until = send_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-            let mail_from = jmap_client::email_submission::Address::new(from_email)
-                .parameter("HOLDUNTIL", Some(hold_until));
-            let recipients = params.to.iter().chain(&params.cc).chain(&params.bcc)
-                .map(|address| jmap_client::email_submission::Address::new(address));
-            let mut submission = client.build();
-            submission.add_capability(URI::Submission);
-            submission.set_email_submission().create()
-                .email_id(&email_id)
-                .identity_id(&resolved_identity_id)
-                .envelope(mail_from, recipients);
-            let mut response = submission.send().await.map_err(|e| format!("EmailSubmission/set: {e}"))?;
-            let set_response = response.method_response_by_pos(0).unwrap_set_email_submission()
-                .map_err(|e| format!("EmailSubmission/set response: {e}"))?;
-            set_response.unwrap_create_errors().map_err(|e| format!("EmailSubmission/set rejected: {e}"))?;
+            let sent_id = sent_id.ok_or("Fastmail Sent mailbox not found")?;
+            let drafts_id = drafts_id.ok_or("Fastmail Drafts mailbox not found")?;
+            let scheduled_id = scheduled_id.ok_or("Fastmail Scheduled mailbox not found")?;
+            let recipients: Vec<_> = params.to.iter().chain(&params.cc).chain(&params.bcc)
+                .map(|address| serde_json::json!({"email": address, "parameters": null})).collect();
+            let account_id = client.default_account_id();
+            let body = serde_json::json!({
+                "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission", "https://www.fastmail.com/dev/mail"],
+                "methodCalls": [["EmailSubmission/set", {
+                    "accountId": account_id,
+                    "create": {"c0": {
+                        "identityId": resolved_identity_id,
+                        "emailId": email_id,
+                        "envelope": {
+                            "mailFrom": {"email": from_email, "parameters": {"holdUntil": hold_until}},
+                            "rcptTo": recipients
+                        },
+                        "onSend": {"moveToMailboxId": sent_id}
+                    }},
+                    "onSuccessUpdateEmail": {"#c0": {
+                        format!("keywords/$draft"): null,
+                        format!("mailboxIds/{drafts_id}"): null,
+                        format!("mailboxIds/{scheduled_id}"): true
+                    }}
+                }, "0"]]
+            });
+            let response = fastmail_private_call(&client, &self.config, body).await?;
+            let not_created = response.pointer("/methodResponses/0/1/notCreated");
+            if not_created.is_some_and(|value| !value.is_null()) {
+                return Err(format!("Fastmail scheduled send rejected: {not_created:?}"));
+            }
+            let submission_id = response.pointer("/methodResponses/0/1/created/c0/id")
+                .and_then(|value| value.as_str())
+                .ok_or("Fastmail scheduled send returned no submission id")?;
+            let verify_body = serde_json::json!({
+                "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:submission"],
+                "methodCalls": [["EmailSubmission/get", {
+                    "accountId": client.default_account_id(),
+                    "ids": [submission_id]
+                }, "0"]]
+            });
+            let verification = fastmail_private_call(&client, &self.config, verify_body).await?;
+            let retained_date = verification.pointer("/methodResponses/0/1/list/0/envelope/mailFrom/parameters/holdUntil")
+                .and_then(|value| value.as_str())
+                .or_else(|| verification.pointer("/methodResponses/0/1/list/0/sendAt").and_then(|value| value.as_str()));
+            let retained_date = retained_date.ok_or("Fastmail created the submission without a scheduled date")?;
+            let retained_at = chrono::DateTime::parse_from_rfc3339(retained_date)
+                .map_err(|e| format!("Fastmail returned an invalid scheduled date: {e}"))?
+                .with_timezone(&chrono::Utc);
+            if (retained_at.timestamp() - send_at.timestamp()).abs() > 1 {
+                return Err(format!(
+                    "Fastmail changed the scheduled date (requested {}, retained {})",
+                    send_at.to_rfc3339(), retained_at.to_rfc3339()
+                ));
+            }
         } else {
             client.email_submission_create(&email_id, &resolved_identity_id)
-                .await.map_err(|e| format!("EmailSubmission/set: {}", e))?;
+                .await
+                .map_err(|e| format!("EmailSubmission/set: {}", e))?;
         }
         Ok(())
     }
@@ -973,7 +1200,7 @@ impl MailProvider for JmapProvider {
                     }]
                 } else { vec![] };
                 thread_map.insert(thread_id.clone(), MailThread {
-                    conversation_id: thread_id,
+                    conversation_id: thread_id.clone(),
                     topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
                     snippet: String::new(),
                     last_delivery_time: email.received_at().map(timestamp_to_rfc3339).unwrap_or_default(),
@@ -985,6 +1212,7 @@ impl MailProvider for JmapProvider {
                     to_recipients,
                     cc_recipients,
                     unique_senders,
+                    snoozed_until: None,
                 });
             }
         }
@@ -1221,6 +1449,30 @@ pub async fn jmap_get_message_content(
 }
 
 #[command]
+pub async fn jmap_get_raw_message(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    item_id: String,
+) -> Result<String, String> {
+    let client = get_client(&state, &config).await?;
+    let mut request = client.build();
+    request.get_email()
+        .ids([item_id.as_str()])
+        .properties([EmailProperty::BlobId]);
+    let mut response = request.send().await.map_err(|e| format!("Email/get: {e}"))?;
+    let emails = response.method_response_by_pos(0)
+        .unwrap_get_email()
+        .map_err(|e| format!("Email/get parse: {e}"))?;
+    let blob_id = emails.list().first()
+        .and_then(|email| email.blob_id())
+        .ok_or_else(|| "JMAP message has no blobId".to_string())?;
+    let source = client.download(blob_id).await
+        .map_err(|e| format!("JMAP message download: {e}"))?;
+    String::from_utf8(source)
+        .map_err(|e| format!("JMAP message source is not valid UTF-8: {e}"))
+}
+
+#[command]
 pub async fn jmap_mark_read(
     state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,
@@ -1369,10 +1621,12 @@ pub async fn jmap_snooze(
     id: String,
     until: Option<String>,
 ) -> Result<String, String> {
-    let private_config = fastmail_config(&config).ok_or_else(|| "Fastmail web token required for snooze".to_string())?;
-    let client = get_client(&state, &private_config).await?;
-    let snoozed_id = get_or_create_snoozed_id(&state, &client, &private_config).await?;
-    let folders = get_folder_ids(&state, &client, &private_config).await?;
+    if config.fastmail_token.as_deref().is_none_or(|token| token.trim().is_empty()) {
+        return Err("Fastmail web token required for snooze".to_string());
+    }
+    let client = get_client(&state, &config).await?;
+    let snoozed_id = get_or_create_snoozed_id(&state, &client, &config).await?;
+    let folders = get_folder_ids(&state, &client, &config).await?;
     let inbox_id = folders.get("inbox").cloned();
     let sent_id = folders.get("sentitems").cloned();
     let until = until.ok_or_else(|| "JMAP snooze requires an awaken time".to_string())?;
@@ -1390,23 +1644,27 @@ pub async fn jmap_snooze(
         emails.list().first().is_some_and(|email| email.mailbox_ids().iter().any(|mailbox| mailbox == sent))
     });
 
-    let mut request = client.build();
-    request.add_capability(URI::FastmailMail);
-    let update = request.set_email().update(id.as_str());
+    let mut update = serde_json::Map::new();
+    update.insert(format!("mailboxIds/{snoozed_id}"), serde_json::Value::Bool(true));
+    if let Some(inbox_id) = inbox_id { update.insert(format!("mailboxIds/{inbox_id}"), serde_json::Value::Null); }
     if was_sent {
-        update.mailbox_ids([snoozed_id.as_str(), sent_id.as_deref().unwrap_or_default()]);
-    } else {
-        update.mailbox_ids([snoozed_id.as_str()]);
+        if let Some(sent_id) = sent_id { update.insert(format!("mailboxIds/{sent_id}"), serde_json::Value::Bool(true)); }
     }
-    update.snoozed(until, inbox_id);
-
-    let mut response = request.send().await.map_err(|e| format!("Email/set snooze: {e}"))?;
-    let set_response = response.method_response_by_pos(0)
-        .unwrap_set_email()
-        .map_err(|e| format!("Email/set snooze response: {e}"))?;
-    set_response.unwrap_update_errors().map_err(|e| format!("Email/set snooze rejected: {e}"))?;
-    if !set_response.has_updated() {
-        return Err("Email/set snooze returned no updated email".to_string());
+    update.insert("snoozed".to_string(), serde_json::json!({
+        "until": until.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "setKeywords": {"$new": true}
+    }));
+    let body = serde_json::json!({
+        "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "https://www.fastmail.com/dev/mail"],
+        "methodCalls": [["Email/set", {
+            "accountId": client.default_account_id(),
+            "update": {id.clone(): serde_json::Value::Object(update)}
+        }, "0"]]
+    });
+    let response = fastmail_private_call(&client, &config, body).await?;
+    let not_updated = response.pointer("/methodResponses/0/1/notUpdated");
+    if not_updated.is_some_and(|value| !value.is_null()) {
+        return Err(format!("Fastmail snooze rejected: {not_updated:?}"));
     }
     Ok(snoozed_id)
 }
@@ -1449,6 +1707,114 @@ pub async fn jmap_send(
         is_forward: None,
         send_at,
     }).await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JmapProviderCapabilities {
+    snooze: bool,
+    scheduled_send: ScheduledSendCapability,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledSendCapability {
+    supported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_delay_seconds: Option<usize>,
+}
+
+#[command]
+pub async fn jmap_get_capabilities(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+) -> Result<JmapProviderCapabilities, String> {
+    let has_fastmail_token = config.fastmail_token.as_deref().is_some_and(|token| !token.trim().is_empty())
+        && config.fastmail_cookie.as_deref().is_some_and(|cookie| !cookie.trim().is_empty());
+    let client = get_client(&state, &config).await?;
+    let session = client.session();
+    // maxDelayedSend is a server-level capability, not account-level.
+    let max_delay = session.submission_capabilities()
+        .map(|c| c.max_delayed_send())
+        .unwrap_or(0);
+    Ok(JmapProviderCapabilities {
+        snooze: has_fastmail_token,
+        scheduled_send: ScheduledSendCapability {
+            // A configured Fastmail web token gives access to the private
+            // holdUntil/onSend flow observed in the web client. Some private
+            // sessions omit maxDelayedSend even though that flow is available.
+            supported: has_fastmail_token || max_delay > 0,
+            max_delay_seconds: (max_delay > 0).then_some(max_delay),
+        },
+    })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JmapScheduledSendInfo {
+    submission_id: String,
+    email_id: String,
+    scheduled_at: String,
+}
+
+#[command]
+pub async fn jmap_get_scheduled_send(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    email_id: String,
+) -> Result<Option<JmapScheduledSendInfo>, String> {
+    let client = get_client(&state, &config).await?;
+    let account_id = client.default_account_id();
+    let body = serde_json::json!({
+        "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:submission"],
+        "methodCalls": [
+            ["EmailSubmission/query", {"accountId": account_id, "filter": {"emailIds": [email_id]}}, "0"],
+            ["EmailSubmission/get", {"accountId": account_id, "#ids": {"resultOf": "0", "name": "EmailSubmission/query", "path": "/ids"}}, "1"]
+        ]
+    });
+    let response = fastmail_private_call(&client, &config, body).await?;
+    let Some(submission) = response.pointer("/methodResponses/1/1/list/0") else { return Ok(None) };
+    let submission_id = submission.get("id").and_then(|value| value.as_str()).ok_or("Scheduled submission has no id")?;
+    let returned_email_id = submission.get("emailId").and_then(|value| value.as_str()).unwrap_or(&email_id);
+    let scheduled_at = submission.get("sendAt").and_then(|value| value.as_str())
+        .or_else(|| submission.pointer("/envelope/mailFrom/parameters/holdUntil").and_then(|value| value.as_str()))
+        .ok_or("Scheduled submission has no holdUntil date")?;
+    Ok(Some(JmapScheduledSendInfo {
+        submission_id: submission_id.to_string(),
+        email_id: returned_email_id.to_string(),
+        scheduled_at: scheduled_at.to_string(),
+    }))
+}
+
+#[command]
+pub async fn jmap_cancel_scheduled_send(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    submission_id: String,
+) -> Result<(), String> {
+    let client = get_client(&state, &config).await?;
+    let folders = get_folder_ids(&state, &client, &config).await?;
+    let drafts_id = folders.get("drafts").ok_or("Fastmail Drafts mailbox not found")?;
+    let scheduled_id = folders.get("scheduled").ok_or("Fastmail Scheduled mailbox not found")?;
+    let account_id = client.default_account_id();
+    let body = serde_json::json!({
+        "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
+        "methodCalls": [["EmailSubmission/set", {
+            "accountId": account_id,
+            "update": {submission_id.clone(): {"undoStatus": "canceled"}},
+            "onSuccessUpdateEmail": {submission_id: {
+                "keywords/$draft": true,
+                format!("mailboxIds/{drafts_id}"): true,
+                format!("mailboxIds/{scheduled_id}"): null
+            }}
+        }, "0"]]
+    });
+    let response = fastmail_private_call(&client, &config, body).await?;
+    let not_updated = response.pointer("/methodResponses/0/1/notUpdated");
+    if not_updated.is_some_and(|value| !value.is_null()) {
+        return Err(format!("Fastmail cancel scheduled send rejected: {not_updated:?}"));
+    }
+    Ok(())
 }
 
 #[command]

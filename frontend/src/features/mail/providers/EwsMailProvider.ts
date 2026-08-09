@@ -44,7 +44,7 @@ function extractInlineImages(html: string): { html: string; inlineImages: Compos
  */
 export class EwsMailProvider implements MailProvider {
   readonly providerType = 'ews' as const;
-  readonly capabilities = { snooze: true, scheduledSend: false } as const;
+  readonly capabilities = { snooze: true, scheduledSend: { supported: true } } as const;
   readonly accountId: string;
   readonly userEmail: string;
 
@@ -115,7 +115,7 @@ export class EwsMailProvider implements MailProvider {
     return invoke<MailFolder[]>('mail_list_folders', { accessToken });
   }
 
-  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, isForward, attachments }: SendMailParams): Promise<void> {
+  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, isForward, attachments, sendAt }: SendMailParams): Promise<void> {
     const accessToken = await this.token();
     const { html: processedHtml, inlineImages } = extractInlineImages(bodyHtml);
     return invoke('mail_send', {
@@ -124,6 +124,7 @@ export class EwsMailProvider implements MailProvider {
       replyToItemId, replyToChangeKey,
       isForward: isForward ?? false,
       attachments: [...inlineImages, ...(attachments ?? [])],
+      sendAt,
     });
   }
 

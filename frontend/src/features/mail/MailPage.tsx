@@ -59,6 +59,7 @@ export default function MailApp() {
   const threadListRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<MailComposerHandle>(null);
   const newMessageComposerRef = useRef<NewMessageComposerHandle>(null);
+  const [canceledScheduledDraft, setCanceledScheduledDraft] = useState<MailMessage | null>(null);
 
   const handleSelectThread = (thread: MailThread) => {
     if (newMessageComposerRef.current) {
@@ -233,6 +234,9 @@ export default function MailApp() {
                   }}
                   folderUnreadCounts={folderUnreadCounts}
                   dynamicFolders={sidebarDynamicFolders}
+                  supportsScheduledSend={isAllMode
+                    ? allMailAccounts.some(account => mailCapabilitiesByAccount.get(account.id)?.scheduledSend.supported)
+                    : mailCapabilitiesByAccount.get(selectedAccountId)?.scheduledSend.supported === true}
                 />
                 {contactBackfillStatus.state !== 'idle' && (
                   <div style={{ padding: '6px 12px', fontSize: 11, opacity: 0.65 }} title={contactBackfillStatus.error}>
@@ -273,7 +277,9 @@ export default function MailApp() {
               snoozedMap={snoozedMap}
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={selectedFolder === 'sentitems'}
+              isInScheduledFolder={selectedFolder === 'scheduled'}
               draftConversationIds={draftConversationIds}
+              sourceColor={allMailAccounts.find(account => account.id === selectedAccountId)?.color}
               onSelect={handleSelectThread}
               onToggleRead={handleToggleThreadRead}
               onDelete={handleDeleteThread}
@@ -330,7 +336,7 @@ export default function MailApp() {
                 contacts={contacts}
                 provider={composerProvider}
                 restoreData={composerRestoreData}
-                supportsScheduledSend={mailCapabilitiesByAccount.get(composingAccountId || selectedAccountId)?.scheduledSend === true}
+                scheduledSend={mailCapabilitiesByAccount.get(composingAccountId || selectedAccountId)?.scheduledSend}
                 onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients, sendAt) =>
                   scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: true,
@@ -367,7 +373,10 @@ export default function MailApp() {
                 <p style={{ opacity: 0.4 }}>{t('mail.selectThread', 'Select a conversation')}</p>
               </div>
             ) : selectedFolder === 'drafts' && !messagesLoading && messages.length > 0 ? (() => {
-              const draft = messages[messages.length - 1];
+              const listedDraft = messages[messages.length - 1];
+              const draft = canceledScheduledDraft?.item_id === listedDraft.item_id
+                ? { ...listedDraft, ...canceledScheduledDraft }
+                : listedDraft;
               const draftAccountId = selectedThread.accountId ?? (isAllMode ? composingAccountId : selectedAccountId);
               return (
                 <NewMessageComposer
@@ -389,7 +398,7 @@ export default function MailApp() {
                     fromAccountId: draftAccountId,
                     draftItemId: draft.item_id,
                   }}
-                  supportsScheduledSend={mailCapabilitiesByAccount.get(draftAccountId)?.scheduledSend === true}
+                  scheduledSend={mailCapabilitiesByAccount.get(draftAccountId)?.scheduledSend}
                   onSend={(to, cc, bcc, subject, body, attachments, fromIdentityId, recipients, sendAt) =>
                     scheduleSend(to, cc, bcc, subject, body, {
                       isNewMessage: true,
@@ -407,7 +416,7 @@ export default function MailApp() {
                       draftItemId: draft.item_id,
                     }, attachments, sendAt)
                   }
-                  onCancel={() => setSelectedThread(null)}
+                  onCancel={() => { setCanceledScheduledDraft(null); setSelectedThread(null); }}
                   onSaveDraft={(to, cc, bcc, subject, bodyHtml) =>
                     handleSaveDraft(draftAccountId, to, cc, bcc, subject, bodyHtml)
                   }
@@ -483,8 +492,13 @@ export default function MailApp() {
                 composerRestoreData={composerRestoreData}
                 supportsSnooze={threadSupportsSnooze}
                 onSnooze={handleSnooze}
-                snoozeUntil={snoozedMap[selectedThread.conversation_id]}
+                snoozeUntil={selectedThread.snoozed_until ?? snoozedMap[selectedThread.conversation_id]}
                 isInSnoozedFolder={isInSnoozedFolder}
+                isInScheduledFolder={selectedFolder === 'scheduled'}
+                onScheduledSendCanceled={(message) => {
+                  setCanceledScheduledDraft(message);
+                  selectFolder('drafts', isAllMode ? selectedThread.accountId : undefined);
+                }}
                 onUnsnooze={handleUnsnooze}
                 isInSpamFolder={isInSpamFolder}
                 onMarkAsSpam={() => handleMove('spam')}

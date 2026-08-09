@@ -5,7 +5,7 @@ import { MailProvider, ProviderType, SendMailParams, SaveDraftParams, MailItemRe
 
 export class ImapMailProvider implements MailProvider {
   readonly providerType: ProviderType = 'imap' as ProviderType;
-  readonly capabilities = { snooze: false, scheduledSend: false } as const;
+  readonly capabilities = { snooze: false, scheduledSend: { supported: false } } as const;
   readonly accountId: string;
   private readonly config: ImapAccount;
   private folderMapping: Record<string, string> = {};
@@ -48,6 +48,7 @@ export class ImapMailProvider implements MailProvider {
   }
 
   async listThreads(folder: string, maxCount?: number, offset = 0): Promise<MailThread[]> {
+    if (folder === 'scheduled') return [];
     const targetFolder = this.resolveFolder(folder);
     const threads = await invoke<MailThread[]>('imap_list_threads', {
       config: this.getBackendConfig(),
