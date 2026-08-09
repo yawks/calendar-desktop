@@ -74,6 +74,7 @@ export default function CalendarPage() {
     handleSaveEvent,
     handleRsvp,
     handleDeleteEvent,
+    handleCancelEvent,
     handleStartEdit,
     handleBeforeUpdateEvent,
     isEventEditable,
@@ -321,7 +322,14 @@ export default function CalendarPage() {
               ? () => { void handleStartEdit(selectedEvent); }
               : undefined
           }
-          onDelete={() => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null))}
+          onDelete={(scope) => handleDeleteEvent(selectedEvent, scope).then(() => setSelectedEvent(null))}
+          onCancelEvent={
+            isEventEditable(selectedEvent) &&
+            (selectedEvent.attendees?.length ?? 0) > 0 &&
+            calendars.find((calendar) => calendar.id === selectedEvent.calendarId)?.type !== 'eventkit'
+              ? (scope) => handleCancelEvent(selectedEvent, scope).then(() => setSelectedEvent(null))
+              : undefined
+          }
           onRsvp={
             selectedEvent.selfRsvpStatus && !isExchangeOrganizer(selectedEvent)
               ? (status, comment) => handleRsvp(selectedEvent, status, comment)
@@ -363,7 +371,11 @@ export default function CalendarPage() {
           writableCalendars={writableCalendars}
           allEvents={events}
           editEvent={editEvent}
-          onSubmit={async (payload) => { await handleSaveEvent(payload, editEvent); }}
+          onSubmit={async (payload, scope) => {
+            const save = handleSaveEvent(payload, editEvent, scope);
+            setEditEvent(null);
+            await save;
+          }}
           onClose={() => setEditEvent(null)}
           getValidToken={getValidToken}
           getExchangeRefreshToken={getExchangeRefreshToken}

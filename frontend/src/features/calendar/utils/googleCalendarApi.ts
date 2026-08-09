@@ -38,8 +38,8 @@ interface GoogleEvent {
   summary?: string;
   description?: string;
   location?: string;
-  start: GoogleEventDateTime;
-  end: GoogleEventDateTime;
+  start?: GoogleEventDateTime;
+  end?: GoogleEventDateTime;
   status?: 'confirmed' | 'tentative' | 'cancelled';
   attendees?: GoogleAttendee[];
   organizer?: { email: string; displayName?: string };
@@ -83,8 +83,7 @@ function mapResponseStatus(status: string): import('../../../shared/types').Atte
 }
 
 function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ownerEmail?: string): CalendarEvent | null {
-  if (gEvent.status === 'cancelled') return null;
-
+  if (!gEvent.start || !gEvent.end) return null;
   const isAllday = !gEvent.start.dateTime;
   const start = gEvent.start.dateTime ?? gEvent.start.date ?? '';
   const end = gEvent.end.dateTime ?? gEvent.end.date ?? '';
@@ -126,6 +125,7 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
     category: isAllday ? 'allday' : 'time',
     location: gEvent.location,
     description: gEvent.description,
+    isCancelled: gEvent.status === 'cancelled',
     isUnaccepted,
     isDeclined,
     selfRsvpStatus,
@@ -178,6 +178,7 @@ export async function listEvents(
       timeMin: timeMin.toISOString(),
       timeMax: timeMax.toISOString(),
       singleEvents: 'true',
+      showDeleted: 'true',
       orderBy: 'startTime',
       maxResults: '2500',
 ...(pageToken ? { pageToken } : {}),
@@ -251,10 +252,12 @@ export async function deleteGoogleEvent(
   token: string,
   cal: CalendarConfig,
   sourceId: string,
+  sendUpdates = false,
 ): Promise<void> {
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);
-  const res = await fetch(`${BASE}/calendars/${calendarId}/events/${eventId}`, {
+  const query = sendUpdates ? '?sendUpdates=all' : '';
+  const res = await fetch(`${BASE}/calendars/${calendarId}/events/${eventId}${query}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });

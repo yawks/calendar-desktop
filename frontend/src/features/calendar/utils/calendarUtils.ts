@@ -153,7 +153,10 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
     const cal = calendars.find((c) => c.id === ev.calendarId);
     const color = cal?.color || '#888';
     const eventKey = ev.seriesId || ev.sourceId;
-    const tagId = eventKey ? eventTags[eventKey] : undefined;
+    // Newly-created optimistic events do not have a provider/series ID yet.
+    // Keep using the tag carried by the event until the server ID is available
+    // and the persistent mapping takes over.
+    const tagId = (eventKey ? eventTags[eventKey] : undefined) ?? ev.tagId;
     const tag = tagId ? tags.find((t) => t.id === tagId) : undefined;
     const isPast = new Date(ev.end) < now;
     const isUnaccepted = ev.isUnaccepted;

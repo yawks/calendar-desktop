@@ -98,6 +98,13 @@ export class JmapMailProvider implements MailProvider {
     };
   }
 
+  async getRawMessageSource(itemId: string): Promise<string> {
+    return invoke<string>('jmap_get_raw_message', {
+      config: this.rustConfig,
+      itemId,
+    });
+  }
+
   async listFolders(): Promise<MailFolder[]> {
     return invoke<MailFolder[]>('jmap_list_folders', {
       config: this.rustConfig,

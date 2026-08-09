@@ -1,6 +1,6 @@
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../../../shared/types';
 import { ChevronDown, X } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import FreeBusyGrid, { FreeBusyRow } from './FreeBusyGrid';
 import { FreeBusyResult, queryFreeBusy } from '../utils/googleCalendarApi';
 
@@ -9,6 +9,9 @@ import { getDefaultCalendarId } from '../store/defaultCalendarStore';
 import { queryEWSFreeBusy } from '../utils/ewsApi';
 import { useTags } from '../store/TagStore';
 import { useTranslation } from 'react-i18next';
+import { MailEditor, MailEditorHandle } from '../../mail/components/MailEditor';
+
+export type EditRecurringScope = 'this' | 'future';
 
 interface Props {
   readonly initialStart: string;
@@ -17,7 +20,7 @@ interface Props {
   readonly allEvents: CalendarEvent[];
   /** When provided, the modal operates in edit mode */
   readonly editEvent?: CalendarEvent;
-  readonly onSubmit: (payload: CreateEventPayload) => Promise<void>;
+  readonly onSubmit: (payload: CreateEventPayload, scope?: EditRecurringScope) => Promise<void>;
   readonly onClose: () => void;
   /** Required to query freebusy for Google calendars */
   readonly getValidToken?: (accountId: string) => Promise<string | null>;
@@ -42,11 +45,12 @@ function toDateLocal(iso: string): string {
 export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose, getValidToken, getExchangeRefreshToken }: Props) {
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const descriptionEditorRef = useRef<MailEditorHandle>(null);
   const isEditing = editEvent != null;
   const { tags, eventTags } = useTags();
 
   const editEventTagKey = editEvent ? editEvent.seriesId ?? editEvent.sourceId : undefined;
-  const initialTagId = editEventTagKey ? eventTags[editEventTagKey] : undefined;
+  const initialTagId = (editEventTagKey ? eventTags[editEventTagKey] : undefined) ?? editEvent?.tagId;
 
   const [title, setTitle] = useState(editEvent?.title ?? '');
   const [tagId, setTagId] = useState(initialTagId ?? '');
@@ -64,7 +68,9 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
     return writableCalendars[0]?.id ?? '';
   });
   const [attendees, setAttendees] = useState<Array<{ email: string; name?: string }>>(
-    editEvent?.attendees?.map((a) => ({ email: a.email, name: a.name })) ?? []
+    editEvent?.attendees
+      ?.filter((a) => a.email && !a.email.startsWith('/O='))
+      .map((a) => ({ email: a.email, name: a.name })) ?? []
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -285,7 +291,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
     };
   }, [onClose]);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: { preventDefault(): void }, scope?: EditRecurringScope) => {
     e.preventDefault();
     if (!title.trim() || !calendarId) return;
 
@@ -301,12 +307,12 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
         end: endIso,
         isAllday,
         location,
-        description,
+        description: isExchangeCalendar ? descriptionEditorRef.current?.getHTML() ?? description : description,
         calendarId,
         attendees,
         tagId: tagId || null,
       };
-      await onSubmit(payload);
+      await onSubmit(payload, scope);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('createEvent.saveError'));
@@ -558,12 +564,23 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
             <label htmlFor="ev-desc">
               {t('createEvent.description')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
             </label>
-            <textarea
-              id="ev-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
+            {isExchangeCalendar ? (
+              <div id="ev-desc" className="calendar-description-editor">
+                <MailEditor
+                  ref={descriptionEditorRef}
+                  initialHTML={description}
+                  disableAutoFocus
+                  placeholder={t('createEvent.description')}
+                />
+              </div>
+            ) : (
+              <textarea
+                id="ev-desc"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+              />
+            )}
           </div>
 
           {error && (
@@ -571,9 +588,20 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
           )}
 
           <div className="config-edit-actions">
-            <button type="submit" className="btn-primary" disabled={saving || !title.trim()}>
-              {submitLabel}
-            </button>
+            {isEditing && editEvent?.isRecurringInstance ? (
+              <>
+                <button type="button" className="btn-primary" disabled={saving || !title.trim()} onClick={(e) => void handleSubmit(e, 'this')}>
+                  {saving ? t('createEvent.savingEdit') : t('recurringChoice.saveThisEvent')}
+                </button>
+                <button type="button" className="btn-primary" disabled={saving || !title.trim()} onClick={(e) => void handleSubmit(e, 'future')}>
+                  {saving ? t('createEvent.savingEdit') : t('recurringChoice.saveFutureEvents')}
+                </button>
+              </>
+            ) : (
+              <button type="submit" className="btn-primary" disabled={saving || !title.trim()}>
+                {submitLabel}
+              </button>
+            )}
             <button type="button" className="btn-cancel" onClick={onClose}>{t('createEvent.cancel')}</button>
           </div>
         </form>

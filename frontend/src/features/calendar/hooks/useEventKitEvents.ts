@@ -96,7 +96,7 @@ export function useEventKitEvents(calendars: CalendarConfig[]) {
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
 
-  const run = useCallback(async (force: boolean) => {
+  const run = useCallback(async (force: boolean, calendarId?: string) => {
     const ekCals = calendarsRef.current.filter(
       (c) => c.type === 'eventkit' && c.eventKitCalendarId
     );
@@ -126,7 +126,7 @@ export function useEventKitEvents(calendars: CalendarConfig[]) {
 
     // Phase 2: refresh expired / forced caches
     const toRefresh = force
-      ? ekCals
+      ? ekCals.filter((cal) => !calendarId || cal.id === calendarId)
       : (await Promise.all(ekCals.map(async (cal) => ((await cacheIsFresh(cacheKey(cal.id), CACHE_TTL)) ? null : cal)))).filter(Boolean) as CalendarConfig[];
 
     if (!toRefresh.length) return;
@@ -177,7 +177,7 @@ export function useEventKitEvents(calendars: CalendarConfig[]) {
     run(false);
   }, [calKey, run]);
 
-  const refresh = useCallback(() => run(true), [run]);
+  const refresh = useCallback((calendarId?: string) => run(true, calendarId), [run]);
 
   return { events, loading, errors, refresh };
 }

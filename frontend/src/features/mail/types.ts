@@ -66,6 +66,8 @@ export interface MailAttachment {
   content_type: string;
   size: number;
   is_inline: boolean;
+  /** Base64 data kept only for a just-sent optimistic message, until the server copy arrives. */
+  local_data?: string;
 }
 
 /** Distinguished folder IDs or an arbitrary EWS FolderId for dynamic folders. */

@@ -86,6 +86,7 @@ function buildEvent(
   const isAllday = start.isDate === true;
   const attendees = parseAttendees(icalEvent.component);
   const partstat = getOwnerPartstat(icalEvent.component, calendar.ownerEmail);
+  const status = String(icalEvent.component.getFirstPropertyValue?.('status') ?? '').toUpperCase();
   return {
     id: `${calendar.id}-${icalEvent.uid}-${suffix || start.toString()}`,
     sourceId: icalEvent.uid as string | undefined,
@@ -97,6 +98,7 @@ function buildEvent(
     category: isAllday ? 'allday' : 'time',
     location: icalEvent.location || undefined,
     description: icalEvent.description || undefined,
+    isCancelled: status === 'CANCELLED',
     isUnaccepted: partstat !== null && partstat !== 'ACCEPTED',
     isDeclined: partstat === 'DECLINED',
     selfRsvpStatus: partstat ?? undefined,

@@ -932,6 +932,10 @@ export function useMailPageLogic() {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) return;
     const canPreviewInApp = att.content_type.startsWith('image/') || att.content_type.includes('pdf');
+    if (att.local_data && canPreviewInApp) {
+      setAttachmentPreview({ attachment: att, loading: false, data: att.local_data });
+      return;
+    }
     if (!canPreviewInApp) {
       setLoadingAttachmentId(`preview:${att.attachment_id}`);
       try { await p.openAttachment(att); } catch (e) { setError(String(e)); }
@@ -953,7 +957,7 @@ export function useMailPageLogic() {
     if (!p) return;
     setLoadingAttachmentId(`download:${att.attachment_id}`);
     try {
-      const data = await p.getAttachmentData(att);
+      const data = att.local_data ?? await p.getAttachmentData(att);
       const path = await invoke<string>('save_file_to_downloads', { filename: att.name, data });
       if (downloadToastTimerRef.current) clearTimeout(downloadToastTimerRef.current);
       setDownloadToast({ name: att.name, path });
@@ -963,6 +967,7 @@ export function useMailPageLogic() {
   }, [resolveProvider, selectedThread]);
 
   const getRawAttachmentData = useCallback(async (att: MailAttachment): Promise<string> => {
+    if (att.local_data) return att.local_data;
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) throw new Error('Provider introuvable');
     return p.getAttachmentData(att);
@@ -982,6 +987,14 @@ export function useMailPageLogic() {
 
     const account = allMailAccounts.find(a => a.id === accountId);
     const optimisticId = '__optimistic__' + Date.now();
+    const optimisticAttachments: MailAttachment[] = (attachments ?? []).map((attachment, index) => ({
+      attachment_id: `${optimisticId}:attachment:${index}`,
+      name: attachment.name,
+      content_type: attachment.contentType,
+      size: attachment.size,
+      is_inline: attachment.isInline ?? false,
+      local_data: attachment.data,
+    }));
     const optimisticMsg: MailMessage = {
       item_id: optimisticId,
       change_key: '',
@@ -993,8 +1006,8 @@ export function useMailPageLogic() {
       body_html: body,
       date_time_received: new Date().toISOString(),
       is_read: true,
-      has_attachments: (attachments?.length ?? 0) > 0,
-      attachments: [],
+      has_attachments: optimisticAttachments.length > 0,
+      attachments: optimisticAttachments,
     };
 
     if (conversationId) {

@@ -32,7 +32,7 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
 
-  const run = useCallback(async (force: boolean) => {
+  const run = useCallback(async (force: boolean, calendarId?: string) => {
     const toFetch = calendarsRef.current.filter((c) => c.type === 'nextcloud' && c.url);
     if (!toFetch.length) {
       setEvents([]);
@@ -46,7 +46,7 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
 
     // Phase 2: refresh expired / forced caches
     const toRefresh = force
-      ? toFetch
+      ? toFetch.filter((cal) => !calendarId || cal.id === calendarId)
       : (await Promise.all(toFetch.map(async (cal) => ((await cacheIsFresh(cacheKey(cal.id), CACHE_TTL)) ? null : cal)))).filter(Boolean) as CalendarConfig[];
 
     if (!toRefresh.length) return;
@@ -97,7 +97,7 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
     run(false);
   }, [calKey, run]);
 
-  const refresh = useCallback(() => run(true), [run]);
+  const refresh = useCallback((calendarId?: string) => run(true, calendarId), [run]);
 
   return { events, loading, errors, refresh };
 }

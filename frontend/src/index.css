@@ -1091,6 +1091,7 @@ body {
   display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px;
   border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); cursor: pointer;
 }
+.mail-source-dialog__copy--copied { color: #34a853; border-color: #34a853; }
 .mail-source-dialog__copy:disabled { opacity: .5; cursor: default; }
 .mail-source-dialog__body { height: calc(100% - 44px); display: flex; align-items: center; justify-content: center; }
 .mail-source-dialog__body textarea {
@@ -4958,6 +4959,20 @@ body {
   gap: 8px;
   justify-content: flex-end;
   margin-top: 4px;
+}
+
+.calendar-description-editor {
+  min-height: 150px;
+  max-height: 280px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.calendar-description-editor .mail-editor__content .ProseMirror {
+  min-height: 100px;
+  padding: 10px 12px;
 }
 
 .config-form {

@@ -69,6 +69,9 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   }` : '';
 
   const prevMsgLabel = t('mail.previousMessage', 'Previous message');
+  const attributionTemplate = t('mail.quoteAttribution', {
+    date: '%DATE%', sender: '%SENDER%', defaultValue: 'On %DATE%, %SENDER% wrote:',
+  });
 
   // Detect quote boundary from plain text, then pass the marker to the iframe script.
   const quoteMarker = bodyText ? findQuoteMarker(bodyText) : null;
@@ -111,6 +114,7 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   .qt-dots { font-size: ${12 * fontScale}px; font-weight: 700; letter-spacing: 2px; line-height: 1; }
   .qt-inner { padding: 2px 12px 10px; }
   .qt-inner > :first-child { margin-top: 0; }${darkModeStyle}
+  .qt-attribution { margin: 4px 0 10px; font-size: ${12 * fontScale}px; color: #5f6368; }
 </style>
 </head>
 <body>${darkModeSvg}<div class="ew">${safeHtml}</div>
@@ -150,7 +154,8 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   (function() {
     (${processEmailQuotes.toString()})(document.querySelector('.ew') || document.body, {
       label: ${JSON.stringify(prevMsgLabel).replaceAll('</', '<\\/')},
-      quoteMarker: ${JSON.stringify(quoteMarker).replaceAll('</', '<\\/')}
+      quoteMarker: ${JSON.stringify(quoteMarker).replaceAll('</', '<\\/')},
+      attributionTemplate: ${JSON.stringify(attributionTemplate).replaceAll('</', '<\\/')}
     });
   })();
   var ro = new ResizeObserver(function() {

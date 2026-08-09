@@ -130,6 +130,41 @@ describe('processEmailQuotes — blockquote', () => {
     expect(qtCount(el)).toBe(1);
   });
 
+  it('keeps each Front attribution and blockquote pair as one message level', () => {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <p>Current reply</p>
+      <blockquote type="cite" class="front-blockquote">
+        On July 31, 2026 at 4:36 PM GMT+2
+        <a href="mailto:mathieu@example.com">mathieu@example.com</a> wrote:<br><br>
+        <div class="front-email-body">
+          <div>Bonjour,</div><div>Here is the signed document.</div>
+          <div>On Fri, Jul 31, 2026, at 16:28, Herminie GORBENA wrote:</div>
+          <blockquote type="cite" class="front-blockquote">
+            <div>Bonjour Mathieu,</div><div>I am following up on your transfer request.</div>
+            <blockquote type="cite" class="front-blockquote">
+              <div>On July 16, 2026 at 4:52 PM GMT+2 herminie@example.com wrote:</div>
+              <div>Original request body with enough content to represent the oldest message.</div>
+            </blockquote>
+          </blockquote>
+        </div>
+      </blockquote>`;
+    processEmailQuotes(div, {
+      label: 'Previous message',
+      attributionTemplate: 'Le %DATE%, %SENDER% a écrit :',
+    });
+
+    expect(qtCount(div)).toBe(3);
+    const attributions = Array.from(div.querySelectorAll('.qt-attribution')).map(node => node.textContent);
+    expect(attributions).toEqual([
+      'On July 31, 2026 at 4:36 PM GMT+2 mathieu@example.com wrote:',
+      'On Fri, Jul 31, 2026, at 16:28, Herminie GORBENA wrote:',
+      'On July 16, 2026 at 4:52 PM GMT+2 herminie@example.com wrote:',
+    ]);
+    expect(div.textContent?.match(/On Fri, Jul 31, 2026, at 16:28/g)).toHaveLength(1);
+    expect(div.querySelectorAll('.qt .qt .qt')).toHaveLength(1);
+  });
+
   it('collapses empty blockquote shells around a Gmail attribution', () => {
     const el = parse(`
       <p>Current quoted message ending</p>
@@ -163,6 +198,36 @@ describe('processEmailQuotes — blockquote', () => {
 // ─── processEmailQuotes — text-based dividers ─────────────────────────────────
 
 describe('processEmailQuotes — Outlook-style separators', () => {
+  it('introduces an expanded Outlook quote with a localized attribution', () => {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <p>Current reply</p><hr>
+      <div><b>De:</b> Bertrand Duchemont &lt;b.duchemont@example.com&gt;<br>
+      <b>Envoyé:</b> ven. 31 juil. 2026, 04:09<br><b>À:</b> Alice<br><b>Objet:</b> Test</div>
+      <p>Previous message</p>`;
+    processEmailQuotes(div, {
+      label: 'Message précédent',
+      attributionTemplate: 'Le %DATE%, %SENDER% a écrit :',
+    });
+    expect(div.querySelector('.qt-attribution')?.textContent).toBe(
+      'Le ven. 31 juil. 2026, 04:09, Bertrand Duchemont <b.duchemont@example.com> a écrit :',
+    );
+  });
+
+  it('introduces every nested level, using the localized fallback when metadata is absent', () => {
+    const el = parse(`
+      <blockquote>
+        <p>First previous message with enough content to establish its own quote level.</p>
+        <blockquote><p>Older nested message with enough content for another level.</p></blockquote>
+      </blockquote>
+    `);
+    const toggles = el.querySelectorAll('.qt');
+    const attributions = el.querySelectorAll('.qt > .qt-inner > .qt-attribution');
+    expect(toggles).toHaveLength(2);
+    expect(attributions).toHaveLength(2);
+    expect(Array.from(attributions).every(node => node.textContent === 'Previous message')).toBe(true);
+  });
+
   it('preserves Zimbra marker headers and rich HTML inside one folded block', () => {
     const el = parse(`
       <div><br></div>
@@ -356,6 +421,38 @@ describe('processEmailQuotes — quoteMarker', () => {
 });
 
 describe('processEmailQuotes — Outlook message containers', () => {
+  it('does not fold the header inside an Outlook reference container twice', () => {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <p>Current reply</p>
+      <div id="mail-editor-reference-message-container">
+        <div class="ms-outlook-mobile-reference-message"><meta name="Generator" content="Microsoft Word"></div>
+        <div class="outlook-header-wrapper">
+          <div><b>De :</b> PELATAN Marie-Yvonn &lt;marie@example.com&gt;<br>
+            <b>Date :</b> jeudi, 6 août 2026 à 21:50<br>
+            <b>À :</b> Franck &lt;franck@example.com&gt;<br>
+            <b>Objet :</b> MEP du 06/08</div>
+        </div>
+        <div class="external-warning">ATTENTION: email externe.</div>
+        <p>Bonsoir Franck, voici le contenu de ce premier message historique.</p>
+        <div class="older-header"><b>De :</b> Franck &lt;franck@example.com&gt;<br>
+          <b>Envoyé :</b> jeudi 6 août 2026 17:23<br>
+          <b>À :</b> Marie-Yvonn &lt;marie@example.com&gt;<br>
+          <b>Objet :</b> MEP du 06/08</div>
+        <p>Bonjour à tous, voici le contenu du message réellement antérieur.</p>
+      </div>`;
+    processEmailQuotes(div, {
+      label: 'Previous message',
+      attributionTemplate: 'Le %DATE%, %SENDER% a écrit :',
+    });
+
+    expect(qtCount(div)).toBe(2);
+    expect(div.querySelectorAll('[data-quote-depth="1"]')).toHaveLength(1);
+    expect(div.querySelectorAll('[data-quote-depth="2"]')).toHaveLength(1);
+    expect(div.querySelector('.external-warning')?.closest('[data-quote-depth="2"]')).toBeNull();
+    expect(div.querySelector('[data-quote-depth="2"]')?.textContent).toContain('Franck');
+  });
+
   it('keeps a large current message wrapper that contains nested Outlook headers', () => {
     const currentBody = 'Current message content '.repeat(120);
     const el = parse(`

@@ -1449,6 +1449,30 @@ pub async fn jmap_get_message_content(
 }
 
 #[command]
+pub async fn jmap_get_raw_message(
+    state: tauri::State<'_, Arc<JmapClientState>>,
+    config: JmapConfig,
+    item_id: String,
+) -> Result<String, String> {
+    let client = get_client(&state, &config).await?;
+    let mut request = client.build();
+    request.get_email()
+        .ids([item_id.as_str()])
+        .properties([EmailProperty::BlobId]);
+    let mut response = request.send().await.map_err(|e| format!("Email/get: {e}"))?;
+    let emails = response.method_response_by_pos(0)
+        .unwrap_get_email()
+        .map_err(|e| format!("Email/get parse: {e}"))?;
+    let blob_id = emails.list().first()
+        .and_then(|email| email.blob_id())
+        .ok_or_else(|| "JMAP message has no blobId".to_string())?;
+    let source = client.download(blob_id).await
+        .map_err(|e| format!("JMAP message download: {e}"))?;
+    String::from_utf8(source)
+        .map_err(|e| format!("JMAP message source is not valid UTF-8: {e}"))
+}
+
+#[command]
 pub async fn jmap_mark_read(
     state: tauri::State<'_, Arc<JmapClientState>>,
     config: JmapConfig,

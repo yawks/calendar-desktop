@@ -490,6 +490,65 @@ impl MailProvider for EwsProvider {
             return Ok(threads);
         }
 
+        if folder == "snoozed" {
+            let folder_id = self.find_or_create_snoozed_folder().await?;
+            let soap_body = format!(r#"<m:FindItem Traversal="Shallow">
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:ConversationId"/>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURI FieldURI="item:DateTimeReceived"/>
+      <t:FieldURI FieldURI="item:HasAttachments"/>
+      <t:FieldURI FieldURI="message:IsRead"/>
+      <t:FieldURI FieldURI="message:From"/>
+      <t:ExtendedFieldURI PropertyTag="0x0F07" PropertyType="SystemTime"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="{offset}" BasePoint="Beginning"/>
+  <m:ParentFolderIds><t:FolderId Id="{folder_id}"/></m:ParentFolderIds>
+</m:FindItem>"#, offset = self.list_offset);
+            let xml = send(access_token, &soap_body).await?;
+            if xml.contains("ResponseClass=\"Error\"") {
+                return Err(ews_err(&xml, "EWS error listing snoozed messages"));
+            }
+            let mut threads = Vec::new();
+            for msg_xml in xml_all_ns(&xml, "t:Message") {
+                let item_id = msg_xml.find("<t:ItemId ")
+                    .or_else(|| msg_xml.find("<ItemId "))
+                    .and_then(|start| msg_xml[start..].find("/>").map(|end| &msg_xml[start..start + end]))
+                    .and_then(|element| xml_attr(element, "Id"));
+                let conversation_id = msg_xml.find("<t:ConversationId ")
+                    .or_else(|| msg_xml.find("<ConversationId "))
+                    .and_then(|start| msg_xml[start..].find("/>").map(|end| &msg_xml[start..start + end]))
+                    .and_then(|element| xml_attr(element, "Id"))
+                    .or(item_id);
+                let Some(conversation_id) = conversation_id else { continue };
+                let from_xml = xml_content_ns(&msg_xml, "t:From").unwrap_or_default();
+                let mailbox = xml_content_ns(&from_xml, "t:Mailbox").unwrap_or_default();
+                let from_email = xml_content_ns(&mailbox, "t:EmailAddress");
+                let from_name = xml_content_ns(&mailbox, "t:Name").or_else(|| from_email.clone());
+                let snoozed_until = xml_content_ns(&msg_xml, "t:ExtendedProperty")
+                    .and_then(|property| xml_content_ns(&property, "t:Value"));
+                threads.push(MailThread {
+                    conversation_id,
+                    topic: xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default(),
+                    snippet: String::new(),
+                    last_delivery_time: xml_content_ns(&msg_xml, "t:DateTimeReceived").unwrap_or_default(),
+                    message_count: 1,
+                    unread_count: if xml_content_ns(&msg_xml, "t:IsRead").as_deref() == Some("true") { 0 } else { 1 },
+                    from_name,
+                    from_email,
+                    has_attachments: xml_content_ns(&msg_xml, "t:HasAttachments").as_deref() == Some("true"),
+                    to_recipients: vec![],
+                    cc_recipients: vec![],
+                    unique_senders: vec![],
+                    snoozed_until,
+                });
+            }
+            return Ok(threads);
+        }
+
         let parent_folder_id = match folder {
             "inbox" | "sentitems" | "deleteditems" => {
                 format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder)
