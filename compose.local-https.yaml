@@ -1,6 +1,11 @@
 services:
   courrier:
     # Accessible only to the HTTPS proxy in this local stack.
+    build:
+      context: .
+      args:
+        # Fast incremental backend build; production keeps the release default.
+        RUST_PROFILE: local
     ports: !reset []
 
   https:

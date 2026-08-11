@@ -4755,6 +4755,184 @@ body {
   color: var(--text-muted);
 }
 
+/* ── Responsive mobile layout ── */
+.vault-screen {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  background: var(--bg);
+}
+
+.vault-form {
+  width: min(420px, 100%);
+  box-sizing: border-box;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-secondary, var(--bg));
+  color: var(--text);
+  box-shadow: var(--shadow) 0 18px 50px;
+}
+
+.mail-mobile-back { display: none; }
+
+@media (max-width: 700px) {
+  html, body, #root { min-width: 0; width: 100%; height: 100dvh; overflow: hidden; }
+  button, input, select, textarea { font-size: max(16px, 1em); }
+  .btn-icon, .btn-today, .config-sidebar-item { min-height: 44px; min-width: 44px; }
+
+  .header {
+    min-height: 52px;
+    height: auto;
+    padding: env(safe-area-inset-top) 8px 0;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .header-date-label { order: 10; width: 100%; padding: 0 8px 6px; text-align: center; }
+  .btn-search-label, .btn-search-kbd, .event-filters, .view-switcher { display: none; }
+  .btn-search { min-width: 44px; padding: 8px 12px; }
+  .btn-today { padding-inline: 9px; }
+
+  .app-body { min-width: 0; }
+  .app-body > .sidebar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 30;
+    width: min(88vw, 360px) !important;
+    padding-top: 52px;
+    box-sizing: border-box;
+    box-shadow: var(--shadow) 8px 0 24px;
+  }
+  .calendar-sidebar-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 29;
+    padding: 0;
+    border: 0;
+    background: rgb(0 0 0 / 42%);
+  }
+  .calendar-mobile-sidebar-close {
+    position: absolute;
+    top: 8px;
+    left: min(calc(88vw - 48px), 312px);
+    z-index: 31;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .sidebar-resize-handle { display: none; }
+  .calendar-container { min-width: 0; width: 100%; }
+  .app > .header .header-spacer { display: none; }
+  .app > .header .header-date-label { flex: 1 1 auto; width: auto; min-width: 0; }
+  .app > .header .btn-search ~ .btn-icon,
+  .app > .header .btn-config { order: 10; }
+  .toastui-calendar-week-view-day-names { font-size: 10px; }
+  .toastui-calendar-timegrid-timezone { width: 38px !important; }
+  .toastui-calendar-day-name-item { min-width: 0 !important; }
+  .toastui-calendar-timegrid { height: 100% !important; min-height: 0 !important; }
+
+  .config-layout { flex-direction: column; overflow: hidden; }
+  .config-sidebar {
+    width: 100%;
+    padding: 6px 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    flex-direction: row;
+    overflow-x: auto;
+    box-sizing: border-box;
+  }
+  .config-sidebar-item { width: auto; flex: 1 0 auto; justify-content: center; padding: 8px 12px; border-radius: 8px; }
+  .config-content { max-width: none; width: 100%; box-sizing: border-box; padding: 20px 16px max(24px, env(safe-area-inset-bottom)); }
+  .config-section-header { align-items: stretch; gap: 12px; margin-bottom: 24px; flex-direction: column; }
+  .config-section-header .btn-primary { justify-content: center; min-height: 44px; }
+  .config-group-header { flex-wrap: wrap; gap: 8px; }
+
+  .nc-modal-overlay, .modal-overlay { padding: 0; align-items: flex-end; }
+  .nc-modal-box, .modal-content {
+    max-width: none !important;
+    width: 100%;
+    max-height: calc(100dvh - env(safe-area-inset-top));
+    border-radius: 16px 16px 0 0;
+  }
+  .nc-modal-header, .nc-modal-body { padding-inline: 16px; }
+
+  .mail-app .header {
+    position: relative;
+    flex-wrap: nowrap;
+    height: 56px;
+    padding-inline: 8px;
+    gap: 2px;
+  }
+  .mail-app .header-logo { min-width: 0; margin: 0; padding-inline: 8px; }
+  .mail-app .app-view-menu { flex: 1 1 auto; min-width: 0; }
+  .mail-app .mail-search-bar {
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+    box-shadow: none;
+  }
+  .mail-app .mail-search-bar__icon { width: 20px; height: 20px; }
+  .mail-app .mail-search-bar__input,
+  .mail-app .mail-search-bar__shortcut,
+  .mail-app .mail-search-bar__clear { display: none; }
+  .mail-app .mail-search-bar:focus-within {
+    position: absolute;
+    inset: max(6px, env(safe-area-inset-top)) 8px auto;
+    z-index: 60;
+    width: auto;
+    padding-inline: 14px;
+    justify-content: flex-start;
+    background: var(--bg);
+  }
+  .mail-app .mail-search-bar:focus-within .mail-search-bar__input,
+  .mail-app .mail-search-bar:focus-within .mail-search-bar__clear { display: block; }
+  .mail-app .header-spacer { display: none; }
+  .mail-app .header .btn-icon,
+  .mail-app .btn-config--icon-only { flex: 0 0 40px; width: 40px; min-width: 40px; padding: 0; }
+  .mail-body { position: relative; min-width: 0; margin: 0; border-radius: 0; border-inline: 0; border-bottom: 0; }
+  .mail-account-tabs { display: none; }
+  .mail-body > div:has(> .mail-sidebar) {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    width: 100% !important;
+    background: var(--bg-sidebar);
+    box-shadow: none;
+  }
+  .mail-sidebar { width: 100%; box-sizing: border-box; padding: 12px 16px max(20px, env(safe-area-inset-bottom)); }
+  .mail-compose-btn { min-height: 48px; }
+  .mail-folder-btn, .mail-folder-row { min-height: 44px; }
+  .mail-resize-handle { display: none; }
+  .mail-thread-list-panel { width: 100% !important; flex: 1; }
+  .mail-detail-panel { display: none; position: absolute; inset: 0; z-index: 20; background: var(--bg); }
+  .mail-detail-panel--open { display: flex; flex-direction: column; }
+  .mail-mobile-back {
+    display: block;
+    min-height: 44px;
+    flex: 0 0 auto;
+    padding: 8px 14px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--primary);
+    text-align: left;
+  }
+  .mail-message-block__body { padding-inline: 14px; }
+
+  .vault-form { padding: 22px 18px; box-shadow: none; }
+  .vault-form input, .vault-form button { min-height: 46px; }
+}
+
 .config-group-edit-btn {
   opacity: 0;
   border: none;

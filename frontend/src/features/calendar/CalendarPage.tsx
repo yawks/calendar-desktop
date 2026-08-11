@@ -3,6 +3,7 @@ import '@toast-ui/calendar/dist/toastui-calendar.min.css';
 import { CalendarEvent } from '../../shared/types';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { X } from 'lucide-react';
 
 import AppHeader, { EventVisibilityStatus } from './components/AppHeader';
 import Calendar from '@toast-ui/react-calendar';
@@ -17,6 +18,8 @@ import { formatDateLabel, DARK_THEME, LIGHT_THEME, toTUIEvents, getViewRange, fo
 
 export default function CalendarPage() {
   const { t } = useTranslation();
+  const [isMobile, setIsMobile] = useState(() => globalThis.matchMedia?.('(max-width: 700px)').matches ?? false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [visibleEventStatuses, setVisibleEventStatuses] = useState<Set<EventVisibilityStatus>>(
@@ -33,6 +36,31 @@ export default function CalendarPage() {
     globalThis.addEventListener('keydown', handleKeyDown);
     return () => globalThis.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    const closeOnBrowserBack = () => setMobileSidebarOpen(false);
+    globalThis.addEventListener('popstate', closeOnBrowserBack);
+    return () => globalThis.removeEventListener('popstate', closeOnBrowserBack);
+  }, []);
+
+  const toggleSidebar = () => {
+    if (!isMobile) {
+      handleCollapseToggle();
+      return;
+    }
+    if (mobileSidebarOpen) {
+      if (globalThis.history.state?.calendarSidebar) globalThis.history.back();
+      else setMobileSidebarOpen(false);
+      return;
+    }
+    globalThis.history.pushState({ ...globalThis.history.state, calendarSidebar: true }, '');
+    setMobileSidebarOpen(true);
+  };
+
+  const closeMobileSidebar = () => {
+    if (globalThis.history.state?.calendarSidebar) globalThis.history.back();
+    else setMobileSidebarOpen(false);
+  };
 
   const {
     calendarRef,
@@ -84,6 +112,18 @@ export default function CalendarPage() {
     showRecurringModal,
     handleRecurringModalChoice,
   } = useCalendarLogic();
+
+  useEffect(() => {
+    const media = globalThis.matchMedia('(max-width: 700px)');
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile && view !== 'week') handleViewChange('week');
+  }, [isMobile, view, handleViewChange]);
 
   const visibleEvents = useMemo(() => events.filter((event) => {
     let status: EventVisibilityStatus = 'accepted';
@@ -159,7 +199,7 @@ export default function CalendarPage() {
   }, [tuiEvents]);
 
   useEffect(() => {
-    if (view === 'month' || searchQuery !== null) return;
+    if (isMobile || view === 'month' || searchQuery !== null) return;
     const timer = setTimeout(() => {
       const scrollPanel = document.querySelector('.toastui-calendar-panel.toastui-calendar-time') as HTMLElement | null;
       if (!scrollPanel) return;
@@ -178,10 +218,29 @@ export default function CalendarPage() {
       scrollPanel.scrollTop = (targetMinutes / (24 * 60)) * scrollPanel.scrollHeight;
     }, 100);
     return () => clearTimeout(timer);
-  }, [visibleEvents, view, currentDate, searchQuery]);
+  }, [visibleEvents, view, currentDate, searchQuery, isMobile]);
 
   const isWorkweek = view === 'workweek';
   const tuiView = isWorkweek ? 'week' : view;
+  const mobileHourRange = useMemo(() => {
+    if (!isMobile) return { hourStart: 0, hourEnd: 24 };
+    const range = getViewRange(currentDate, 'week');
+    const timedEvents = visibleEvents.filter((event) => {
+      if (event.isAllday) return false;
+      const start = new Date(event.start);
+      const end = new Date(event.end);
+      return start <= range.end && end >= range.start;
+    });
+    if (timedEvents.length === 0) return { hourStart: 8, hourEnd: 18 };
+    const firstStart = Math.min(...timedEvents.map((event) => new Date(event.start).getHours()));
+    const lastEnd = Math.max(...timedEvents.map((event) => {
+      const end = new Date(event.end);
+      return end.getHours() + (end.getMinutes() > 0 ? 1 : 0);
+    }));
+    const hourStart = Math.max(0, firstStart - 1);
+    const hourEnd = Math.min(24, lastEnd + 1);
+    return { hourStart, hourEnd: Math.max(hourEnd, hourStart + 2) };
+  }, [isMobile, visibleEvents, currentDate]);
   const writableCalendars = useMemo(() => calendars.filter(
     (c) => c.type === 'google' || c.type === 'nextcloud' || c.type === 'exchange'
   ), [calendars]);
@@ -197,14 +256,23 @@ export default function CalendarPage() {
         onRefresh={refresh}
         dateLabel={formatDateLabel(currentDate, view)}
         loading={loading}
-        onToggleSidebar={handleCollapseToggle}
+        onToggleSidebar={toggleSidebar}
         onSearch={() => setSearchOpen(true)}
         visibleEventStatuses={visibleEventStatuses}
         onToggleEventStatus={handleToggleEventStatus}
       />
 
       <div className="app-body">
-        {!sidebarCollapsed && (
+        {isMobile && mobileSidebarOpen && (
+          <button
+            type="button"
+            className="calendar-sidebar-backdrop"
+            aria-label={t('event.close')}
+            onClick={closeMobileSidebar}
+          />
+        )}
+        {(isMobile ? mobileSidebarOpen : !sidebarCollapsed) && (
+          <>
           <Sidebar
             calendars={calendars}
             groups={groups}
@@ -225,10 +293,24 @@ export default function CalendarPage() {
             errors={errors}
             width={sidebarWidth}
             currentDate={currentDate}
-            onNavigateToDate={handleNavigateToDate}
+            onNavigateToDate={(date) => {
+              handleNavigateToDate(date);
+              if (isMobile) closeMobileSidebar();
+            }}
           />
+          {isMobile && (
+            <button
+              type="button"
+              className="calendar-mobile-sidebar-close"
+              aria-label={t('event.close')}
+              onClick={closeMobileSidebar}
+            >
+              <X size={22} />
+            </button>
+          )}
+          </>
         )}
-        {!sidebarCollapsed && (
+        {!isMobile && !sidebarCollapsed && (
           <button
             type="button"
             className="sidebar-resize-handle"
@@ -300,6 +382,8 @@ export default function CalendarPage() {
               workweek: isWorkweek,
               taskView: false,
               eventView: ['allday', 'time'],
+              hourStart: mobileHourRange.hourStart,
+              hourEnd: mobileHourRange.hourEnd,
             }}
             month={{ startDayOfWeek: 1 }}
           /> : (

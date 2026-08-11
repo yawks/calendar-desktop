@@ -1,6 +1,7 @@
 import { get, set } from 'idb-keyval';
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { decryptVault, deriveVaultKey, EncryptedVault, encryptVaultWithKey, vaultSalt } from './vaultCrypto';
+import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, vaultSalt } from './vaultCrypto';
+import { biometricApiAvailable, disableBiometricUnlock, enableBiometricUnlock, hasBiometricUnlock, unlockWithBiometrics } from './biometricUnlock';
 import { useTranslation } from 'react-i18next';
 
 const DB_KEY = 'courrier-encrypted-vault-v1';
@@ -20,6 +21,10 @@ interface VaultContextValue {
   read<T>(key: string, fallback: T): T;
   write<T>(key: string, value: T): void;
   lock(): void;
+  biometricAvailable: boolean;
+  biometricEnabled: boolean;
+  enableBiometrics(): Promise<void>;
+  disableBiometrics(): Promise<void>;
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null);
@@ -34,11 +39,13 @@ function legacyPayload(): VaultPayload {
   return payload;
 }
 
-function VaultScreen({ exists, busy, error, onSubmit }: Readonly<{
+function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiometricUnlock }: Readonly<{
   exists: boolean;
   busy: boolean;
   error: string;
+  biometricEnabled: boolean;
   onSubmit(password: string): Promise<void>;
+  onBiometricUnlock(): Promise<void>;
 }>) {
   const { t } = useTranslation();
   const [password, setPassword] = useState('');
@@ -49,8 +56,8 @@ function VaultScreen({ exists, busy, error, onSubmit }: Readonly<{
     void onSubmit(password);
   };
   const mismatch = !exists && confirmation.length > 0 && password !== confirmation;
-  return <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: 'var(--bg-primary, #111827)' }}>
-    <form onSubmit={submit} style={{ width: 'min(420px, 100%)', padding: 28, borderRadius: 14, background: 'var(--bg-secondary, #1f2937)', color: 'var(--text-primary, white)', boxShadow: '0 18px 50px #0005' }}>
+  return <main className="vault-screen">
+    <form className="vault-form" onSubmit={submit}>
       <h1 style={{ marginTop: 0 }}>{t('vault.appName')}</h1>
       <p>{t(exists ? 'vault.unlockDescription' : 'vault.createDescription')}</p>
       <label htmlFor="vault-password">{t('vault.masterPassword')}</label>
@@ -58,6 +65,7 @@ function VaultScreen({ exists, busy, error, onSubmit }: Readonly<{
       {!exists && <><label htmlFor="vault-confirmation">{t('vault.confirmation')}</label><input id="vault-confirmation" autoComplete="new-password" type="password" minLength={12} required value={confirmation} onChange={event => setConfirmation(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', margin: '8px 0 16px', padding: 10 }} /></>}
       {(mismatch || error) && <p role="alert" style={{ color: '#fca5a5' }}>{mismatch ? t('vault.passwordMismatch') : t(error)}</p>}
       <button type="submit" disabled={busy || mismatch} style={{ width: '100%', padding: 11 }}>{busy ? t('vault.working') : t(exists ? 'vault.unlock' : 'vault.create')}</button>
+      {exists && biometricEnabled && <button type="button" disabled={busy} onClick={() => void onBiometricUnlock()} style={{ width: '100%', padding: 11, marginTop: 10 }}>{t('vault.unlockWithBiometrics')}</button>}
       {!exists && <small style={{ display: 'block', marginTop: 14, opacity: .75 }}>{t('vault.recoveryWarning')}</small>}
     </form>
   </main>;
@@ -68,12 +76,18 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [payload, setPayload] = useState<VaultPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
   const keyRef = useRef<CryptoKey | null>(null);
   const payloadRef = useRef<VaultPayload>({});
   const writeQueue = useRef(Promise.resolve());
   const lock = useCallback(() => { keyRef.current = null; payloadRef.current = {}; setPayload(null); }, []);
 
-  useEffect(() => { void get<EncryptedVault>(DB_KEY).then(value => setStored(value ?? null)); }, []);
+  useEffect(() => {
+    void Promise.all([get<EncryptedVault>(DB_KEY), hasBiometricUnlock()]).then(([value, enabled]) => {
+      setStored(value ?? null);
+      setBiometricEnabled(enabled);
+    });
+  }, []);
 
   const persist = useCallback((next: VaultPayload) => {
     const key = keyRef.current;
@@ -120,6 +134,33 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     } finally { setBusy(false); }
   }, [stored]);
 
+  const biometricUnlock = useCallback(async () => {
+    if (!stored) return;
+    setBusy(true); setError('');
+    try {
+      const key = await unlockWithBiometrics();
+      const nextPayload = await decryptVaultWithKey<VaultPayload>(stored, key);
+      keyRef.current = key;
+      payloadRef.current = nextPayload;
+      setPayload(nextPayload);
+    } catch (cause) {
+      console.error('[Vault] biometric unlock failed', cause);
+      setError('vault.biometricFailed');
+    } finally { setBusy(false); }
+  }, [stored]);
+
+  const enableBiometrics = useCallback(async () => {
+    const key = keyRef.current;
+    if (!key) throw new Error('Vault is locked');
+    await enableBiometricUnlock(key);
+    setBiometricEnabled(true);
+  }, []);
+
+  const disableBiometrics = useCallback(async () => {
+    await disableBiometricUnlock();
+    setBiometricEnabled(false);
+  }, []);
+
   useEffect(() => {
     if (!payload) return;
     let timer = window.setTimeout(lock, LOCK_AFTER_MS);
@@ -135,10 +176,16 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     setPayload(next);
     persist(next);
   }, [persist]);
-  const contextValue = useMemo(() => ({ read, write, lock }), [read, write, lock]);
+  const contextValue = useMemo(() => ({
+    read, write, lock,
+    biometricAvailable: biometricApiAvailable(),
+    biometricEnabled,
+    enableBiometrics,
+    disableBiometrics,
+  }), [read, write, lock, biometricEnabled, enableBiometrics, disableBiometrics]);
 
   if (stored === undefined) return null;
-  if (!payload) return <VaultScreen exists={stored !== null} busy={busy} error={error} onSubmit={submit} />;
+  if (!payload) return <VaultScreen exists={stored !== null} busy={busy} error={error} biometricEnabled={biometricEnabled} onSubmit={submit} onBiometricUnlock={biometricUnlock} />;
   return <VaultContext.Provider value={contextValue}>{children}</VaultContext.Provider>;
 }
 

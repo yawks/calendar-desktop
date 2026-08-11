@@ -60,6 +60,24 @@ export default function MailApp() {
   const newMessageComposerRef = useRef<NewMessageComposerHandle>(null);
   const [canceledScheduledDraft, setCanceledScheduledDraft] = useState<MailMessage | null>(null);
 
+  const pushMobileScreen = (screen: 'detail' | 'composer') => {
+    if (!globalThis.matchMedia('(max-width: 700px)').matches) return;
+    if (globalThis.history.state?.mailScreen === screen) return;
+    globalThis.history.pushState({ ...globalThis.history.state, mailScreen: screen }, '');
+  };
+
+  useEffect(() => {
+    const handleBrowserBack = () => {
+      if (!globalThis.matchMedia('(max-width: 700px)').matches) return;
+      setSelectedThread(null);
+      setComposing(false);
+      setSelectedThreadIds(new Set());
+      setReplyingTo(null);
+    };
+    globalThis.addEventListener('popstate', handleBrowserBack);
+    return () => globalThis.removeEventListener('popstate', handleBrowserBack);
+  }, [setComposing, setReplyingTo, setSelectedThread, setSelectedThreadIds]);
+
   const handleSelectThread = (thread: MailThread) => {
     if (newMessageComposerRef.current) {
       if (newMessageComposerRef.current.hasChanges()) {
@@ -84,6 +102,7 @@ export default function MailApp() {
       }
       setReplyingTo(null);
     }
+    pushMobileScreen('detail');
     openThread(thread);
   };
 
@@ -225,11 +244,14 @@ export default function MailApp() {
                   onSelectFolder={(folder, accountId) => {
                     if (searchQuery) handleSearch(null);
                     selectFolder(folder, accountId);
+                    if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
                   }}
                   onCompose={() => {
+                    pushMobileScreen('composer');
                     setComposing(true);
                     setSelectedThread(null);
                     setComposingAccountId(isAllMode ? (allMailAccounts[0]?.id ?? '') : selectedAccountId);
+                    if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
                   }}
                   folderUnreadCounts={folderUnreadCounts}
                   dynamicFolders={sidebarDynamicFolders}
@@ -261,7 +283,7 @@ export default function MailApp() {
             </>
           )}
 
-          <div style={{ width: threadListWidth, height: '100%', position: 'relative', zIndex: 1 }}>
+          <div className="mail-thread-list-panel" style={{ width: threadListWidth, height: '100%', position: 'relative', zIndex: 1 }}>
             <ThreadList
               ref={threadListRef}
               threads={searchQuery ? searchResults : threads}
@@ -308,7 +330,17 @@ export default function MailApp() {
             style={{ cursor: 'col-resize' }}
           />
 
-          <div className="mail-detail-panel">
+          <div className={`mail-detail-panel${selectedThread || composing || selectedThreadIds.size > 0 ? ' mail-detail-panel--open' : ''}`}>
+            <button
+              type="button"
+              className="mail-mobile-back"
+              onClick={() => {
+                if (globalThis.history.state?.mailScreen) globalThis.history.back();
+                else { setSelectedThread(null); setComposing(false); setSelectedThreadIds(new Set()); }
+              }}
+            >
+              ‹ {t('mail.backToList')}
+            </button>
             {!composing && selectedThreadIds.size > 0 ? (
               <MultiSelectionPanel
                 threads={threads}

@@ -13,10 +13,8 @@ RUN --mount=type=cache,target=/root/.npm case "$TARGETARCH" in \
 COPY frontend/ ./
 RUN npm run build
 
-FROM alpine:3.23 AS api-builder
-RUN --mount=type=cache,id=courrier-apk-v3,target=/var/cache/apk apk add build-base rustup
-RUN rustup-init -y --profile minimal --default-toolchain 1.91.0
-ENV PATH=/root/.cargo/bin:$PATH
+FROM rust:1.91-alpine3.23 AS api-builder
+ARG RUST_PROFILE=release
 WORKDIR /build/backend
 COPY backend/provider-core ./provider-core
 COPY backend/Cargo.toml ./
@@ -25,7 +23,9 @@ COPY backend/src ./src
 RUN --mount=type=cache,id=courrier-cargo-registry,target=/root/.cargo/registry \
     --mount=type=cache,id=courrier-cargo-git,target=/root/.cargo/git \
     --mount=type=cache,id=courrier-cargo-target,target=/build/backend/target \
-    cargo build --release && cp target/release/courrier-server /tmp/courrier-server
+    case "$RUST_PROFILE" in release|local) ;; *) echo "Unsupported Rust profile: $RUST_PROFILE"; exit 1 ;; esac && \
+    cargo build --profile "$RUST_PROFILE" && \
+    cp "target/$RUST_PROFILE/courrier-server" /tmp/courrier-server
 
 FROM alpine:3.23
 RUN addgroup -S courrier && adduser -S courrier -G courrier

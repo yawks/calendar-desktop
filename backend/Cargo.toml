@@ -21,3 +21,10 @@ app_lib = { package = "courrier", path = "provider-core" }
 # complete Mailbox/get response.
 [patch.crates-io]
 jmap-client = { path = "provider-core/vendor/jmap-client" }
+
+# Quick, incremental binary used only by compose.local-https.yaml. The default
+# Docker build continues to use Cargo's optimized release profile.
+[profile.local]
+inherits = "dev"
+debug = 0
+incremental = true

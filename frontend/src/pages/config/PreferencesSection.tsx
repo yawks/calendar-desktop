@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useState } from 'react';
 import { Columns2, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
@@ -69,7 +70,23 @@ export function PreferencesSection() {
   const { preference: themePref, setPreference: setThemePref } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
   const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
-  const { lock } = useVault();
+  const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics } = useVault();
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const [biometricError, setBiometricError] = useState(false);
+
+  const toggleBiometrics = async () => {
+    setBiometricBusy(true);
+    setBiometricError(false);
+    try {
+      if (biometricEnabled) await disableBiometrics();
+      else await enableBiometrics();
+    } catch (cause) {
+      console.error('[Vault] biometric configuration failed', cause);
+      setBiometricError(true);
+    } finally {
+      setBiometricBusy(false);
+    }
+  };
 
   const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
     { value: 'system', label: t('settings.language.system'), flag: '🖥' },
@@ -214,6 +231,12 @@ export function PreferencesSection() {
         <p style={{ margin: '0 0 10px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
           {t('settings.vault.hint')}
         </p>
+        {biometricAvailable ? <>
+          <button type="button" disabled={biometricBusy} onClick={() => void toggleBiometrics()} style={{ padding: '8px 14px', marginRight: 8 }}>
+            {t(biometricEnabled ? 'settings.vault.disableBiometrics' : 'settings.vault.enableBiometrics')}
+          </button>
+          {biometricError && <p role="alert" style={{ color: '#ef4444', fontSize: 12 }}>{t('settings.vault.biometricError')}</p>}
+        </> : <p style={{ fontSize: 12, opacity: .7 }}>{t('settings.vault.biometricUnavailable')}</p>}
         <button type="button" onClick={lock} style={{ padding: '8px 14px' }}>{t('settings.vault.lockNow')}</button>
       </div>
 

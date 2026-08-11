@@ -419,7 +419,10 @@ export function useMailPageLogic() {
   const [downloadToast, setDownloadToast] = useState<{ name: string } | null>(null);
   const downloadToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('mail-sidebar-collapsed') === 'true');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => globalThis.matchMedia?.('(max-width: 700px)').matches
+      || localStorage.getItem('mail-sidebar-collapsed') === 'true'
+  );
   const getScreenKey = () => `${window.screen.width}x${window.screen.height}`;
   const screenKeyRef = useRef(getScreenKey());
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem(`mail-sidebar-width-${getScreenKey()}`) || 240));

@@ -20,3 +20,5 @@ frontend/src-tauri/bundle/
 proxy/node_modules/
 proxy/.env*
 deploy/certs/
+
+backend/target/

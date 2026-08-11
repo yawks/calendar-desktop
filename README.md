@@ -49,10 +49,41 @@ mkdir -p deploy/certs
 mkcert -cert-file deploy/certs/localhost.pem \
   -key-file deploy/certs/localhost-key.pem \
   localhost 127.0.0.1 ::1
-docker compose -f compose.yaml -f compose.local-https.yaml up --build
+docker compose -f compose.yaml -f compose.local-https.yaml up --build --detach
 ```
 
 Ouvrir ensuite `https://localhost:8443`. Il ne doit y avoir aucun avertissement de certificat. Les certificats locaux sont ignorés par Git.
+
+### Mettre à jour les conteneurs après une modification
+
+Depuis la racine du projet :
+
+```bash
+./scripts/update-frontend.sh  # changement React/CSS/traductions
+./scripts/update-backend.sh   # changement Rust/API/providers
+./scripts/update-all.sh       # changements dans les deux parties
+```
+
+Les scripts exécutent les tests concernés, reconstruisent l'image avec les caches Docker, redémarrent la pile HTTPS locale et affichent son état. Options utiles :
+
+```bash
+SKIP_TESTS=1 ./scripts/update-frontend.sh
+COURRIER_LOCAL_HTTPS=0 ./scripts/update-backend.sh
+```
+
+Le premier build initialise les caches Node et Cargo. Les suivants sont
+incrémentaux et utilisent le profil Rust rapide `local`. Le compilateur et les
+outils Alpine proviennent directement de l'image officielle
+`rust:1.91-alpine3.23` : aucun `apk add` ni téléchargement `rustup` n'est
+effectué pendant le build. Pour simplement
+redémarrer les conteneurs sans reconstruire l'image :
+
+```bash
+docker compose -f compose.yaml -f compose.local-https.yaml up --detach
+```
+
+N'ajoutez `--build` qu'après une modification du code ou des dépendances. Le
+build de production sans surcharge conserve le profil Rust `release`.
 
 Le lancement durci recommandé utilise :
 

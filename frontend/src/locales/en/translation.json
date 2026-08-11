@@ -12,11 +12,13 @@
     "passwordMismatch": "The passwords do not match.",
     "working": "Please wait…",
     "unlock": "Unlock",
+    "unlockWithBiometrics": "Unlock with biometrics",
     "create": "Create vault",
     "recoveryWarning": "This password cannot be recovered. Existing local accounts will be imported and then removed from unencrypted storage.",
     "secureContextRequired": "Encryption requires HTTPS. Open Courrier from its HTTPS address or from localhost.",
     "invalidPassword": "Incorrect password or damaged vault.",
-    "creationFailed": "Unable to create the local vault. Check that browser storage is allowed."
+    "creationFailed": "Unable to create the local vault. Check that browser storage is allowed.",
+    "biometricFailed": "Biometric unlock failed. Use your master password."
   },
   "invitation": {
     "title": "Invitation",
@@ -344,6 +346,7 @@
   },
   "mail": {
     "selection": { "clear": "Clear selection" },
+    "backToList": "Back to messages",
     "folders": {
       "inbox": "Inbox",
       "sent": "Sent",
@@ -561,7 +564,11 @@
     "vault": {
       "sectionTitle": "Local vault",
       "hint": "Credentials are encrypted on this device. The vault locks automatically after 30 minutes of inactivity.",
-      "lockNow": "Lock now"
+      "lockNow": "Lock now",
+      "enableBiometrics": "Enable biometrics",
+      "disableBiometrics": "Disable biometrics",
+      "biometricUnavailable": "Secure biometric unlock is not available in this browser.",
+      "biometricError": "Biometrics could not be enabled on this device or browser."
     }
   },
   "recurringChoice": {

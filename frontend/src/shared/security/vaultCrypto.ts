@@ -30,7 +30,7 @@ export async function deriveVaultKey(password: string, salt: Uint8Array, iterati
     { name: 'PBKDF2', hash: 'SHA-256', salt: asBuffer(salt), iterations },
     material,
     { name: 'AES-GCM', length: 256 },
-    false,
+    true,
     ['encrypt', 'decrypt'],
   );
 }
@@ -62,12 +62,27 @@ export async function decryptVault<T>(vault: EncryptedVault, password: string): 
   }
   const salt = fromBase64(vault.kdf.salt);
   const key = await deriveVaultKey(password, salt, vault.kdf.iterations);
+  return { payload: await decryptVaultWithKey<T>(vault, key), key };
+}
+
+export async function decryptVaultWithKey<T>(vault: EncryptedVault, key: CryptoKey): Promise<T> {
+  if (vault.version !== 1 || vault.kdf.name !== 'PBKDF2' || vault.cipher.name !== 'AES-GCM') {
+    throw new Error('Unsupported vault format');
+  }
   const plaintext = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: asBuffer(fromBase64(vault.cipher.iv)), additionalData: encoder.encode('courrier-vault-v1') },
     key,
     asBuffer(fromBase64(vault.cipher.data)),
   );
-  return { payload: JSON.parse(decoder.decode(plaintext)) as T, key };
+  return JSON.parse(decoder.decode(plaintext)) as T;
+}
+
+export async function exportVaultKey(key: CryptoKey): Promise<ArrayBuffer> {
+  return crypto.subtle.exportKey('raw', key);
+}
+
+export async function importVaultKey(raw: ArrayBuffer): Promise<CryptoKey> {
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
 }
 
 export function vaultSalt(vault: EncryptedVault): Uint8Array {

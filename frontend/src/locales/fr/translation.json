@@ -12,11 +12,13 @@
     "passwordMismatch": "Les mots de passe ne correspondent pas.",
     "working": "Veuillez patienter…",
     "unlock": "Déverrouiller",
+    "unlockWithBiometrics": "Déverrouiller avec la biométrie",
     "create": "Créer le coffre",
     "recoveryWarning": "Ce mot de passe ne peut pas être récupéré. Les anciens comptes locaux seront importés puis supprimés du stockage non chiffré.",
     "secureContextRequired": "Le chiffrement nécessite HTTPS. Ouvrez Courrier depuis son adresse HTTPS ou depuis localhost.",
     "invalidPassword": "Mot de passe incorrect ou coffre endommagé.",
-    "creationFailed": "Impossible de créer le coffre local. Vérifiez que le stockage du navigateur est autorisé."
+    "creationFailed": "Impossible de créer le coffre local. Vérifiez que le stockage du navigateur est autorisé.",
+    "biometricFailed": "Échec du déverrouillage biométrique. Utilisez votre mot de passe maître."
   },
   "invitation": {
     "title": "Invitation",
@@ -344,6 +346,7 @@
   },
   "mail": {
     "selection": { "clear": "Effacer la sélection" },
+    "backToList": "Retour aux messages",
     "folders": {
       "inbox": "Boîte de réception",
       "sent": "Envoyés",
@@ -561,7 +564,11 @@
     "vault": {
       "sectionTitle": "Coffre local",
       "hint": "Les identifiants sont chiffrés sur cet appareil. Le coffre se verrouille automatiquement après 30 minutes d’inactivité.",
-      "lockNow": "Verrouiller maintenant"
+      "lockNow": "Verrouiller maintenant",
+      "enableBiometrics": "Activer la biométrie",
+      "disableBiometrics": "Désactiver la biométrie",
+      "biometricUnavailable": "Le déverrouillage biométrique sécurisé n’est pas disponible dans ce navigateur.",
+      "biometricError": "Impossible d’activer la biométrie sur cet appareil ou ce navigateur."
     }
   },
   "recurringChoice": {
