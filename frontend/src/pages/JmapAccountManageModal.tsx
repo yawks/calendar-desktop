@@ -124,9 +124,9 @@ export function JmapAccountManageModal({ account, onClose }: {
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>JMAP Configuration</h3>
+                <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.jmapConfiguration')}</h3>
                 <div className="form-row">
-                  <label>Session URL</label>
+                  <label>{t('config.sessionUrl')}</label>
                   <input type="text" value={sessionUrl} onChange={(e) => setSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
                 </div>
                 <div className="form-row">

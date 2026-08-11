@@ -1,11 +1,12 @@
 import { useTranslation } from 'react-i18next';
-import { Columns2, Languages, LayoutPanelTop, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
+import { Columns2, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
 import { LanguagePreference } from '../../i18n';
 import { useLayout, AppLayout } from '../../shared/store/LayoutStore';
 import { useLogoDevToken } from '../../shared/store/LogoDevTokenStore';
 import { useTheme, ThemePreference } from '../../shared/store/ThemeStore';
+import { useVault } from '../../shared/security/VaultProvider';
 
 function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference; active: boolean; onClick: () => void; label: string }) {
   const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : size === 'intermediate' ? 1.1 : 1.2;
@@ -68,6 +69,7 @@ export function PreferencesSection() {
   const { preference: themePref, setPreference: setThemePref } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
   const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
+  const { lock } = useVault();
 
   const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
     { value: 'system', label: t('settings.language.system'), flag: '🖥' },
@@ -203,6 +205,16 @@ export function PreferencesSection() {
             outline: 'none',
           }}
         />
+      </div>
+
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Lock size={16} /> {t('settings.vault.sectionTitle')}
+        </h3>
+        <p style={{ margin: '0 0 10px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
+          {t('settings.vault.hint')}
+        </p>
+        <button type="button" onClick={lock} style={{ padding: '8px 14px' }}>{t('settings.vault.lockNow')}</button>
       </div>
 
     </div>

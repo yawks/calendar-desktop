@@ -22,10 +22,10 @@ function weekDate(n: number): string {
 }
 
 export const DEMO_CALENDARS: CalendarConfig[] = [
-  { id: 'demo-work',     name: 'Work',            url: '', color: '#0f9d58', visible: true, type: 'eventkit' },
-  { id: 'demo-personal', name: 'Personal',         url: '', color: '#1a73e8', visible: true, type: 'eventkit' },
-  { id: 'demo-family',   name: 'Family',           url: '', color: '#f4511e', visible: true, type: 'eventkit' },
-  { id: 'demo-health',   name: 'Health & Fitness', url: '', color: '#8430ce', visible: true, type: 'eventkit' },
+  { id: 'demo-work',     name: 'Work',            url: '', color: '#0f9d58', visible: true, type: 'google' },
+  { id: 'demo-personal', name: 'Personal',         url: '', color: '#1a73e8', visible: true, type: 'google' },
+  { id: 'demo-family',   name: 'Family',           url: '', color: '#f4511e', visible: true, type: 'google' },
+  { id: 'demo-health',   name: 'Health & Fitness', url: '', color: '#8430ce', visible: true, type: 'google' },
   { id: 'demo-holidays', name: 'Public Holidays',  url: '', color: '#d93025', visible: true, type: 'ics'      },
 ];
 

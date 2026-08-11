@@ -170,7 +170,7 @@ export function MultiSelectionPanel({
         <button
           className="mail-multiselect-header__clear btn-icon"
           onClick={onClearSelection}
-          title="Effacer la sélection"
+          title={t('mail.selection.clear')}
         >
           <X size={16} />
         </button>

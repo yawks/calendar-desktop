@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode, useRef } from 'react';
 import { ExchangeAccount } from '../types';
-import { invoke } from '@tauri-apps/api/core';
+import { exchangeAuthApi } from '../api/exchangeAuthApi';
+import { useVault } from '../security/VaultProvider';
 
 const STORAGE_KEY = 'calendar-desktop-exchange-accounts';
 
@@ -47,14 +48,8 @@ interface ExchangeAuthContextValue {
 const ExchangeAuthContext = createContext<ExchangeAuthContextValue | null>(null);
 
 export function ExchangeAuthProvider({ children }: { readonly children: ReactNode }) {
-  const [accounts, dispatch] = useReducer(reducer, [], () => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? (JSON.parse(stored) as ExchangeAccount[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const vault = useVault();
+  const [accounts, dispatch] = useReducer(reducer, [], () => vault.read<ExchangeAccount[]>(STORAGE_KEY, []));
 
   const accountsRef = useRef(accounts);
   // Keep token lookups in sync during render. Waiting for the effect below leaves a
@@ -62,8 +57,8 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
   // its first (non-retried) query then remains in an Unauthorized state.
   accountsRef.current = accounts;
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
-  }, [accounts]);
+    vault.write(STORAGE_KEY, accounts);
+  }, [accounts, vault]);
 
   const addAccount = useCallback((account: ExchangeAccount) => {
     dispatch({ type: 'ADD', payload: account });
@@ -102,10 +97,7 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
 
     const performRefresh = async () => {
         try {
-          const result = await invoke<{ access_token: string; refresh_token?: string; expires_in: number }>(
-            'ews_refresh_access_token',
-            { refreshToken: account.refreshToken }
-          );
+          const result = await exchangeAuthApi.refresh(account.refreshToken);
           const expiresAt = Date.now() + result.expires_in * 1000;
           dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken: result.access_token, expiresAt } });
           return result.access_token;

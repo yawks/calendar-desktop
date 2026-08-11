@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, useEffect, ReactNode, useMemo } from 'react';
 import { CalendarConfig } from '../../../shared/types';
+import { useVault } from '../../../shared/security/VaultProvider';
 
 const STORAGE_KEY = 'calendar-desktop-calendars';
 
@@ -41,18 +42,12 @@ interface CalendarContextValue {
 const CalendarContext = createContext<CalendarContextValue | null>(null);
 
 export function CalendarProvider({ children }: { readonly children: ReactNode }) {
-  const [calendars, dispatch] = useReducer(reducer, [], () => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? (JSON.parse(stored) as CalendarConfig[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const vault = useVault();
+  const [calendars, dispatch] = useReducer(reducer, [], () => vault.read<CalendarConfig[]>(STORAGE_KEY, []));
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(calendars));
-  }, [calendars]);
+    vault.write(STORAGE_KEY, calendars);
+  }, [calendars, vault]);
 
   const addCalendar = (cal: Omit<CalendarConfig, 'id'>) =>
     dispatch({ type: 'ADD', payload: { ...cal, id: crypto.randomUUID() } });

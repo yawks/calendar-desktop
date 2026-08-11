@@ -5,13 +5,13 @@ import {
   HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Video, ChevronDown, Copy,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { invoke } from '@tauri-apps/api/core';
 import { CalendarConfig, CalendarEvent, Attendee, AttendeeStatus } from '../../../shared/types';
+import { openExternalUrl } from '../../../shared/services/fileService';
 import i18n from '../../../i18n';
 import { useTags } from '../store/TagStore';
 
 function openExternal(url: string) {
-  invoke('open_url', { url }).catch(console.error);
+  openExternalUrl(url);
 }
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;

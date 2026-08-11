@@ -3,6 +3,51 @@
     "calendar": "Calendar",
     "mail": "Mail"
   },
+  "vault": {
+    "appName": "Courrier",
+    "unlockDescription": "Unlock your local vault.",
+    "createDescription": "Create a master password to encrypt your accounts on this device.",
+    "masterPassword": "Master password",
+    "confirmation": "Confirmation",
+    "passwordMismatch": "The passwords do not match.",
+    "working": "Please wait…",
+    "unlock": "Unlock",
+    "create": "Create vault",
+    "recoveryWarning": "This password cannot be recovered. Existing local accounts will be imported and then removed from unencrypted storage.",
+    "secureContextRequired": "Encryption requires HTTPS. Open Courrier from its HTTPS address or from localhost.",
+    "invalidPassword": "Incorrect password or damaged vault.",
+    "creationFailed": "Unable to create the local vault. Check that browser storage is allowed."
+  },
+  "invitation": {
+    "title": "Invitation",
+    "cancellation": "Cancellation",
+    "reply": "Reply",
+    "loading": "Loading invitation…",
+    "readError": "Unable to read the invitation.",
+    "allDay": "All day",
+    "cancelled": "Event cancelled",
+    "organizer": "Organizer",
+    "participants_one": "{{count}} participant",
+    "participants_other": "{{count}} participants",
+    "responded": "responded",
+    "calendar": "Calendar",
+    "accept": "Accept",
+    "tentative": "Maybe",
+    "decline": "Decline",
+    "inCalendar": "In calendar",
+    "addToCalendar": "Add to calendar",
+    "addedSuccess": "Added to calendar!",
+    "acceptedSuccess": "Accepted!",
+    "declinedSuccess": "Declined.",
+    "tentativeSuccess": "Maybe.",
+    "status": {
+      "ACCEPTED": "Accepted",
+      "DECLINED": "Declined",
+      "TENTATIVE": "Maybe",
+      "NEEDS-ACTION": "Pending",
+      "NONE": "No response"
+    }
+  },
   "welcome": {
     "title": "Welcome to Courrier",
     "description": "Bring your email and calendars together in one simple, organized app.",
@@ -10,6 +55,7 @@
   },
   "header": {
     "toggleSidebar": "Toggle sidebar",
+    "resizeSidebar": "Resize sidebar",
     "appName": "Courrier",
     "today": "Today",
     "prev": "Previous",
@@ -61,11 +107,24 @@
     "loading": "Loading…",
     "newGroup": "New group",
     "groupNamePlaceholder": "Group name",
+    "tagNamePlaceholder": "Tag name",
     "renameGroup": "Rename group",
     "deleteGroup": "Delete group",
     "dragCalendar": "Move calendar",
     "expandGroup": "Expand group",
-    "collapseGroup": "Collapse group"
+    "collapseGroup": "Collapse group",
+    "tagsInsights": "Tags and insights",
+    "manageTags": "Manage tags",
+    "statistics": "Statistics"
+  },
+  "insights": {
+    "allGroups": "All groups",
+    "allCalendars": "All calendars",
+    "eventCount_one": "{{count}} event",
+    "eventCount_other": "{{count}} events",
+    "totalDuration": "{{duration}} total",
+    "noEvents": "No events",
+    "withoutTag": "Without tag"
   },
   "miniCalendar": {
     "dayNames": [
@@ -149,6 +208,10 @@
     "remove": "Remove {{name}}"
   },
   "config": {
+    "jmapConfiguration": "JMAP configuration",
+    "sessionUrl": "Session URL",
+    "imapIncoming": "IMAP (incoming)",
+    "smtpOutgoing": "SMTP (outgoing)",
     "advanced": "Advanced",
     "fastmailWebToken": "Fastmail web token",
     "fastmailWebTokenHelp": "Optional. Paste only the fma1… value, without the Bearer prefix.",
@@ -233,8 +296,6 @@
     "oauthDescription": "Client ID and Client Secret from your Google Cloud Console project (\"Desktop app\" type). Leave empty to use environment variables VITE_GOOGLE_CLIENT_ID / VITE_GOOGLE_CLIENT_SECRET.",
     "savedConfirmation": "✓ Saved",
     "accessRequestError": "Error requesting access",
-    "macosCalendar": "macOS Calendar",
-    "macosCalendarDesc": "View your macOS calendars (Calendar, iCloud, Exchange…)",
     "connectGoogleAccount": "Connect Google account",
     "noCalendarsConfigured": "No calendars configured. Click \"New calendar\" to begin.",
     "exchangeDesc": "Exchange / Office 365 via EWS",
@@ -278,11 +339,20 @@
   },
   "calendarPage": {
     "calendarNotFound": "Calendar not found",
-    "eventKitRsvpNote": "For EventKit calendars, respond via the macOS Calendar app.",
     "missingInfo": "Missing info to respond to this invitation",
     "invalidToken": "Invalid token. Reconnect your Google account."
   },
   "mail": {
+    "selection": { "clear": "Clear selection" },
+    "folders": {
+      "inbox": "Inbox",
+      "sent": "Sent",
+      "trash": "Trash",
+      "collapse": "Collapse",
+      "expand": "Expand",
+      "search": "Search…",
+      "empty": "No folders"
+    },
     "noSubject": "(No subject)",
     "messageContentLoadError": "Unable to load message — retry",
     "messageContentReloading": "Reloading…",
@@ -487,6 +557,11 @@
     "logoDev": {
       "sectionTitle": "Contact logos",
       "hint": "logo.dev token to display company logos in contact avatars."
+    },
+    "vault": {
+      "sectionTitle": "Local vault",
+      "hint": "Credentials are encrypted on this device. The vault locks automatically after 30 minutes of inactivity.",
+      "lockNow": "Lock now"
     }
   },
   "recurringChoice": {

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AttendeeStatus, CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { parseICS } from '../utils/parseICS';
 import { cacheGetStale, cacheSet, cacheIsFresh, patchCachedEventRsvp } from '../utils/eventCache';
+import { calendarApi } from '../../../shared/api/calendarApi';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const CACHE_VERSION = 'v1';
@@ -16,8 +17,7 @@ function buildExportUrl(calUrl: string): string {
 }
 
 async function fetchAndParse(cal: CalendarConfig): Promise<CalendarEvent[]> {
-  const { invoke } = await import('@tauri-apps/api/core');
-  const text = await invoke<string>('fetch_url_with_auth', {
+  const text = await calendarApi.fetchCalDav({
     url: buildExportUrl(cal.url),
     username: cal.nextcloudUsername ?? '',
     password: cal.nextcloudPassword ?? '',

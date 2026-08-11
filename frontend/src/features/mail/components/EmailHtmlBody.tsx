@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useFontSize } from '../../../shared/store/FontSizeStore';
-import { invoke } from '@tauri-apps/api/core';
+import { openExternalUrl } from '../../../shared/services/fileService';
 import { findQuoteMarker, processEmailQuotes } from '../utils/emailQuoteParser';
 
 function parseHexColor(raw: string): [number, number, number] | null {
@@ -17,6 +17,7 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   const fontScale = fontSize === 'small' ? 0.85 : fontSize === 'medium' ? 1 : fontSize === 'intermediate' ? 1.1 : 1.2;
   const isDark = resolved === 'dark';
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [iframeHeight, setIframeHeight] = useState(200);
 
   const bgRaw = getComputedStyle(document.documentElement).getPropertyValue('--bg');
@@ -24,19 +25,11 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   const [bgR, bgG, bgB] = bgParsed;
   const bgCss = `rgb(${bgR}, ${bgG}, ${bgB})`;
 
+  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
+
   useEffect(() => {
-    const onMessage = (e: MessageEvent) => {
-      if (e.source !== iframeRef.current?.contentWindow) return;
-      if (e.data?.type === 'open-url' && typeof e.data.url === 'string') {
-        invoke('open_url', { url: e.data.url }).catch(console.error);
-      }
-      if (e.data?.type === 'resize' && typeof e.data.height === 'number') {
-        setIframeHeight(e.data.height + 4);
-      }
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
+    setIframeHeight(200);
+  }, [html, bodyText, resolved, fontSize]);
 
   const kr = ((255 + bgR) / 255).toFixed(4);
   const kg = ((255 + bgG) / 255).toFixed(4);
@@ -78,6 +71,58 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
 
   const safeHtml = html.replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
 
+  const handleFrameLoad = () => {
+    const frame = iframeRef.current;
+    const doc = frame?.contentDocument;
+    if (!frame || !doc?.body || !doc.documentElement) return;
+
+    const root = doc.querySelector<HTMLElement>('.ew') ?? doc.body;
+    processEmailQuotes(root, { label: prevMsgLabel, quoteMarker, attributionTemplate });
+
+    if (isDark) {
+      doc.querySelectorAll<HTMLElement>('.ew *').forEach(element => {
+        if (element.matches('img, video, canvas, iframe, svg, .qt-toggle')) return;
+        const computed = frame.contentWindow?.getComputedStyle(element);
+        if (!computed?.backgroundImage || computed.backgroundImage === 'none') return;
+        const layer = doc.createElement('span');
+        layer.className = 'ew-bg-media-layer';
+        for (const [property, value] of [
+          ['background-image', computed.backgroundImage], ['background-size', computed.backgroundSize],
+          ['background-position', computed.backgroundPosition], ['background-repeat', computed.backgroundRepeat],
+          ['background-origin', computed.backgroundOrigin], ['background-clip', computed.backgroundClip],
+          ['background-attachment', computed.backgroundAttachment],
+        ]) layer.style.setProperty(property, value, 'important');
+        if (computed.position === 'static') element.style.setProperty('position', 'relative', 'important');
+        element.style.setProperty('background-image', 'none', 'important');
+        element.classList.add('ew-bg-media-host');
+        element.insertBefore(layer, element.firstChild);
+      });
+    }
+
+    const resize = () => {
+      const height = Math.max(
+        doc.body.scrollHeight, doc.body.offsetHeight,
+        doc.documentElement.scrollHeight, doc.documentElement.offsetHeight,
+      );
+      if (height > 0) setIframeHeight(height + 4);
+    };
+    resizeObserverRef.current?.disconnect();
+    const observer = new ResizeObserver(resize);
+    observer.observe(doc.body);
+    observer.observe(doc.documentElement);
+    resizeObserverRef.current = observer;
+    doc.addEventListener('load', resize, true);
+    doc.addEventListener('click', event => {
+      const anchor = (event.target as Element | null)?.closest?.('a');
+      if (!anchor) return;
+      const href = (anchor as HTMLAnchorElement).href;
+      if (!href || href.startsWith('javascript:')) return;
+      event.preventDefault();
+      void openExternalUrl(href);
+    });
+    resize();
+  };
+
   const srcdoc = `<!DOCTYPE html>
 <html>
 <head>
@@ -117,61 +162,15 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   .qt-attribution { margin: 4px 0 10px; font-size: ${12 * fontScale}px; color: #5f6368; }
 </style>
 </head>
-<body>${darkModeSvg}<div class="ew">${safeHtml}</div>
-<script>
-  ${isDark ? `
-  // CSS background images cannot be counter-filtered independently from their
-  // element. Move each one to a dedicated layer so only the image is restored.
-  document.querySelectorAll('.ew *').forEach(function(element) {
-    if (element.matches('img, video, canvas, iframe, svg, .qt-toggle')) return;
-    var computed = getComputedStyle(element);
-    if (!computed.backgroundImage || computed.backgroundImage === 'none') return;
-
-    var layer = document.createElement('span');
-    layer.className = 'ew-bg-media-layer';
-    layer.style.setProperty('background-image', computed.backgroundImage, 'important');
-    layer.style.setProperty('background-size', computed.backgroundSize, 'important');
-    layer.style.setProperty('background-position', computed.backgroundPosition, 'important');
-    layer.style.setProperty('background-repeat', computed.backgroundRepeat, 'important');
-    layer.style.setProperty('background-origin', computed.backgroundOrigin, 'important');
-    layer.style.setProperty('background-clip', computed.backgroundClip, 'important');
-    layer.style.setProperty('background-attachment', computed.backgroundAttachment, 'important');
-
-    if (computed.position === 'static') {
-      element.style.setProperty('position', 'relative', 'important');
-    }
-    element.style.setProperty('background-image', 'none', 'important');
-    element.classList.add('ew-bg-media-host');
-    element.insertBefore(layer, element.firstChild);
-  });` : ''}
-  document.addEventListener('click', function(e) {
-    var a = e.target.closest('a');
-    if (a && a.href && !a.href.startsWith('javascript:')) {
-      e.preventDefault();
-      window.parent.postMessage({ type: 'open-url', url: a.href }, '*');
-    }
-  });
-  (function() {
-    (${processEmailQuotes.toString()})(document.querySelector('.ew') || document.body, {
-      label: ${JSON.stringify(prevMsgLabel).replaceAll('</', '<\\/')},
-      quoteMarker: ${JSON.stringify(quoteMarker).replaceAll('</', '<\\/')},
-      attributionTemplate: ${JSON.stringify(attributionTemplate).replaceAll('</', '<\\/')}
-    });
-  })();
-  var ro = new ResizeObserver(function() {
-    window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
-  });
-  ro.observe(document.body);
-  window.parent.postMessage({ type: 'resize', height: document.body.scrollHeight }, '*');
-</script>
-</body>
+<body>${darkModeSvg}<div class="ew">${safeHtml}</div></body>
 </html>`;
 
   return (
     <iframe
       ref={iframeRef}
       srcDoc={srcdoc}
-      sandbox="allow-scripts"
+      sandbox="allow-same-origin"
+      onLoad={handleFrameLoad}
       className="mail-email-iframe"
       title="email-body"
       style={{ height: iframeHeight }}

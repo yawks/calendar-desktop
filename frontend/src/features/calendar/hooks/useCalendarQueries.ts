@@ -1,8 +1,8 @@
 import { useQueries } from '@tanstack/react-query';
 import { CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
-import { invoke } from '@tauri-apps/api/core';
 import { useMemo } from 'react';
+import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 
 export const CALENDAR_KEYS = {
   all: ['calendar'] as const,
@@ -60,7 +60,7 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
 
   let raw: EwsEventRaw[];
   try {
-    raw = await invoke<EwsEventRaw[]>('ews_get_calendar_events', {
+    raw = await exchangeCalendarApi.list<EwsEventRaw[]>({
       accessToken,
       ownerEmail: cal.ownerEmail,
       start: start.toISOString(),

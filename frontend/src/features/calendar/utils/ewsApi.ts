@@ -1,5 +1,5 @@
 import type { FreeBusyResult } from './googleCalendarApi';
-import { invoke } from '@tauri-apps/api/core';
+import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 
 interface EwsFreeBusySlot {
   start: string;
@@ -20,27 +20,13 @@ export async function queryEWSFreeBusy(
     return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
   }
 
-  let raw = null as unknown as Record<string, EwsFreeBusySlot[]>;
-
-  try {
-    console.log('[FreeBusy] invoking ews_get_free_busy_ews', { emails, start: toGraphDate(timeMin), end: toGraphDate(timeMax) });
-    raw = await invoke<Record<string, EwsFreeBusySlot[]>>('ews_get_free_busy_ews', {
+  const raw = await exchangeCalendarApi.freeBusy<Record<string, EwsFreeBusySlot[]>>({
       refreshToken,
       emails,
       start: toGraphDate(timeMin),
       end: toGraphDate(timeMax),
       anchorMailbox,
-    });
-    console.log('[FreeBusy] ews_get_free_busy_ews result', raw);
-  } catch (err) {
-    console.warn('[FreeBusy] ews_get_free_busy_ews failed, fallback to graph getSchedule', err);
-    raw = await invoke<Record<string, EwsFreeBusySlot[]>>('ews_get_free_busy', {
-      refreshToken,
-      emails,
-      start: toGraphDate(timeMin),
-      end: toGraphDate(timeMax),
-    });
-  }
+  });
 
   const result: Record<string, FreeBusyResult> = {};
   for (const email of emails) {

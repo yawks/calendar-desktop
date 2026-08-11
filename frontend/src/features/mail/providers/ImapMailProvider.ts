@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { mailCommand as invoke } from '../../../shared/api/mailApi';
+import { fileService } from '../../../shared/services/fileService';
 import { ImapAccount } from '../../../shared/types';
 import { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
 import { MailProvider, ProviderType, SendMailParams, SaveDraftParams, MailItemRef } from './MailProvider';
@@ -219,8 +220,7 @@ export class ImapMailProvider implements MailProvider {
 
   async openAttachment(attachment: MailAttachment): Promise<void> {
     const data = await this.getAttachmentData(attachment);
-    const path = await invoke<string>('save_file_to_downloads', { filename: attachment.name, data });
-    return invoke<void>('open_file_path', { path });
+    fileService.downloadBase64(attachment.name, data, attachment.content_type);
   }
 
   async getAttachmentData(attachment: MailAttachment): Promise<string> {

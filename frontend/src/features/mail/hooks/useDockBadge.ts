@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { invoke } from '@tauri-apps/api/core';
+import { appBadgeService } from '../../../shared/services/appBadge';
 
 /**
  * Updates the macOS Dock badge with the total number of unread inbox messages.
@@ -19,8 +19,9 @@ export function useDockBadge(folderUnreadCounts: Record<string, number>) {
     if (inboxUnread === lastSentRef.current) return;
     lastSentRef.current = inboxUnread;
 
-    invoke('set_badge_count', { count: inboxUnread }).catch(() => {
-      // Silently ignore — the Tauri command is only available on native builds.
-    });
+    const update = inboxUnread > 0
+      ? appBadgeService.setCount(inboxUnread)
+      : appBadgeService.clear();
+    update.catch(() => { /* Unsupported/denied badging must not break mail. */ });
   }, [folderUnreadCounts]);
 }

@@ -1,25 +1,20 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Cloud, Laptop, Mail, Rss, X } from 'lucide-react';
+import { Cloud, Mail, Rss, X } from 'lucide-react';
 import { useCalendars } from '../../features/calendar/store/CalendarStore';
 import { useGoogleAuth } from '../../shared/store/GoogleAuthStore';
 import { useExchangeAuth, parseExchangeToken } from '../../shared/store/ExchangeAuthStore';
 import { useImapAuth } from '../../shared/store/ImapAuthStore';
 import { useJmapAuth } from '../../shared/store/JmapAuthStore';
-import {
-  getGoogleClientConfig,
-  setGoogleClientConfig,
-  clearGoogleClientConfig,
-} from '../../shared/store/googleClientConfig';
 import { ExchangeAccount } from '../../shared/types';
+import { openExternalUrl } from '../../shared/services/fileService';
+import { exchangeAuthApi } from '../../shared/api/exchangeAuthApi';
 import { CapBadge, ColorSwatches, ConnectionTestRow, DEFAULT_COLORS, TestResult, nextColor, testNextcloudConnection } from './ConfigShared';
 
 export function NewCalendarModal({
   onClose,
-  onOpenEventKit,
 }: {
   onClose: () => void;
-  onOpenEventKit: () => void;
 }) {
   const { t } = useTranslation();
   const { addCalendar, calendars } = useCalendars();
@@ -43,11 +38,6 @@ export function NewCalendarModal({
   const [exPolling, setExPolling] = useState(false);
   const [exCalName, setExCalName] = useState('Exchange Calendar');
   const [exColor, setExColor] = useState('#0078d4');
-
-  // Google OAuth credentials
-  const [gcClientId, setGcClientId] = useState(() => getGoogleClientConfig()?.clientId ?? '');
-  const [gcClientSecret, setGcClientSecret] = useState(() => getGoogleClientConfig()?.clientSecret ?? '');
-  const [gcSaved, setGcSaved] = useState(false);
 
   // ICS form
   const [icsName, setIcsName] = useState('');
@@ -103,17 +93,6 @@ export function NewCalendarModal({
 
   const resetNcTest = () => setNcTestResult(null);
 
-  const handleSaveCredentials = (e: FormEvent) => {
-    e.preventDefault();
-    if (gcClientId.trim() && gcClientSecret.trim()) {
-      setGoogleClientConfig({ clientId: gcClientId.trim(), clientSecret: gcClientSecret.trim() });
-    } else {
-      clearGoogleClientConfig();
-    }
-    setGcSaved(true);
-    setTimeout(() => setGcSaved(false), 1500);
-  };
-
   const handleConnectGoogle = async () => {
     setConnecting(true);
     setConnectError('');
@@ -127,8 +106,7 @@ export function NewCalendarModal({
     }
   };
 
-  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap' | 'jmap') => {
-    if (type === 'eventkit') { onOpenEventKit(); return; }
+  const handleTypeSelect = (type: 'ics' | 'google' | 'nextcloud' | 'exchange' | 'imap' | 'jmap') => {
     if (type === 'google' || type === 'exchange') {
       setPendingProviderType(type);
       setPendingCapabilities(['calendar', 'email']);
@@ -150,16 +128,13 @@ export function NewCalendarModal({
     setConnecting(true);
     setConnectError('');
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const res = await invoke<{ device_code: string; user_code: string; verification_uri: string; interval: number; message: string }>(
-        'ews_start_device_auth'
-      );
+      const res = await exchangeAuthApi.startDeviceAuth();
       setExDeviceCode(res.device_code);
       setExUserCode(res.user_code);
       setExVerifUri(res.verification_uri);
       setExInterval(res.interval);
       setExPolling(true);
-      invoke('open_url', { url: res.verification_uri }).catch(() => { });
+      openExternalUrl(res.verification_uri);
     } catch (err) {
       setConnectError(err instanceof Error ? err.message : t('config.exchangeAuthError'));
     } finally {
@@ -171,11 +146,7 @@ export function NewCalendarModal({
     if (!exPolling || !exDeviceCode) return;
     const timer = setInterval(async () => {
       try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const res = await invoke<{ access_token: string; refresh_token?: string; expires_in: number }>(
-          'ews_poll_device_token',
-          { deviceCode: exDeviceCode }
-        );
+        const res = await exchangeAuthApi.pollDeviceToken(exDeviceCode);
         clearInterval(timer);
         setExPolling(false);
         const { email, displayName } = parseExchangeToken(res.access_token);
@@ -273,8 +244,7 @@ export function NewCalendarModal({
     onClose();
   };
 
-  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'eventkit' | 'exchange' | 'imap' | 'jmap'; icon: React.ReactNode; label: string; desc: string; caps: ('calendar' | 'email')[] }[] = [
-    { type: 'eventkit', icon: <Laptop size={28} />, label: t('config.macosCalendar'), desc: t('config.macosCalendarDesc'), caps: ['calendar'] },
+  const typeCards: { type: 'ics' | 'google' | 'nextcloud' | 'exchange' | 'imap' | 'jmap'; icon: React.ReactNode; label: string; desc: string; caps: ('calendar' | 'email')[] }[] = [
     { type: 'ics', icon: <Rss size={28} />, label: 'ICS / iCal', desc: t('config.icsFluxDesc'), caps: ['calendar'] },
     {
       type: 'google',
@@ -395,20 +365,6 @@ export function NewCalendarModal({
               <p style={{ margin: 0, fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                 {t('config.oauthDescription')}
               </p>
-              <form onSubmit={handleSaveCredentials} className="config-form">
-                <div className="form-row">
-                  <label htmlFor="new-gc-client-id">Client ID</label>
-                  <input id="new-gc-client-id" type="text" placeholder="123456789-abc…apps.googleusercontent.com" value={gcClientId} onChange={(e) => setGcClientId(e.target.value)} />
-                </div>
-                <div className="form-row">
-                  <label htmlFor="new-gc-client-secret">Client Secret</label>
-                  <input id="new-gc-client-secret" type="password" placeholder="GOCSPX-…" value={gcClientSecret} onChange={(e) => setGcClientSecret(e.target.value)} />
-                </div>
-                <div className="form-actions" style={{ alignItems: 'center', gap: 12 }}>
-                  <button type="submit" className="btn-cancel">{t('config.save')}</button>
-                  {gcSaved && <span style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--color-success, #34a853)' }}>{t('config.savedConfirmation')}</span>}
-                </div>
-              </form>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
                 <button type="button" className="btn-primary" onClick={handleConnectGoogle} disabled={connecting} style={{ width: '100%', justifyContent: 'center' }}>
                   {connecting ? t('config.connectingGoogle') : t('config.connectGoogleAccount')}
@@ -443,7 +399,7 @@ export function NewCalendarModal({
                   <div style={{ fontSize: 'calc(28px * var(--font-scale, 1))', fontWeight: 700, letterSpacing: 4, textAlign: 'center', padding: '12px 20px', background: 'var(--bg-secondary, #f5f5f5)', borderRadius: 8, border: '1px solid var(--border)', fontFamily: 'monospace' }}>
                     {exUserCode}
                   </div>
-                  <button type="button" className="btn-edit" onClick={() => { import('@tauri-apps/api/core').then(({ invoke }) => invoke('open_url', { url: exVerifUri })); }} style={{ fontSize: 'calc(13px * var(--font-scale, 1))' }}>
+                  <button type="button" className="btn-edit" onClick={() => openExternalUrl(exVerifUri)} style={{ fontSize: 'calc(13px * var(--font-scale, 1))' }}>
                     {t('config.exchangeOpenBrowser')} ↗
                   </button>
                   {exPolling && <p style={{ margin: 0, fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', textAlign: 'center' }}>{t('config.exchangeWaiting')}</p>}
@@ -477,9 +433,9 @@ export function NewCalendarModal({
                 </div>
               </div>
               <div style={{ marginTop: 20 }}>
-                <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>JMAP Configuration</h3>
+                <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.jmapConfiguration')}</h3>
                 <div className="form-row">
-                  <label>Session URL</label>
+                  <label>{t('config.sessionUrl')}</label>
                   <input type="text" value={jmapSessionUrl} onChange={(e) => setJmapSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
                 </div>
                 <div className="form-row">
@@ -539,7 +495,7 @@ export function NewCalendarModal({
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
                 <div>
-                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>IMAP (Incoming)</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.imapIncoming')}</h3>
                   <div className="form-row">
                     <label>{t('config.server', 'Server')}</label>
                     <input type="text" value={imapServer} onChange={(e) => setImapServer(e.target.value)} required />
@@ -568,7 +524,7 @@ export function NewCalendarModal({
                   </div>
                 </div>
                 <div>
-                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>SMTP (Outgoing)</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.smtpOutgoing')}</h3>
                   <div className="form-row">
                     <label>{t('config.server', 'Server')}</label>
                     <input type="text" value={smtpServer} onChange={(e) => setSmtpServer(e.target.value)} required />

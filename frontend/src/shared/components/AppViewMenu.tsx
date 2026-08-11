@@ -3,8 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppTab, useLayout } from '../store/LayoutStore';
 import { useAppCapabilities } from '../hooks/useAppCapabilities';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { makeWindowIcon, openOrFocusWindow } from './WindowSwitcher';
+import { openOrFocusWindow } from './WindowSwitcher';
 
 interface Props {
   readonly current: AppTab;
@@ -37,13 +36,6 @@ export default function AppViewMenu({ current }: Props) {
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [open]);
-
-  useEffect(() => {
-    if (layout !== 'windows') return;
-    makeWindowIcon(current).then(bytes => {
-      getCurrentWindow().setIcon(bytes).catch(() => {});
-    });
-  }, [current, layout]);
 
   if (!canSwitch) {
     return <span className="header-logo"><span>{label}</span></span>;

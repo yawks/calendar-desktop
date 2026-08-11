@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { ComposerAttachment } from '../providers/MailProvider';
 import { FileTypeIcon, formatSize } from '../utils';
+import { useTranslation } from 'react-i18next';
 
 export interface ComposerAttachmentPanelProps {
   readonly attachments: ComposerAttachment[];
@@ -8,6 +9,7 @@ export interface ComposerAttachmentPanelProps {
 }
 
 export function ComposerAttachmentPanel({ attachments, onRemove }: ComposerAttachmentPanelProps) {
+  const { t } = useTranslation();
   if (attachments.length === 0) return null;
   return (
     <div className="mail-attachments">
@@ -21,7 +23,7 @@ export function ComposerAttachmentPanel({ attachments, onRemove }: ComposerAttac
             <span className="mail-view-att-card__size">{formatSize(att.size)}</span>
           </div>
           <div className="mail-view-att-card__actions">
-            <button type="button" className="mail-view-att-card__btn" onClick={() => onRemove(idx)} title="Supprimer">
+            <button type="button" className="mail-view-att-card__btn" onClick={() => onRemove(idx)} title={t('eventModal.delete')}>
               <X size={14} />
             </button>
           </div>

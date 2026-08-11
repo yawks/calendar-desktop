@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { invoke } from '@tauri-apps/api/core';
+import { fileService } from '../../../shared/services/fileService';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { useImapAuth } from '../../../shared/store/ImapAuthStore';
@@ -416,7 +416,7 @@ export function useMailPageLogic() {
   const contacts = useContactSuggestions(mailContacts);
   const [deleteToast, setDeleteToast] = useState<{ label: string } | null>(null);
   const [actionToast, setActionToast] = useState<{ label: string; onCancel?: () => void } | null>(null);
-  const [downloadToast, setDownloadToast] = useState<{ name: string; path: string } | null>(null);
+  const [downloadToast, setDownloadToast] = useState<{ name: string } | null>(null);
   const downloadToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('mail-sidebar-collapsed') === 'true');
@@ -582,7 +582,7 @@ export function useMailPageLogic() {
 
   const selectAccount = useCallback((accountId: string) => {
     if (accountId === selectedAccountId) return;
-    // Tauri invocations already in flight cannot be killed at the transport
+    // Provider requests already in flight cannot always be killed at the transport
     // level, but cancelling their queries prevents their results from being
     // applied after the source switch.
     void queryClient.cancelQueries({ queryKey: MAIL_KEYS.all });
@@ -958,9 +958,9 @@ export function useMailPageLogic() {
     setLoadingAttachmentId(`download:${att.attachment_id}`);
     try {
       const data = att.local_data ?? await p.getAttachmentData(att);
-      const path = await invoke<string>('save_file_to_downloads', { filename: att.name, data });
+      fileService.downloadBase64(att.name, data, att.content_type);
       if (downloadToastTimerRef.current) clearTimeout(downloadToastTimerRef.current);
-      setDownloadToast({ name: att.name, path });
+      setDownloadToast({ name: att.name });
       downloadToastTimerRef.current = setTimeout(() => setDownloadToast(null), 15000);
     } catch (e) { setError(String(e)); }
     setLoadingAttachmentId(null);

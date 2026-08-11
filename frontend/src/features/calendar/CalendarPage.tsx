@@ -2,6 +2,7 @@ import '@toast-ui/calendar/dist/toastui-calendar.min.css';
 
 import { CalendarEvent } from '../../shared/types';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import AppHeader, { EventVisibilityStatus } from './components/AppHeader';
 import Calendar from '@toast-ui/react-calendar';
@@ -15,6 +16,7 @@ import { useCalendarLogic } from './hooks/useCalendarLogic';
 import { formatDateLabel, DARK_THEME, LIGHT_THEME, toTUIEvents, getViewRange, formatTime } from './utils/calendarUtils';
 
 export default function CalendarPage() {
+  const { t } = useTranslation();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [visibleEventStatuses, setVisibleEventStatuses] = useState<Set<EventVisibilityStatus>>(
@@ -181,7 +183,7 @@ export default function CalendarPage() {
   const isWorkweek = view === 'workweek';
   const tuiView = isWorkweek ? 'week' : view;
   const writableCalendars = useMemo(() => calendars.filter(
-    (c) => c.type === 'google' || c.type === 'eventkit' || c.type === 'nextcloud' || c.type === 'exchange'
+    (c) => c.type === 'google' || c.type === 'nextcloud' || c.type === 'exchange'
   ), [calendars]);
 
   return (
@@ -230,7 +232,7 @@ export default function CalendarPage() {
           <button
             type="button"
             className="sidebar-resize-handle"
-            aria-label="Redimensionner la sidebar"
+            aria-label={t('header.resizeSidebar')}
             onMouseDown={handleResizeStart}
           />
         )}
@@ -325,8 +327,7 @@ export default function CalendarPage() {
           onDelete={(scope) => handleDeleteEvent(selectedEvent, scope).then(() => setSelectedEvent(null))}
           onCancelEvent={
             isEventEditable(selectedEvent) &&
-            (selectedEvent.attendees?.length ?? 0) > 0 &&
-            calendars.find((calendar) => calendar.id === selectedEvent.calendarId)?.type !== 'eventkit'
+            (selectedEvent.attendees?.length ?? 0) > 0
               ? (scope) => handleCancelEvent(selectedEvent, scope).then(() => setSelectedEvent(null))
               : undefined
           }

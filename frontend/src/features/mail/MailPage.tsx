@@ -26,7 +26,6 @@ import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
 import { ThreadDetail } from "./components/ThreadDetail";
 import { ThreadList } from "./components/ThreadList";
 import { createPortal } from 'react-dom';
-import { invoke } from '@tauri-apps/api/core';
 import { useDockBadge } from './hooks/useDockBadge';
 import { useMailPageLogic } from './hooks/useMailPageLogic';
 
@@ -541,13 +540,6 @@ export default function MailApp() {
         <div className="mail-download-toast">
           <Download size={13} />
           <span className="mail-download-toast__name">{downloadToast.name}</span>
-          <button
-            type="button"
-            className="mail-download-toast__open"
-            onClick={() => invoke('open_file_path', { path: downloadToast.path }).catch(e => setError(String(e)))}
-          >
-            Ouvrir
-          </button>
           <button type="button" className="mail-download-toast__close" onClick={() => setDownloadToast(null)}>
             <X size={13} />
           </button>

@@ -3,7 +3,6 @@ import { CalendarConfig, CalendarEvent, CreateEventPayload, ViewType } from '../
 import { useCalendars } from '../store/CalendarStore';
 import { useCalendarGroups } from '../store/CalendarGroupStore';
 import { useEWSEvents } from './useEWSEvents';
-import { useEventKitEvents } from './useEventKitEvents';
 import { useGoogleEvents } from './useGoogleEvents';
 import { useICSEvents } from './useICSEvents';
 import { useNextcloudEvents } from './useNextcloudEvents';
@@ -17,6 +16,7 @@ import { createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } fro
 import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, cancelNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
 import { useQueryClient } from '@tanstack/react-query';
 import { CALENDAR_KEYS } from './useCalendarQueries';
+import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
@@ -88,7 +88,6 @@ export function useCalendarLogic() {
   const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = useICSEvents(DEMO_MODE ? [] : realCalendars);
   const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = useGoogleEvents(DEMO_MODE ? [] : realCalendars);
   const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = useNextcloudEvents(DEMO_MODE ? [] : realCalendars);
-  const { events: ekEvents, loading: ekLoading, errors: ekErrors, refresh: ekRefresh } = useEventKitEvents(DEMO_MODE ? [] : realCalendars);
   const { events: ewsEvents, loading: ewsLoading, errors: ewsErrors, refresh: ewsRefresh } = useEWSEvents(DEMO_MODE ? [] : realCalendars);
   const { getValidToken } = useGoogleAuth();
   const { accounts: exchangeAccounts, getValidToken: getExchangeToken, getRefreshToken: getExchangeRefreshToken } = useExchangeAuth();
@@ -103,7 +102,7 @@ export function useCalendarLogic() {
   const recurringChoiceResolveRef = useRef<((scope: 'this' | 'all' | null) => void) | null>(null);
 
   const calendars = DEMO_MODE ? DEMO_CALENDARS : realCalendars;
-  const allEventsRaw = DEMO_MODE ? DEMO_EVENTS : [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents];
+  const allEventsRaw = DEMO_MODE ? DEMO_EVENTS : [...icsEvents, ...googleEvents, ...ncEvents, ...ewsEvents];
   const events = useMemo(() => {
     const serverEvents = allEventsRaw
       .filter((e: CalendarEvent) => !deletedEventIds.has(e.id))
@@ -143,17 +142,16 @@ export function useCalendarLogic() {
     }
   }, [events, selectedEvent]);
 
-  const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ekLoading || ewsLoading);
-  const errors = DEMO_MODE ? {} : { ...icsErrors, ...googleErrors, ...ncErrors, ...ekErrors, ...ewsErrors };
+  const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ewsLoading);
+  const errors = DEMO_MODE ? {} : { ...icsErrors, ...googleErrors, ...ncErrors, ...ewsErrors };
   const refresh = useCallback(async () => {
     await Promise.all([
       Promise.resolve(icsRefresh()),
       Promise.resolve(googleRefresh()),
       Promise.resolve(ncRefresh()),
-      Promise.resolve(ekRefresh()),
       ewsRefresh(),
     ]);
-  }, [icsRefresh, googleRefresh, ncRefresh, ekRefresh, ewsRefresh]);
+  }, [icsRefresh, googleRefresh, ncRefresh, ewsRefresh]);
 
   const handlePrev = useCallback(() => {
     const inst = calendarRef.current?.getInstance();
@@ -203,41 +201,14 @@ export function useCalendarLogic() {
     }
   }, []);
 
-  const saveEventKitEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const attendees = payload.attendees?.map((a) => ({ email: a.email, name: a.name ?? null })) ?? null;
-    if (sourceEvent?.sourceId) {
-      await invoke('update_eventkit_event', {
-        payload: {
-          event_id: sourceEvent.sourceId,
-          title: payload.title, start: payload.start, end: payload.end,
-          is_all_day: payload.isAllday, location: payload.location ?? null,
-          notes: payload.description ?? null, attendees,
-        },
-      });
-      return sourceEvent.seriesId;
-    } else {
-      const res = await invoke<string | undefined>('create_eventkit_event', {
-        payload: {
-          calendar_id: cal.eventKitCalendarId,
-          title: payload.title, start: payload.start, end: payload.end,
-          is_all_day: payload.isAllday, location: payload.location ?? null,
-          notes: payload.description ?? null, attendees,
-        },
-      }).catch(() => undefined);
-      return res;
-    }
-  }, []);
-
   const saveExchangeEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent, updateSeries = false): Promise<string | undefined> => {
     if (!cal.exchangeAccountId) throw new Error('Compte Exchange introuvable');
     const token = await getExchangeToken(cal.exchangeAccountId);
     if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
-    const { invoke } = await import('@tauri-apps/api/core');
     const attendeeEmails = payload.attendees?.map((a) => a.email) ?? [];
     if (sourceEvent?.sourceId) {
       const [itemId, changeKey] = sourceEvent.sourceId.split('|');
-      await invoke('ews_update_event', {
+      await exchangeCalendarApi.update({
         accessToken: token,
         itemId,
         changeKey,
@@ -251,7 +222,7 @@ export function useCalendarLogic() {
       });
       return sourceEvent.seriesId;
     } else {
-      const result = await invoke<string>('ews_create_event', {
+      const result = await exchangeCalendarApi.create({
         accessToken: token,
         title: payload.title,
         start: payload.start,
@@ -286,13 +257,11 @@ export function useCalendarLogic() {
       : sourceEvent;
     const doSave = () => {
       if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, seriesSourceEvent);
-      if (cal.type === 'eventkit') return saveEventKitEvent(cal, payload, seriesSourceEvent);
       if (cal.type === 'exchange') return saveExchangeEvent(cal, payload, sourceEvent, recurringScope === 'future');
       return saveGoogleEvent(cal, payload, seriesSourceEvent);
     };
     const doRefresh = async () => {
       if (cal.type === 'nextcloud') await ncRefresh(cal.id);
-      else if (cal.type === 'eventkit') await ekRefresh(cal.id);
       else if (cal.type === 'exchange') await ewsRefresh(cal.id);
       else await googleRefresh(cal.id);
     };
@@ -358,7 +327,7 @@ export function useCalendarLogic() {
         throw e;
       }
     }
-  }, [calendars, saveNextcloudEvent, saveEventKitEvent, saveExchangeEvent, saveGoogleEvent, ncRefresh, ekRefresh, ewsRefresh, googleRefresh, setEventTag, removeEventTag]);
+  }, [calendars, saveNextcloudEvent, saveExchangeEvent, saveGoogleEvent, ncRefresh, ewsRefresh, googleRefresh, setEventTag, removeEventTag]);
 
   const isEventRecurring = useCallback((event: CalendarEvent): boolean => {
     const result = event.isRecurringInstance === true;
@@ -388,7 +357,6 @@ export function useCalendarLogic() {
   ) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
-    if (cal.type === 'eventkit') throw new Error(i18n.t('calendarPage.eventKitRsvpNote'));
 
     let rsvpSourceId = event.sourceId;
     let affectedIds = [event.id];
@@ -439,9 +407,8 @@ export function useCalendarLogic() {
         if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
         const [itemId, changeKey] = rsvpSourceId.split('|');
         if (!itemId || !changeKey) throw new Error(i18n.t('calendarPage.missingInfo'));
-        const { invoke } = await import('@tauri-apps/api/core');
         console.info('[Exchange RSVP] Envoi', { itemId, status });
-        await invoke('ews_respond_to_invitation', {
+        await exchangeCalendarApi.respond({
           accessToken: token,
           itemId,
           changeKey,
@@ -519,24 +486,19 @@ export function useCalendarLogic() {
         if (sendCancellation) await cancelNextcloudEvent(cal, event.sourceId!, event, recurringScope === 'all');
         else await deleteNextcloudEvent(cal, event.sourceId!);
         await ncRefresh(cal.id);
-      } else if (cal.type === 'eventkit') {
-        const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('delete_eventkit_event', { eventId: event.sourceId ?? event.id });
-        await ekRefresh(cal.id);
       } else if (cal.type === 'exchange') {
         const token = await getExchangeToken(cal.exchangeAccountId!);
         const [itemId, changeKey] = event.sourceId!.split('|');
         console.log('[deleteEvent] exchange itemId=', itemId, 'changeKey=', changeKey);
-        const { invoke } = await import('@tauri-apps/api/core');
         if (sendCancellation) {
-          await invoke('ews_cancel_event', {
+          await exchangeCalendarApi.cancel({
             accessToken: token,
             itemId,
             changeKey,
             cancelSeries: recurringScope === 'all',
           });
         } else {
-          await invoke('ews_delete_event', {
+          await exchangeCalendarApi.delete({
             accessToken: token,
             itemId,
             changeKey,
@@ -587,7 +549,7 @@ export function useCalendarLogic() {
       }
       throw new Error(i18n.t('eventModal.deleteError'));
     }
-  }, [calendars, events, exchangeAccounts, isEventRecurring, askRecurringScope, getValidToken, getExchangeToken, googleRefresh, ncRefresh, ekRefresh, ewsRefresh]);
+  }, [calendars, events, exchangeAccounts, isEventRecurring, askRecurringScope, getValidToken, getExchangeToken, googleRefresh, ncRefresh, ewsRefresh]);
 
   const handleDeleteEvent = useCallback(
     (event: CalendarEvent, scope?: 'this' | 'all') => deleteOrCancelEvent(event, scope, false),
@@ -616,7 +578,7 @@ export function useCalendarLogic() {
     const cal = calendars.find((c) => c.id === event.calendarId);
     if (!cal) return false;
     if (cal.type === 'exchange') return isExchangeOrganizer(event);
-    if (cal.type !== 'google' && cal.type !== 'eventkit' && cal.type !== 'nextcloud') return false;
+    if (cal.type !== 'google' && cal.type !== 'nextcloud') return false;
     const attendees = event.attendees;
     const ownerEmail = cal.ownerEmail?.toLowerCase();
     return !attendees?.length || !!ownerEmail && attendees.some((a) =>

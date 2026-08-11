@@ -1,13 +1,8 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2, X } from 'lucide-react';
 import { useGoogleAuth } from '../../shared/store/GoogleAuthStore';
 import { useCalendars } from '../../features/calendar/store/CalendarStore';
-import {
-  getGoogleClientConfig,
-  setGoogleClientConfig,
-  clearGoogleClientConfig,
-} from '../../shared/store/googleClientConfig';
 import { listCalendars } from '../../features/calendar/utils/googleCalendarApi';
 import { CalendarConfig, GoogleAccount } from '../../shared/types';
 import { CapBadge, DEFAULT_COLORS } from './ConfigShared';
@@ -40,10 +35,6 @@ export function GoogleAccountManageModal({ account, existingCalendars, onClose }
   const [gCals, setGCals] = useState<GoogleCalEntry[] | null>(null);
   const [loadingCals, setLoadingCals] = useState(false);
   const [calError, setCalError] = useState('');
-  const [showOAuth, setShowOAuth] = useState(false);
-  const [gcClientId, setGcClientId] = useState(() => getGoogleClientConfig()?.clientId ?? '');
-  const [gcClientSecret, setGcClientSecret] = useState(() => getGoogleClientConfig()?.clientSecret ?? '');
-  const [gcSaved, setGcSaved] = useState(false);
 
   const connectedIds = new Set(
     existingCalendars
@@ -87,17 +78,6 @@ export function GoogleAccountManageModal({ account, existingCalendars, onClose }
         googleAccountId: account.id,
       });
     }
-  };
-
-  const handleSaveCredentials = (e: FormEvent) => {
-    e.preventDefault();
-    if (gcClientId.trim() && gcClientSecret.trim()) {
-      setGoogleClientConfig({ clientId: gcClientId.trim(), clientSecret: gcClientSecret.trim() });
-    } else {
-      clearGoogleClientConfig();
-    }
-    setGcSaved(true);
-    setTimeout(() => setGcSaved(false), 2500);
   };
 
   return (
@@ -190,53 +170,8 @@ export function GoogleAccountManageModal({ account, existingCalendars, onClose }
               >
                 <Trash2 size={14} /> {t('config.disconnectAccount')}
               </button>
-              <button
-                type="button"
-                className="btn-edit"
-                onClick={() => setShowOAuth((v) => !v)}
-                style={{ fontSize: 'calc(12px * var(--font-scale, 1))' }}
-              >
-                {t('config.oauthCredentials')}
-              </button>
             </div>
 
-            {showOAuth && (
-              <div style={{ marginTop: 16 }}>
-                <p style={{ margin: '0 0 12px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  {t('config.oauthDescription')}
-                </p>
-                <form onSubmit={handleSaveCredentials} className="config-form">
-                  <div className="form-row">
-                    <label htmlFor="oauth-client-id">Client ID</label>
-                    <input
-                      id="oauth-client-id"
-                      type="text"
-                      placeholder="123456789-abc…apps.googleusercontent.com"
-                      value={gcClientId}
-                      onChange={(e) => setGcClientId(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-row">
-                    <label htmlFor="oauth-client-secret">Client Secret</label>
-                    <input
-                      id="oauth-client-secret"
-                      type="password"
-                      placeholder="GOCSPX-…"
-                      value={gcClientSecret}
-                      onChange={(e) => setGcClientSecret(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-actions" style={{ alignItems: 'center', gap: 12 }}>
-                    <button type="submit" className="btn-primary">{t('config.save')}</button>
-                    {gcSaved && (
-                      <span style={{ fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--color-success, #34a853)' }}>
-                        {t('config.savedConfirmation')}
-                      </span>
-                    )}
-                  </div>
-                </form>
-              </div>
-            )}
           </div>
         </div>
       </div>

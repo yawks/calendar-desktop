@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { mailCommand as invoke } from '../../../shared/api/mailApi';
+import { fileService } from '../../../shared/services/fileService';
 import { JmapAccount } from '../../../shared/types';
 import { MailAttachment, MailFolder, MailIdentity, MailMessage, MailSearchQuery, MailThread } from '../types';
 import { MailProvider, MailItemRef, SendMailParams, SaveDraftParams, ScheduledSendInfo } from './MailProvider';
@@ -193,12 +194,7 @@ export class JmapMailProvider implements MailProvider {
 
   async openAttachment(attachment: MailAttachment): Promise<void> {
     const data = await this.getAttachmentData(attachment);
-    await invoke('open_file_path', {
-      path: await invoke('save_file_to_downloads', {
-        filename: attachment.name,
-        data,
-      }),
-    });
+    fileService.downloadBase64(attachment.name, data, attachment.content_type);
   }
 
   async getAttachmentData(attachment: MailAttachment): Promise<string> {

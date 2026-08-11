@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { ImapAccount } from '../types';
+import { useVault } from '../security/VaultProvider';
 
 const STORAGE_KEY = 'calendar-desktop-imap-accounts';
 
@@ -37,18 +38,12 @@ interface ImapAuthContextValue {
 const ImapAuthContext = createContext<ImapAuthContextValue | null>(null);
 
 export function ImapAuthProvider({ children }: { readonly children: ReactNode }) {
-  const [accounts, dispatch] = useReducer(reducer, [], () => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? (JSON.parse(stored) as ImapAccount[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const vault = useVault();
+  const [accounts, dispatch] = useReducer(reducer, [], () => vault.read<ImapAccount[]>(STORAGE_KEY, []));
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
-  }, [accounts]);
+    vault.write(STORAGE_KEY, accounts);
+  }, [accounts, vault]);
 
   const addAccount = useCallback((account: ImapAccount) => {
     dispatch({ type: 'ADD', payload: account });

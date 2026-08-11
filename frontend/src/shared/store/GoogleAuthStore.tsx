@@ -1,7 +1,6 @@
 import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode, useRef } from 'react';
 import { GoogleAccount } from '../types';
-import { isTauri, tauriConnectGoogle, refreshAccessToken } from '../utils/tauriOAuth';
-import { resolveGoogleCredentials } from './googleClientConfig';
+import { useVault } from '../security/VaultProvider';
 
 const STORAGE_KEY = 'calendar-desktop-google-accounts';
 
@@ -43,27 +42,21 @@ interface GoogleAuthContextValue {
   updateAccountCapabilities: (id: string, enabledCapabilities: ('calendar' | 'email')[]) => void;
   /** Returns a valid access token, refreshing it automatically if expired. */
   getValidToken: (accountId: string) => Promise<string | null>;
-  /** Opens Google OAuth (Tauri: system browser + PKCE; Web: popup + proxy). */
+  /** Opens the server-managed Google OAuth flow in a browser popup. */
   connectGoogle: (capabilities?: ('calendar' | 'email')[]) => Promise<GoogleAccount | null>;
 }
 
 const GoogleAuthContext = createContext<GoogleAuthContextValue | null>(null);
 
 export function GoogleAuthProvider({ children }: { readonly children: ReactNode }) {
-  const [accounts, dispatch] = useReducer(reducer, [], () => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? (JSON.parse(stored) as GoogleAccount[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const vault = useVault();
+  const [accounts, dispatch] = useReducer(reducer, [], () => vault.read<GoogleAccount[]>(STORAGE_KEY, []));
 
   const accountsRef = useRef(accounts);
   useEffect(() => {
     accountsRef.current = accounts;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
-  }, [accounts]);
+    vault.write(STORAGE_KEY, accounts);
+  }, [accounts, vault]);
 
   const addAccount = useCallback((account: Omit<GoogleAccount, 'id'>): GoogleAccount => {
     const full: GoogleAccount = { ...account, id: account.email };
@@ -95,12 +88,6 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
 
     const performRefresh = async () => {
         try {
-          if (isTauri()) {
-            const { clientId, clientSecret } = resolveGoogleCredentials();
-            const { accessToken, expiresAt } = await refreshAccessToken(account.refreshToken, clientId, clientSecret);
-            dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken, expiresAt } });
-            return accessToken;
-          } else {
             const res = await fetch('/auth/google/refresh', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -110,7 +97,6 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
             const { access_token, expires_at } = await res.json() as { access_token: string; expires_at: number };
             dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken: access_token, expiresAt: expires_at } });
             return access_token;
-          }
         } catch (err) {
           console.error('[GoogleAuthStore] refresh failed', err);
           const msg = err instanceof Error ? err.message.toLowerCase() : '';
@@ -130,18 +116,13 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
   }, []);
 
   const connectGoogle = useCallback(async (capabilities: ('calendar' | 'email')[] = ['calendar', 'email']): Promise<GoogleAccount | null> => {
-    if (isTauri()) {
-      const accountData = await tauriConnectGoogle(capabilities);
-      if (!accountData) return null;
-      return addAccount(accountData);
-    } else {
       return new Promise((resolve) => {
         const width = 500;
         const height = 650;
         const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
         const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
         const popup = window.open(
-          '/auth/google',
+          `/auth/google?capabilities=${encodeURIComponent(capabilities.join(','))}`,
           'google-oauth',
           `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
         );
@@ -149,6 +130,7 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
         if (!popup) { resolve(null); return; }
 
         const onMessage = (evt: MessageEvent) => {
+          if (evt.origin !== window.location.origin) return;
           try {
             const data = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
             if (data?.type === 'google-oauth-success' && data.account) {
@@ -170,7 +152,6 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
           }
         }, 500);
       });
-    }
   }, [addAccount]);
 
   const contextValue = useMemo(

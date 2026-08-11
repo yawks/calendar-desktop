@@ -102,7 +102,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const showFreeBusy = (isGoogleCalendar || isExchangeCalendar) && !isAllday && attendees.length > 0;
 
   // "Me" busy slots — computed locally from allEvents so ALL synced calendars are included
-  // (Google, EventKit, ICS, Nextcloud, etc.)
+  // (Google, ICS, Nextcloud, etc.)
   const selfBusySlots = useMemo((): { busy: Array<{ start: Date; end: Date }>; tentative: Array<{ start: Date; end: Date }> } => {
     const eventDate = new Date(start);
     if (Number.isNaN(eventDate.getTime())) return { busy: [], tentative: [] };
@@ -321,7 +321,6 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   };
 
   const googleCals = writableCalendars.filter((c) => c.type === 'google');
-  const ekCals = writableCalendars.filter((c) => c.type === 'eventkit');
   const nextcloudCals = writableCalendars.filter((c) => c.type === 'nextcloud');
   const exchangeCals = writableCalendars.filter((c) => c.type === 'exchange');
 
@@ -425,15 +424,8 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
               disabled={isEditing}
               required
             >
-              {ekCals.length > 0 || googleCals.length > 0 || nextcloudCals.length > 0 || exchangeCals.length > 0 ? (
+              {googleCals.length > 0 || nextcloudCals.length > 0 || exchangeCals.length > 0 ? (
                 <>
-                  {ekCals.length > 0 && (
-                    <optgroup label="macOS">
-                      {ekCals.map((cal) => (
-                        <option key={cal.id} value={cal.id}>{cal.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
                   {googleCals.length > 0 && (
                     <optgroup label="Google Agenda">
                       {googleCals.map((cal) => (

@@ -1,0 +1,38 @@
+FROM node:20-alpine AS web-builder
+ARG TARGETARCH
+WORKDIR /build/frontend
+COPY frontend/package*.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+# npm lockfiles generated on another OS may omit Rollup's platform package
+# (npm/cli#4828). Install exactly the native package for the build target.
+RUN --mount=type=cache,target=/root/.npm case "$TARGETARCH" in \
+      arm64) npm install --no-save @rollup/rollup-linux-arm64-musl@4.60.1 ;; \
+      amd64) npm install --no-save @rollup/rollup-linux-x64-musl@4.60.1 ;; \
+      *) echo "Unsupported Docker architecture: $TARGETARCH"; exit 1 ;; \
+    esac
+COPY frontend/ ./
+RUN npm run build
+
+FROM alpine:3.23 AS api-builder
+RUN --mount=type=cache,id=courrier-apk-v3,target=/var/cache/apk apk add build-base rustup
+RUN rustup-init -y --profile minimal --default-toolchain 1.91.0
+ENV PATH=/root/.cargo/bin:$PATH
+WORKDIR /build/backend
+COPY backend/provider-core ./provider-core
+COPY backend/Cargo.toml ./
+COPY backend/Cargo.lock ./
+COPY backend/src ./src
+RUN --mount=type=cache,id=courrier-cargo-registry,target=/root/.cargo/registry \
+    --mount=type=cache,id=courrier-cargo-git,target=/root/.cargo/git \
+    --mount=type=cache,id=courrier-cargo-target,target=/build/backend/target \
+    cargo build --release && cp target/release/courrier-server /tmp/courrier-server
+
+FROM alpine:3.23
+RUN addgroup -S courrier && adduser -S courrier -G courrier
+WORKDIR /app
+COPY --from=api-builder /tmp/courrier-server /usr/local/bin/courrier-server
+COPY --from=web-builder /build/frontend/dist ./web
+ENV COURRIER_WEB_ROOT=/app/web PORT=8080 COURRIER_ALLOWED_PROVIDER_HOSTS=""
+EXPOSE 8080
+USER courrier
+CMD ["courrier-server"]

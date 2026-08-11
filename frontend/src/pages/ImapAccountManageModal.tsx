@@ -117,7 +117,7 @@ export function ImapAccountManageModal({ account, onClose }: {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
                 <div>
-                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>IMAP (Incoming)</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.imapIncoming')}</h3>
                   <div className="form-row">
                     <label>{t('config.server', 'Server')}</label>
                     <input type="text" value={imapServer} onChange={(e) => setImapServer(e.target.value)} required />
@@ -147,7 +147,7 @@ export function ImapAccountManageModal({ account, onClose }: {
                 </div>
 
                 <div>
-                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>SMTP (Outgoing)</h3>
+                  <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.smtpOutgoing')}</h3>
                   <div className="form-row">
                     <label>{t('config.server', 'Server')}</label>
                     <input type="text" value={smtpServer} onChange={(e) => setSmtpServer(e.target.value)} required />

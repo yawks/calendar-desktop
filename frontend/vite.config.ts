@@ -8,7 +8,9 @@ export default defineConfig({
     port: 6173,
     strictPort: true,
     watch: {
-      ignored: ['**/src-tauri/**'],
+    },
+    proxy: {
+      '/api': 'http://localhost:8080',
     },
   },
 });

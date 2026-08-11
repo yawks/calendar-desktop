@@ -21,14 +21,12 @@ export interface CalendarConfig {
   ownerEmail?: string;
   /** Group this calendar belongs to (default: 'default') */
   groupId?: string;
-  /** 'ics' (default) | 'google' | 'eventkit' | 'nextcloud' | 'exchange' */
-  type?: 'ics' | 'google' | 'eventkit' | 'nextcloud' | 'exchange';
+  /** 'ics' (default) | 'google' | 'nextcloud' | 'exchange' */
+  type?: 'ics' | 'google' | 'nextcloud' | 'exchange';
   /** Google Calendar ID (e.g. "primary" or "user@group.calendar.google.com") */
   googleCalendarId?: string;
   /** Reference to GoogleAccount.id */
   googleAccountId?: string;
-  /** EventKit calendarIdentifier (macOS only) */
-  eventKitCalendarId?: string;
   /** Nextcloud server base URL (e.g. https://cloud.example.com) */
   nextcloudServerUrl?: string;
   /** Nextcloud username */
@@ -112,7 +110,7 @@ export interface CreateEventPayload {
   isAllday: boolean;
   location?: string;
   description?: string;
-  /** CalendarConfig.id of the target calendar (Google or EventKit) */
+  /** CalendarConfig.id of the target calendar */
   calendarId: string;
   attendees?: Array<{ email: string; name?: string }>;
   tagId?: string | null;
@@ -136,7 +134,7 @@ export interface Attendee {
 
 export interface CalendarEvent {
   id: string;
-  /** Raw provider event ID (Google event ID or EventKit identifier) — used for updates */
+  /** Raw provider event ID — used for updates */
   sourceId?: string;
   calendarId: string;
   title: string;

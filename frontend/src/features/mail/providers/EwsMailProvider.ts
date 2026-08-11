@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { mailCommand as invoke } from '../../../shared/api/mailApi';
+import { fileService } from '../../../shared/services/fileService';
 
 import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
 import type { ComposerAttachment, Contact, ContactBackfillBatch, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
@@ -186,12 +187,8 @@ export class EwsMailProvider implements MailProvider {
   }
 
   async openAttachment(attachment: MailAttachment): Promise<void> {
-    const accessToken = await this.token();
-    return invoke('mail_open_attachment', {
-      accessToken,
-      attachmentId: attachment.attachment_id,
-      filename: attachment.name,
-    });
+    const data = await this.getAttachmentData(attachment);
+    fileService.downloadBase64(attachment.name, data, attachment.content_type);
   }
 
   async getAttachmentData(attachment: MailAttachment): Promise<string> {

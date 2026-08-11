@@ -1,0 +1,30 @@
+services:
+  courrier:
+    # Accessible only to the HTTPS proxy in this local stack.
+    ports: !reset []
+
+  https:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      courrier:
+        condition: service_healthy
+    ports:
+      - "8443:443"
+    volumes:
+      - ./deploy/nginx-local-https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=16m,noexec,nosuid,nodev
+      - /var/run:size=1m,noexec,nosuid,nodev
+      - /tmp:size=4m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true

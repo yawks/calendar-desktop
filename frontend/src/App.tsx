@@ -21,6 +21,7 @@ import { TagProvider } from './features/calendar/store/TagStore';
 import { ThemeProvider } from './shared/store/ThemeStore';
 import WelcomeScreen from './shared/components/WelcomeScreen';
 import { useAppCapabilities } from './shared/hooks/useAppCapabilities';
+import { VaultProvider } from './shared/security/VaultProvider';
 
 // Fenêtre calendrier secondaire (mode windows uniquement, route /calendar)
 function CalendarWindowView() {
@@ -59,6 +60,7 @@ export default function App() {
       client={queryClient}
       persistOptions={{ persister: indexedDBPersister, buster: 'mail-provider-loading-v4' }}
     >
+      <VaultProvider>
       <ThemeProvider>
         <LanguageProvider>
           <FontSizeProvider>
@@ -72,7 +74,7 @@ export default function App() {
                     <CalendarProvider>
                       <CalendarGroupProvider>
                         <TagProvider>
-                          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                          <BrowserRouter>
                             <Routes>
                               <Route path="/" element={<RootView />} />
                               <Route path="/calendar" element={<CalendarWindowView />} />
@@ -92,6 +94,7 @@ export default function App() {
           </FontSizeProvider>
         </LanguageProvider>
       </ThemeProvider>
+      </VaultProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </PersistQueryClientProvider>
   );

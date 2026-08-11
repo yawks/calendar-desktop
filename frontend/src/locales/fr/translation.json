@@ -3,6 +3,51 @@
     "calendar": "Calendrier",
     "mail": "Mail"
   },
+  "vault": {
+    "appName": "Courrier",
+    "unlockDescription": "Déverrouillez votre coffre local.",
+    "createDescription": "Créez un mot de passe maître pour chiffrer vos comptes sur cet appareil.",
+    "masterPassword": "Mot de passe maître",
+    "confirmation": "Confirmation",
+    "passwordMismatch": "Les mots de passe ne correspondent pas.",
+    "working": "Veuillez patienter…",
+    "unlock": "Déverrouiller",
+    "create": "Créer le coffre",
+    "recoveryWarning": "Ce mot de passe ne peut pas être récupéré. Les anciens comptes locaux seront importés puis supprimés du stockage non chiffré.",
+    "secureContextRequired": "Le chiffrement nécessite HTTPS. Ouvrez Courrier depuis son adresse HTTPS ou depuis localhost.",
+    "invalidPassword": "Mot de passe incorrect ou coffre endommagé.",
+    "creationFailed": "Impossible de créer le coffre local. Vérifiez que le stockage du navigateur est autorisé."
+  },
+  "invitation": {
+    "title": "Invitation",
+    "cancellation": "Annulation",
+    "reply": "Réponse",
+    "loading": "Chargement de l’invitation…",
+    "readError": "Impossible de lire l’invitation.",
+    "allDay": "Journée entière",
+    "cancelled": "Événement annulé",
+    "organizer": "Organisateur",
+    "participants_one": "{{count}} participant",
+    "participants_other": "{{count}} participants",
+    "responded": "a répondu",
+    "calendar": "Calendrier",
+    "accept": "Accepter",
+    "tentative": "Peut-être",
+    "decline": "Refuser",
+    "inCalendar": "Dans le calendrier",
+    "addToCalendar": "Ajouter au calendrier",
+    "addedSuccess": "Ajouté au calendrier !",
+    "acceptedSuccess": "Accepté !",
+    "declinedSuccess": "Refusé.",
+    "tentativeSuccess": "Peut-être.",
+    "status": {
+      "ACCEPTED": "Accepté",
+      "DECLINED": "Refusé",
+      "TENTATIVE": "Peut-être",
+      "NEEDS-ACTION": "En attente",
+      "NONE": "Non répondu"
+    }
+  },
   "welcome": {
     "title": "Bienvenue dans Courrier",
     "description": "Réunissez vos emails et vos calendriers dans une seule application, simple et organisée.",
@@ -10,6 +55,7 @@
   },
   "header": {
     "toggleSidebar": "Afficher/masquer la sidebar",
+    "resizeSidebar": "Redimensionner la barre latérale",
     "appName": "Courrier",
     "today": "Aujourd'hui",
     "prev": "Précédent",
@@ -61,11 +107,24 @@
     "loading": "Chargement…",
     "newGroup": "Nouveau groupe",
     "groupNamePlaceholder": "Nom du groupe",
+    "tagNamePlaceholder": "Nom du tag",
     "renameGroup": "Renommer le groupe",
     "deleteGroup": "Supprimer le groupe",
     "dragCalendar": "Déplacer le calendrier",
     "expandGroup": "Développer le groupe",
-    "collapseGroup": "Réduire le groupe"
+    "collapseGroup": "Réduire le groupe",
+    "tagsInsights": "Tags et analyses",
+    "manageTags": "Gérer les tags",
+    "statistics": "Statistiques"
+  },
+  "insights": {
+    "allGroups": "Tous les groupes",
+    "allCalendars": "Tous les calendriers",
+    "eventCount_one": "{{count}} événement",
+    "eventCount_other": "{{count}} événements",
+    "totalDuration": "{{duration}} au total",
+    "noEvents": "Aucun événement",
+    "withoutTag": "Sans tag"
   },
   "miniCalendar": {
     "dayNames": [
@@ -149,6 +208,10 @@
     "remove": "Supprimer {{name}}"
   },
   "config": {
+    "jmapConfiguration": "Configuration JMAP",
+    "sessionUrl": "URL de session",
+    "imapIncoming": "IMAP (réception)",
+    "smtpOutgoing": "SMTP (envoi)",
     "advanced": "Avancé",
     "fastmailWebToken": "Jeton web Fastmail",
     "fastmailWebTokenHelp": "Optionnel. Collez uniquement la valeur fma1…, sans le préfixe Bearer.",
@@ -233,8 +296,6 @@
     "oauthDescription": "Client ID et Client Secret issus de votre projet Google Cloud Console (type « Application de bureau »). Laissez vide pour utiliser les variables d'environnement VITE_GOOGLE_CLIENT_ID / VITE_GOOGLE_CLIENT_SECRET.",
     "savedConfirmation": "✓ Enregistré",
     "accessRequestError": "Erreur lors de la demande d'accès",
-    "macosCalendar": "Calendrier macOS",
-    "macosCalendarDesc": "Affichez vos calendriers macOS (Calendrier, iCloud, Exchange…)",
     "connectGoogleAccount": "Connecter le compte Google",
     "noCalendarsConfigured": "Aucun calendrier configuré. Cliquez sur « Nouveau calendrier » pour commencer.",
     "exchangeDesc": "Exchange / Office 365 via EWS",
@@ -278,11 +339,20 @@
   },
   "calendarPage": {
     "calendarNotFound": "Calendrier introuvable",
-    "eventKitRsvpNote": "Pour les calendriers EventKit, répondez via l'application Calendrier macOS.",
     "missingInfo": "Informations manquantes pour répondre à cette invitation",
     "invalidToken": "Token invalide. Reconnectez votre compte Google."
   },
   "mail": {
+    "selection": { "clear": "Effacer la sélection" },
+    "folders": {
+      "inbox": "Boîte de réception",
+      "sent": "Envoyés",
+      "trash": "Corbeille",
+      "collapse": "Réduire",
+      "expand": "Développer",
+      "search": "Rechercher…",
+      "empty": "Aucun dossier"
+    },
     "noSubject": "(Pas d'objet)",
     "messageContentLoadError": "Impossible de charger le message — réessayer",
     "messageContentReloading": "Rechargement…",
@@ -487,6 +557,11 @@
     "logoDev": {
       "sectionTitle": "Logos des contacts",
       "hint": "Token logo.dev pour afficher les logos d'entreprise dans les avatars des contacts."
+    },
+    "vault": {
+      "sectionTitle": "Coffre local",
+      "hint": "Les identifiants sont chiffrés sur cet appareil. Le coffre se verrouille automatiquement après 30 minutes d’inactivité.",
+      "lockNow": "Verrouiller maintenant"
     }
   },
   "recurringChoice": {
