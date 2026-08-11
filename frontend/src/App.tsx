@@ -60,8 +60,8 @@ export default function App() {
       client={queryClient}
       persistOptions={{ persister: indexedDBPersister, buster: 'mail-provider-loading-v4' }}
     >
-      <VaultProvider>
       <ThemeProvider>
+      <VaultProvider>
         <LanguageProvider>
           <FontSizeProvider>
             <SignatureProvider>
@@ -93,8 +93,8 @@ export default function App() {
             </SignatureProvider>
           </FontSizeProvider>
         </LanguageProvider>
-      </ThemeProvider>
       </VaultProvider>
+      </ThemeProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </PersistQueryClientProvider>
   );

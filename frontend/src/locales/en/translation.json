@@ -347,6 +347,9 @@
   "mail": {
     "selection": { "clear": "Clear selection" },
     "backToList": "Back to messages",
+    "previousMessage": "Previous message",
+    "nextMessage": "Next message",
+    "accounts": "Accounts",
     "folders": {
       "inbox": "Inbox",
       "sent": "Sent",
@@ -568,7 +571,9 @@
       "enableBiometrics": "Enable biometrics",
       "disableBiometrics": "Disable biometrics",
       "biometricUnavailable": "Secure biometric unlock is not available in this browser.",
-      "biometricError": "Biometrics could not be enabled on this device or browser."
+      "biometricError": "Biometrics could not be enabled on this device or browser.",
+      "copyDiagnostic": "Copy diagnostic",
+      "diagnosticCopied": "Diagnostic copied"
     }
   },
   "recurringChoice": {

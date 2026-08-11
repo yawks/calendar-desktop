@@ -63,7 +63,7 @@ function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiomet
       <label htmlFor="vault-password">{t('vault.masterPassword')}</label>
       <input id="vault-password" autoFocus autoComplete={exists ? 'current-password' : 'new-password'} type="password" minLength={12} required value={password} onChange={event => setPassword(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', margin: '8px 0 16px', padding: 10 }} />
       {!exists && <><label htmlFor="vault-confirmation">{t('vault.confirmation')}</label><input id="vault-confirmation" autoComplete="new-password" type="password" minLength={12} required value={confirmation} onChange={event => setConfirmation(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', margin: '8px 0 16px', padding: 10 }} /></>}
-      {(mismatch || error) && <p role="alert" style={{ color: '#fca5a5' }}>{mismatch ? t('vault.passwordMismatch') : t(error)}</p>}
+      {(mismatch || error) && <p role="alert" style={{ color: 'var(--danger)' }}>{mismatch ? t('vault.passwordMismatch') : t(error)}</p>}
       <button type="submit" disabled={busy || mismatch} style={{ width: '100%', padding: 11 }}>{busy ? t('vault.working') : t(exists ? 'vault.unlock' : 'vault.create')}</button>
       {exists && biometricEnabled && <button type="button" disabled={busy} onClick={() => void onBiometricUnlock()} style={{ width: '100%', padding: 11, marginTop: 10 }}>{t('vault.unlockWithBiometrics')}</button>}
       {!exists && <small style={{ display: 'block', marginTop: 14, opacity: .75 }}>{t('vault.recoveryWarning')}</small>}

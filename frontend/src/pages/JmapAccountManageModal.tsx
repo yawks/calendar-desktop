@@ -81,7 +81,7 @@ export function JmapAccountManageModal({ account, onClose }: {
         </div>
         <div className="nc-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
           <form onSubmit={handleSave} className="config-form">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div className="config-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <div>
                   <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
@@ -142,7 +142,7 @@ export function JmapAccountManageModal({ account, onClose }: {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <div className="config-form-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
                 <button
                   type="button"
                   className="btn-remove"

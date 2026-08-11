@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useFontSize } from '../../../shared/store/FontSizeStore';
 import { openExternalUrl } from '../../../shared/services/fileService';
+import { disableSenderDarkModeCss } from '../utils/emailDarkMode';
 import { findQuoteMarker, processEmailQuotes } from '../utils/emailQuoteParser';
 
 function parseHexColor(raw: string): [number, number, number] | null {
@@ -69,7 +70,8 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   // Detect quote boundary from plain text, then pass the marker to the iframe script.
   const quoteMarker = bodyText ? findQuoteMarker(bodyText) : null;
 
-  const safeHtml = html.replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
+  const safeHtml = disableSenderDarkModeCss(html)
+    .replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
 
   const handleFrameLoad = () => {
     const frame = iframeRef.current;

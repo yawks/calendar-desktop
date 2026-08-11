@@ -1,6 +1,9 @@
 import { ALL_ACCOUNTS_ID, buildUnreadCounts } from './utils';
 import {
   ChartNoAxesCombined,
+  ChevronDown,
+  ChevronLeft,
+  ChevronUp,
   Download,
   Inbox,
   Layers,
@@ -139,8 +142,28 @@ export default function MailApp() {
     if (match) handleIdentityChange(match.id);
   };
 
+  const displayedThreads = searchQuery ? searchResults : threads;
+  const selectedThreadIndex = selectedThread
+    ? displayedThreads.findIndex(thread => thread.conversation_id === selectedThread.conversation_id)
+    : -1;
+  const selectedFolderLabel = (() => {
+    const staticLabels: Record<string, string> = {
+      inbox: t('mail.inbox', 'Inbox'),
+      drafts: t('mail.drafts', 'Drafts'),
+      scheduled: t('mail.scheduled', 'Scheduled'),
+      sentitems: t('mail.sent', 'Sent'),
+      deleteditems: t('mail.trash', 'Trash'),
+      snoozed: t('mail.snoozed', 'Snoozed'),
+      spam: t('mail.spam', 'Spam'),
+    };
+    return staticLabels[selectedFolder]
+      ?? allFolders.find(folder => folder.folder_id === selectedFolder)?.display_name
+      ?? selectedFolder;
+  })();
+  const selectedFolderTotal = searchQuery ? displayedThreads.length : threadTotalCount;
+
   return (
-    <div className="mail-app">
+    <div className={`mail-app${selectedThread ? ' mail-app--detail-open' : ''}`}>
       <header className="header">
         <button
           className="btn-icon"
@@ -151,9 +174,9 @@ export default function MailApp() {
         </button>
         <AppViewMenu current="mail" />
 
-        <div className="header-spacer" />
+        <div className="header-spacer mail-header-push" />
         <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} provider={provider} />
-        <div className="header-spacer" />
+        <div className="header-spacer mail-header-gap" />
 
         <button className="btn-icon" onClick={reloadThreads} disabled={threadsRefreshing}
           title={t('header.refresh', 'Refresh')}>
@@ -239,6 +262,43 @@ export default function MailApp() {
           {!sidebarCollapsed && (
             <>
               <div style={{ width: sidebarWidth, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                {allMailAccounts.length > 1 && (
+                  <div className="mail-mobile-account-picker">
+                    <div className="mail-mobile-account-picker__title">{t('mail.accounts')}</div>
+                    <button
+                      type="button"
+                      className={`mail-mobile-account${isAllMode ? ' active' : ''}`}
+                      onClick={() => {
+                        selectAccount(ALL_ACCOUNTS_ID);
+                        setSidebarCollapsed(true);
+                      }}
+                    >
+                      <Layers size={18} />
+                      <span>{t('mail.allAccounts')}</span>
+                      {(allAccountsUnreadCounts.inbox ?? 0) > 0 && (
+                        <span className="mail-mobile-account__badge">{Math.min(allAccountsUnreadCounts.inbox!, 99)}</span>
+                      )}
+                    </button>
+                    {allMailAccounts.map((account) => {
+                      const unread = buildUnreadCounts(allAccountFolders.get(account.id) ?? []).inbox ?? 0;
+                      return (
+                        <button
+                          key={account.id}
+                          type="button"
+                          className={`mail-mobile-account${selectedAccountId === account.id ? ' active' : ''}`}
+                          onClick={() => {
+                            selectAccount(account.id);
+                            setSidebarCollapsed(true);
+                          }}
+                        >
+                          <span className="mail-mobile-account__dot" style={{ background: account.color ?? 'var(--primary)' }} />
+                          <span className="mail-mobile-account__email">{account.email}</span>
+                          {unread > 0 && <span className="mail-mobile-account__badge">{Math.min(unread, 99)}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <MailSidebar
                   selectedFolder={selectedFolder}
                   onSelectFolder={(folder, accountId) => {
@@ -331,16 +391,43 @@ export default function MailApp() {
           />
 
           <div className={`mail-detail-panel${selectedThread || composing || selectedThreadIds.size > 0 ? ' mail-detail-panel--open' : ''}`}>
-            <button
-              type="button"
-              className="mail-mobile-back"
-              onClick={() => {
-                if (globalThis.history.state?.mailScreen) globalThis.history.back();
-                else { setSelectedThread(null); setComposing(false); setSelectedThreadIds(new Set()); }
-              }}
-            >
-              ‹ {t('mail.backToList')}
-            </button>
+            <div className="mail-mobile-detail-nav">
+              <button
+                type="button"
+                className="mail-mobile-detail-nav__back"
+                aria-label={t('mail.backToList')}
+                onClick={() => {
+                  if (globalThis.history.state?.mailScreen) globalThis.history.back();
+                  else { setSelectedThread(null); setComposing(false); setSelectedThreadIds(new Set()); }
+                }}
+              >
+                <ChevronLeft size={30} />
+              </button>
+              <div className="mail-mobile-detail-nav__position">
+                <strong>{selectedFolderLabel}</strong>
+                {selectedThreadIndex >= 0 && (
+                  <span> · {selectedThreadIndex + 1} / {selectedFolderTotal}</span>
+                )}
+              </div>
+              <div className="mail-mobile-detail-nav__arrows">
+                <button
+                  type="button"
+                  aria-label={t('mail.previousMessage')}
+                  disabled={selectedThreadIndex <= 0}
+                  onClick={() => selectedThreadIndex > 0 && handleSelectThread(displayedThreads[selectedThreadIndex - 1])}
+                >
+                  <ChevronUp size={27} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('mail.nextMessage')}
+                  disabled={selectedThreadIndex < 0 || selectedThreadIndex >= displayedThreads.length - 1}
+                  onClick={() => selectedThreadIndex >= 0 && selectedThreadIndex < displayedThreads.length - 1 && handleSelectThread(displayedThreads[selectedThreadIndex + 1])}
+                >
+                  <ChevronDown size={27} />
+                </button>
+              </div>
+            </div>
             {!composing && selectedThreadIds.size > 0 ? (
               <MultiSelectionPanel
                 threads={threads}
@@ -463,6 +550,15 @@ export default function MailApp() {
             })() : (
               <ThreadDetail
                 thread={selectedThread}
+                sourceLabel={isAllMode ? (() => {
+                  const email = allMailAccounts.find(account => account.id === selectedThread.accountId)?.email;
+                  if (!email) return undefined;
+                  const atIndex = email.lastIndexOf('@');
+                  return atIndex >= 0 ? email.slice(atIndex + 1) : email;
+                })() : undefined}
+                sourceColor={isAllMode
+                  ? allMailAccounts.find(account => account.id === selectedThread.accountId)?.color
+                  : undefined}
                 messages={messages.filter(m => !m.is_draft)}
                 messagesLoading={messagesLoading}
                 replyingTo={replyingTo}

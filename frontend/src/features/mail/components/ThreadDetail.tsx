@@ -61,6 +61,8 @@ export interface ThreadDetailProps {
   readonly isInSpamFolder?: boolean;
   readonly onMarkAsSpam?: () => void;
   readonly composerRef?: React.RefObject<MailComposerHandle>;
+  readonly sourceLabel?: string;
+  readonly sourceColor?: string;
 }
 
 const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -97,6 +99,7 @@ export function ThreadDetail({
   onDeleteThread, onToggleThreadRead,
   supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, isInScheduledFolder, onScheduledSendCanceled, onUnsnooze,
   moveFolders, onMove, isInSpamFolder, onMarkAsSpam, composerRef,
+  sourceLabel, sourceColor,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -299,6 +302,15 @@ export function ThreadDetail({
 
       <div className="mail-thread-detail__header">
         <h2 className="mail-thread-detail__subject">{decodeHtmlEntities(thread.topic) || t('mail.noSubject', "(Pas d'objet)")}</h2>
+        {sourceLabel && (
+          <span
+            className="mail-thread-detail__source"
+            style={{ '--source-color': sourceColor ?? 'var(--primary)' } as React.CSSProperties}
+          >
+            <span className="mail-thread-detail__source-dot" style={{ background: sourceColor }} />
+            {sourceLabel}
+          </span>
+        )}
       </div>
 
       {isSnoozed && (

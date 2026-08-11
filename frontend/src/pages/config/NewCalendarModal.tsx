@@ -412,7 +412,7 @@ export function NewCalendarModal({
           {/* Step: JMAP form */}
           {step === 'jmap' && (
             <form onSubmit={handleAddJmap} className="config-form">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div className="config-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <div>
                   <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
@@ -473,7 +473,7 @@ export function NewCalendarModal({
           {/* Step: IMAP form */}
           {step === 'imap' && (
             <form onSubmit={handleAddImap} className="config-form">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div className="config-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <div>
                   <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
@@ -493,7 +493,7 @@ export function NewCalendarModal({
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
+              <div className="config-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 20 }}>
                 <div>
                   <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.imapIncoming')}</h3>
                   <div className="form-row">

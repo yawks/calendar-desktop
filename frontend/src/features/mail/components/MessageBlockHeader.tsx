@@ -5,6 +5,7 @@ import {
   Forward,
   Mail,
   MailOpen,
+  MoreHorizontal,
   Paperclip,
   Reply,
   ReplyAll,
@@ -261,8 +262,9 @@ export function MessageBlockHeader({
               <div className="mail-actions-dropdown">
                 <button type="button" className="btn-icon--labeled"
                   onClick={e => { sp(e); setShowActions(v => !v); }}>
-                  <span>{t('mail.actions', 'Actions')}</span>
-                  <ChevronDown size={11} />
+                  <span className="mail-actions-label">{t('mail.actions', 'Actions')}</span>
+                  <ChevronDown className="mail-actions-chevron" size={11} />
+                  <MoreHorizontal className="mail-actions-more-icon" size={18} />
                 </button>
                 {showActions && (
                   <>

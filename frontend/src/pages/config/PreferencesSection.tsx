@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
-import { Columns2, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
+import { Check, Columns2, Copy, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
 import { LanguagePreference } from '../../i18n';
@@ -29,6 +29,7 @@ function FontSizeOption({ size, active, onClick, label }: { size: FontSizePrefer
         flex: 1,
         outline: 'none',
       }}
+      className="font-size-option"
     >
       <div style={{
         width: '100%',
@@ -72,20 +73,49 @@ export function PreferencesSection() {
   const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
   const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics } = useVault();
   const [biometricBusy, setBiometricBusy] = useState(false);
-  const [biometricError, setBiometricError] = useState(false);
+  const [biometricDiagnostic, setBiometricDiagnostic] = useState('');
+  const [diagnosticCopied, setDiagnosticCopied] = useState(false);
+
+  const createBiometricDiagnostic = async (cause: unknown): Promise<string> => {
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    let platformAuthenticator: boolean | string = 'unknown';
+    try {
+      platformAuthenticator = typeof PublicKeyCredential !== 'undefined'
+        && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch (probeError) {
+      platformAuthenticator = `probe failed: ${probeError instanceof Error ? probeError.message : String(probeError)}`;
+    }
+    return JSON.stringify({
+      timestamp: new Date().toISOString(),
+      errorName: error.name,
+      errorMessage: error.message,
+      secureContext: globalThis.isSecureContext,
+      origin: globalThis.location.origin,
+      standalone: globalThis.matchMedia('(display-mode: standalone)').matches,
+      webAuthn: typeof PublicKeyCredential !== 'undefined',
+      platformAuthenticator,
+      userAgent: navigator.userAgent,
+    }, null, 2);
+  };
 
   const toggleBiometrics = async () => {
     setBiometricBusy(true);
-    setBiometricError(false);
+    setBiometricDiagnostic('');
+    setDiagnosticCopied(false);
     try {
       if (biometricEnabled) await disableBiometrics();
       else await enableBiometrics();
     } catch (cause) {
       console.error('[Vault] biometric configuration failed', cause);
-      setBiometricError(true);
+      setBiometricDiagnostic(await createBiometricDiagnostic(cause));
     } finally {
       setBiometricBusy(false);
     }
+  };
+
+  const copyBiometricDiagnostic = async () => {
+    await navigator.clipboard.writeText(biometricDiagnostic);
+    setDiagnosticCopied(true);
   };
 
   const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
@@ -129,7 +159,7 @@ export function PreferencesSection() {
   });
 
   return (
-    <div style={{ maxWidth: 480 }}>
+    <div className="preferences-section" style={{ maxWidth: 480 }}>
 
       {/* Langue */}
       <div style={{ marginBottom: 28 }}>
@@ -137,9 +167,9 @@ export function PreferencesSection() {
           <Languages size={16} />
           {t('settings.language.sectionTitle')}
         </h3>
-        <div style={segmentStyle}>
+        <div className="preferences-segment" style={segmentStyle}>
           {langOptions.map((opt, i) => (
-            <button key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
+            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
               <span style={{ fontSize: 'calc(16px * var(--font-scale, 1))', lineHeight: 1 }}>{opt.flag}</span>
               {opt.label}
             </button>
@@ -153,9 +183,9 @@ export function PreferencesSection() {
           <Sun size={16} />
           {t('settings.theme.sectionTitle')}
         </h3>
-        <div style={segmentStyle}>
+        <div className="preferences-segment" style={segmentStyle}>
           {themeOptions.map((opt, i) => (
-            <button key={opt.value} type="button" onClick={() => setThemePref(opt.value)} style={btnStyle(themePref === opt.value, i === 0)}>
+            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setThemePref(opt.value)} style={btnStyle(themePref === opt.value, i === 0)}>
               {opt.icon}
               {opt.label}
             </button>
@@ -169,9 +199,9 @@ export function PreferencesSection() {
           <LayoutPanelTop size={16} />
           {t('settings.layout.sectionTitle', 'Interface')}
         </h3>
-        <div style={segmentStyle}>
+        <div className="preferences-segment" style={segmentStyle}>
           {layoutOptions.map((opt, i) => (
-            <button key={opt.value} type="button" onClick={() => setLayout(opt.value)} style={btnStyle(layout === opt.value, i === 0)}>
+            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setLayout(opt.value)} style={btnStyle(layout === opt.value, i === 0)}>
               {opt.icon}
               {opt.label}
             </button>
@@ -188,7 +218,7 @@ export function PreferencesSection() {
           <Type size={16} />
           {t('settings.fontSize.sectionTitle', 'Taille de la police')}
         </h3>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div className="font-size-options" style={{ display: 'flex', gap: 12 }}>
           <FontSizeOption size="small" label={t('settings.fontSize.small', 'Petite')} active={fontSize === 'small'} onClick={() => setFontSize('small')} />
           <FontSizeOption size="medium" label={t('settings.fontSize.medium', 'Moyenne')} active={fontSize === 'medium'} onClick={() => setFontSize('medium')} />
           <FontSizeOption size="intermediate" label={t('settings.fontSize.intermediate', 'Intermédiaire')} active={fontSize === 'intermediate'} onClick={() => setFontSize('intermediate')} />
@@ -232,12 +262,27 @@ export function PreferencesSection() {
           {t('settings.vault.hint')}
         </p>
         {biometricAvailable ? <>
-          <button type="button" disabled={biometricBusy} onClick={() => void toggleBiometrics()} style={{ padding: '8px 14px', marginRight: 8 }}>
-            {t(biometricEnabled ? 'settings.vault.disableBiometrics' : 'settings.vault.enableBiometrics')}
-          </button>
-          {biometricError && <p role="alert" style={{ color: '#ef4444', fontSize: 12 }}>{t('settings.vault.biometricError')}</p>}
-        </> : <p style={{ fontSize: 12, opacity: .7 }}>{t('settings.vault.biometricUnavailable')}</p>}
-        <button type="button" onClick={lock} style={{ padding: '8px 14px' }}>{t('settings.vault.lockNow')}</button>
+          <div className="vault-settings-actions">
+            <button className={biometricEnabled ? 'btn-ghost' : 'btn-primary'} type="button" disabled={biometricBusy} onClick={() => void toggleBiometrics()}>
+              <Fingerprint size={16} />
+              {t(biometricEnabled ? 'settings.vault.disableBiometrics' : 'settings.vault.enableBiometrics')}
+            </button>
+            <button className="btn-ghost" type="button" onClick={lock}>
+              <Lock size={16} /> {t('settings.vault.lockNow')}
+            </button>
+          </div>
+          {biometricDiagnostic && <div className="vault-diagnostic" role="alert">
+            <p>{t('settings.vault.biometricError')}</p>
+            <pre>{biometricDiagnostic}</pre>
+            <button className="btn-ghost" type="button" onClick={() => void copyBiometricDiagnostic()}>
+              {diagnosticCopied ? <Check size={15} /> : <Copy size={15} />}
+              {t(diagnosticCopied ? 'settings.vault.diagnosticCopied' : 'settings.vault.copyDiagnostic')}
+            </button>
+          </div>}
+        </> : <>
+          <p style={{ fontSize: 12, opacity: .7 }}>{t('settings.vault.biometricUnavailable')}</p>
+          <button className="btn-ghost" type="button" onClick={lock}><Lock size={16} /> {t('settings.vault.lockNow')}</button>
+        </>}
       </div>
 
     </div>

@@ -219,7 +219,7 @@
     "fastmailWebTokenHelp": "Optionnel. Collez uniquement la valeur fma1…, sans le préfixe Bearer.",
     "fastmailCookie": "Cookie Fastmail",
     "fastmailCookieHelp": "Copiez la valeur complète passée à curl avec -b. Elle doit correspondre au jeton fma1.",
-    "backToCalendar": "← Retour au calendrier",
+    "backToCalendar": "←",
     "pageTitle": "Paramètres",
     "sectCalendars": "Calendriers",
     "sectProviders": "Sources",
@@ -347,6 +347,9 @@
   "mail": {
     "selection": { "clear": "Effacer la sélection" },
     "backToList": "Retour aux messages",
+    "previousMessage": "Message précédent",
+    "nextMessage": "Message suivant",
+    "accounts": "Comptes",
     "folders": {
       "inbox": "Boîte de réception",
       "sent": "Envoyés",
@@ -568,7 +571,9 @@
       "enableBiometrics": "Activer la biométrie",
       "disableBiometrics": "Désactiver la biométrie",
       "biometricUnavailable": "Le déverrouillage biométrique sécurisé n’est pas disponible dans ce navigateur.",
-      "biometricError": "Impossible d’activer la biométrie sur cet appareil ou ce navigateur."
+      "biometricError": "Impossible d’activer la biométrie sur cet appareil ou ce navigateur.",
+      "copyDiagnostic": "Copier le diagnostic",
+      "diagnosticCopied": "Diagnostic copié"
     }
   },
   "recurringChoice": {

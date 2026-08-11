@@ -76,7 +76,12 @@ export default function AppViewMenu({ current }: Props) {
         onClick={() => setOpen(value => !value)}
       >
         <span>{label}</span>
-        <ChevronDown size={17} strokeWidth={2.4} className={open ? 'app-view-menu__chevron--open' : ''} />
+        <ChevronDown
+          size={17}
+          strokeWidth={2.4}
+          aria-hidden="true"
+          className={`app-view-menu__chevron${open ? ' app-view-menu__chevron--open' : ''}`}
+        />
       </button>
 
       {open && (

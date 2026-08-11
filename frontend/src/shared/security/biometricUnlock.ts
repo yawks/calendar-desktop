@@ -36,11 +36,9 @@ function randomBytes(length: number): ArrayBuffer {
   return bytes.buffer;
 }
 
-function prfSecret(credential: PublicKeyCredential): ArrayBuffer {
+function prfSecret(credential: PublicKeyCredential): ArrayBuffer | null {
   const extensions = credential.getClientExtensionResults() as PrfExtensions;
-  const secret = extensions.prf?.results?.first;
-  if (!secret) throw new Error('WebAuthn PRF is unavailable for this authenticator');
-  return secret;
+  return extensions.prf?.results?.first ?? null;
 }
 
 async function wrappingKey(secret: ArrayBuffer): Promise<CryptoKey> {
@@ -71,9 +69,30 @@ export async function enableBiometricUnlock(vaultKey: CryptoKey): Promise<void> 
   } }) as PublicKeyCredential | null;
   if (!credential) throw new Error('Biometric enrollment was cancelled');
 
+  const creationExtensions = credential.getClientExtensionResults() as PrfExtensions;
+  if (creationExtensions.prf?.enabled !== true && !prfSecret(credential)) {
+    throw new Error('WebAuthn PRF is unavailable for this authenticator');
+  }
+
+  // Chrome normally reports PRF support during creation, then returns the
+  // actual PRF output on the first assertion for the new credential.
+  let secret = prfSecret(credential);
+  if (!secret) {
+    const assertion = await navigator.credentials.get({ publicKey: {
+      challenge: randomBytes(32),
+      allowCredentials: [{ type: 'public-key', id: credential.rawId, transports: ['internal'] }],
+      userVerification: 'required',
+      timeout: 60_000,
+      extensions: { prf: { eval: { first: prfSalt } } } as AuthenticationExtensionsClientInputs,
+    } }) as PublicKeyCredential | null;
+    if (!assertion) throw new Error('Biometric enrollment confirmation was cancelled');
+    secret = prfSecret(assertion);
+  }
+  if (!secret) throw new Error('WebAuthn PRF is unavailable for this authenticator');
+
   const iv = randomBytes(12);
   const rawVaultKey = await exportVaultKey(vaultKey);
-  const wrappedKey = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: AAD }, await wrappingKey(prfSecret(credential)), rawVaultKey);
+  const wrappedKey = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: AAD }, await wrappingKey(secret), rawVaultKey);
   await set(STORAGE_KEY, {
     version: 1,
     credentialId: toBase64Url(credential.rawId),
@@ -94,9 +113,11 @@ export async function unlockWithBiometrics(): Promise<CryptoKey> {
     extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt) } } } as AuthenticationExtensionsClientInputs,
   } }) as PublicKeyCredential | null;
   if (!credential) throw new Error('Biometric unlock was cancelled');
+  const secret = prfSecret(credential);
+  if (!secret) throw new Error('WebAuthn PRF is unavailable for this authenticator');
   const rawKey = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: fromBase64Url(record.iv), additionalData: AAD },
-    await wrappingKey(prfSecret(credential)),
+    await wrappingKey(secret),
     fromBase64Url(record.wrappedKey),
   );
   return importVaultKey(rawKey);
