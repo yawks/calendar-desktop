@@ -58,11 +58,12 @@ function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiomet
   };
   const mismatch = !exists && confirmation.length > 0 && password !== confirmation;
   return <main className="vault-screen">
-    <div className="vault-panel">
-      <div className="vault-brand" aria-label={t('vault.appName')}>
+    <div className="vault-layout">
+      <div className="vault-brand vault-brand--top" aria-label={t('vault.appName')}>
         <img src="/icon.png" alt="" className="vault-brand__logo" />
         <span>{t('vault.appName')}</span>
       </div>
+      <div className="vault-panel">
       <form className="vault-form" onSubmit={submit}>
       <header className="vault-form__header">
         <div className="vault-security-icon" aria-hidden="true"><LockKeyhole size={26} strokeWidth={2.25} /></div>
@@ -81,6 +82,7 @@ function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiomet
       </div>
       {!exists && <small className="vault-form__notice">{t('vault.recoveryWarning')}</small>}
     </form>
+      </div>
     </div>
   </main>;
 }

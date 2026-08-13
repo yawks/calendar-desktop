@@ -4879,12 +4879,15 @@ body {
 }
 
 .vault-screen { background: radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--primary) 15%, transparent), transparent 42%), var(--bg); }
+.vault-layout { display: grid; width: 100%; min-height: 100dvh; grid-template-rows: auto 1fr auto; align-items: start; }
+.vault-brand--top { grid-row: 1; padding-top: max(24px, env(safe-area-inset-top)); }
+.vault-panel { grid-row: 2; align-self: center; justify-self: center; }
 .vault-panel { display: grid; width: min(420px, 100%); gap: 16px; }
 .vault-panel .vault-form { width: 100%; }
 .vault-form { padding: 24px; border-radius: 20px; box-shadow: 0 22px 55px color-mix(in srgb, var(--shadow) 65%, transparent); }
 .vault-form__header { display: flex; align-items: center; flex-direction: column; text-align: center; }
 .vault-brand { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--text); font-size: calc(15px * var(--font-scale, 1)); font-weight: 700; letter-spacing: -0.015em; }
-.vault-brand__logo { width: 32px; height: 32px; border-radius: 8px; box-shadow: 0 3px 9px color-mix(in srgb, var(--primary) 32%, transparent); }
+.vault-brand__logo { width: 52px; height: 52px; border-radius: 13px; box-shadow: 0 5px 14px color-mix(in srgb, var(--primary) 32%, transparent); }
 .vault-security-icon { display: grid; width: 52px; height: 52px; place-items: center; margin-bottom: 14px; border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 16px; background: color-mix(in srgb, var(--primary) 12%, var(--bg)); color: var(--primary); }
 .vault-form h1 { font-size: calc(24px * var(--font-scale, 1)); line-height: 1.2; letter-spacing: -0.025em; }
 .vault-form__header p, .vault-form__notice { color: var(--text-muted); font-size: calc(14px * var(--font-scale, 1)); line-height: 1.5; }
@@ -5326,6 +5329,8 @@ body {
   }
 
   .vault-form { padding: 22px 18px; box-shadow: none; }
+  .vault-brand--top { padding-top: max(16px, env(safe-area-inset-top)); }
+  .vault-brand__logo { width: 44px; height: 44px; border-radius: 11px; }
   .vault-form input, .vault-form button { min-height: 46px; }
 }
 
