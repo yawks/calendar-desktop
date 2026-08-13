@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Languages, Mail, Cloud, Rss, Plus, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, Languages, Mail, Cloud, Rss, Plus, SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCalendars } from '../features/calendar/store/CalendarStore';
 import { useGoogleAuth } from '../shared/store/GoogleAuthStore';
@@ -73,9 +73,16 @@ export default function ConfigPage() {
 
   return (
     <div className="app">
-      <header className="header">
-        <Link to="/" className="btn-config">{t('config.backToCalendar')}</Link>
-        <span style={{ fontSize: 'calc(18px * var(--font-scale, 1))', fontWeight: 400 }}>{t('config.pageTitle')}</span>
+      <header className="header config-header">
+        <Link
+          to="/"
+          className="btn-config btn-config--icon-only config-header-back"
+          aria-label={t('config.backToCalendar')}
+          title={t('config.backToCalendar')}
+        >
+          <ChevronLeft size={28} aria-hidden="true" />
+        </Link>
+        <span className="config-header-title">{t('config.pageTitle')}</span>
       </header>
 
       <div className="app-body">

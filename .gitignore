@@ -21,4 +21,5 @@ proxy/node_modules/
 proxy/.env*
 deploy/certs/
 
-backend/target/
+# Backend Rust build artifacts
+/backend/target/

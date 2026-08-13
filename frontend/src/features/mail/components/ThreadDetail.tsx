@@ -4,6 +4,8 @@ import {
   Clock,
   FolderInput,
   Forward,
+  Mail,
+  MailOpen,
   MoreHorizontal,
   RefreshCw,
   ShieldAlert,
@@ -30,7 +32,7 @@ export interface ThreadDetailProps {
   readonly currentUserEmail?: string;
   readonly mailProviderType?: 'gmail' | 'ews';
   readonly onMarkRead: (msgs: MailMessage[]) => void;
-  readonly onTrash: (id: string) => void;
+  readonly onTrash: (message: MailMessage) => void;
   readonly onPreviewAttachment: (att: MailAttachment) => void;
   readonly onDownloadAttachment: (att: MailAttachment) => void;
   readonly loadingAttachmentId?: string | null;
@@ -132,6 +134,20 @@ export function ThreadDetail({
   const nextWeekDayName = FR_DAYS[nextWeek.getDay()];
 
   const isUnread = thread.unread_count > 0;
+  const archiveFolderId = moveFolders.find(folder => {
+    const id = folder.folder_id.toLowerCase();
+    const name = folder.display_name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    return id === 'archive' || name === 'archive' || name === 'archives';
+  })?.folder_id;
+  const handleArchive = () => {
+    // Gmail represents Archive by removing the Inbox label. Other providers
+    // expose a real Archive mailbox, whose provider-specific ID must be used.
+    if (archiveFolderId) onMove(archiveFolderId);
+    else if (mailProviderType === 'gmail') onMove('archive');
+  };
   const isSnoozed = !snoozeBannerDismissed && (isInSnoozedFolder || (!!snoozeUntil && new Date(snoozeUntil) > new Date()));
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
   const initiallyExpandedId = messages.find(message => !message.is_read)?.item_id ?? lastMsg?.item_id;
@@ -141,14 +157,14 @@ export function ThreadDetail({
     <div className="mail-thread-detail">
       <div className="mail-thread-detail__toolbar">
         {/* Archive */}
-        <button className="mail-detail-action-btn" onClick={() => {}} title={t('mail.archive', 'Archive')}>
+        <button className="mail-detail-action-btn mail-detail-toolbar__archive" onClick={handleArchive} disabled={!archiveFolderId && mailProviderType !== 'gmail'} title={t('mail.archive', 'Archive')}>
           <Archive size={15} />
           <span>{t('mail.archive', 'Archive')}</span>
         </button>
 
         {/* Delete */}
         <button
-          className="mail-detail-action-btn mail-detail-action-btn--danger"
+          className="mail-detail-action-btn mail-detail-action-btn--danger mail-detail-toolbar__delete"
           onClick={onDeleteThread}
           title={t('mail.delete', 'Delete')}
         >
@@ -157,6 +173,7 @@ export function ThreadDetail({
         </button>
 
         {/* Spam / Not spam */}
+        <div className="mail-detail-toolbar__spam-action">
         {isInSpamFolder ? (
           <button
             className="mail-detail-action-btn"
@@ -176,9 +193,10 @@ export function ThreadDetail({
             <span>{t('mail.reportSpam', 'Report spam')}</span>
           </button>
         )}
+        </div>
 
         {/* Snooze */}
-        {supportsSnooze && <div className="mail-actions-dropdown">
+        {supportsSnooze && <div className="mail-actions-dropdown mail-detail-toolbar__snooze">
           <button
             className="mail-detail-action-btn"
             onClick={() => {
@@ -251,7 +269,7 @@ export function ThreadDetail({
         </div>}
 
         {/* Move */}
-        <div className="mail-actions-dropdown">
+        <div className="mail-actions-dropdown mail-detail-toolbar__move">
           <button
             className="mail-detail-action-btn"
             onClick={() => setMoveOpen(o => !o)}
@@ -273,7 +291,7 @@ export function ThreadDetail({
         </div>
 
         {/* More */}
-        <div className="mail-actions-dropdown" style={{ marginLeft: 'auto' }}>
+        <div className="mail-actions-dropdown mail-detail-toolbar__more" style={{ marginLeft: 'auto' }}>
           <button
             className="mail-detail-action-btn"
             onClick={() => setMoreOpen(o => !o)}
@@ -287,10 +305,16 @@ export function ThreadDetail({
               <button type="button" aria-label="Close" className="mail-thread-toolbar__overlay" onClick={() => setMoreOpen(false)} />
               <div className="mail-actions-menu" style={{ right: 0, left: 'auto' }}>
                 <button className="mail-actions-menu__item" onClick={() => { onToggleThreadRead(); setMoreOpen(false); }}>
+                  {isUnread ? <MailOpen size={13} /> : <Mail size={13} />}
                   {isUnread ? t('mail.markRead', 'Mark as read') : t('mail.markUnread', 'Mark as unread')}
                 </button>
                 <div className="mail-actions-menu__separator" />
-                <button className="mail-actions-menu__item" onClick={() => { if (lastMsg) onForward(lastMsg); setMoreOpen(false); }}>
+                <button className="mail-actions-menu__item" onClick={() => { (isInSpamFolder ? onMove('inbox') : onMarkAsSpam?.()); setMoreOpen(false); }}>
+                  <ShieldAlert size={13} />
+                  {isInSpamFolder ? t('mail.notSpam', 'Not spam') : t('mail.reportSpam', 'Report spam')}
+                </button>
+                <div className="mail-actions-menu__separator mail-detail-toolbar__desktop-only" />
+                <button className="mail-actions-menu__item mail-detail-toolbar__forward-action" onClick={() => { if (lastMsg) onForward(lastMsg); setMoreOpen(false); }}>
                   <Forward size={13} />
                   {t('mail.forward', 'Forward')}
                 </button>
@@ -406,6 +430,7 @@ export function ThreadDetail({
           </div>
         )}
       </div>
+
     </div>
   );
 }

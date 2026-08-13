@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { OfflineMailProvider } from './shared/store/OfflineMailStore';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
@@ -61,6 +62,7 @@ export default function App() {
       persistOptions={{ persister: indexedDBPersister, buster: 'mail-provider-loading-v4' }}
     >
       <ThemeProvider>
+      <OfflineMailProvider>
       <VaultProvider>
         <LanguageProvider>
           <FontSizeProvider>
@@ -94,6 +96,7 @@ export default function App() {
           </FontSizeProvider>
         </LanguageProvider>
       </VaultProvider>
+      </OfflineMailProvider>
       </ThemeProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </PersistQueryClientProvider>

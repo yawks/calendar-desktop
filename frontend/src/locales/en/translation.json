@@ -398,6 +398,12 @@
     "delete": "Delete",
     "movedToTrash": "Conversation moved to trash",
     "deletedPermanently": "Conversation permanently deleted",
+    "messageMovedToTrash": "Message moved to trash",
+    "messageDeletedPermanently": "Message permanently deleted",
+    "confirmDeleteMessageTitle": "Delete this message?",
+    "confirmDeleteMessage": "This message will be moved to the trash.",
+    "confirmPermanentDeleteMessage": "This message will be permanently deleted. This action cannot be undone.",
+    "deleting": "Deleting…",
     "snoozed_toast": "Conversation snoozed",
     "snoozeFailed": "Could not snooze this message",
     "moved": "Conversation moved",
@@ -559,6 +565,15 @@
       "tabbed": "Tabs",
       "windows": "Separate Windows",
       "hint": "Restart the application to apply Separate Windows mode."
+    },
+    "offlineMail": {
+      "sectionTitle": "Offline email",
+      "enabled": "Make Inbox emails available offline",
+      "hint": "Thread content is stored on this device. Attachments are not downloaded.",
+      "threadLimit": "Maximum number of threads",
+      "ageLimit": "Maximum age",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days"
     },
     "logoDev": {
       "sectionTitle": "Contact logos",

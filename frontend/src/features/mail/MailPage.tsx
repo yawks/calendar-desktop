@@ -26,6 +26,7 @@ import { MailSearchBar } from './components/MailSearchBar';
 import { MailSidebar } from './components/MailSidebar';
 import { MailStatsModal } from "./components/MailStatsModal";
 import { MultiSelectionPanel } from "./components/MultiSelectionPanel";
+import { DeleteMessageConfirmation } from "./components/DeleteMessageConfirmation";
 import { ThreadDetail } from "./components/ThreadDetail";
 import { ThreadList } from "./components/ThreadList";
 import { createPortal } from 'react-dom';
@@ -44,7 +45,7 @@ export default function MailApp() {
     selectAccount, selectFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
-    handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
+    handleDeleteThread, handleDeleteMessage, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
     downloadAttachment, getRawAttachmentData, scheduleSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,
@@ -62,6 +63,8 @@ export default function MailApp() {
   const composerRef = useRef<MailComposerHandle>(null);
   const newMessageComposerRef = useRef<NewMessageComposerHandle>(null);
   const [canceledScheduledDraft, setCanceledScheduledDraft] = useState<MailMessage | null>(null);
+  const [messageToDelete, setMessageToDelete] = useState<MailMessage | null>(null);
+  const [messageDeleting, setMessageDeleting] = useState(false);
 
   const pushMobileScreen = (screen: 'detail' | 'composer') => {
     if (!globalThis.matchMedia('(max-width: 700px)').matches) return;
@@ -575,7 +578,7 @@ export default function MailApp() {
                     : allMailAccounts.find(a => a.id === selectedAccountId)?.providerType) as any
                 }
                 onMarkRead={markRead}
-                onTrash={moveToTrash}
+                onTrash={setMessageToDelete}
                 onPreviewAttachment={previewAttachment}
                 onDownloadAttachment={downloadAttachment}
                 loadingAttachmentId={loadingAttachmentId}
@@ -637,6 +640,21 @@ export default function MailApp() {
                 onMove={handleMove}
                 composerRef={composerRef}
               />
+            )}
+            {messageToDelete && createPortal(
+              <DeleteMessageConfirmation
+                permanent={selectedFolder === 'deleteditems'}
+                deleting={messageDeleting}
+                onCancel={() => { if (!messageDeleting) setMessageToDelete(null); }}
+                onConfirm={() => {
+                  setMessageDeleting(true);
+                  void handleDeleteMessage(messageToDelete)
+                    .then(() => setMessageToDelete(null))
+                    .catch(() => undefined)
+                    .finally(() => setMessageDeleting(false));
+                }}
+              />,
+              document.body,
             )}
           </div>
         </div>

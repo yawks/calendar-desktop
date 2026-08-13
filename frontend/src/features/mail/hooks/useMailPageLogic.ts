@@ -20,6 +20,8 @@ import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAll
 import { useMailMutations } from './useMailMutations';
 import { cleanupContactIndex, recordContactObservations, searchContactIndex, type ContactObservation } from '../utils/contactIndex';
 import { useContactBackfill } from './useContactBackfill';
+import { useOfflineMailSync } from './useOfflineMailSync';
+import { isOfflineLikeError } from '../../../shared/utils/networkError';
 
 export function useMailPageLogic() {
   const { t } = useTranslation();
@@ -77,6 +79,7 @@ export function useMailPageLogic() {
     ...account,
     provider: allProviders.get(account.id) ?? null,
   })), [allMailAccounts, allProviders]);
+  useOfflineMailSync(backfillAccounts);
   const contactBackfillStatus = useContactBackfill(backfillAccounts);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
@@ -248,6 +251,7 @@ export function useMailPageLogic() {
 
   useEffect(() => {
     if (!conversationQuery.error) return;
+    if (isOfflineLikeError(conversationQuery.error)) return;
     const message = conversationQuery.error instanceof Error
       ? conversationQuery.error.message
       : String(conversationQuery.error);
@@ -308,7 +312,8 @@ export function useMailPageLogic() {
 
   useEffect(() => {
     const threadErrors = isAllMode ? allThreadsQuery.errors : (threadsQuery.error ? [threadsQuery.error] : []);
-    const allErrors = [...threadErrors, ...allFoldersQuery.errors] as Error[];
+    const allErrors = ([...threadErrors, ...allFoldersQuery.errors] as Error[])
+      .filter(candidate => !isOfflineLikeError(candidate));
     if (allErrors.length > 0) {
       const msg = allErrors[0].message;
       setError(prev => prev === msg ? prev : msg);
@@ -770,6 +775,38 @@ export function useMailPageLogic() {
   const handleDeleteThread = useCallback((thread: MailThread) => {
     moveToTrash(thread.conversation_id);
   }, [moveToTrash]);
+
+  const handleDeleteMessage = useCallback(async (message: MailMessage) => {
+    if (!selectedThread) return;
+    const p = resolveProvider(selectedThread.accountId);
+    if (!p) return;
+
+    const accountId = selectedThread.accountId ?? selectedAccountId;
+    const permanently = selectedFolder === 'deleteditems';
+    try {
+      if (permanently) await p.permanentlyDelete(message.item_id);
+      else await p.moveToTrash(message.item_id);
+
+      queryClient.setQueriesData<MailMessage[]>(
+        { queryKey: MAIL_KEYS.thread(accountId, selectedThread.conversation_id) },
+        old => Array.isArray(old) ? old.filter(item => item.item_id !== message.item_id) : old,
+      );
+      if (messages.filter(item => !item.is_draft).length <= 1) {
+        selectNextThread(selectedThread.conversation_id);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['mail', accountId] });
+      await queryClient.invalidateQueries({ queryKey: ['mail', 'all'] });
+      setActionToast({
+        label: permanently
+          ? t('mail.messageDeletedPermanently', 'Message supprimé définitivement')
+          : t('mail.messageMovedToTrash', 'Message déplacé vers la corbeille'),
+      });
+      setTimeout(() => setActionToast(null), 3000);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      throw err;
+    }
+  }, [selectedThread, resolveProvider, selectedAccountId, selectedFolder, queryClient, messages, selectNextThread, t, setActionToast]);
 
   const persistSnooze = useCallback((conversationId: string, until: string) => {
     setSnoozedMap(prev => {
@@ -1278,7 +1315,7 @@ export function useMailPageLogic() {
     selectAccount, selectFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, reloadThreads, loadMoreThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
-    handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
+    handleDeleteThread, handleDeleteMessage, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
     downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,

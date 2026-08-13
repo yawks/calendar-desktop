@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
-import { Check, Columns2, Copy, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
+import { Check, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
 import { LanguagePreference } from '../../i18n';
@@ -8,6 +8,7 @@ import { useLayout, AppLayout } from '../../shared/store/LayoutStore';
 import { useLogoDevToken } from '../../shared/store/LogoDevTokenStore';
 import { useTheme, ThemePreference } from '../../shared/store/ThemeStore';
 import { useVault } from '../../shared/security/VaultProvider';
+import { useOfflineMailSettings } from '../../shared/store/OfflineMailStore';
 
 function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference; active: boolean; onClick: () => void; label: string }) {
   const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : size === 'intermediate' ? 1.1 : 1.2;
@@ -72,6 +73,7 @@ export function PreferencesSection() {
   const { fontSize, setFontSize } = useFontSize();
   const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
   const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics } = useVault();
+  const { settings: offlineMail, updateSettings: updateOfflineMail } = useOfflineMailSettings();
   const [biometricBusy, setBiometricBusy] = useState(false);
   const [biometricDiagnostic, setBiometricDiagnostic] = useState('');
   const [diagnosticCopied, setDiagnosticCopied] = useState(false);
@@ -223,6 +225,35 @@ export function PreferencesSection() {
           <FontSizeOption size="medium" label={t('settings.fontSize.medium', 'Moyenne')} active={fontSize === 'medium'} onClick={() => setFontSize('medium')} />
           <FontSizeOption size="intermediate" label={t('settings.fontSize.intermediate', 'Intermédiaire')} active={fontSize === 'intermediate'} onClick={() => setFontSize('intermediate')} />
           <FontSizeOption size="large" label={t('settings.fontSize.large', 'Grande')} active={fontSize === 'large'} onClick={() => setFontSize('large')} />
+        </div>
+      </div>
+
+      {/* Logo.dev token */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Database size={16} />
+          {t('settings.offlineMail.sectionTitle')}
+        </h3>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+          <input type="checkbox" checked={offlineMail.enabled} onChange={event => updateOfflineMail({ enabled: event.target.checked })} />
+          {t('settings.offlineMail.enabled')}
+        </label>
+        <p style={{ margin: '0 0 12px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
+          {t('settings.offlineMail.hint')}
+        </p>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <label style={{ flex: 1, fontSize: 12 }}>
+            {t('settings.offlineMail.threadLimit')}
+            <select disabled={!offlineMail.enabled} value={offlineMail.maxThreads} onChange={event => updateOfflineMail({ maxThreads: Number(event.target.value) })} style={{ display: 'block', width: '100%', marginTop: 5, padding: 7 }}>
+              {[50, 100, 250, 500].map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label style={{ flex: 1, fontSize: 12 }}>
+            {t('settings.offlineMail.ageLimit')}
+            <select disabled={!offlineMail.enabled} value={offlineMail.maxAgeDays} onChange={event => updateOfflineMail({ maxAgeDays: Number(event.target.value) })} style={{ display: 'block', width: '100%', marginTop: 5, padding: 7 }}>
+              {[7, 30, 90, 180].map(value => <option key={value} value={value}>{t('settings.offlineMail.days', { count: value })}</option>)}
+            </select>
+          </label>
         </div>
       </div>
 

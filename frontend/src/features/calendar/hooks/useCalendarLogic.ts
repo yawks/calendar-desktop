@@ -17,6 +17,7 @@ import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, cance
 import { useQueryClient } from '@tanstack/react-query';
 import { CALENDAR_KEYS } from './useCalendarQueries';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
+import { isOfflineLikeError } from '../../../shared/utils/networkError';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
@@ -143,7 +144,13 @@ export function useCalendarLogic() {
   }, [events, selectedEvent]);
 
   const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ewsLoading);
-  const errors = DEMO_MODE ? {} : { ...icsErrors, ...googleErrors, ...ncErrors, ...ewsErrors };
+  const errors = useMemo(() => {
+    if (DEMO_MODE) return {};
+    return Object.fromEntries(
+      Object.entries({ ...icsErrors, ...googleErrors, ...ncErrors, ...ewsErrors })
+        .filter(([, error]) => !isOfflineLikeError(error)),
+    );
+  }, [icsErrors, googleErrors, ncErrors, ewsErrors]);
   const refresh = useCallback(async () => {
     await Promise.all([
       Promise.resolve(icsRefresh()),

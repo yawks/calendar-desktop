@@ -398,6 +398,12 @@
     "delete": "Supprimer",
     "movedToTrash": "Conversation déplacée vers la corbeille",
     "deletedPermanently": "Conversation supprimée définitivement",
+    "messageMovedToTrash": "Message déplacé vers la corbeille",
+    "messageDeletedPermanently": "Message supprimé définitivement",
+    "confirmDeleteMessageTitle": "Supprimer ce message ?",
+    "confirmDeleteMessage": "Ce message sera déplacé vers la corbeille.",
+    "confirmPermanentDeleteMessage": "Ce message sera supprimé définitivement. Cette action est irréversible.",
+    "deleting": "Suppression…",
     "snoozed_toast": "Conversation mise en attente",
     "snoozeFailed": "Impossible de mettre ce message en attente",
     "moved": "Conversation déplacée",
@@ -559,6 +565,15 @@
       "tabbed": "Onglets",
       "windows": "Fenêtres séparées",
       "hint": "Redémarrez l'application pour appliquer le mode Fenêtres séparées."
+    },
+    "offlineMail": {
+      "sectionTitle": "Emails hors connexion",
+      "enabled": "Rendre les emails de la boîte de réception disponibles hors connexion",
+      "hint": "Le contenu des fils est stocké sur cet appareil. Les pièces jointes ne sont pas téléchargées.",
+      "threadLimit": "Nombre maximal de fils",
+      "ageLimit": "Ancienneté maximale",
+      "days_one": "{{count}} jour",
+      "days_other": "{{count}} jours"
     },
     "logoDev": {
       "sectionTitle": "Logos des contacts",

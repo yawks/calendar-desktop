@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import type { MailProvider } from '../providers/MailProvider';
 import { DISPLAY_TO_STATIC } from '../utils';
+import { isOfflineLikeError } from '../../../shared/utils/networkError';
 import {
   getContactBackfillState,
   recordContactObservations,
@@ -115,6 +116,10 @@ export function useContactBackfill(accounts: BackfillAccount[]): ContactBackfill
       }
     };
     void run().catch(error => {
+      if (isOfflineLikeError(error)) {
+        setStatus({ state: 'idle', scanned: 0, inserted: 0 });
+        return;
+      }
       console.error('[contact-index] backfill failed', error);
       setStatus(current => ({ ...current, state: 'error', error: String(error) }));
     });

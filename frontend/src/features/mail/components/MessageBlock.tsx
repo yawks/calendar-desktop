@@ -19,7 +19,7 @@ export interface MessageBlockProps {
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
-  readonly onTrash: (id: string) => void;
+  readonly onTrash: (message: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
   readonly onPreviewAttachment: (att: MailAttachment) => void;
   readonly onDownloadAttachment: (att: MailAttachment) => void;

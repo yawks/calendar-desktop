@@ -29,7 +29,7 @@ interface MessageBlockHeaderProps {
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
-  readonly onTrash: (id: string) => void;
+  readonly onTrash: (message: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
   readonly onComposeToContact?: (recipient: MailRecipient) => void;
   readonly provider?: MailProvider | null;
@@ -65,7 +65,7 @@ interface ActionsMenuProps {
   readonly onReplyAll: (m: MailMessage) => void;
   readonly onForward: (m: MailMessage) => void;
   readonly onToggleRead: (m: MailMessage) => void;
-  readonly onTrash: (id: string) => void;
+  readonly onTrash: (message: MailMessage) => void;
   readonly onShowOriginal: () => void;
   readonly onClose: () => void;
 }
@@ -104,7 +104,7 @@ function ActionsMenu({ message, onReply, onReplyAll, onForward, onToggleRead, on
       <div className="mail-actions-menu__separator" />
 
       <button type="button" className="mail-actions-menu__item mail-actions-menu__item--danger"
-        onClick={e => act(e, () => onTrash(message.item_id))}>
+        onClick={e => act(e, () => onTrash(message))}>
         <Trash2 size={14} /><span>{t('mail.delete', 'Delete')}</span>
       </button>
     </div>

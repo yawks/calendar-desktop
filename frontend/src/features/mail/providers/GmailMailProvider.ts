@@ -840,6 +840,13 @@ export class GmailMailProvider implements MailProvider {
 
   async moveToFolder(itemId: string, folderId: string): Promise<void> {
     const token = await this.token();
+    if (folderId === 'archive') {
+      await this.gPost(token, `/users/me/messages/${itemId}/modify`, {
+        addLabelIds: [],
+        removeLabelIds: ['INBOX'],
+      });
+      return;
+    }
     const targetLabel = folderToLabel(folderId);
     if (!targetLabel) return;
 

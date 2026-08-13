@@ -3,6 +3,7 @@ import { MailProvider } from '../providers/MailProvider';
 import { Folder, MailSearchQuery, MailThread, MailMessage, MailFolder, MailIdentity } from '../types';
 import { buildUnreadCounts, DISPLAY_TO_STATIC } from '../utils';
 import { useMemo, useCallback } from 'react';
+import { getOfflineConversation, getOfflineInboxThreads } from '../utils/offlineMailCache';
 
 export const MAIL_KEYS = {
   all: ['mail'] as const,
@@ -121,7 +122,14 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
     queryKey: [...MAIL_KEYS.threads(accountId, folder), limit, offset],
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
-      const threads = await provider.listThreads(folder, limit, offset);
+      let threads: MailThread[];
+      try {
+        threads = await provider.listThreads(folder, limit, offset);
+      } catch (error) {
+        const cached = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(accountId) : null;
+        if (!cached) throw error;
+        threads = cached.slice(0, limit);
+      }
       if (folder === 'sentitems') return threads.map(t => ({ ...t, unread_count: 0 }));
       return threads;
     },
@@ -142,7 +150,14 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
       queryKey: [...MAIL_KEYS.threads(acc.id, folder), limit, offset],
       queryFn: async () => {
         if (!acc.provider) throw new Error('No provider');
-        const threads = await acc.provider.listThreads(folder, limit, offset);
+        let threads: MailThread[];
+        try {
+          threads = await acc.provider.listThreads(folder, limit, offset);
+        } catch (error) {
+          const cached = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(acc.id) : null;
+          if (!cached) throw error;
+          threads = cached.slice(0, limit);
+        }
         return threads.map(t => ({
           ...t,
           unread_count: folder === 'sentitems' ? 0 : t.unread_count,
@@ -269,7 +284,13 @@ export function useMailConversation(accountId: string, conversationId: string | 
     queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), isDraft, includeTrash],
     queryFn: async () => {
       if (!provider || !conversationId) throw new Error('Invalid params');
-      return await provider.getThread(conversationId, includeTrash, isDraft, /* includeDrafts */ !isDraft);
+      try {
+        return await provider.getThread(conversationId, includeTrash, isDraft, /* includeDrafts */ !isDraft);
+      } catch (error) {
+        const cached = !includeTrash && !isDraft ? await getOfflineConversation(accountId, conversationId) : null;
+        if (!cached) throw error;
+        return cached;
+      }
     },
     enabled: !!provider && !!conversationId,
     staleTime: 60 * 1000,
