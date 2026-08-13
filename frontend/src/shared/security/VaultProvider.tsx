@@ -2,6 +2,7 @@ import { get, set } from 'idb-keyval';
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, vaultSalt } from './vaultCrypto';
 import { biometricApiAvailable, disableBiometricUnlock, enableBiometricUnlock, hasBiometricUnlock, unlockWithBiometrics } from './biometricUnlock';
+import { Fingerprint, LockKeyhole } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 const DB_KEY = 'courrier-encrypted-vault-v1';
@@ -58,15 +59,26 @@ function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiomet
   const mismatch = !exists && confirmation.length > 0 && password !== confirmation;
   return <main className="vault-screen">
     <form className="vault-form" onSubmit={submit}>
-      <h1 style={{ marginTop: 0 }}>{t('vault.appName')}</h1>
-      <p>{t(exists ? 'vault.unlockDescription' : 'vault.createDescription')}</p>
-      <label htmlFor="vault-password">{t('vault.masterPassword')}</label>
-      <input id="vault-password" autoFocus autoComplete={exists ? 'current-password' : 'new-password'} type="password" minLength={12} required value={password} onChange={event => setPassword(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', margin: '8px 0 16px', padding: 10 }} />
-      {!exists && <><label htmlFor="vault-confirmation">{t('vault.confirmation')}</label><input id="vault-confirmation" autoComplete="new-password" type="password" minLength={12} required value={confirmation} onChange={event => setConfirmation(event.target.value)} style={{ width: '100%', boxSizing: 'border-box', margin: '8px 0 16px', padding: 10 }} /></>}
-      {(mismatch || error) && <p role="alert" style={{ color: 'var(--danger)' }}>{mismatch ? t('vault.passwordMismatch') : t(error)}</p>}
-      <button type="submit" disabled={busy || mismatch} style={{ width: '100%', padding: 11 }}>{busy ? t('vault.working') : t(exists ? 'vault.unlock' : 'vault.create')}</button>
-      {exists && biometricEnabled && <button type="button" disabled={busy} onClick={() => void onBiometricUnlock()} style={{ width: '100%', padding: 11, marginTop: 10 }}>{t('vault.unlockWithBiometrics')}</button>}
-      {!exists && <small style={{ display: 'block', marginTop: 14, opacity: .75 }}>{t('vault.recoveryWarning')}</small>}
+      <header className="vault-form__header">
+        <div className="vault-brand" aria-label={t('vault.appName')}>
+          <img src="/icon.svg" alt="" className="vault-brand__logo" />
+          <span>{t('vault.appName')}</span>
+        </div>
+        <div className="vault-security-icon" aria-hidden="true"><LockKeyhole size={26} strokeWidth={2.25} /></div>
+        <h1>{t(exists ? 'vault.unlock' : 'vault.create')}</h1>
+        <p>{t(exists ? 'vault.unlockDescription' : 'vault.createDescription')}</p>
+      </header>
+      <div className="vault-fields">
+        <label htmlFor="vault-password">{t('vault.masterPassword')}</label>
+        <input id="vault-password" autoFocus autoComplete={exists ? 'current-password' : 'new-password'} type="password" minLength={12} required value={password} onChange={event => setPassword(event.target.value)} />
+        {!exists && <><label htmlFor="vault-confirmation">{t('vault.confirmation')}</label><input id="vault-confirmation" autoComplete="new-password" type="password" minLength={12} required value={confirmation} onChange={event => setConfirmation(event.target.value)} /></>}
+      </div>
+      {(mismatch || error) && <p className="vault-form__error" role="alert">{mismatch ? t('vault.passwordMismatch') : t(error)}</p>}
+      <div className="vault-form__actions">
+        <button type="submit" disabled={busy || mismatch}>{busy ? t('vault.working') : t(exists ? 'vault.unlock' : 'vault.create')}</button>
+        {exists && biometricEnabled && <button type="button" disabled={busy} onClick={() => void onBiometricUnlock()}><Fingerprint size={18} aria-hidden="true" />{t('vault.unlockWithBiometrics')}</button>}
+      </div>
+      {!exists && <small className="vault-form__notice">{t('vault.recoveryWarning')}</small>}
     </form>
   </main>;
 }

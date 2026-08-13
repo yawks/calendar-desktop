@@ -4878,6 +4878,22 @@ body {
   background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
+.vault-screen { background: radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--primary) 15%, transparent), transparent 42%), var(--bg); }
+.vault-form { padding: 24px; border-radius: 20px; box-shadow: 0 22px 55px color-mix(in srgb, var(--shadow) 65%, transparent); }
+.vault-form__header { display: flex; align-items: center; flex-direction: column; text-align: center; }
+.vault-brand { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 22px; color: var(--text); font-size: calc(15px * var(--font-scale, 1)); font-weight: 700; letter-spacing: -0.015em; }
+.vault-brand__logo { width: 28px; height: 28px; border-radius: 7px; box-shadow: 0 3px 9px color-mix(in srgb, var(--primary) 32%, transparent); }
+.vault-security-icon { display: grid; width: 52px; height: 52px; place-items: center; margin-bottom: 14px; border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 16px; background: color-mix(in srgb, var(--primary) 12%, var(--bg)); color: var(--primary); }
+.vault-form h1 { font-size: calc(24px * var(--font-scale, 1)); line-height: 1.2; letter-spacing: -0.025em; }
+.vault-form__header p, .vault-form__notice { color: var(--text-muted); font-size: calc(14px * var(--font-scale, 1)); line-height: 1.5; }
+.vault-form__header p { margin-top: 8px; }
+.vault-fields { margin-top: 24px; }
+.vault-form label { display: block; font-size: calc(13px * var(--font-scale, 1)); font-weight: 600; }
+.vault-form input { display: block; width: 100%; min-height: 44px; margin: 7px 0 16px; padding: 10px 12px; }
+.vault-form__error { margin: 2px 0 14px; color: var(--danger); font-size: calc(13px * var(--font-scale, 1)); line-height: 1.4; }
+.vault-form__actions { display: grid; gap: 10px; }
+.vault-form button { display: inline-flex; width: 100%; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 10px 14px; }
+.vault-form__notice { display: block; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
 .vault-settings-actions {
   display: flex;
   align-items: center;
