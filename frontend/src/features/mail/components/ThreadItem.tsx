@@ -226,8 +226,28 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   return (
     <div
       ref={itemRef}
-      className={`mail-thread-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''} ${isChecked ? 'checked' : ''}`}
-      onClick={() => onSelect(thread)}
+      className={`mail-thread-item ${isSelected ? "selected" : ""} ${isUnread ? "unread" : ""} ${isChecked ? "checked" : ""}`}
+      onClick={() => {
+        if (avatarLongPressHandledRef.current) {
+          avatarLongPressHandledRef.current = false;
+          return;
+        }
+        onSelect(thread);
+      }}
+      onPointerDown={e => {
+        if (!isMobile() || e.pointerType === "mouse") return;
+        avatarLongPressHandledRef.current = false;
+        clearAvatarLongPress();
+        avatarLongPressTimerRef.current = setTimeout(() => {
+          avatarLongPressHandledRef.current = true;
+          onToggleCheck(thread, false);
+        }, 450);
+      }}
+      onPointerUp={clearAvatarLongPress}
+      onPointerCancel={clearAvatarLongPress}
+      onContextMenu={e => {
+        if (isMobile()) e.preventDefault();
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => { setIsHovered(false); setTooltip(null); }}
     >
@@ -247,21 +267,6 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
             e.stopPropagation();
             onToggleCheck(thread, e.shiftKey);
           }
-        }}
-        onPointerDown={e => {
-          if (!isMobile() || e.pointerType === "mouse") return;
-          avatarLongPressHandledRef.current = false;
-          clearAvatarLongPress();
-          avatarLongPressTimerRef.current = setTimeout(() => {
-            avatarLongPressHandledRef.current = true;
-            onToggleCheck(thread, false);
-          }, 450);
-        }}
-        onPointerMove={clearAvatarLongPress}
-        onPointerUp={clearAvatarLongPress}
-        onPointerCancel={clearAvatarLongPress}
-        onContextMenu={e => {
-          if (isMobile()) e.preventDefault();
         }}
       >
         {avatarContent}
