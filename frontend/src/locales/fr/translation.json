@@ -578,6 +578,7 @@
       "days_one": "{{count}} jour",
       "days_other": "{{count}} jours"
     },
+    "mailNotifications": { "sectionTitle": "Notifications de nouveaux emails", "enabled": "Afficher une notification pour les nouveaux emails entrants", "hint": "Les notifications sont regroupées par compte pour rester lisibles sur Android.", "blocked": "Les notifications sont bloquées par votre navigateur ou votre système.", "unavailable": "Les notifications ne sont pas disponibles sur cet appareil.", "notificationTitle": "Courrier · {{account}}", "single": "{{sender}} — {{subject}}", "multiple_one": "{{count}} nouvel email", "multiple_other": "{{count}} nouveaux emails" },
     "logoDev": {
       "sectionTitle": "Logos des contacts",
       "hint": "Token logo.dev pour afficher les logos d'entreprise dans les avatars des contacts."

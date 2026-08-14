@@ -689,10 +689,6 @@ body {
   white-space: nowrap;
 }
 
-.mail-thread-item.unread {
-  border-left: 3px solid var(--primary);
-  padding-left: 9px;
-}
 
 .mail-thread-item__subject {
   font-size: 13.5px; font-weight: 600; color: var(--text);
@@ -964,8 +960,8 @@ body {
   background: var(--bg-hover);
 }
 .mail-multiselect-card.unread {
-  border-left: 3px solid var(--primary);
-  padding-left: 11px;
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  background: color-mix(in srgb, var(--primary) 5%, var(--bg));
 }
 .mail-multiselect-card__avatar {
   width: 34px; height: 34px;
@@ -1137,7 +1133,7 @@ body {
   flex-shrink: 0; position: relative;
   margin-bottom: 8px;
 }
-.mail-message-block.unread { box-shadow: inset 3px 0 0 var(--primary); }
+.mail-message-block.unread { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); background: color-mix(in srgb, var(--primary) 4%, var(--bg)); }
 
 /* ── Stacked collapsed cards ───────────────────── */
 
@@ -1581,9 +1577,7 @@ body {
   font-weight: 500; color: var(--text-secondary);
 }
 
-.unread .mail-thread-item__subject {
-  font-weight: 600; color: var(--primary);
-}
+.unread .mail-thread-item__subject { font-weight: 700; }
 .mail-message-block__date {
   font-size: calc(12px * var(--font-scale, 1)); color: var(--text-muted); white-space: nowrap; flex-shrink: 0;
 }
@@ -2833,16 +2827,15 @@ body {
 .mail-thread-item.unread {
   padding-left: 10px;
   border-left: 0;
-  background: color-mix(in srgb, var(--primary) 7%, var(--bg));
-  box-shadow: inset 3px 0 0 var(--primary);
+  background: color-mix(in srgb, var(--primary) 5%, var(--bg));
 }
 
 .mail-thread-item.unread:hover {
-  background: color-mix(in srgb, var(--primary) 11%, var(--bg-hover));
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-hover));
 }
 
 .mail-thread-item.selected.unread {
-  background: color-mix(in srgb, var(--primary) 14%, var(--bg));
+  background: color-mix(in srgb, var(--primary) 11%, var(--bg));
 }
 
 .mail-thread-item__avatar {
@@ -3224,12 +3217,11 @@ body {
 }
 
 [data-theme="dark"] .mail-thread-item.unread {
-  background: color-mix(in srgb, var(--primary) 15%, var(--bg));
-  box-shadow: inset 3px 0 0 var(--primary);
+  background: color-mix(in srgb, var(--primary) 11%, var(--bg));
 }
 
 [data-theme="dark"] .mail-thread-item.unread:hover {
-  background: color-mix(in srgb, var(--primary) 20%, var(--bg-hover));
+  background: color-mix(in srgb, var(--primary) 15%, var(--bg-hover));
 }
 
 [data-theme="dark"] .mail-folder-btn.active,
@@ -3240,7 +3232,7 @@ body {
 }
 
 [data-theme="dark"] .mail-thread-item.selected.unread {
-  background: color-mix(in srgb, var(--primary) 22%, #30353b);
+  background: color-mix(in srgb, var(--primary) 18%, #30353b);
 }
 
 @media (max-width: 900px) {
@@ -6211,3 +6203,4 @@ body {
     box-shadow: inset 4px 0 0 #62c7ff, inset 0 0 0 1px rgb(98 199 255 / 70%);
   }
 }
+.mail-thread-item.unread .mail-thread-item__from::after { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--primary); content: ""; }

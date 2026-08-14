@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { OfflineMailProvider } from './shared/store/OfflineMailStore';
+import { MailNotificationProvider } from './shared/store/MailNotificationStore';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
@@ -65,6 +66,7 @@ export default function App() {
       <OfflineMailProvider>
       <VaultProvider>
         <LanguageProvider>
+        <MailNotificationProvider>
           <FontSizeProvider>
             <SignatureProvider>
             <LogoDevTokenProvider>
@@ -94,7 +96,8 @@ export default function App() {
             </LogoDevTokenProvider>
             </SignatureProvider>
           </FontSizeProvider>
-        </LanguageProvider>
+        </MailNotificationProvider>
+      </LanguageProvider>
       </VaultProvider>
       </OfflineMailProvider>
       </ThemeProvider>

@@ -144,7 +144,7 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
   );
 }
 
-export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[], limit = 50, offset = 0) {
+export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[], limit = 50, offset = 0, enabled = true) {
   const results = useQueries({
     queries: accounts.map((acc) => ({
       queryKey: [...MAIL_KEYS.threads(acc.id, folder), limit, offset],
@@ -166,7 +166,7 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
           accountColor: acc.color
         }));
       },
-      enabled: !!acc.provider,
+      enabled: enabled && !!acc.provider,
       refetchInterval: 60 * 1000,
       retry: false,
     })),

@@ -33,6 +33,7 @@ import { createPortal } from 'react-dom';
 import { useDockBadge } from './hooks/useDockBadge';
 import { useMailPageLogic } from './hooks/useMailPageLogic';
 
+import { useIncomingMailNotifications } from './hooks/useIncomingMailNotifications';
 export default function MailApp() {
   const {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
@@ -59,6 +60,7 @@ export default function MailApp() {
 
   useDockBadge(allAccountsUnreadCounts);
 
+  useIncomingMailNotifications(allMailAccounts, allProviders);
   const threadListRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<MailComposerHandle>(null);
   const newMessageComposerRef = useRef<NewMessageComposerHandle>(null);

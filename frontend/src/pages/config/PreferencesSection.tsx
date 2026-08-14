@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
-import { Check, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
+import { Bell, Check, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
 import { LanguagePreference } from '../../i18n';
@@ -10,6 +10,7 @@ import { useTheme, ThemePreference } from '../../shared/store/ThemeStore';
 import { useVault } from '../../shared/security/VaultProvider';
 import { useOfflineMailSettings } from '../../shared/store/OfflineMailStore';
 
+import { useMailNotificationsSettings } from '../../shared/store/MailNotificationStore';
 function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference; active: boolean; onClick: () => void; label: string }) {
   const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : size === 'intermediate' ? 1.1 : 1.2;
   return (
@@ -75,6 +76,7 @@ export function PreferencesSection() {
   const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics } = useVault();
   const { settings: offlineMail, updateSettings: updateOfflineMail } = useOfflineMailSettings();
   const [biometricBusy, setBiometricBusy] = useState(false);
+  const { settings: mailNotifications, supported: notificationSupported, permission: notificationPermission, enable: enableNotifications, disable: disableNotifications } = useMailNotificationsSettings();
   const [biometricDiagnostic, setBiometricDiagnostic] = useState('');
   const [diagnosticCopied, setDiagnosticCopied] = useState(false);
 
@@ -215,6 +217,7 @@ export function PreferencesSection() {
       </div>
 
       {/* Taille de la police */}
+      <div style={{ marginBottom: 28 }}><h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}><Bell size={16} />{t('settings.mailNotifications.sectionTitle')}</h3><label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}><input type="checkbox" checked={mailNotifications.enabled} disabled={!notificationSupported || notificationPermission === 'denied'} onChange={event => { if (event.target.checked) void enableNotifications(); else disableNotifications(); }} />{t('settings.mailNotifications.enabled')}</label><p style={{ margin: 0, fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>{notificationPermission === 'denied' ? t('settings.mailNotifications.blocked') : !notificationSupported ? t('settings.mailNotifications.unavailable') : t('settings.mailNotifications.hint')}</p></div>
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ margin: '0 0 16px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Type size={16} />
