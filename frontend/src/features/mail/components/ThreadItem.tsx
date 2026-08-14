@@ -139,7 +139,19 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [isHovered, setIsHovered] = useState(false);
   const itemRef = useRef<HTMLDivElement>(null);
+  const avatarLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const avatarLongPressHandledRef = useRef(false);
   const [snippetNearViewport, setSnippetNearViewport] = useState(false);
+
+  const isMobile = () => globalThis.matchMedia?.("(max-width: 700px)").matches ?? false;
+  const clearAvatarLongPress = () => {
+    if (avatarLongPressTimerRef.current !== null) {
+      clearTimeout(avatarLongPressTimerRef.current);
+      avatarLongPressTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => clearAvatarLongPress, []);
   useEffect(() => {
     if (thread.snippet || !provider?.getThreadSnippet) return;
     const element = itemRef.current;
@@ -222,10 +234,34 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
       <div
         className={`mail-thread-item__avatar ${(isHovered || isChecked) ? 'mail-thread-item__avatar--checkbox' : ''}`}
         onClick={e => {
+          if (isMobile()) {
+            e.stopPropagation();
+            if (avatarLongPressHandledRef.current) {
+              avatarLongPressHandledRef.current = false;
+              return;
+            }
+            onToggleCheck(thread, false);
+            return;
+          }
           if (isHovered || isChecked) {
             e.stopPropagation();
             onToggleCheck(thread, e.shiftKey);
           }
+        }}
+        onPointerDown={e => {
+          if (!isMobile() || e.pointerType === "mouse") return;
+          avatarLongPressHandledRef.current = false;
+          clearAvatarLongPress();
+          avatarLongPressTimerRef.current = setTimeout(() => {
+            avatarLongPressHandledRef.current = true;
+            onToggleCheck(thread, false);
+          }, 450);
+        }}
+        onPointerMove={clearAvatarLongPress}
+        onPointerUp={clearAvatarLongPress}
+        onPointerCancel={clearAvatarLongPress}
+        onContextMenu={e => {
+          if (isMobile()) e.preventDefault();
         }}
       >
         {avatarContent}
