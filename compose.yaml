@@ -1,6 +1,10 @@
 services:
   courrier:
-    build: .
+    build:
+      context: .
+      args:
+        APP_COMMIT_ID: "${COURRIER_BUILD_COMMIT:-unknown}"
+        APP_COMMIT_DATE: "${COURRIER_BUILD_DATE:-unknown}"
     image: courrier:local
     restart: unless-stopped
     ports:

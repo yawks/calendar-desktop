@@ -79,6 +79,11 @@ export function PreferencesSection() {
   const { settings: mailNotifications, supported: notificationSupported, permission: notificationPermission, enable: enableNotifications, disable: disableNotifications } = useMailNotificationsSettings();
   const [biometricDiagnostic, setBiometricDiagnostic] = useState('');
   const [diagnosticCopied, setDiagnosticCopied] = useState(false);
+  const buildCommitId = import.meta.env.VITE_APP_COMMIT_ID || t('settings.buildInfo.unknown');
+  const buildDate = new Date(import.meta.env.VITE_APP_COMMIT_DATE || '');
+  const formattedBuildDate = Number.isNaN(buildDate.getTime())
+    ? t('settings.buildInfo.unknown')
+    : buildDate.toLocaleString();
 
   const createBiometricDiagnostic = async (cause: unknown): Promise<string> => {
     const error = cause instanceof Error ? cause : new Error(String(cause));
@@ -216,8 +221,10 @@ export function PreferencesSection() {
         </p>
       </div>
 
-      {/* Taille de la police */}
+      {/* Notifications */}
       <div style={{ marginBottom: 28 }}><h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}><Bell size={16} />{t('settings.mailNotifications.sectionTitle')}</h3><label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}><input type="checkbox" checked={mailNotifications.enabled} disabled={!notificationSupported || notificationPermission === 'denied'} onChange={event => { if (event.target.checked) void enableNotifications(); else disableNotifications(); }} />{t('settings.mailNotifications.enabled')}</label><p style={{ margin: 0, fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>{notificationPermission === 'denied' ? t('settings.mailNotifications.blocked') : !notificationSupported ? t('settings.mailNotifications.unavailable') : t('settings.mailNotifications.hint')}</p></div>
+
+      {/* Taille de la police */}
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ margin: '0 0 16px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Type size={16} />
@@ -318,6 +325,11 @@ export function PreferencesSection() {
           <button className="btn-ghost" type="button" onClick={lock}><Lock size={16} /> {t('settings.vault.lockNow')}</button>
         </>}
       </div>
+
+      <footer className="preferences-build-info">
+        <span>{t('settings.buildInfo.date')}: {formattedBuildDate}</span>
+        <span>{t('settings.buildInfo.commit')}: <code>{buildCommitId}</code></span>
+      </footer>
 
     </div>
   );

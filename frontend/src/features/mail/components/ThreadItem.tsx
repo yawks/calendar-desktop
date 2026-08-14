@@ -313,6 +313,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
                 <span>{formatSnoozeDate(thread.last_delivery_time, t)}</span>
               </span>
             )}
+            {isUnread && <span className="mail-thread-item__unread-dot" aria-hidden="true" />}
             {!isInScheduledFolder && <span className="mail-thread-item__date">{formatDate(thread.last_delivery_time)}</span>}
           </div>
         </div>

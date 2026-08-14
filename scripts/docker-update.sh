@@ -36,6 +36,10 @@ fi
 
 cd "$PROJECT_DIR"
 
+COURRIER_BUILD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || printf unknown)
+COURRIER_BUILD_DATE=$(git log -1 --format=%cI 2>/dev/null || printf unknown)
+export COURRIER_BUILD_COMMIT COURRIER_BUILD_DATE
+
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
   case "$TARGET" in
     frontend)

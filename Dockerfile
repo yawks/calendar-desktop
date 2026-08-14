@@ -1,5 +1,8 @@
 FROM node:20-alpine AS web-builder
 ARG TARGETARCH
+ARG APP_COMMIT_ID=unknown
+ARG APP_COMMIT_DATE=unknown
+ENV VITE_APP_COMMIT_ID=$APP_COMMIT_ID VITE_APP_COMMIT_DATE=$APP_COMMIT_DATE
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
