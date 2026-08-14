@@ -206,19 +206,6 @@ body {
   text-align: center;
 }
 
-.welcome-mark {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: center;
-  width: 92px;
-  height: 68px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--bg-sidebar);
-  color: var(--primary);
-  box-shadow: 0 8px 28px var(--shadow);
-}
 
 .welcome-screen h1 {
   font-size: calc(30px * var(--font-scale, 1));

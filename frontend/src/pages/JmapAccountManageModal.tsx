@@ -86,7 +86,7 @@ export function JmapAccountManageModal({ account, onClose }: {
                   <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
                     <label>{t('config.email', 'Email')}</label>
-                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                    <input type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
                   </div>
                   <div className="form-row">
                     <label>{t('config.displayName', 'Display Name')}</label>
