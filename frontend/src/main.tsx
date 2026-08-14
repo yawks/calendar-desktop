@@ -5,7 +5,24 @@ import './i18n';
 import App from './App';
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  globalThis.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(console.error));
+  globalThis.addEventListener('load', () => {
+    let hadController = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      globalThis.location.reload();
+    });
+
+    void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => {
+        const checkForUpdate = () => { void registration.update().catch(console.error); };
+        checkForUpdate();
+        globalThis.setInterval(checkForUpdate, 60 * 60 * 1000);
+        globalThis.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') checkForUpdate();
+        });
+      })
+      .catch(console.error);
+  });
 }
 
 createRoot(document.getElementById('root')!).render(

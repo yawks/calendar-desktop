@@ -1,7 +1,15 @@
-const CACHE = 'courrier-shell-v2';
+const CACHE = 'courrier-shell-v3';
 const SHELL = ['/', '/index.html', '/manifest.webmanifest'];
-self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
-self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))));
+self.addEventListener('install', event => event.waitUntil((async () => {
+  const cache = await caches.open(CACHE);
+  await cache.addAll(SHELL);
+  await self.skipWaiting();
+})()));
+self.addEventListener('activate', event => event.waitUntil((async () => {
+  const keys = await caches.keys();
+  await Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)));
+  await self.clients.claim();
+})()));
 self.addEventListener('fetch', event => {
   const request = event.request;
   const path = new URL(request.url).pathname;
