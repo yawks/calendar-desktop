@@ -43,7 +43,7 @@ interface GoogleAuthContextValue {
   /** Returns a valid access token, refreshing it automatically if expired. */
   getValidToken: (accountId: string) => Promise<string | null>;
   /** Opens the server-managed Google OAuth flow in a browser popup. */
-  connectGoogle: (capabilities?: ('calendar' | 'email')[]) => Promise<GoogleAccount | null>;
+  connectGoogle: (capabilities?: ('calendar' | 'email')[], credentials?: { clientId: string; clientSecret: string }) => Promise<GoogleAccount | null>;
 }
 
 const GoogleAuthContext = createContext<GoogleAuthContextValue | null>(null);
@@ -91,7 +91,7 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
             const res = await fetch('/auth/google/refresh', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ refresh_token: account.refreshToken }),
+              body: JSON.stringify({ refresh_token: account.refreshToken, client_id: account.googleClientId, client_secret: account.googleClientSecret }),
             });
             if (!res.ok) return null;
             const { access_token, expires_at } = await res.json() as { access_token: string; expires_at: number };
@@ -115,27 +115,30 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
     return refreshPromises.current[accountId];
   }, []);
 
-  const connectGoogle = useCallback(async (capabilities: ('calendar' | 'email')[] = ['calendar', 'email']): Promise<GoogleAccount | null> => {
-      return new Promise((resolve) => {
-        const width = 500;
-        const height = 650;
-        const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
-        const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
-        const popup = window.open(
-          `/auth/google?capabilities=${encodeURIComponent(capabilities.join(','))}`,
-          'google-oauth',
-          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
-        );
-
-        if (!popup) { resolve(null); return; }
-
+  const connectGoogle = useCallback(async (capabilities: ('calendar' | 'email')[] = ['calendar', 'email'], credentials?: { clientId: string; clientSecret: string }): Promise<GoogleAccount | null> => {
+      const width = 500;
+      const height = 650;
+      const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
+      const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
+      // Open synchronously from the click handler so popup blockers allow it.
+      const popup = window.open('', 'google-oauth', `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`);
+      if (!popup) return null;
+      try {
+        const response = await fetch('/auth/google/prepare', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ capabilities, client_id: credentials?.clientId, client_secret: credentials?.clientSecret }),
+        });
+        if (!response.ok) { popup.close(); return null; }
+        const { authorizationUrl } = await response.json() as { authorizationUrl: string };
+        popup.location.href = authorizationUrl;
+        return new Promise((resolve) => {
         const onMessage = (evt: MessageEvent) => {
           if (evt.origin !== window.location.origin) return;
           try {
             const data = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
             if (data?.type === 'google-oauth-success' && data.account) {
               window.removeEventListener('message', onMessage);
-              resolve(addAccount(data.account as Omit<GoogleAccount, 'id'>));
+              resolve(addAccount({ ...data.account, googleClientId: credentials?.clientId, googleClientSecret: credentials?.clientSecret } as Omit<GoogleAccount, 'id'>));
             } else if (data?.type === 'google-oauth-error') {
               window.removeEventListener('message', onMessage);
               resolve(null);
@@ -151,7 +154,11 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
             resolve(null);
           }
         }, 500);
-      });
+        });
+      } catch {
+        popup.close();
+        return null;
+      }
   }, [addAccount]);
 
   const contextValue = useMemo(

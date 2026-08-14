@@ -108,8 +108,8 @@ Les principales variables sont :
 
 - `COURRIER_PUBLIC_URL` : URL HTTPS publique ;
 - `COURRIER_ALLOWED_PROVIDER_HOSTS` : hôtes CalDAV/ICS autorisés, séparés par des virgules ;
-- `COURRIER_GOOGLE_CLIENT_ID` et `COURRIER_GOOGLE_CLIENT_SECRET` ;
-- `COURRIER_GOOGLE_REDIRECT_URI` : par exemple `https://courrier.example.com/auth/google/callback`.
+- `COURRIER_GOOGLE_CLIENT_ID` et `COURRIER_GOOGLE_CLIENT_SECRET` : identifiants d'un client OAuth Google de type « Application Web » ;
+- `COURRIER_GOOGLE_REDIRECT_URI` : par exemple `https://courrier.example.com/auth/google/callback`. Cette même URL doit être ajoutée aux URI de redirection autorisés du client dans Google Cloud Console.
 
 ## Architecture
 

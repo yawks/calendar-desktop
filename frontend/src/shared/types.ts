@@ -44,6 +44,9 @@ export interface GoogleAccount {
   picture?: string;
   accessToken: string;
   refreshToken: string;
+  /** Per-account OAuth credentials, used only when the server is not configured. */
+  googleClientId?: string;
+  googleClientSecret?: string;
   /** Unix timestamp (ms) when the access token expires */
   expiresAt: number;
   /** UI color for this account (used in mail) */

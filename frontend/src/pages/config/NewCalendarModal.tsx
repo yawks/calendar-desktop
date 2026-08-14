@@ -29,6 +29,16 @@ export function NewCalendarModal({
   const [pendingCapabilities, setPendingCapabilities] = useState<('calendar' | 'email')[]>(['calendar', 'email']);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');
+  const [googleServerConfigured, setGoogleServerConfigured] = useState<boolean | null>(null);
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [googleClientSecret, setGoogleClientSecret] = useState('');
+
+  useEffect(() => {
+    fetch('/auth/google/configuration')
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data: { configured: boolean }) => setGoogleServerConfigured(data.configured))
+      .catch(() => setGoogleServerConfigured(false));
+  }, []);
 
   // Exchange device code flow state
   const [exUserCode, setExUserCode] = useState('');
@@ -96,7 +106,10 @@ export function NewCalendarModal({
   const handleConnectGoogle = async () => {
     setConnecting(true);
     setConnectError('');
-    const account = await connectGoogle(pendingCapabilities);
+    const credentials = googleServerConfigured
+      ? undefined
+      : { clientId: googleClientId.trim(), clientSecret: googleClientSecret.trim() };
+    const account = await connectGoogle(pendingCapabilities, credentials);
     setConnecting(false);
     if (account) {
       updateGoogleCapabilities(account.id, pendingCapabilities);
@@ -363,10 +376,22 @@ export function NewCalendarModal({
           {step === 'google' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <p style={{ margin: 0, fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                {t('config.oauthDescription')}
+                {googleServerConfigured ? t('config.oauthServerConfigured') : t('config.oauthDescription')}
               </p>
+              {googleServerConfigured === false && (
+                <>
+                  <div className="form-row">
+                    <label htmlFor="google-client-id">{t('config.googleClientId')}</label>
+                    <input id="google-client-id" type="text" value={googleClientId} onChange={(e) => setGoogleClientId(e.target.value)} required autoComplete="off" />
+                  </div>
+                  <div className="form-row">
+                    <label htmlFor="google-client-secret">{t('config.googleClientSecret')}</label>
+                    <input id="google-client-secret" type="password" value={googleClientSecret} onChange={(e) => setGoogleClientSecret(e.target.value)} required autoComplete="off" />
+                  </div>
+                </>
+              )}
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-                <button type="button" className="btn-primary" onClick={handleConnectGoogle} disabled={connecting} style={{ width: '100%', justifyContent: 'center' }}>
+                <button type="button" className="btn-primary" onClick={handleConnectGoogle} disabled={connecting || googleServerConfigured === null || (!googleServerConfigured && (!googleClientId.trim() || !googleClientSecret.trim()))} style={{ width: '100%', justifyContent: 'center' }}>
                   {connecting ? t('config.connectingGoogle') : t('config.connectGoogleAccount')}
                 </button>
                 {connectError && <div style={{ marginTop: 10, fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--color-error, #d93025)' }}>{connectError}</div>}

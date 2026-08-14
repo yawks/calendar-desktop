@@ -78,7 +78,7 @@ async fn main() {
         .route("/mail/commands/:command", post(mail_commands::dispatch))
         .fallback(api_not_found);
     let google_state = google_auth::GoogleOAuthState::default();
-    let google_routes = Router::new().route("/", get(google_auth::start)).route("/callback", get(google_auth::callback)).route("/refresh", post(google_auth::refresh)).with_state(google_state);
+    let google_routes = Router::new().route("/", get(google_auth::start)).route("/configuration", get(google_auth::configuration)).route("/prepare", post(google_auth::prepare)).route("/callback", get(google_auth::callback)).route("/complete.js", get(google_auth::complete_script)).route("/refresh", post(google_auth::refresh)).with_state(google_state);
     let app = Router::new().nest("/api", api).nest("/auth/google", google_routes).fallback_service(static_files)
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
         .layer(middleware::from_fn(security_headers)).layer(TraceLayer::new_for_http());
