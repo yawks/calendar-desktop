@@ -30,7 +30,7 @@ async fn security_headers(request: Request, next: Next) -> Response {
     headers.insert("x-content-type-options", "nosniff".parse().unwrap());
     headers.insert("referrer-policy", "same-origin".parse().unwrap());
     headers.insert("permissions-policy", "camera=(), microphone=(), geolocation=()".parse().unwrap());
-    headers.insert("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'".parse().unwrap());
+    headers.insert("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https:; font-src 'self' data:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'".parse().unwrap());
     if sensitive {
         headers.insert("cache-control", "no-store, max-age=0".parse().unwrap());
         headers.insert("pragma", "no-cache".parse().unwrap());

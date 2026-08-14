@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { MailAttachment } from '../types';
 import { X, RefreshCw } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -13,8 +13,24 @@ export interface AttachmentPreviewModalProps {
 
 export function AttachmentPreviewModal({ attachment, loading, data, onClose }: AttachmentPreviewModalProps) {
   const isImage = attachment.content_type.startsWith('image/');
-  const isPdf = attachment.content_type.includes('pdf');
-  const dataUrl = data ? `data:${attachment.content_type};base64,${data}` : null;
+  const isPdf = attachment.content_type.includes('pdf') || attachment.name.toLowerCase().endsWith('.pdf');
+  // Chromium does not reliably allow a PDF data URL to be loaded in a child
+  // frame once the app is installed as a PWA. A same-origin blob URL also
+  // avoids hitting the browser's data-URL length limits for large documents.
+  const previewUrl = useMemo(() => {
+    if (!data) return null;
+    const compact = data.replaceAll(/\s/g, '');
+    const binary = atob(compact);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return URL.createObjectURL(new Blob([bytes], {
+      type: isPdf ? 'application/pdf' : attachment.content_type,
+    }));
+  }, [attachment.content_type, data, isPdf]);
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -43,11 +59,11 @@ export function AttachmentPreviewModal({ attachment, loading, data, onClose }: A
               <RefreshCw size={32} className="spin" style={{ opacity: 0.4 }} />
             </div>
           )}
-          {!loading && dataUrl && isImage && (
-            <img src={dataUrl} alt={attachment.name} className="mail-preview-modal__img" />
+          {!loading && previewUrl && isImage && (
+            <img src={previewUrl} alt={attachment.name} className="mail-preview-modal__img" />
           )}
-          {!loading && dataUrl && isPdf && (
-            <iframe src={dataUrl} title={attachment.name} className="mail-preview-modal__iframe" />
+          {!loading && previewUrl && isPdf && (
+            <iframe src={previewUrl} title={attachment.name} className="mail-preview-modal__iframe" />
           )}
         </div>
       </dialog>

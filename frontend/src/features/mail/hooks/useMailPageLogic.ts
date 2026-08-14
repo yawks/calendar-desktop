@@ -230,6 +230,7 @@ export function useMailPageLogic() {
     selectedThread?.accountId ?? selectedAccountId,
     selectedThread?.conversation_id ?? null,
     allProviders.get(selectedThread?.accountId ?? selectedAccountId) ?? provider,
+    selectedFolder,
     selectedFolder === 'drafts',
     selectedFolder === 'deleteditems',
   );

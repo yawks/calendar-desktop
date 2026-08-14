@@ -279,15 +279,30 @@ export function useAllAccountIdentities(
   }, [dataTimestamps, accountIds]);
 }
 
-export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null, isDraft = false, includeTrash = false) {
+export function useMailConversation(
+  accountId: string,
+  conversationId: string | null,
+  provider: MailProvider | null,
+  folder: Folder,
+  isDraft = false,
+  includeTrash = false,
+) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), isDraft, includeTrash],
+    // EWS item and attachment IDs change when an item is moved. Keeping the
+    // source and destination folders in one cache entry can therefore replay
+    // an invalid ID after an archive/move operation.
+    queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), folder, isDraft, includeTrash],
     queryFn: async () => {
       if (!provider || !conversationId) throw new Error('Invalid params');
       try {
         return await provider.getThread(conversationId, includeTrash, isDraft, /* includeDrafts */ !isDraft);
       } catch (error) {
-        const cached = !includeTrash && !isDraft ? await getOfflineConversation(accountId, conversationId) : null;
+        // The offline synchronizer currently stores Inbox conversations only.
+        // Never substitute one of those records while browsing Archive or a
+        // custom folder: its EWS IDs may have changed after the move.
+        const cached = folder === 'inbox' && !includeTrash && !isDraft
+          ? await getOfflineConversation(accountId, conversationId)
+          : null;
         if (!cached) throw error;
         return cached;
       }
