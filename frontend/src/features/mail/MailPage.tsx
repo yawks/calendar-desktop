@@ -387,13 +387,37 @@ export default function MailApp() {
               resolveProvider={(thread) => resolveProvider(thread.accountId)}
             />
           </div>
+          {selectedThreadIds.size > 0 && (
+            <MultiSelectionPanel
+              compact
+              className="mail-mobile-selection-toolbar"
+              threads={threads}
+              selectedIds={selectedThreadIds}
+              onClearSelection={() => setSelectedThreadIds(new Set())}
+              onBulkDelete={handleBulkDelete}
+              onBulkArchive={() => {
+                const selected = threads.find(thread => selectedThreadIds.has(thread.conversation_id));
+                const folders = isAllMode ? (allAccountFolders.get(selected?.accountId ?? "") ?? []) : allFolders;
+                const archiveFolderId = folders.find(folder => {
+                  const name = folder.display_name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+                  return folder.folder_id.toLowerCase() === "archive" || name === "archive" || name === "archives";
+                })?.folder_id;
+                handleBulkMove(archiveFolderId ?? "archive");
+              }}
+              onBulkSnooze={handleBulkSnooze}
+              onBulkMove={handleBulkMove}
+              onBulkToggleRead={handleBulkToggleRead}
+              moveFolders={isAllMode ? (allAccountFolders.get(threads.find(thread => selectedThreadIds.has(thread.conversation_id))?.accountId ?? "") ?? allFolders) : allFolders}
+              supportsSnooze={threads.filter(thread => selectedThreadIds.has(thread.conversation_id)).every(thread => mailCapabilitiesByAccount.get(thread.accountId ?? selectedAccountId)?.snooze === true)}
+            />
+          )}
           <div
             className="mail-resize-handle"
             onMouseDown={startResizingThreadList}
             style={{ cursor: 'col-resize' }}
           />
 
-          <div className={`mail-detail-panel${selectedThread || composing || selectedThreadIds.size > 0 ? ' mail-detail-panel--open' : ''}`}>
+          <div className={`mail-detail-panel${selectedThread || composing ? ' mail-detail-panel--open' : ''}`}>
             <div className="mail-mobile-detail-nav">
               <button
                 type="button"

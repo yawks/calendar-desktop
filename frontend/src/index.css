@@ -6156,3 +6156,41 @@ body {
   .mail-stats-account-badge__domain { display: none; }
   .mail-stats-pagination { min-width: 0; }
 }
+
+/* Mobile multi-selection stays in the conversation list. */
+.mail-mobile-selection-toolbar, .mail-mobile-selection-header { display: none; }
+
+@media (max-width: 700px) {
+  .mail-mobile-selection-toolbar { display: block; }
+  .mail-mobile-selection-toolbar.mail-thread-detail { min-height: 0; padding: 0; }
+  .mail-thread-list:has(.mail-mobile-selection-header) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .mail-mobile-selection-header {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 56px;
+    padding: 0 12px 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+  }
+  .mail-mobile-selection-header strong { font-size: calc(20px * var(--font-scale, 1)); }
+  .mail-mobile-selection-header button {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text);
+  }
+  .mail-thread-item.checked {
+    background: color-mix(in srgb, var(--primary) 20%, var(--bg));
+    box-shadow: inset 4px 0 0 var(--primary);
+  }
+}

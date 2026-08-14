@@ -18,6 +18,8 @@ export interface MultiSelectionPanelProps {
   readonly onBulkToggleRead: (markAsRead: boolean) => void;
   readonly moveFolders: import('../types').MailFolder[];
   readonly supportsSnooze: boolean;
+  readonly compact?: boolean;
+  readonly className?: string;
 }
 
 const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -46,7 +48,7 @@ function computeSnoozeOptions() {
 
 export function MultiSelectionPanel({
   threads, selectedIds, onClearSelection, onBulkDelete, onBulkArchive,
-  onBulkSnooze, onBulkMove, onBulkToggleRead, moveFolders, supportsSnooze
+  onBulkSnooze, onBulkMove, onBulkToggleRead, moveFolders, supportsSnooze, compact = false, className
 }: MultiSelectionPanelProps) {
   const { t } = useTranslation();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -56,21 +58,23 @@ export function MultiSelectionPanel({
   const selectedThreads = threads.filter(t => selectedIds.has(t.conversation_id));
   const count = selectedIds.size;
   const hasUnread = selectedThreads.some(t => t.unread_count > 0);
+  const canMoveAndArchive = new Set(selectedThreads.map(thread => thread.accountId ?? "")).size <= 1;
+  const multiSourceActionUnavailable = t("mail.selection.multiSourceActionUnavailable", "Unavailable for conversations from multiple sources");
 
   const { laterToday, tomorrowMorning, tomorrowAfternoon, nextWeek } = computeSnoozeOptions();
   const laterTodayLabel = laterToday.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   const nextWeekDayName = FR_DAYS[nextWeek.getDay()];
 
   return (
-    <div className="mail-thread-detail">
+    <div className={`mail-thread-detail${className ? ` ${className}` : ""}`}>
       {/* Toolbar */}
       <div className="mail-thread-detail__toolbar">
-        <button className="mail-detail-action-btn" onClick={onBulkArchive} title={t('mail.archive', 'Archive')}>
+        <button className="mail-detail-action-btn mail-detail-toolbar__archive" onClick={onBulkArchive} disabled={!canMoveAndArchive} title={canMoveAndArchive ? t("mail.archive", "Archive") : multiSourceActionUnavailable}>
           <Archive size={15} />
           <span>{t('mail.archive', 'Archive')}</span>
         </button>
         <button
-          className="mail-detail-action-btn mail-detail-action-btn--danger"
+          className="mail-detail-action-btn mail-detail-action-btn--danger mail-detail-toolbar__delete"
           onClick={onBulkDelete}
           title={t('mail.delete', 'Delete')}
         >
@@ -81,7 +85,7 @@ export function MultiSelectionPanel({
         {/* Snooze */}
         {supportsSnooze && <div className="mail-actions-dropdown">
           <button
-            className="mail-detail-action-btn"
+            className="mail-detail-action-btn mail-detail-toolbar__snooze"
             onClick={() => setSnoozeOpen(o => !o)}
             title={t('mail.snooze', 'Snooze')}
           >
@@ -112,9 +116,10 @@ export function MultiSelectionPanel({
         {/* Move */}
         <div className="mail-actions-dropdown">
           <button
-            className="mail-detail-action-btn"
+            className="mail-detail-action-btn mail-detail-toolbar__move"
             onClick={() => setMoveOpen(o => !o)}
-            title={t('mail.move', 'Move to folder')}
+            disabled={!canMoveAndArchive}
+            title={canMoveAndArchive ? t("mail.move", "Move to folder") : multiSourceActionUnavailable}
           >
             <FolderInput size={15} />
             <span>{t('mail.move', 'Move')}</span>
@@ -158,6 +163,7 @@ export function MultiSelectionPanel({
           )}
         </div>
       </div>
+      {!compact && <>
 
       {/* Selection header */}
       <div className="mail-multiselect-header">
@@ -209,6 +215,7 @@ export function MultiSelectionPanel({
           );
         })}
       </div>
+      </>}
     </div>
   );
 }

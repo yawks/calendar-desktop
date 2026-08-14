@@ -1,6 +1,6 @@
 import { forwardRef, useState, useEffect, useRef, useImperativeHandle } from 'react';
 import { MailThread } from '../types';
-import { RefreshCw, SearchX, Inbox } from 'lucide-react';
+import { RefreshCw, SearchX, Inbox, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThreadItem } from './ThreadItem';
 
@@ -228,6 +228,14 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       <div className="mail-thread-list-wrapper">
         <div className="mail-thread-list" ref={containerRef}>
           {toolbar}
+          {selectedThreadIds.size > 0 && (
+            <div className="mail-mobile-selection-header">
+              <strong>{selectedThreadIds.size} sélectionnée{selectedThreadIds.size > 1 ? "s" : ""}</strong>
+              <button type="button" onClick={onClearSelection} aria-label={t("mail.selection.clear", "Clear selection")}>
+                <X size={24} />
+              </button>
+            </div>
+          )}
           {visibleThreads.map((thread) => (
             <ThreadItem
               key={(thread.accountId ?? '') + '_' + thread.conversation_id}
@@ -241,7 +249,13 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
               sourceColor={sourceColor}
               provider={resolveProvider?.(thread) ?? provider}
-              onSelect={onSelect}
+              onSelect={clickedThread => {
+                if (selectedThreadIds.size > 0 && globalThis.matchMedia?.("(max-width: 700px)").matches) {
+                  onToggleSelect(clickedThread);
+                  return;
+                }
+                onSelect(clickedThread);
+              }}
               onToggleRead={onToggleRead}
               onDelete={onDelete}
               onToggleCheck={(clickedThread, shiftKey) => {
