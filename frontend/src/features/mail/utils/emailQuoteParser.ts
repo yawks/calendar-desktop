@@ -158,16 +158,61 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
     return attributionTemplate.replace('%DATE%', date).replace('%SENDER%', sender);
   }
 
-  function isQuote(el: Element, depth: number): boolean {
+  function hasMailQuotedClass(el: Element): boolean {
     const cls = typeof (el as HTMLElement).className === 'string' ? (el as HTMLElement).className : '';
+    return cls.split(/\s+/).some(className => /^(?:x_)*mail-quoted$/.test(className));
+  }
+
+  function mailQuotedPart(el: Element, part: 'separator' | 'headers' | 'body'): Element | null {
+    return Array.from(el.children).find(child => {
+      const cls = typeof (child as HTMLElement).className === 'string' ? (child as HTMLElement).className : '';
+      return cls.split(/\s+/).some(className =>
+        new RegExp(`^(?:x_)*mail-quoted__${part}$`).test(className),
+      );
+    }) ?? null;
+  }
+
+  function mailQuotedPartName(el: Element): 'separator' | 'headers' | 'body' | null {
+    const cls = typeof (el as HTMLElement).className === 'string' ? (el as HTMLElement).className : '';
+    for (const part of ['separator', 'headers', 'body'] as const) {
+      if (cls.split(/\s+/).some(className =>
+        new RegExp(`^(?:x_)*mail-quoted__${part}$`).test(className),
+      )) return part;
+    }
+    return null;
+  }
+
+  function isTransparentMailQuoted(el: Element): boolean {
+    if (!hasMailQuotedClass(el)) return false;
+    const separator = normaliseText(mailQuotedPart(el, 'separator')?.textContent ?? '');
+    const headers = normaliseText(mailQuotedPart(el, 'headers')?.textContent ?? '');
+    if (separator || headers) return false;
+
+    const body = mailQuotedPart(el, 'body');
+    const text = normaliseText(body?.textContent ?? el.textContent ?? '');
+    const bodyChildren = Array.from(body?.children ?? []);
+    const onlyNestedQuotes = bodyChildren.length > 0 && bodyChildren.every(child =>
+      hasMailQuotedClass(child) || normaliseText(child.textContent ?? '') === '',
+    );
+    const isShortFragment = text.length <= 80 && !HEADER_FIELD_RE.test(text);
+    const isDisclaimer = /^(?:this e-mail transmission|ce message electronique|attention\s*: email externe)/i.test(text);
+    return !text || onlyNestedQuotes || isShortFragment || isDisclaimer;
+  }
+
+  function isQuote(el: Element, depth: number): boolean {
+    // Match the quote container class as a complete token. Outlook adds one
+    // `x_` prefix on every trip through Exchange, but BEM descendants such as
+    // `mail-quoted__headers` and `mail-quoted__body` are structural parts of
+    // that same message and must not become quote levels of their own.
+    const isMailQuotedContainer = hasMailQuotedClass(el);
     // Outlook sometimes stamps `gmail_quote` on every paragraph imported from
     // Gmail. Only the actual wrapper (containing an attribution or blockquote)
     // represents a message boundary.
     const isGmailContainer = el.matches('.gmail_quote') &&
       !!el.querySelector('.gmail_attr, blockquote');
     const isKnownContainer = isGmailContainer || QUOTE_SELECTORS.some(selector => el.matches(selector));
-    if (el.tagName !== 'BLOCKQUOTE' && !cls.includes('mail-quoted') && !isKnownContainer) return false;
-    if (isKnownContainer || cls.includes('mail-quoted')) return true;
+    if (el.tagName !== 'BLOCKQUOTE' && !isMailQuotedContainer && !isKnownContainer) return false;
+    if (isKnownContainer || isMailQuotedContainer) return true;
     // Skip very short blockquotes — they are header fields (From:, To:, Date:…)
     // that should stay visible as indented text, not become individual toggles.
     const text = (el.textContent ?? '').trim();
@@ -262,6 +307,13 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
     processNode(t.inner, depth + 1);
   }
 
+  function unwrap(el: Element): void {
+    const parent = el.parentNode;
+    if (!parent) return;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+  }
+
   function wrapSiblingsFrom(el: Element, depth: number): void {
     const parent = el.parentNode;
     if (!parent) return;
@@ -291,6 +343,23 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
       // Generated UI text can itself match "Le … a écrit :". It is metadata
       // for the current folded block, never another quote boundary.
       if (child.classList.contains('qt-attribution')) continue;
+      // These are the owned parts of an already recognised mail-quoted
+      // container. Its separator and headers describe the current level, not
+      // another one. Only traverse the body, where older replies may exist.
+      const quotedPart = mailQuotedPartName(child);
+      if (quotedPart) {
+        if (quotedPart === 'body') processNode(child, depth);
+        continue;
+      }
+      // Older versions could serialize signatures, empty spacing and legal
+      // disclaimers as metadata-less mail-quoted nodes. They carry no message
+      // boundary, so keep their contents in the surrounding quote level.
+      if (isTransparentMailQuoted(child)) {
+        unwrap(child);
+        children = Array.from(node.children);
+        i--;
+        continue;
+      }
       // `.gmail_attr` describes the immediately following blockquote; together
       // they are one historical message, not two nested levels.
       const isMarkedGmailBody = child.hasAttribute('data-qt-gmail-body');

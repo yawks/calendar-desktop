@@ -44,6 +44,112 @@ describe('findQuoteMarker', () => {
 // ─── processEmailQuotes — blockquote wrapping ─────────────────────────────────
 
 describe('processEmailQuotes — blockquote', () => {
+  it('treats mail-quoted BEM children as content, not nested quote levels', () => {
+    const el = parse(`
+      <p>Current reply</p>
+      <div class="mail-quoted mail-quoted--level-1">
+        <div class="mail-quoted__separator">----- Message d'origine -----</div>
+        <div class="mail-quoted__headers">
+          <div><span class="mail-quoted__hdr-key">De :</span> Laure &lt;laure@example.com&gt;</div>
+          <div><span class="mail-quoted__hdr-key">À :</span> Mathieu &lt;mathieu@example.com&gt;</div>
+          <div><span class="mail-quoted__hdr-key">Date :</span> ven. 14 août 2026, 17:36</div>
+          <div><span class="mail-quoted__hdr-key">Objet :</span> RE: Login SSO</div>
+        </div>
+        <div class="mail-quoted__body"><p>The previous message body.</p></div>
+      </div>
+    `);
+
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelectorAll('.qt .qt')).toHaveLength(0);
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('Laure');
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('The previous message body.');
+  });
+
+  it('recognises Outlook-prefixed mail-quoted containers without folding their BEM children', () => {
+    const el = parse(`
+      <p>Current reply</p>
+      <div class="x_x_mail-quoted x_x_mail-quoted--level-1">
+        <div class="x_x_mail-quoted__separator">----- Message d'origine -----</div>
+        <div class="x_x_mail-quoted__headers"><div>De : Laure</div><div>Objet : Test</div></div>
+        <div class="x_x_mail-quoted__body"><p>The previous message body.</p></div>
+      </div>
+    `);
+
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelectorAll('.qt .qt')).toHaveLength(0);
+  });
+
+  it('does not reinterpret anonymized English mail-quoted headers as Outlook boundaries', () => {
+    const el = parse(`
+      <p>Current forwarded message.</p>
+      <div class="mail-quoted mail-quoted--level-1">
+        <div class="mail-quoted__separator">----- Original Message -----</div>
+        <div class="mail-quoted__headers">
+          <div><span class="mail-quoted__hdr-key">From :</span> Sender Example &lt;sender@example.test&gt;</div>
+          <div><span class="mail-quoted__hdr-key">To :</span> Recipient Example &lt;recipient@example.test&gt;</div>
+          <div><span class="mail-quoted__hdr-key">Date :</span> Fri, 1 Jan 2027, 10:00</div>
+          <div><span class="mail-quoted__hdr-key">Subject :</span> [Tracker, Created] Example issue</div>
+        </div>
+        <div class="mail-quoted__body">
+          <p>External email warning.</p>
+          <p>An anonymized notification body with enough content for the fixture.</p>
+        </div>
+      </div>
+    `);
+
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelectorAll('.qt .qt')).toHaveLength(0);
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('sender@example.test');
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('Example issue');
+  });
+
+  it('keeps legacy signature and disclaimer fragments in their surrounding quote', () => {
+    const fragment = (body: string) => `
+      <div class="mail-quoted mail-quoted--level-4">
+        <div class="mail-quoted__separator"></div>
+        <div class="mail-quoted__headers"></div>
+        <div class="mail-quoted__body">${body}</div>
+      </div>`;
+    const el = parse(`
+      <div class="mail-quoted mail-quoted--level-1">
+        <div class="mail-quoted__separator">----- Message d'origine -----</div>
+        <div class="mail-quoted__headers"><div>De : Delphine</div></div>
+        <div class="mail-quoted__body">
+          <p>Previous message body with enough content to be meaningful.</p>
+          ${fragment(`<p>Delphine</p>`)}
+          ${fragment(`<p>This e-mail transmission may contain confidential information and is intended exclusively for its recipient.</p>`)}
+        </div>
+      </div>
+    `);
+
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('Delphine');
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('confidential information');
+  });
+
+  it('flattens empty legacy shells without hiding their nested fragments', () => {
+    const el = parse(`
+      <div class="mail-quoted mail-quoted--level-1">
+        <div class="mail-quoted__separator">----- Original Message -----</div>
+        <div class="mail-quoted__headers"><div>From: Delphine</div></div>
+        <div class="mail-quoted__body">
+          <div class="mail-quoted mail-quoted--level-2">
+            <div class="mail-quoted__separator"></div><div class="mail-quoted__headers"></div>
+            <div class="mail-quoted__body">
+              <div class="mail-quoted mail-quoted--level-3">
+                <div class="mail-quoted__separator"></div><div class="mail-quoted__headers"></div>
+                <div class="mail-quoted__body"><p>Delphine</p></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    expect(qtCount(el)).toBe(1);
+    expect(el.querySelector('.qt-inner')?.textContent).toContain('Delphine');
+  });
+
   it('wraps a substantial blockquote', () => {
     const el = parse(`
       <p>Hello</p>
