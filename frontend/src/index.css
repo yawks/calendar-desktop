@@ -6152,6 +6152,23 @@ body {
   .mail-stats-pagination { min-width: 0; }
 }
 
+/* Keep the same strong multi-selection highlight on every screen size. */
+.mail-thread-item.checked,
+.mail-thread-item.checked:hover,
+.mail-thread-item.checked.unread,
+.mail-thread-item.checked.unread:hover {
+  background: #d6efff;
+  box-shadow: inset 4px 0 0 #0879ba, inset 0 0 0 1px rgb(8 121 186 / 50%);
+}
+
+[data-theme="dark"] .mail-thread-item.checked,
+[data-theme="dark"] .mail-thread-item.checked:hover,
+[data-theme="dark"] .mail-thread-item.checked.unread,
+[data-theme="dark"] .mail-thread-item.checked.unread:hover {
+  background: #153c55;
+  box-shadow: inset 4px 0 0 #62c7ff, inset 0 0 0 1px rgb(98 199 255 / 70%);
+}
+
 /* Mobile multi-selection stays in the conversation list. */
 .mail-mobile-selection-toolbar, .mail-mobile-selection-header { display: none; }
 
@@ -6184,10 +6201,6 @@ body {
     background: transparent;
     color: var(--text);
   }
-  .mail-thread-item.checked {
-    background: color-mix(in srgb, var(--primary) 20%, var(--bg));
-    box-shadow: inset 4px 0 0 var(--primary);
-  }
 }
 
 @media (max-width: 700px) {
@@ -6195,15 +6208,6 @@ body {
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
-  }
-  .mail-thread-item.checked {
-    background: #d6efff;
-    box-shadow: inset 4px 0 0 #0879ba, inset 0 0 0 1px rgb(8 121 186 / 50%);
-  }
-  [data-theme="dark"] .mail-thread-item.checked,
-  [data-theme="dark"] .mail-thread-item.checked.unread {
-    background: #153c55;
-    box-shadow: inset 4px 0 0 #62c7ff, inset 0 0 0 1px rgb(98 199 255 / 70%);
   }
 }
 
