@@ -72,7 +72,7 @@ function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiomet
       </header>
       <div className="vault-fields">
         <label htmlFor="vault-password">{t('vault.masterPassword')}</label>
-        <input id="vault-password" autoFocus autoComplete={exists ? 'current-password' : 'new-password'} type="password" minLength={12} required value={password} onChange={event => setPassword(event.target.value)} />
+        <input id="vault-password" autoFocus={!biometricEnabled} autoComplete={exists ? 'current-password' : 'new-password'} type="password" minLength={12} required value={password} onChange={event => setPassword(event.target.value)} />
         {!exists && <><label htmlFor="vault-confirmation">{t('vault.confirmation')}</label><input id="vault-confirmation" autoComplete="new-password" type="password" minLength={12} required value={confirmation} onChange={event => setConfirmation(event.target.value)} /></>}
       </div>
       {(mismatch || error) && <p className="vault-form__error" role="alert">{mismatch ? t('vault.passwordMismatch') : t(error)}</p>}
@@ -97,6 +97,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   const payloadRef = useRef<VaultPayload>({});
   const writeQueue = useRef(Promise.resolve());
   const lock = useCallback(() => { keyRef.current = null; payloadRef.current = {}; setPayload(null); }, []);
+  const biometricAutoAttempted = useRef(false);
 
   useEffect(() => {
     void Promise.all([get<EncryptedVault>(DB_KEY), hasBiometricUnlock()]).then(([value, enabled]) => {
@@ -176,6 +177,16 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     await disableBiometricUnlock();
     setBiometricEnabled(false);
   }, []);
+
+  useEffect(() => {
+    if (payload !== null) {
+      biometricAutoAttempted.current = false;
+      return;
+    }
+    if (!stored || !biometricEnabled || busy || biometricAutoAttempted.current) return;
+    biometricAutoAttempted.current = true;
+    void biometricUnlock();
+  }, [payload, stored, biometricEnabled, busy, biometricUnlock]);
 
   useEffect(() => {
     if (!payload) return;
