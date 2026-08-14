@@ -242,6 +242,17 @@ body {
 }
 
 /* ── Mail app ────────────────────────────────────── */
+.welcome-screen { display: grid; min-height: 100dvh; grid-template-rows: auto 1fr auto; align-items: center; justify-items: center; gap: 0; padding: 0 24px max(24px, env(safe-area-inset-bottom)); background: var(--bg); }
+.welcome-brand { display: inline-flex; align-items: center; justify-content: center; gap: 10px; color: var(--text); font-size: calc(17px * var(--font-scale, 1)); font-weight: 700; letter-spacing: -0.02em; }
+.welcome-brand--top { align-self: start; padding-top: max(24px, env(safe-area-inset-top)); }
+.welcome-brand__logo { width: 52px; height: 52px; border-radius: 13px; box-shadow: 0 5px 14px color-mix(in srgb, var(--primary) 32%, transparent); }
+.welcome-card { display: flex; width: min(520px, 100%); align-self: center; flex-direction: column; align-items: center; gap: 18px; padding: 32px; border: 1px solid var(--border); border-radius: 20px; background: var(--bg-sidebar); box-shadow: 0 22px 55px color-mix(in srgb, var(--shadow) 65%, transparent); text-align: center; }
+.welcome-card h1 { font-size: calc(30px * var(--font-scale, 1)); font-weight: 500; letter-spacing: -0.02em; }
+.welcome-card p { max-width: 520px; color: var(--text-muted); font-size: calc(16px * var(--font-scale, 1)); line-height: 1.55; }
+@media (max-width: 700px) { .welcome-brand--top { padding-top: max(16px, env(safe-area-inset-top)); }
+.welcome-brand__logo { width: 44px; height: 44px; border-radius: 11px; }
+.welcome-card { padding: 24px 18px; box-shadow: none; }
+}
 .mail-app { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 .mail-placeholder {
