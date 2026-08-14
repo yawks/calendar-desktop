@@ -31,7 +31,7 @@ cd ../backend && cargo test
 Le build doit être lancé depuis la racine du dépôt :
 
 ```bash
-docker build --file Dockerfile --tag courrier:latest .
+docker build --build-arg APP_COMMIT_ID="$(git rev-parse --short HEAD)" --build-arg APP_COMMIT_DATE="$(git log -1 --format=%cI)" --file Dockerfile --tag courrier:latest .
 docker run --rm --publish 127.0.0.1:8080:8080 courrier:latest
 ```
 
@@ -49,7 +49,7 @@ mkdir -p deploy/certs
 mkcert -cert-file deploy/certs/localhost.pem \
   -key-file deploy/certs/localhost-key.pem \
   localhost 127.0.0.1 ::1
-docker compose -f compose.yaml -f compose.local-https.yaml up --build --detach
+./scripts/update-all.sh
 ```
 
 Ouvrir ensuite `https://localhost:8443`. Il ne doit y avoir aucun avertissement de certificat. Les certificats locaux sont ignorés par Git.
@@ -88,7 +88,7 @@ build de production sans surcharge conserve le profil Rust `release`.
 Le lancement durci recommandé utilise :
 
 ```bash
-docker compose up --build --detach
+COURRIER_LOCAL_HTTPS=0 ./scripts/update-all.sh
 ```
 
 Le port est alors lié uniquement à `127.0.0.1`. Le Nginx déjà installé sur l'hôte termine HTTPS et applique le Basic Auth. Les exemples se trouvent dans :

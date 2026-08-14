@@ -1,7 +1,7 @@
 FROM node:20-alpine AS web-builder
 ARG TARGETARCH
-ARG APP_COMMIT_ID=unknown
-ARG APP_COMMIT_DATE=unknown
+ARG APP_COMMIT_ID
+ARG APP_COMMIT_DATE
 ENV VITE_APP_COMMIT_ID=$APP_COMMIT_ID VITE_APP_COMMIT_DATE=$APP_COMMIT_DATE
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
@@ -14,6 +14,7 @@ RUN --mount=type=cache,target=/root/.npm case "$TARGETARCH" in \
       *) echo "Unsupported Docker architecture: $TARGETARCH"; exit 1 ;; \
     esac
 COPY frontend/ ./
+RUN test -n "$APP_COMMIT_ID" && test "$APP_COMMIT_ID" != "unknown" && test -n "$APP_COMMIT_DATE" && test "$APP_COMMIT_DATE" != "unknown" || (echo "Build metadata missing: use scripts/update-all.sh or pass APP_COMMIT_ID and APP_COMMIT_DATE." >&2; exit 1)
 RUN npm run build
 
 FROM rust:1.91-alpine3.23 AS api-builder
