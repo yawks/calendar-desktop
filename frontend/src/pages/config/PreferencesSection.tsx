@@ -203,7 +203,7 @@ export function PreferencesSection() {
       </div>
 
       {/* Layout */}
-      <div style={{ marginBottom: 28 }}>
+      <div className="preferences-layout-section" style={{ marginBottom: 28 }}>
         <h3 style={{ margin: '0 0 12px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <LayoutPanelTop size={16} />
           {t('settings.layout.sectionTitle', 'Interface')}

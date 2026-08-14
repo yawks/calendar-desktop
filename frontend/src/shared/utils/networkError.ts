@@ -16,3 +16,13 @@ export function isOfflineLikeError(error: unknown): boolean {
     /gateway timeout/i,
   ].some(pattern => pattern.test(message));
 }
+
+/** Provider failures that are expected to recover without user action. */
+export function isTemporaryMailServiceError(error: unknown): boolean {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error ?? '');
+  return [
+    /ErrorMailboxStoreUnavailable/i,
+    /mailbox (?:database|store) is temporarily unavailable/i,
+    /cannot open mailbox/i,
+  ].some(pattern => pattern.test(message));
+}

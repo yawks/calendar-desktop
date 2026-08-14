@@ -364,6 +364,7 @@
     },
     "noSubject": "(Pas d'objet)",
     "messageContentLoadError": "Impossible de charger le message — réessayer",
+    "temporaryServiceUnavailable": "Outlook est temporairement indisponible. Une nouvelle tentative sera effectuée automatiquement.",
     "messageContentReloading": "Rechargement…",
     "messageContentReload": "Recharger le contenu",
     "noAccount": "Aucun compte mail configuré. Ajoutez un compte Exchange ou Google dans les paramètres.",

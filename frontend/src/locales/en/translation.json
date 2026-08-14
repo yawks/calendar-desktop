@@ -364,6 +364,7 @@
     },
     "noSubject": "(No subject)",
     "messageContentLoadError": "Unable to load message — retry",
+    "temporaryServiceUnavailable": "Outlook is temporarily unavailable. Another attempt will be made automatically.",
     "messageContentReloading": "Reloading…",
     "messageContentReload": "Reload content",
     "noAccount": "No mail account configured. Add an Exchange or Google account in Settings.",

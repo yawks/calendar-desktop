@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOfflineLikeError } from './networkError';
+import { isOfflineLikeError, isTemporaryMailServiceError } from './networkError';
 
 describe('isOfflineLikeError', () => {
   it.each([
@@ -18,5 +18,16 @@ describe('isOfflineLikeError', () => {
     new Error('Google API 400: invalid request'),
   ])('keeps actionable failures visible', error => {
     expect(isOfflineLikeError(error)).toBe(false);
+  });
+
+  it.each([
+    new Error('ErrorMailboxStoreUnavailable: The mailbox database is temporarily unavailable., Cannot open mailbox.'),
+    new Error('Mailbox store is temporarily unavailable'),
+  ])('recognises temporary mail provider failures', error => {
+    expect(isTemporaryMailServiceError(error)).toBe(true);
+  });
+
+  it('does not classify authentication failures as temporary provider failures', () => {
+    expect(isTemporaryMailServiceError(new Error('Unauthorized'))).toBe(false);
   });
 });

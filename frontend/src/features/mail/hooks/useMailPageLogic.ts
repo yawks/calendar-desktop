@@ -21,7 +21,7 @@ import { useMailMutations } from './useMailMutations';
 import { cleanupContactIndex, recordContactObservations, searchContactIndex, type ContactObservation } from '../utils/contactIndex';
 import { useContactBackfill } from './useContactBackfill';
 import { useOfflineMailSync } from './useOfflineMailSync';
-import { isOfflineLikeError } from '../../../shared/utils/networkError';
+import { isOfflineLikeError, isTemporaryMailServiceError } from '../../../shared/utils/networkError';
 
 export function useMailPageLogic() {
   const { t } = useTranslation();
@@ -315,11 +315,15 @@ export function useMailPageLogic() {
     const threadErrors = isAllMode ? allThreadsQuery.errors : (threadsQuery.error ? [threadsQuery.error] : []);
     const allErrors = ([...threadErrors, ...allFoldersQuery.errors] as Error[])
       .filter(candidate => !isOfflineLikeError(candidate));
+    const temporaryMessage = t('mail.temporaryServiceUnavailable');
     if (allErrors.length > 0) {
-      const msg = allErrors[0].message;
+      const firstError = allErrors[0];
+      const msg = isTemporaryMailServiceError(firstError) ? temporaryMessage : firstError.message;
       setError(prev => prev === msg ? prev : msg);
+    } else {
+      setError(prev => prev === temporaryMessage ? null : prev);
     }
-  }, [isAllMode, allThreadsQuery.errors, threadsQuery.error, allFoldersQuery.errors]);
+  }, [isAllMode, allThreadsQuery.errors, threadsQuery.error, allFoldersQuery.errors, t]);
 
   // --- MUTATIONS ---
   const mutations = useMailMutations();

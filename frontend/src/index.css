@@ -6221,3 +6221,9 @@ body {
 .preferences-build-info code {
   color: var(--text);
 }
+
+@media (max-width: 700px) {
+  .preferences-layout-section {
+    display: none;
+  }
+}

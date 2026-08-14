@@ -4,6 +4,7 @@ import { Folder, MailSearchQuery, MailThread, MailMessage, MailFolder, MailIdent
 import { buildUnreadCounts, DISPLAY_TO_STATIC } from '../utils';
 import { useMemo, useCallback } from 'react';
 import { getOfflineConversation, getOfflineInboxThreads } from '../utils/offlineMailCache';
+import { isTemporaryMailServiceError } from '../../../shared/utils/networkError';
 
 export const MAIL_KEYS = {
   all: ['mail'] as const,
@@ -16,6 +17,8 @@ export const MAIL_KEYS = {
 };
 
 const EMPTY_ARRAY: any[] = [];
+const retryTemporaryMailFailure = (failureCount: number, error: unknown) => failureCount < 3 && isTemporaryMailServiceError(error);
+const temporaryMailRetryDelay = (attempt: number) => Math.min(2_000 * 2 ** attempt, 10_000);
 
 export function useMailFolders(accountId: string, provider: MailProvider | null) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
@@ -27,7 +30,8 @@ export function useMailFolders(accountId: string, provider: MailProvider | null)
     enabled: !!provider,
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
-    retry: false,
+    retry: retryTemporaryMailFailure,
+    retryDelay: temporaryMailRetryDelay,
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailFolder[]), isLoading, isFetching, error, refetch }),
@@ -57,7 +61,8 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
       enabled: !!acc.provider,
       staleTime: 30 * 1000,
       refetchInterval: 60 * 1000,
-      retry: false,
+      retry: retryTemporaryMailFailure,
+      retryDelay: temporaryMailRetryDelay,
     })),
   });
 
@@ -135,7 +140,8 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
     },
     enabled: !!provider,
     refetchInterval: 60 * 1000,
-    retry: false,
+    retry: retryTemporaryMailFailure,
+    retryDelay: temporaryMailRetryDelay,
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailThread[]), isLoading, isFetching, error, refetch }),
@@ -168,7 +174,8 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
       },
       enabled: enabled && !!acc.provider,
       refetchInterval: 60 * 1000,
-      retry: false,
+      retry: retryTemporaryMailFailure,
+      retryDelay: temporaryMailRetryDelay,
     })),
   });
 
@@ -214,7 +221,8 @@ export function useMailIdentities(accountId: string, provider: MailProvider | nu
     },
     enabled: !!provider && !!provider.listIdentities,
     staleTime: 5 * 60 * 1000,
-    retry: false,
+    retry: retryTemporaryMailFailure,
+    retryDelay: temporaryMailRetryDelay,
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailIdentity[]), isLoading, error, refetch }),
@@ -242,7 +250,8 @@ export function useAllAccountIdentities(
       },
       enabled: !!acc.provider?.listIdentities,
       staleTime: 5 * 60 * 1000,
-      retry: false,
+      retry: retryTemporaryMailFailure,
+      retryDelay: temporaryMailRetryDelay,
     })),
   });
 
@@ -335,7 +344,8 @@ export function useMailSearch(accountId: string, query: MailSearchQuery, provide
     },
     enabled: !!provider && hasQuery,
     staleTime: 2 * 60 * 1000,
-    retry: false,
+    retry: retryTemporaryMailFailure,
+    retryDelay: temporaryMailRetryDelay,
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailThread[]), isLoading, error, refetch }),
@@ -363,7 +373,8 @@ export function useAllAccountSearch(query: MailSearchQuery, accounts: { id: stri
       },
       enabled: !!acc.provider && hasQuery,
       staleTime: 2 * 60 * 1000,
-      retry: false,
+      retry: retryTemporaryMailFailure,
+      retryDelay: temporaryMailRetryDelay,
     })),
   });
 
