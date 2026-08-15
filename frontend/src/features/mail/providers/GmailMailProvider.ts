@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { fileService } from '../../../shared/services/fileService';
 
 import type { MailAttachment, MailFolder, MailIdentity, MailMessage, MailRecipient, MailSearchQuery, MailThread } from '../types';
 import type { Contact, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
@@ -301,7 +301,7 @@ function replaceNextEmptySrc(html: string, dataUri: string): string {
  */
 export class GmailMailProvider implements MailProvider {
   readonly providerType = 'gmail' as const;
-  readonly capabilities = { snooze: false, scheduledSend: false } as const;
+  readonly capabilities = { snooze: false, scheduledSend: { supported: false } } as const;
   readonly accountId: string;
   readonly userEmail: string;
 
@@ -374,6 +374,7 @@ export class GmailMailProvider implements MailProvider {
   // ── Threads ────────────────────────────────────────────────────────────────
 
   async listThreads(folder: string, maxCount = 50, offset = 0): Promise<MailThread[]> {
+    if (folder === 'scheduled') return [];
     const token = await this.token();
     const label = folderToLabel(folder);
     if (!label) return [];
@@ -824,22 +825,28 @@ export class GmailMailProvider implements MailProvider {
   // ── Attachments ────────────────────────────────────────────────────────────
 
   async openAttachment(attachment: MailAttachment): Promise<void> {
-    const [messageId, attachmentId] = attachment.attachment_id.split(':');
-    const accessToken = await this.token();
-    return invoke('gmail_open_attachment', { accessToken, messageId, attachmentId, filename: attachment.name });
+    const data = await this.getAttachmentData(attachment);
+    fileService.downloadBase64(attachment.name, data, attachment.content_type);
   }
 
   async getAttachmentData(attachment: MailAttachment): Promise<string> {
     const [messageId, attachmentId] = attachment.attachment_id.split(':');
     const accessToken = await this.token();
-    // Delegate to the Rust command which uses the correct URL_SAFE_NO_PAD decoder
-    // and returns clean standard base64.
-    return invoke<string>('gmail_get_attachment_data', { accessToken, messageId, attachmentId });
+    const payload = await this.gFetch<{ data: string }>(accessToken, `/users/me/messages/${messageId}/attachments/${attachmentId}`);
+    const normalized = payload.data.replaceAll('-', '+').replaceAll('_', '/');
+    return normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
   }
 
 
   async moveToFolder(itemId: string, folderId: string): Promise<void> {
     const token = await this.token();
+    if (folderId === 'archive') {
+      await this.gPost(token, `/users/me/messages/${itemId}/modify`, {
+        addLabelIds: [],
+        removeLabelIds: ['INBOX'],
+      });
+      return;
+    }
     const targetLabel = folderToLabel(folderId);
     if (!targetLabel) return;
 

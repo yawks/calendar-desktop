@@ -1,11 +1,12 @@
-import { invoke } from '@tauri-apps/api/core';
+import { mailCommand as invoke } from '../../../shared/api/mailApi';
+import { fileService } from '../../../shared/services/fileService';
 import { ImapAccount } from '../../../shared/types';
 import { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
 import { MailProvider, ProviderType, SendMailParams, SaveDraftParams, MailItemRef } from './MailProvider';
 
 export class ImapMailProvider implements MailProvider {
   readonly providerType: ProviderType = 'imap' as ProviderType;
-  readonly capabilities = { snooze: false, scheduledSend: false } as const;
+  readonly capabilities = { snooze: false, scheduledSend: { supported: false } } as const;
   readonly accountId: string;
   private readonly config: ImapAccount;
   private folderMapping: Record<string, string> = {};
@@ -48,6 +49,7 @@ export class ImapMailProvider implements MailProvider {
   }
 
   async listThreads(folder: string, maxCount?: number, offset = 0): Promise<MailThread[]> {
+    if (folder === 'scheduled') return [];
     const targetFolder = this.resolveFolder(folder);
     const threads = await invoke<MailThread[]>('imap_list_threads', {
       config: this.getBackendConfig(),
@@ -218,8 +220,7 @@ export class ImapMailProvider implements MailProvider {
 
   async openAttachment(attachment: MailAttachment): Promise<void> {
     const data = await this.getAttachmentData(attachment);
-    const path = await invoke<string>('save_file_to_downloads', { filename: attachment.name, data });
-    return invoke<void>('open_file_path', { path });
+    fileService.downloadBase64(attachment.name, data, attachment.content_type);
   }
 
   async getAttachmentData(attachment: MailAttachment): Promise<string> {

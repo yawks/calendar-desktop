@@ -1,0 +1,41 @@
+[package]
+name = "courrier"
+version = "0.1.0"
+description = "Email and calendar client app"
+authors = []
+edition = "2021"
+autobins = false
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tokio = { version = "1", features = ["full"] }
+urlencoding = "2.1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+async-imap = { version = "0.9", default-features = false, features = ["runtime-tokio"] }
+futures = "0.3"
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "hostname", "smtp-transport", "builder"] }
+mailparse = "0.15"
+jmap-client = "0.2"
+tokio-rustls = "0.26"
+rustls = "0.23"
+rustls-pki-types = "1.0"
+webpki-roots = "0.26"
+
+[patch.crates-io]
+jmap-client = { path = "vendor/jmap-client" }
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { parseICS } from '../utils/parseICS';
 import { cacheGetStale, cacheSet, cacheIsFresh } from '../utils/eventCache';
+import { calendarApi } from '../../../shared/api/calendarApi';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const CACHE_VERSION = 'v3';
@@ -11,8 +12,7 @@ function cacheKey(calId: string, ownerEmail?: string) {
 }
 
 async function fetchAndParse(cal: CalendarConfig): Promise<CalendarEvent[]> {
-  const { invoke } = await import('@tauri-apps/api/core');
-  const text = await invoke<string>('fetch_ics', { url: cal.url });
+  const text = await calendarApi.fetchIcs(cal.url);
   return parseICS(text, cal);
 }
 

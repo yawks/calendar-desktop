@@ -1,0 +1,26 @@
+/* ── Calendar group (new unified style) ──────────────────────────────────── */
+
+.config-group {
+  margin-bottom: 28px;
+}
+
+.config-group-header {
+  display: flex;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-group-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+

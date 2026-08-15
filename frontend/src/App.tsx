@@ -1,5 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { OfflineMailProvider } from './shared/store/OfflineMailStore';
+import { MailNotificationProvider } from './shared/store/MailNotificationStore';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
@@ -21,6 +23,7 @@ import { TagProvider } from './features/calendar/store/TagStore';
 import { ThemeProvider } from './shared/store/ThemeStore';
 import WelcomeScreen from './shared/components/WelcomeScreen';
 import { useAppCapabilities } from './shared/hooks/useAppCapabilities';
+import { VaultProvider } from './shared/security/VaultProvider';
 
 // Fenêtre calendrier secondaire (mode windows uniquement, route /calendar)
 function CalendarWindowView() {
@@ -60,7 +63,10 @@ export default function App() {
       persistOptions={{ persister: indexedDBPersister, buster: 'mail-provider-loading-v4' }}
     >
       <ThemeProvider>
+      <OfflineMailProvider>
+      <VaultProvider>
         <LanguageProvider>
+        <MailNotificationProvider>
           <FontSizeProvider>
             <SignatureProvider>
             <LogoDevTokenProvider>
@@ -72,7 +78,7 @@ export default function App() {
                     <CalendarProvider>
                       <CalendarGroupProvider>
                         <TagProvider>
-                          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                          <BrowserRouter>
                             <Routes>
                               <Route path="/" element={<RootView />} />
                               <Route path="/calendar" element={<CalendarWindowView />} />
@@ -90,7 +96,10 @@ export default function App() {
             </LogoDevTokenProvider>
             </SignatureProvider>
           </FontSizeProvider>
-        </LanguageProvider>
+        </MailNotificationProvider>
+      </LanguageProvider>
+      </VaultProvider>
+      </OfflineMailProvider>
       </ThemeProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </PersistQueryClientProvider>

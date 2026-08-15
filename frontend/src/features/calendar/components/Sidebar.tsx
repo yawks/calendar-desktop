@@ -551,12 +551,12 @@ export default function Sidebar({
       {tags !== undefined && (
         <div className="group-section" style={{ marginTop: '16px' }}>
           <div className="group-header">
-            <span className="group-name">Tags / Insights</span>
+            <span className="group-name">{t('sidebar.tagsInsights')}</span>
             <div style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
               <button
                 type="button"
                 onClick={() => handleTagsViewChange('tags')}
-                title="Gérer les tags"
+                title={t('sidebar.manageTags')}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -574,7 +574,7 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={() => handleTagsViewChange('insights')}
-                title="Statistiques"
+                title={t('sidebar.statistics')}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -685,7 +685,7 @@ export default function Sidebar({
                   className="calendar-edit-input"
                   value={newTagName}
                   onChange={(e) => setNewTagName(e.target.value)}
-                  placeholder="Nom du tag"
+                  placeholder={t('sidebar.tagNamePlaceholder')}
                   autoFocus
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleAddTag();

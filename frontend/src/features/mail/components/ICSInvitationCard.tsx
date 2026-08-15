@@ -17,13 +17,14 @@ import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
 import { useCalendarEvents } from '../../calendar/hooks/useCalendarQueries';
 import { useGoogleEvents, patchGoogleCachedRsvp } from '../../calendar/hooks/useGoogleEvents';
 import { useNextcloudEvents, patchNextcloudCachedRsvp } from '../../calendar/hooks/useNextcloudEvents';
-import { useEventKitEvents } from '../../calendar/hooks/useEventKitEvents';
 import { patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
 import { DayEventsTimeline } from '../../calendar/components/DayEventsTimeline';
 import { respondToGoogleEvent, createEvent as createGoogleEvent } from '../../calendar/utils/googleCalendarApi';
 import { respondToNextcloudEvent, createNextcloudEvent } from '../../calendar/utils/nextcloudCalendarApi';
 import { EmailHtmlBody } from './EmailHtmlBody';
+import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 import './ICSInvitationCard.css';
+import { useTranslation } from 'react-i18next';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,24 +114,8 @@ function resolveHighlightedId(isCancelled: boolean, matchedId: string | undefine
   return matchedId ?? (isAllday ? undefined : ICS_PREVIEW_ID);
 }
 
-function cardLabel(isCancelled: boolean, isReply: boolean): string {
-  if (isCancelled) return 'Annulation';
-  if (isReply) return 'Réponse';
-  return 'Invitation';
-}
-
 function supportsRsvp(type: CalendarConfig['type']): boolean {
   return type === 'google' || type === 'nextcloud' || type === 'exchange';
-}
-
-function statusLabel(status: AttendeeStatus | undefined): string {
-  switch (status) {
-    case 'ACCEPTED':     return 'Accepté';
-    case 'DECLINED':     return 'Refusé';
-    case 'TENTATIVE':    return 'Peut-être';
-    case 'NEEDS-ACTION': return 'En attente';
-    default:             return 'Non répondu';
-  }
 }
 
 function statusClass(status: AttendeeStatus | undefined): string {
@@ -249,8 +234,7 @@ async function executeRsvp(
     const [itemId, changeKey] = event.sourceId.split('|');
     const responseTypeMap: Record<string, string> = { ACCEPTED: 'accept', DECLINED: 'decline', TENTATIVE: 'tentative' };
     const responseType = responseTypeMap[status];
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('ews_respond_to_invitation', {
+    await exchangeCalendarApi.respond({
       accessToken: token,
       itemId,
       changeKey,
@@ -291,8 +275,7 @@ async function addToCalendar(
     if (!cal.exchangeAccountId) throw new Error('Compte Exchange introuvable');
     const token = await getExchangeToken(cal.exchangeAccountId);
     if (!token) throw new Error('Token Exchange invalide');
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('ews_create_event', {
+    await exchangeCalendarApi.create({
       accessToken: token,
       title: payload.title,
       start: payload.start,
@@ -301,20 +284,6 @@ async function addToCalendar(
       location: payload.location ?? null,
       description: payload.description ?? null,
       attendees: null,
-    });
-  } else if (cal.type === 'eventkit') {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('create_eventkit_event', {
-      payload: {
-        calendar_id: cal.eventKitCalendarId,
-        title: payload.title,
-        start: payload.start,
-        end: payload.end,
-        is_all_day: payload.isAllday,
-        location: payload.location ?? null,
-        notes: payload.description ?? null,
-        attendees: null,
-      },
     });
   } else {
     throw new Error('Type de calendrier non supporté');
@@ -430,6 +399,9 @@ const ICS_CANCELLED_ID = '__ics_cancelled__';
 export function ICSInvitationCard({
   source, currentUserEmail, mailProviderType, invitationHtml, invitationText,
 }: ICSInvitationCardProps) {
+  const { t, i18n } = useTranslation();
+  const translatedStatus = useCallback((status: AttendeeStatus | undefined) =>
+    t(`invitation.status.${status ?? 'NONE'}`), [t]);
   // ── Data loading ─────────────────────────────────────────────────────────
   const [icsData, setIcsData] = useState<ICSEventData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -464,7 +436,7 @@ export function ICSInvitationCard({
         if (parsed) {
           setIcsData(parsed);
         } else {
-          setLoadError("Impossible de lire l'invitation.");
+          setLoadError(t('invitation.readError'));
         }
       })
       .catch(e => {
@@ -472,7 +444,7 @@ export function ICSInvitationCard({
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sourceKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sourceKey, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Calendar + event data ─────────────────────────────────────────────────
   const { calendars: allCalendars } = useCalendars();
@@ -488,11 +460,10 @@ export function ICSInvitationCard({
   // Load events from all providers and combine them
   const { events: googleEvents } = useGoogleEvents(allCalendars);
   const { events: ncEvents }     = useNextcloudEvents(allCalendars);
-  const { events: ekEvents }     = useEventKitEvents(allCalendars);
   const { events: ewsEvents }    = useCalendarEvents(allCalendars);
   const allEvents = useMemo(
-    () => [...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents],
-    [googleEvents, ncEvents, ekEvents, ewsEvents],
+    () => [...googleEvents, ...ncEvents, ...ewsEvents],
+    [googleEvents, ncEvents, ewsEvents],
   );
 
   // Default calendar: match the mail account email with a calendar account
@@ -652,13 +623,13 @@ export function ICSInvitationCard({
         } else if (selectedCal.type === 'nextcloud') {
           await patchNextcloudCachedRsvp(calendarId, eventId, status);
         }
-        const successMsgMap: Record<string, string> = { ACCEPTED: 'Accepté !', DECLINED: 'Refusé.', TENTATIVE: 'Peut-être.' };
+        const successMsgMap: Record<string, string> = { ACCEPTED: t('invitation.acceptedSuccess'), DECLINED: t('invitation.declinedSuccess'), TENTATIVE: t('invitation.tentativeSuccess') };
         setActionSuccess(successMsgMap[status] ?? '');
       } else {
         // Event not yet in calendar: create it with the given status
         await addToCalendar(selectedCal, icsData, getGoogleToken, getExchangeToken);
         saveStoredRsvp(icsData, status);
-        setActionSuccess('Ajouté au calendrier !');
+        setActionSuccess(t('invitation.addedSuccess'));
       }
     } catch (e) {
       setRsvpOverride(prevOverride); // rollback optimistic update
@@ -666,7 +637,7 @@ export function ICSInvitationCard({
     } finally {
       setLoadingAction(null);
     }
-  }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride]);
+  }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride, t]);
 
   const handleAddToCalendar = useCallback(async () => {
     if (!selectedCal || !icsData) return;
@@ -675,20 +646,20 @@ export function ICSInvitationCard({
     setActionSuccess(null);
     try {
       await addToCalendar(selectedCal, icsData, getGoogleToken, getExchangeToken);
-      setActionSuccess('Ajouté au calendrier !');
+      setActionSuccess(t('invitation.addedSuccess'));
     } catch (e) {
       setActionError(String(e));
     } finally {
       setLoadingAction(null);
     }
-  }, [selectedCal, icsData, getGoogleToken, getExchangeToken]);
+  }, [selectedCal, icsData, getGoogleToken, getExchangeToken, t]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="ics-card ics-card--loading">
         <Loader2 size={18} className="ics-spinner" />
-        <span>Chargement de l'invitation…</span>
+        <span>{t('invitation.loading')}</span>
       </div>
     );
   }
@@ -697,7 +668,7 @@ export function ICSInvitationCard({
     return (
       <div className="ics-card ics-card--error">
         <CalendarCheck size={18} />
-        <span>{loadError ?? "Impossible de lire l'invitation."}</span>
+        <span>{loadError ?? t('invitation.readError')}</span>
       </div>
     );
   }
@@ -705,12 +676,13 @@ export function ICSInvitationCard({
   const eventDate = new Date(icsData.start);
   const eventEnd  = new Date(icsData.end);
 
-  const dateStr = eventDate.toLocaleDateString('fr-FR', {
+  const locale = i18n.resolvedLanguage === 'fr' ? 'fr-FR' : 'en-GB';
+  const dateStr = eventDate.toLocaleDateString(locale, {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
   const timeStr = icsData.isAllday
-    ? 'Journée entière'
-    : `${eventDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} – ${eventEnd.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+    ? t('invitation.allDay')
+    : `${eventDate.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })} – ${eventEnd.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`;
 
   const organizer = icsData.attendees.find(a => a.isOrganizer);
   const otherAttendees = icsData.attendees.filter(a => !a.isOrganizer);
@@ -722,14 +694,14 @@ export function ICSInvitationCard({
         <div className="ics-card__header">
           <CalendarCheck size={18} className="ics-card__icon" />
           <span className="ics-card__label">
-            {cardLabel(isCancelled, isReply)}
+            {t(isCancelled ? 'invitation.cancellation' : isReply ? 'invitation.reply' : 'invitation.title')}
           </span>
         </div>
 
         <h3 className="ics-card__title" style={currentStatus === 'DECLINED' || isCancelled ? { textDecoration: 'line-through' } : undefined}>{icsData.title}</h3>
 
         {isCancelled && (
-          <div className="ics-status ics-status--cancelled">Évènement annulé</div>
+          <div className="ics-status ics-status--cancelled">{t('invitation.cancelled')}</div>
         )}
 
         <div className="ics-card__meta">
@@ -747,9 +719,9 @@ export function ICSInvitationCard({
             <div className="ics-card__meta-row">
               <Users size={13} className="ics-card__meta-icon" />
               <span>
-                Organisateur : <strong>{organizer.name}</strong>
+                {t('invitation.organizer')} : <strong>{organizer.name}</strong>
                 {otherAttendees.length > 0 && (
-                  <> · {otherAttendees.length} participant{otherAttendees.length > 1 ? 's' : ''}</>
+                  <> · {t('invitation.participants', { count: otherAttendees.length })}</>
                 )}
               </span>
             </div>
@@ -768,9 +740,9 @@ export function ICSInvitationCard({
         {/* Responder info — only for REPLY method */}
         {isReply && replyResponder && (
           <div className="ics-reply-info">
-            <strong>{replyResponder.name}</strong>{' '}a répondu :{' '}
+            <strong>{replyResponder.name}</strong>{' '}{t('invitation.responded')} :{' '}
             <span className={`ics-status ${statusClass(replyResponder.status)}`}>
-              {statusLabel(replyResponder.status)}
+              {translatedStatus(replyResponder.status)}
             </span>
           </div>
         )}
@@ -778,14 +750,14 @@ export function ICSInvitationCard({
         {/* Status badge — hidden for REPLY (responder block takes over) */}
         {!isReply && currentStatus && (
           <div className={`ics-status ${statusClass(currentStatus)}`}>
-            {statusLabel(currentStatus)}
+            {translatedStatus(currentStatus)}
           </div>
         )}
 
         {/* Calendar selector — hidden for cancellations and replies */}
         {!isCancelled && !isReply && writableCalendars.length > 0 && selectedCalId && (
           <div className="ics-card__cal-row">
-            <span className="ics-card__cal-label">Calendrier :</span>
+            <span className="ics-card__cal-label">{t('invitation.calendar')} :</span>
             <CalendarSelector
               calendars={writableCalendars}
               selectedId={selectedCalId}
@@ -804,7 +776,7 @@ export function ICSInvitationCard({
                 disabled={loadingAction !== null || currentStatus === 'ACCEPTED'}
                 type="button"
               >
-                {loadingAction === 'ACCEPTED' ? <Loader2 size={13} className="ics-spinner" /> : <Check size={13} />} Accepter
+                {loadingAction === 'ACCEPTED' ? <Loader2 size={13} className="ics-spinner" /> : <Check size={13} />} {t('invitation.accept')}
               </button>
               <button
                 className={`ics-btn ics-btn--tentative${currentStatus === 'TENTATIVE' ? ' ics-btn--active' : ''}`}
@@ -812,7 +784,7 @@ export function ICSInvitationCard({
                 disabled={loadingAction !== null || currentStatus === 'TENTATIVE'}
                 type="button"
               >
-                {loadingAction === 'TENTATIVE' ? <Loader2 size={13} className="ics-spinner" /> : <Minus size={13} />} Peut-être
+                {loadingAction === 'TENTATIVE' ? <Loader2 size={13} className="ics-spinner" /> : <Minus size={13} />} {t('invitation.tentative')}
               </button>
               <button
                 className={`ics-btn ics-btn--decline${currentStatus === 'DECLINED' ? ' ics-btn--active' : ''}`}
@@ -820,12 +792,12 @@ export function ICSInvitationCard({
                 disabled={loadingAction !== null || currentStatus === 'DECLINED'}
                 type="button"
               >
-                {loadingAction === 'DECLINED' ? <Loader2 size={13} className="ics-spinner" /> : <X size={13} />} Refuser
+                {loadingAction === 'DECLINED' ? <Loader2 size={13} className="ics-spinner" /> : <X size={13} />} {t('invitation.decline')}
               </button>
             </>
           ) : isInCalendar ? (
             <span className={`ics-status ${statusClass(currentStatus)}`}>
-              {currentStatus ? statusLabel(currentStatus) : 'Dans le calendrier'}
+              {currentStatus ? translatedStatus(currentStatus) : t('invitation.inCalendar')}
             </span>
           ) : (
             <button
@@ -834,7 +806,7 @@ export function ICSInvitationCard({
               disabled={loadingAction !== null || actionSuccess !== null}
               type="button"
             >
-              {loadingAction === 'add' ? <Loader2 size={13} className="ics-spinner" /> : <Plus size={13} />} Ajouter au calendrier
+              {loadingAction === 'add' ? <Loader2 size={13} className="ics-spinner" /> : <Plus size={13} />} {t('invitation.addToCalendar')}
             </button>
           )}
         </div>)}

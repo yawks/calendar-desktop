@@ -1,14 +1,18 @@
 import { useTranslation } from 'react-i18next';
-import { Columns2, Languages, LayoutPanelTop, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
+import { useState } from 'react';
+import { Bell, Check, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
 import { LanguagePreference } from '../../i18n';
 import { useLayout, AppLayout } from '../../shared/store/LayoutStore';
 import { useLogoDevToken } from '../../shared/store/LogoDevTokenStore';
 import { useTheme, ThemePreference } from '../../shared/store/ThemeStore';
+import { useVault } from '../../shared/security/VaultProvider';
+import { useOfflineMailSettings } from '../../shared/store/OfflineMailStore';
 
+import { useMailNotificationsSettings } from '../../shared/store/MailNotificationStore';
 function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference; active: boolean; onClick: () => void; label: string }) {
-  const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : 1.2;
+  const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : size === 'intermediate' ? 1.1 : 1.2;
   return (
     <button
       type="button"
@@ -27,6 +31,7 @@ function FontSizeOption({ size, active, onClick, label }: { size: FontSizePrefer
         flex: 1,
         outline: 'none',
       }}
+      className="font-size-option"
     >
       <div style={{
         width: '100%',
@@ -68,6 +73,59 @@ export function PreferencesSection() {
   const { preference: themePref, setPreference: setThemePref } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
   const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
+  const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics } = useVault();
+  const { settings: offlineMail, updateSettings: updateOfflineMail } = useOfflineMailSettings();
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const { settings: mailNotifications, supported: notificationSupported, permission: notificationPermission, enable: enableNotifications, disable: disableNotifications } = useMailNotificationsSettings();
+  const [biometricDiagnostic, setBiometricDiagnostic] = useState('');
+  const [diagnosticCopied, setDiagnosticCopied] = useState(false);
+  const buildCommitId = import.meta.env.VITE_APP_COMMIT_ID || t('settings.buildInfo.unknown');
+  const buildDate = new Date(import.meta.env.VITE_APP_COMMIT_DATE || '');
+  const formattedBuildDate = Number.isNaN(buildDate.getTime())
+    ? t('settings.buildInfo.unknown')
+    : buildDate.toLocaleString();
+
+  const createBiometricDiagnostic = async (cause: unknown): Promise<string> => {
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    let platformAuthenticator: boolean | string = 'unknown';
+    try {
+      platformAuthenticator = typeof PublicKeyCredential !== 'undefined'
+        && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch (probeError) {
+      platformAuthenticator = `probe failed: ${probeError instanceof Error ? probeError.message : String(probeError)}`;
+    }
+    return JSON.stringify({
+      timestamp: new Date().toISOString(),
+      errorName: error.name,
+      errorMessage: error.message,
+      secureContext: globalThis.isSecureContext,
+      origin: globalThis.location.origin,
+      standalone: globalThis.matchMedia('(display-mode: standalone)').matches,
+      webAuthn: typeof PublicKeyCredential !== 'undefined',
+      platformAuthenticator,
+      userAgent: navigator.userAgent,
+    }, null, 2);
+  };
+
+  const toggleBiometrics = async () => {
+    setBiometricBusy(true);
+    setBiometricDiagnostic('');
+    setDiagnosticCopied(false);
+    try {
+      if (biometricEnabled) await disableBiometrics();
+      else await enableBiometrics();
+    } catch (cause) {
+      console.error('[Vault] biometric configuration failed', cause);
+      setBiometricDiagnostic(await createBiometricDiagnostic(cause));
+    } finally {
+      setBiometricBusy(false);
+    }
+  };
+
+  const copyBiometricDiagnostic = async () => {
+    await navigator.clipboard.writeText(biometricDiagnostic);
+    setDiagnosticCopied(true);
+  };
 
   const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
     { value: 'system', label: t('settings.language.system'), flag: '🖥' },
@@ -110,7 +168,7 @@ export function PreferencesSection() {
   });
 
   return (
-    <div style={{ maxWidth: 480 }}>
+    <div className="preferences-section" style={{ maxWidth: 480 }}>
 
       {/* Langue */}
       <div style={{ marginBottom: 28 }}>
@@ -118,9 +176,9 @@ export function PreferencesSection() {
           <Languages size={16} />
           {t('settings.language.sectionTitle')}
         </h3>
-        <div style={segmentStyle}>
+        <div className="preferences-segment" style={segmentStyle}>
           {langOptions.map((opt, i) => (
-            <button key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
+            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
               <span style={{ fontSize: 'calc(16px * var(--font-scale, 1))', lineHeight: 1 }}>{opt.flag}</span>
               {opt.label}
             </button>
@@ -134,9 +192,9 @@ export function PreferencesSection() {
           <Sun size={16} />
           {t('settings.theme.sectionTitle')}
         </h3>
-        <div style={segmentStyle}>
+        <div className="preferences-segment" style={segmentStyle}>
           {themeOptions.map((opt, i) => (
-            <button key={opt.value} type="button" onClick={() => setThemePref(opt.value)} style={btnStyle(themePref === opt.value, i === 0)}>
+            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setThemePref(opt.value)} style={btnStyle(themePref === opt.value, i === 0)}>
               {opt.icon}
               {opt.label}
             </button>
@@ -145,14 +203,14 @@ export function PreferencesSection() {
       </div>
 
       {/* Layout */}
-      <div style={{ marginBottom: 28 }}>
+      <div className="preferences-layout-section" style={{ marginBottom: 28 }}>
         <h3 style={{ margin: '0 0 12px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <LayoutPanelTop size={16} />
           {t('settings.layout.sectionTitle', 'Interface')}
         </h3>
-        <div style={segmentStyle}>
+        <div className="preferences-segment" style={segmentStyle}>
           {layoutOptions.map((opt, i) => (
-            <button key={opt.value} type="button" onClick={() => setLayout(opt.value)} style={btnStyle(layout === opt.value, i === 0)}>
+            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setLayout(opt.value)} style={btnStyle(layout === opt.value, i === 0)}>
               {opt.icon}
               {opt.label}
             </button>
@@ -163,16 +221,49 @@ export function PreferencesSection() {
         </p>
       </div>
 
+      {/* Notifications */}
+      <div style={{ marginBottom: 28 }}><h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}><Bell size={16} />{t('settings.mailNotifications.sectionTitle')}</h3><label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}><input type="checkbox" checked={mailNotifications.enabled} disabled={!notificationSupported || notificationPermission === 'denied'} onChange={event => { if (event.target.checked) void enableNotifications(); else disableNotifications(); }} />{t('settings.mailNotifications.enabled')}</label><p style={{ margin: 0, fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>{notificationPermission === 'denied' ? t('settings.mailNotifications.blocked') : !notificationSupported ? t('settings.mailNotifications.unavailable') : t('settings.mailNotifications.hint')}</p></div>
+
       {/* Taille de la police */}
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ margin: '0 0 16px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Type size={16} />
           {t('settings.fontSize.sectionTitle', 'Taille de la police')}
         </h3>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div className="font-size-options" style={{ display: 'flex', gap: 12 }}>
           <FontSizeOption size="small" label={t('settings.fontSize.small', 'Petite')} active={fontSize === 'small'} onClick={() => setFontSize('small')} />
           <FontSizeOption size="medium" label={t('settings.fontSize.medium', 'Moyenne')} active={fontSize === 'medium'} onClick={() => setFontSize('medium')} />
+          <FontSizeOption size="intermediate" label={t('settings.fontSize.intermediate', 'Intermédiaire')} active={fontSize === 'intermediate'} onClick={() => setFontSize('intermediate')} />
           <FontSizeOption size="large" label={t('settings.fontSize.large', 'Grande')} active={fontSize === 'large'} onClick={() => setFontSize('large')} />
+        </div>
+      </div>
+
+      {/* Logo.dev token */}
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Database size={16} />
+          {t('settings.offlineMail.sectionTitle')}
+        </h3>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+          <input type="checkbox" checked={offlineMail.enabled} onChange={event => updateOfflineMail({ enabled: event.target.checked })} />
+          {t('settings.offlineMail.enabled')}
+        </label>
+        <p style={{ margin: '0 0 12px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
+          {t('settings.offlineMail.hint')}
+        </p>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <label style={{ flex: 1, fontSize: 12 }}>
+            {t('settings.offlineMail.threadLimit')}
+            <select disabled={!offlineMail.enabled} value={offlineMail.maxThreads} onChange={event => updateOfflineMail({ maxThreads: Number(event.target.value) })} style={{ display: 'block', width: '100%', marginTop: 5, padding: 7 }}>
+              {[50, 100, 250, 500].map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label style={{ flex: 1, fontSize: 12 }}>
+            {t('settings.offlineMail.ageLimit')}
+            <select disabled={!offlineMail.enabled} value={offlineMail.maxAgeDays} onChange={event => updateOfflineMail({ maxAgeDays: Number(event.target.value) })} style={{ display: 'block', width: '100%', marginTop: 5, padding: 7 }}>
+              {[7, 30, 90, 180].map(value => <option key={value} value={value}>{t('settings.offlineMail.days', { count: value })}</option>)}
+            </select>
+          </label>
         </div>
       </div>
 
@@ -203,6 +294,42 @@ export function PreferencesSection() {
           }}
         />
       </div>
+
+      <div style={{ marginBottom: 28 }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Lock size={16} /> {t('settings.vault.sectionTitle')}
+        </h3>
+        <p style={{ margin: '0 0 10px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
+          {t('settings.vault.hint')}
+        </p>
+        {biometricAvailable ? <>
+          <div className="vault-settings-actions">
+            <button className={biometricEnabled ? 'btn-ghost' : 'btn-primary'} type="button" disabled={biometricBusy} onClick={() => void toggleBiometrics()}>
+              <Fingerprint size={16} />
+              {t(biometricEnabled ? 'settings.vault.disableBiometrics' : 'settings.vault.enableBiometrics')}
+            </button>
+            <button className="btn-ghost" type="button" onClick={lock}>
+              <Lock size={16} /> {t('settings.vault.lockNow')}
+            </button>
+          </div>
+          {biometricDiagnostic && <div className="vault-diagnostic" role="alert">
+            <p>{t('settings.vault.biometricError')}</p>
+            <pre>{biometricDiagnostic}</pre>
+            <button className="btn-ghost" type="button" onClick={() => void copyBiometricDiagnostic()}>
+              {diagnosticCopied ? <Check size={15} /> : <Copy size={15} />}
+              {t(diagnosticCopied ? 'settings.vault.diagnosticCopied' : 'settings.vault.copyDiagnostic')}
+            </button>
+          </div>}
+        </> : <>
+          <p style={{ fontSize: 12, opacity: .7 }}>{t('settings.vault.biometricUnavailable')}</p>
+          <button className="btn-ghost" type="button" onClick={lock}><Lock size={16} /> {t('settings.vault.lockNow')}</button>
+        </>}
+      </div>
+
+      <footer className="preferences-build-info">
+        <span>{t('settings.buildInfo.date')}: {formattedBuildDate}</span>
+        <span>{t('settings.buildInfo.commit')}: <code>{buildCommitId}</code></span>
+      </footer>
 
     </div>
   );

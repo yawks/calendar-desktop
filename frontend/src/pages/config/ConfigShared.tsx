@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { CalendarDays, Mail, Settings2, Star } from 'lucide-react';
 import i18n from '../../i18n';
 import { CalendarConfig } from '../../shared/types';
+import { calendarApi } from '../../shared/api/calendarApi';
 
 // ── Connection test result ─────────────────────────────────────────────────────
 
@@ -16,8 +17,7 @@ export interface TestResult {
 export async function testNextcloudConnection(url: string, username: string, password: string): Promise<TestResult> {
   if (!url.trim()) return { ok: false, message: i18n.t('config.caldavUrlRequired') };
   try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const status = await invoke<number>('fetch_caldav_status', { url: url.trim(), username: username.trim(), password });
+    const status = await calendarApi.getCalDavStatus({ url: url.trim(), username: username.trim(), password });
     if (status === 200 || status === 207) return { ok: true, message: i18n.t('config.connectionSuccess') };
     if (status === 401) return { ok: false, message: i18n.t('config.invalidCredentials') };
     if (status === 403) return { ok: false, message: i18n.t('config.accessForbidden') };

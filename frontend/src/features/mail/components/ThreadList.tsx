@@ -1,6 +1,6 @@
 import { forwardRef, useState, useEffect, useRef, useImperativeHandle } from 'react';
 import { MailThread } from '../types';
-import { RefreshCw, SearchX, Inbox } from 'lucide-react';
+import { RefreshCw, SearchX, Inbox, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThreadItem } from './ThreadItem';
 
@@ -16,8 +16,10 @@ export interface ThreadListProps {
   readonly snoozedMap: Record<string, string>;
   readonly isInSnoozedFolder: boolean;
   readonly isSentFolder?: boolean;
+  readonly isInScheduledFolder?: boolean;
   readonly isSearchMode?: boolean;
   readonly draftConversationIds?: Set<string>;
+  readonly sourceColor?: string;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
@@ -43,8 +45,10 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       snoozedMap,
       isInSnoozedFolder,
       isSentFolder = false,
+      isInScheduledFolder = false,
       isSearchMode = false,
       draftConversationIds,
+      sourceColor,
       onSelect,
       onToggleRead,
       onDelete,
@@ -224,18 +228,34 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       <div className="mail-thread-list-wrapper">
         <div className="mail-thread-list" ref={containerRef}>
           {toolbar}
+          {selectedThreadIds.size > 0 && (
+            <div className="mail-mobile-selection-header">
+              <strong>{selectedThreadIds.size} sélectionnée{selectedThreadIds.size > 1 ? "s" : ""}</strong>
+              <button type="button" onClick={onClearSelection} aria-label={t("mail.selection.clear", "Clear selection")}>
+                <X size={24} />
+              </button>
+            </div>
+          )}
           {visibleThreads.map((thread) => (
             <ThreadItem
               key={(thread.accountId ?? '') + '_' + thread.conversation_id}
               thread={thread}
               isSelected={thread.conversation_id === selectedId}
               isChecked={selectedThreadIds.has(thread.conversation_id)}
-              snoozeUntil={snoozedMap[thread.conversation_id]}
+              snoozeUntil={thread.snoozed_until ?? snoozedMap[thread.conversation_id]}
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={isSentFolder}
+              isInScheduledFolder={isInScheduledFolder}
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
+              sourceColor={sourceColor}
               provider={resolveProvider?.(thread) ?? provider}
-              onSelect={onSelect}
+              onSelect={clickedThread => {
+                if (selectedThreadIds.size > 0 && globalThis.matchMedia?.("(max-width: 700px)").matches) {
+                  onToggleSelect(clickedThread);
+                  return;
+                }
+                onSelect(clickedThread);
+              }}
               onToggleRead={onToggleRead}
               onDelete={onDelete}
               onToggleCheck={(clickedThread, shiftKey) => {

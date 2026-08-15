@@ -1,6 +1,7 @@
-import { ChevronDown, ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
+import { CalendarClock, ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
 import { Folder, MailFolder } from '../types';
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
 import { useTranslation } from 'react-i18next';
 
 export type DynamicFolderEntry = MailFolder & { accountId?: string; accountColor?: string; accountLabel?: string };
@@ -19,6 +20,7 @@ interface MailSidebarProps {
   readonly folderUnreadCounts?: Record<string, number>;
   /** The folders to display in the sidebar (excluding static ones). */
   readonly dynamicFolders: DynamicFolderEntry[];
+  readonly supportsScheduledSend?: boolean;
 }
 
 function buildFolderTree(folders: DynamicFolderEntry[]): FolderNode[] {
@@ -178,6 +180,7 @@ export function MailSidebar({
   onCompose,
   folderUnreadCounts = {},
   dynamicFolders,
+  supportsScheduledSend = false,
 }: MailSidebarProps) {
   const { t } = useTranslation();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -209,6 +212,7 @@ export function MailSidebar({
   const staticFolders = [
     { id: 'inbox', label: t('mail.inbox', 'Inbox'), Icon: Inbox },
     { id: 'drafts', label: t('mail.drafts', 'Drafts'), Icon: FileText },
+    ...(supportsScheduledSend ? [{ id: 'scheduled', label: t('mail.scheduled', 'Scheduled'), Icon: CalendarClock }] : []),
     { id: 'sentitems', label: t('mail.sent', 'Sent'), Icon: Send },
     { id: 'deleteditems', label: t('mail.trash', 'Trash'), Icon: Trash2 },
     { id: 'snoozed', label: t('mail.snoozed', 'Snoozed'), Icon: Clock },
@@ -221,9 +225,6 @@ export function MailSidebar({
         <span className="mail-compose-btn__main">
           <Pencil size={17} />
           {t('mail.compose', 'Nouveau message')}
-        </span>
-        <span className="mail-compose-btn__chevron" aria-hidden="true">
-          <ChevronDown size={17} />
         </span>
       </button>
 

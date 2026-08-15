@@ -6,7 +6,16 @@ export type ProviderType = 'ews' | 'gmail' | 'imap' | 'jmap';
  * contract instead of inferring support from the provider type. */
 export interface MailProviderCapabilities {
   readonly snooze: boolean;
-  readonly scheduledSend: boolean;
+  readonly scheduledSend: {
+    readonly supported: boolean;
+    readonly maxDelaySeconds?: number;
+  };
+}
+
+export interface ScheduledSendInfo {
+  submissionId: string;
+  emailId: string;
+  scheduledAt: string;
 }
 
 export interface MailItemRef {
@@ -43,7 +52,7 @@ export interface SendMailParams {
   inReplyTo?: string;
   /** RFC 5322 References value (space-separated chain of Message-IDs). */
   references?: string;
-  /** Server-side delivery date (ISO 8601). */
+  /** Server-side delivery date (ISO 8601). Omit for immediate delivery. */
   sendAt?: string;
 }
 
@@ -81,6 +90,8 @@ export interface MailProvider {
   readonly providerType: ProviderType;
   readonly accountId: string;
   readonly capabilities: MailProviderCapabilities;
+  /** Resolve account/server-dependent capabilities (notably JMAP limits). */
+  getCapabilities?(): Promise<MailProviderCapabilities>;
 
   listThreads(folder: string, maxCount?: number, offset?: number): Promise<MailThread[]>;
   /** Total number of conversations in a folder, when the protocol exposes it. */
@@ -96,6 +107,8 @@ export interface MailProvider {
   getRawMessageSource?(itemId: string): Promise<string>;
   listFolders(): Promise<MailFolder[]>;
   sendMail(params: SendMailParams): Promise<void>;
+  getScheduledSend?(emailId: string): Promise<ScheduledSendInfo | null>;
+  cancelScheduledSend?(submissionId: string): Promise<void>;
   markRead(items: MailItemRef[]): Promise<void>;
   markUnread(items: MailItemRef[]): Promise<void>;
   moveToTrash(itemId: string): Promise<void>;

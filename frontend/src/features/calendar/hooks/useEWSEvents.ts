@@ -18,8 +18,8 @@ export function useEWSEvents(calendars: CalendarConfig[]) {
       if (err) acc[ewsCals[idx]?.id || idx] = err instanceof Error ? err.message : String(err);
       return acc;
     }, {} as Record<string, string>),
-    refresh: () => queryClient.refetchQueries({
-      queryKey: CALENDAR_KEYS.all,
+    refresh: (calendarId?: string) => queryClient.refetchQueries({
+      queryKey: calendarId ? CALENDAR_KEYS.events(calendarId) : CALENDAR_KEYS.all,
       type: 'active',
     }),
   }), [events, isLoading, errors, ewsCals, queryClient]);

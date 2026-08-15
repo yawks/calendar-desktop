@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { JmapAccount } from '../types';
+import { useVault } from '../security/VaultProvider';
 
 const STORAGE_KEY = 'calendar-desktop-jmap-accounts';
 
@@ -37,18 +38,12 @@ interface JmapAuthContextValue {
 const JmapAuthContext = createContext<JmapAuthContextValue | null>(null);
 
 export function JmapAuthProvider({ children }: { readonly children: ReactNode }) {
-  const [accounts, dispatch] = useReducer(reducer, [], () => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? (JSON.parse(stored) as JmapAccount[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const vault = useVault();
+  const [accounts, dispatch] = useReducer(reducer, [], () => vault.read<JmapAccount[]>(STORAGE_KEY, []));
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
-  }, [accounts]);
+    vault.write(STORAGE_KEY, accounts);
+  }, [accounts, vault]);
 
   const addAccount = useCallback((account: JmapAccount) => {
     dispatch({ type: 'ADD', payload: account });

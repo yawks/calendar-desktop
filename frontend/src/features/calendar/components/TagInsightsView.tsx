@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CalendarConfig, CalendarGroup, CalendarEvent, Tag, EventTagMapping } from '../../../shared/types';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   events: CalendarEvent[];
@@ -47,6 +48,7 @@ function formatDuration(ms: number): string {
 }
 
 export default function TagInsightsView({ events, eventTags, tags, calendars, groups, viewRange }: Props) {
+  const { t } = useTranslation();
   const [selectedGroupId, setSelectedGroupId] = useState<string>(
     () => localStorage.getItem('insights-group') ?? ''
   );
@@ -140,7 +142,7 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
           onChange={(e) => handleGroupChange(e.target.value)}
           className="insights-select"
         >
-          <option value="">Tous les groupes</option>
+          <option value="">{t('insights.allGroups')}</option>
           {groups.map((g) => (
             <option key={g.id} value={g.id}>{g.name}</option>
           ))}
@@ -153,7 +155,7 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
           }}
           className="insights-select"
         >
-          <option value="">Tous les calendriers</option>
+          <option value="">{t('insights.allCalendars')}</option>
           {availableCalendars.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
@@ -162,13 +164,13 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
 
       {/* Summary */}
       <div style={{ fontSize: 'calc(11px * var(--font-scale, 1))', color: 'var(--text-muted)', marginBottom: 8 }}>
-        {eventCount} événement{eventCount !== 1 ? 's' : ''}
-        {hasData && <> · {formatDuration(totalMs)} au total</>}
+        {t('insights.eventCount', { count: eventCount })}
+        {hasData && <> · {t('insights.totalDuration', { duration: formatDuration(totalMs) })}</>}
       </div>
 
       {!hasData ? (
         <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-          Aucun événement
+          {t('insights.noEvents')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -184,7 +186,7 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
           {untaggedMs > 0 && (
             <StatRow
               color="var(--text-muted)"
-              label="Sans tag"
+              label={t('insights.withoutTag')}
               durationMs={untaggedMs}
               totalMs={totalMs}
               muted

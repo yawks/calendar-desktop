@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
+import { useVault } from '../security/VaultProvider';
 
 const STORAGE_KEY = 'logodev-token';
 
@@ -10,12 +11,11 @@ interface LogoDevTokenContextValue {
 const LogoDevTokenContext = createContext<LogoDevTokenContextValue | null>(null);
 
 export function LogoDevTokenProvider({ children }: { children: ReactNode }) {
-  const [token, setTokenState] = useState<string>(
-    () => localStorage.getItem(STORAGE_KEY) ?? ''
-  );
+  const vault = useVault();
+  const [token, setTokenState] = useState<string>(() => vault.read(STORAGE_KEY, ''));
 
   const setToken = (t: string) => {
-    localStorage.setItem(STORAGE_KEY, t);
+    vault.write(STORAGE_KEY, t);
     setTokenState(t);
   };
 

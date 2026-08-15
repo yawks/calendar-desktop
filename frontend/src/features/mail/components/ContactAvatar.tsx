@@ -1,8 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { useLogoDevToken } from '../../../shared/store/LogoDevTokenStore';
 import type { MailProvider } from '../providers/MailProvider';
 import { avatarColor, initials } from '../utils';
+import { domainLogoUrl, gravatarUrl } from '../utils/gravatar';
 
 interface ContactAvatarProps {
   readonly email: string;
@@ -15,6 +17,7 @@ interface ContactAvatarProps {
 export function ContactAvatar({ email, name, provider, size = 32, className = '' }: ContactAvatarProps) {
   const [failed, setFailed] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
+  const { token: logoDevToken } = useLogoDevToken();
   const displayName = name || email;
   const emailKey = email.toLowerCase();
   const nameKey = name?.trim().toLowerCase() || null;
@@ -56,11 +59,18 @@ export function ContactAvatar({ email, name, provider, size = 32, className = ''
     staleTime: 10 * 60 * 1000,
   });
 
+  const { data: gravatarSrc } = useQuery<string | null>({
+    queryKey: ['gravatar', emailKey, size * 2],
+    queryFn: () => gravatarUrl(email, size * 2),
+    staleTime: Infinity,
+  });
+
   const providerSrc = photoBase64 ? `data:image/jpeg;base64,${photoBase64}` : null;
   const cachedSrc = cachedPhotoByEmail ? `data:image/jpeg;base64,${cachedPhotoByEmail}` : null;
   const nameCachedSrc = cachedPhotoByName ? `data:image/jpeg;base64,${cachedPhotoByName}` : null;
   const effectiveSrc = providerSrc ?? cachedSrc ?? nameCachedSrc;
-  const sources = [effectiveSrc].filter((s): s is string => !!s);
+  const domainSrc = domainLogoUrl(email, logoDevToken) || null;
+  const sources = [effectiveSrc, gravatarSrc ?? null, domainSrc].filter((s): s is string => !!s);
   const currentSrc = sources.find(s => !failed.has(s));
 
   const handleError = (src: string) => setFailed(prev => new Set([...prev, src]));

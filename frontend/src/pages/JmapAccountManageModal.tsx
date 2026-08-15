@@ -44,6 +44,7 @@ export function JmapAccountManageModal({ account, onClose }: {
   const [authType, setAuthType] = useState<'bearer' | 'basic'>(account.authType ?? 'bearer');
   const [color, setColor] = useState(account.color || DEFAULT_COLORS[0]);
   const [fastmailToken, setFastmailToken] = useState(account.fastmailToken ?? '');
+  const [fastmailCookie, setFastmailCookie] = useState(account.fastmailCookie ?? '');
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const handleSave = (e: FormEvent) => {
@@ -57,6 +58,7 @@ export function JmapAccountManageModal({ account, onClose }: {
       authType,
       color,
       fastmailToken: fastmailToken.trim() || undefined,
+      fastmailCookie: fastmailCookie.trim() || undefined,
     });
     onClose();
   };
@@ -79,12 +81,12 @@ export function JmapAccountManageModal({ account, onClose }: {
         </div>
         <div className="nc-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
           <form onSubmit={handleSave} className="config-form">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div className="config-form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <div>
                   <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.generalInfo', 'General')}</h3>
                   <div className="form-row">
                     <label>{t('config.email', 'Email')}</label>
-                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                    <input type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />
                   </div>
                   <div className="form-row">
                     <label>{t('config.displayName', 'Display Name')}</label>
@@ -110,16 +112,21 @@ export function JmapAccountManageModal({ account, onClose }: {
                     <div className="form-row">
                       <label>{t('config.fastmailWebToken', 'Jeton web Fastmail')}</label>
                       <input type="password" autoComplete="off" value={fastmailToken} onChange={(e) => setFastmailToken(e.target.value)} placeholder="fma1-…" />
-                      <small>{t('config.fastmailWebTokenHelp', 'Optionnel. Active les fonctions privées Fastmail comme le snooze et l’envoi différé.')}</small>
+                      <small>{t('config.fastmailWebTokenHelp', 'Optionnel. Collez uniquement la valeur fma1…, sans le préfixe Bearer.')}</small>
+                    </div>
+                    <div className="form-row">
+                      <label>{t('config.fastmailCookie', 'Cookie Fastmail')}</label>
+                      <textarea rows={3} value={fastmailCookie} onChange={(e) => setFastmailCookie(e.target.value)} placeholder="seenlogin=1; __Http-f_…; __Http-s_…" spellCheck={false} />
+                      <small>{t('config.fastmailCookieHelp', 'Copiez la valeur complète passée à curl avec -b. Elle doit correspondre au jeton fma1.')}</small>
                     </div>
                   </div>
                 )}
               </div>
 
               <div style={{ marginTop: 20 }}>
-                <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>JMAP Configuration</h3>
+                <h3 style={{ fontSize: 'calc(14px * var(--font-scale, 1))', marginBottom: 12 }}>{t('config.jmapConfiguration')}</h3>
                 <div className="form-row">
-                  <label>Session URL</label>
+                  <label>{t('config.sessionUrl')}</label>
                   <input type="text" value={sessionUrl} onChange={(e) => setSessionUrl(e.target.value)} placeholder="https://api.fastmail.com/jmap/session" required />
                 </div>
                 <div className="form-row">
@@ -135,7 +142,7 @@ export function JmapAccountManageModal({ account, onClose }: {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <div className="config-form-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
                 <button
                   type="button"
                   className="btn-remove"

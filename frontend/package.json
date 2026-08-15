@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "tauri": "tauri"
+    "test": "vitest run",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -16,7 +16,6 @@
     "@tanstack/react-query": "^5.99.2",
     "@tanstack/react-query-devtools": "^5.99.2",
     "@tanstack/react-query-persist-client": "^5.99.2",
-    "@tauri-apps/api": "^2",
     "@tiptap/extension-color": "^3.22.3",
     "@tiptap/extension-font-family": "^3.22.3",
     "@tiptap/extension-highlight": "^3.22.3",
@@ -37,11 +36,10 @@
     "react-dom": "^18.3.0",
     "react-file-icon": "^1.6.0",
     "react-i18next": "^17.0.1",
-    "react-router-dom": "^6.22.0",
+    "react-router-dom": "^7.18.2",
     "recharts": "^3.10.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
@@ -51,6 +49,13 @@
     "typescript": "^5.9.3",
     "vite": "^5.4.0",
     "vitest": "^2.1.9"
+  },
+  "overrides": {
+    "dompurify": "3.4.13",
+    "form-data": "4.0.6",
+    "linkify-it": "6.1.0",
+    "markdown-it": "15.0.0",
+    "ws": "8.21.0"
   },
   "packageManager": "pnpm@10.5.2+sha512.da9dc28cd3ff40d0592188235ab25d3202add8a207afbedc682220e4a0029ffbff4562102b9e6e46b4e3f9e8bd53e6d05de48544b0c57d4b0179e22c76d1199b"
 }

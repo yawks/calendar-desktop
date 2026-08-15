@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { mailCommand as invoke } from '../../../shared/api/mailApi';
+import { fileService } from '../../../shared/services/fileService';
 
 import type { MailAttachment, MailFolder, MailMessage, MailSearchQuery, MailThread } from '../types';
 import type { ComposerAttachment, Contact, ContactBackfillBatch, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
@@ -44,7 +45,7 @@ function extractInlineImages(html: string): { html: string; inlineImages: Compos
  */
 export class EwsMailProvider implements MailProvider {
   readonly providerType = 'ews' as const;
-  readonly capabilities = { snooze: true, scheduledSend: false } as const;
+  readonly capabilities = { snooze: true, scheduledSend: { supported: true } } as const;
   readonly accountId: string;
   readonly userEmail: string;
 
@@ -115,7 +116,7 @@ export class EwsMailProvider implements MailProvider {
     return invoke<MailFolder[]>('mail_list_folders', { accessToken });
   }
 
-  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, isForward, attachments }: SendMailParams): Promise<void> {
+  async sendMail({ to, cc, bcc, subject, bodyHtml, replyToItemId, replyToChangeKey, isForward, attachments, sendAt }: SendMailParams): Promise<void> {
     const accessToken = await this.token();
     const { html: processedHtml, inlineImages } = extractInlineImages(bodyHtml);
     return invoke('mail_send', {
@@ -124,6 +125,7 @@ export class EwsMailProvider implements MailProvider {
       replyToItemId, replyToChangeKey,
       isForward: isForward ?? false,
       attachments: [...inlineImages, ...(attachments ?? [])],
+      sendAt,
     });
   }
 
@@ -185,12 +187,8 @@ export class EwsMailProvider implements MailProvider {
   }
 
   async openAttachment(attachment: MailAttachment): Promise<void> {
-    const accessToken = await this.token();
-    return invoke('mail_open_attachment', {
-      accessToken,
-      attachmentId: attachment.attachment_id,
-      filename: attachment.name,
-    });
+    const data = await this.getAttachmentData(attachment);
+    fileService.downloadBase64(attachment.name, data, attachment.content_type);
   }
 
   async getAttachmentData(attachment: MailAttachment): Promise<string> {

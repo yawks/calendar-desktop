@@ -1,4 +1,4 @@
-import { CodeXml, Copy, RefreshCw, X } from 'lucide-react';
+import { Check, CodeXml, Copy, RefreshCw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +16,7 @@ export function OriginalMessageModal({ message, provider, onClose }: OriginalMes
   const [source, setSource] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
@@ -38,6 +39,17 @@ export function OriginalMessageModal({ message, provider, onClose }: OriginalMes
     return () => { active = false; };
   }, [message.body_html, message.item_id, provider]);
 
+  useEffect(() => {
+    if (!copied) return;
+    const timeout = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timeout);
+  }, [copied]);
+
+  const copySource = async () => {
+    await navigator.clipboard.writeText(source);
+    setCopied(true);
+  };
+
   return createPortal(
     <>
       <button type="button" className="mail-source-overlay" aria-label={t('mail.close', 'Close')} onClick={onClose} />
@@ -47,11 +59,13 @@ export function OriginalMessageModal({ message, provider, onClose }: OriginalMes
           <strong id="mail-source-title">{t('mail.originalMessage', 'Original message')}</strong>
           <button
             type="button"
-            className="mail-source-dialog__copy"
+            className={`mail-source-dialog__copy${copied ? ' mail-source-dialog__copy--copied' : ''}`}
             disabled={!source}
-            onClick={() => navigator.clipboard.writeText(source)}
+            onClick={copySource}
           >
-            <Copy size={14} /> {t('mail.copy', 'Copy')}
+            {copied
+              ? <><Check size={14} /> {t('mail.copied', 'Copied')}</>
+              : <><Copy size={14} /> {t('mail.copy', 'Copy')}</>}
           </button>
           <button type="button" className="btn-icon" onClick={onClose} aria-label={t('mail.close', 'Close')}><X size={16} /></button>
         </div>

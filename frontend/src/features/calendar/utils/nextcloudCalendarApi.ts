@@ -1,4 +1,5 @@
-import { CalendarConfig, CreateEventPayload } from '../../../shared/types';
+import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../../../shared/types';
+import { calendarApi } from '../../../shared/api/calendarApi';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – ical.js has no bundled types for v1.x
@@ -87,14 +88,12 @@ export async function createNextcloudEvent(cal: CalendarConfig, payload: CreateE
   const icsContent = buildVCalendar(uid, payload);
   const url = eventResourceUrl(cal, uid);
 
-  const { invoke } = await import('@tauri-apps/api/core');
   console.debug('[nextcloud] createNextcloudEvent', { url, uid, payload, icsContent });
-  await invoke('put_caldav_event', {
+  await calendarApi.putCalDav({
     url,
     username: cal.nextcloudUsername ?? '',
     password: cal.nextcloudPassword ?? '',
-    icsContent,
-  });
+  }, icsContent);
   return uid;
 }
 
@@ -106,24 +105,61 @@ export async function updateNextcloudEvent(
   const icsContent = buildVCalendar(uid, payload);
   const url = eventResourceUrl(cal, uid);
 
-  const { invoke } = await import('@tauri-apps/api/core');
   console.debug('[nextcloud] updateNextcloudEvent', { url, uid, payload, icsContent });
-  await invoke('put_caldav_event', {
+  await calendarApi.putCalDav({
     url,
     username: cal.nextcloudUsername ?? '',
     password: cal.nextcloudPassword ?? '',
-    icsContent,
-  });
+  }, icsContent);
 }
 
 export async function deleteNextcloudEvent(cal: CalendarConfig, uid: string): Promise<void> {
   const url = eventResourceUrl(cal, uid);
-  const { invoke } = await import('@tauri-apps/api/core');
-  await invoke('delete_caldav_event', {
+  await calendarApi.deleteCalDav({
     url,
     username: cal.nextcloudUsername ?? '',
     password: cal.nextcloudPassword ?? '',
   });
+}
+
+export async function cancelNextcloudEvent(
+  cal: CalendarConfig,
+  uid: string,
+  event: CalendarEvent,
+  wholeSeries: boolean,
+): Promise<void> {
+  const url = eventResourceUrl(cal, uid);
+  const currentIcs = await calendarApi.fetchCalDav({
+    url,
+    username: cal.nextcloudUsername ?? '',
+    password: cal.nextcloudPassword ?? '',
+  });
+  const calendar = new ICAL.Component(ICAL.parse(currentIcs));
+  const master = calendar.getAllSubcomponents('vevent').find((component: any) => !component.hasProperty('recurrence-id'));
+  if (!master) throw new Error('Événement CalDAV introuvable');
+
+  const sequence = Number(master.getFirstPropertyValue('sequence') ?? 0) + 1;
+  if (wholeSeries || !event.isRecurringInstance) {
+    master.updatePropertyWithValue('status', 'CANCELLED');
+    master.updatePropertyWithValue('sequence', sequence);
+  } else {
+    const exception = new ICAL.Component(master.toJSON());
+    exception.removeAllProperties('rrule');
+    exception.removeAllProperties('rdate');
+    exception.updatePropertyWithValue('recurrence-id', ICAL.Time.fromJSDate(new Date(event.start), true));
+    exception.updatePropertyWithValue('dtstart', ICAL.Time.fromJSDate(new Date(event.start), true));
+    exception.updatePropertyWithValue('dtend', ICAL.Time.fromJSDate(new Date(event.end), true));
+    exception.updatePropertyWithValue('status', 'CANCELLED');
+    exception.updatePropertyWithValue('sequence', sequence);
+    calendar.addSubcomponent(exception);
+  }
+  calendar.updatePropertyWithValue('method', 'CANCEL');
+
+  await calendarApi.putCalDav({
+    url,
+    username: cal.nextcloudUsername ?? '',
+    password: cal.nextcloudPassword ?? '',
+  }, calendar.toString());
 }
 
 export async function respondToNextcloudEvent(
@@ -134,9 +170,7 @@ export async function respondToNextcloudEvent(
   comment?: string,
 ): Promise<void> {
   const url = eventResourceUrl(cal, uid);
-  const { invoke } = await import('@tauri-apps/api/core');
-
-  const currentIcs = await invoke<string>('fetch_url_with_auth', {
+  const currentIcs = await calendarApi.fetchCalDav({
     url,
     username: cal.nextcloudUsername ?? '',
     password: cal.nextcloudPassword ?? '',
@@ -167,10 +201,9 @@ export async function respondToNextcloudEvent(
     }
   }
 
-  await invoke('put_caldav_event', {
+  await calendarApi.putCalDav({
     url,
     username: cal.nextcloudUsername ?? '',
     password: cal.nextcloudPassword ?? '',
-    icsContent: comp.toString(),
-  });
+  }, comp.toString());
 }

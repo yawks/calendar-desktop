@@ -155,12 +155,12 @@ export function MailSearchBar({ activeQuery, onSearch, contacts = [], provider }
     }
   }, [activeQuery, focused]);
 
-  // Global ⌘F / Ctrl+F shortcut
+  // Global ⌘K / Ctrl+K shortcut
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().includes('MAC');
       const modifier = isMac ? e.metaKey : e.ctrlKey;
-      if (modifier && e.key === 'f') {
+      if (modifier && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -320,7 +320,7 @@ export function MailSearchBar({ activeQuery, onSearch, contacts = [], provider }
       />
 
       {showShortcut && (
-        <span className="mail-search-bar__shortcut">⌘F</span>
+        <span className="mail-search-bar__shortcut">⌘K</span>
       )}
 
       {(isActive || inputValue) && (

@@ -1,4 +1,4 @@
-import { Archive, BellOff, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
+import { Archive, BellOff, CalendarClock, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { decodeHtmlEntities, formatDate, formatMailPreview, formatSnoozeDate, senderColor } from '../utils';
@@ -122,7 +122,9 @@ export interface ThreadItemProps {
   readonly snoozeUntil?: string;
   readonly isInSnoozedFolder: boolean;
   readonly isSentFolder?: boolean;
+  readonly isInScheduledFolder?: boolean;
   readonly hasDraft?: boolean;
+  readonly sourceColor?: string;
   readonly provider?: MailProvider | null;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
@@ -130,14 +132,26 @@ export interface ThreadItemProps {
   readonly onToggleCheck: (t: MailThread, shiftKey: boolean) => void;
 }
 
-export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, hasDraft, provider, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
+export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, isInScheduledFolder = false, hasDraft, sourceColor, provider, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const { preference } = useTheme();
   const isDark = preference === 'dark';
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [isHovered, setIsHovered] = useState(false);
   const itemRef = useRef<HTMLDivElement>(null);
+  const avatarLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const avatarLongPressHandledRef = useRef(false);
   const [snippetNearViewport, setSnippetNearViewport] = useState(false);
+
+  const isMobile = () => globalThis.matchMedia?.("(max-width: 700px)").matches ?? false;
+  const clearAvatarLongPress = () => {
+    if (avatarLongPressTimerRef.current !== null) {
+      clearTimeout(avatarLongPressTimerRef.current);
+      avatarLongPressTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => clearAvatarLongPress, []);
   useEffect(() => {
     if (thread.snippet || !provider?.getThreadSnippet) return;
     const element = itemRef.current;
@@ -212,14 +226,43 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   return (
     <div
       ref={itemRef}
-      className={`mail-thread-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''} ${isChecked ? 'checked' : ''}`}
-      onClick={() => onSelect(thread)}
+      className={`mail-thread-item ${isSelected ? "selected" : ""} ${isUnread ? "unread" : ""} ${isChecked ? "checked" : ""}`}
+      onClick={() => {
+        if (avatarLongPressHandledRef.current) {
+          avatarLongPressHandledRef.current = false;
+          return;
+        }
+        onSelect(thread);
+      }}
+      onPointerDown={e => {
+        if (!isMobile() || e.pointerType === "mouse") return;
+        avatarLongPressHandledRef.current = false;
+        clearAvatarLongPress();
+        avatarLongPressTimerRef.current = setTimeout(() => {
+          avatarLongPressHandledRef.current = true;
+          onToggleCheck(thread, false);
+        }, 450);
+      }}
+      onPointerUp={clearAvatarLongPress}
+      onPointerCancel={clearAvatarLongPress}
+      onContextMenu={e => {
+        if (isMobile()) e.preventDefault();
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => { setIsHovered(false); setTooltip(null); }}
     >
       <div
         className={`mail-thread-item__avatar ${(isHovered || isChecked) ? 'mail-thread-item__avatar--checkbox' : ''}`}
         onClick={e => {
+          if (isMobile()) {
+            e.stopPropagation();
+            if (avatarLongPressHandledRef.current) {
+              avatarLongPressHandledRef.current = false;
+              return;
+            }
+            onToggleCheck(thread, false);
+            return;
+          }
           if (isHovered || isChecked) {
             e.stopPropagation();
             onToggleCheck(thread, e.shiftKey);
@@ -234,7 +277,11 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           <div className="mail-thread-item__from">
             {showRecipients ? (
               <>
-                <span className="mail-thread-item__recipients" title={[...toRecipients, ...ccRecipients].map(r => r.name ? `${r.name} <${r.email}>` : r.email).join(', ')}>
+                <span
+                  className="mail-thread-item__recipients"
+                  style={{ color: thread.accountColor ?? sourceColor }}
+                  title={[...toRecipients, ...ccRecipients].map(r => r.name ? `${r.name} <${r.email}>` : r.email).join(', ')}
+                >
                   {recipientsLabel}
                 </span>
                 {totalRecipients > 1 && (
@@ -260,7 +307,14 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
                 {snoozeUntil && <span>{formatSnoozeDate(snoozeUntil, t)}</span>}
               </span>
             )}
-            <span className="mail-thread-item__date">{formatDate(thread.last_delivery_time)}</span>
+            {isInScheduledFolder && (
+              <span className="mail-thread-item__scheduled-badge" title={new Date(thread.last_delivery_time).toLocaleString()}>
+                <CalendarClock size={12} />
+                <span>{formatSnoozeDate(thread.last_delivery_time, t)}</span>
+              </span>
+            )}
+            {isUnread && <span className="mail-thread-item__unread-dot" aria-hidden="true" />}
+            {!isInScheduledFolder && <span className="mail-thread-item__date">{formatDate(thread.last_delivery_time)}</span>}
           </div>
         </div>
 

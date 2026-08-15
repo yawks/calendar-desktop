@@ -1,5 +1,6 @@
 import { ChevronRight, Folder as FolderIcon, Inbox, Search, Send, Trash2 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { MailFolder } from '../types';
 
@@ -10,13 +11,13 @@ interface FolderNode {
   isVirtual: boolean;
 }
 
-const SYSTEM_FOLDER_MAP: Record<string, { label: string; Icon: React.FC<{ size?: number }> }> = {
-  inbox:        { label: 'Inbox',   Icon: Inbox as any },
-  INBOX:        { label: 'Inbox',   Icon: Inbox as any },
-  sentitems:    { label: 'Sent',    Icon: Send as any },
-  SENT:         { label: 'Sent',    Icon: Send as any },
-  deleteditems: { label: 'Trash',   Icon: Trash2 as any },
-  TRASH:        { label: 'Trash',   Icon: Trash2 as any },
+const SYSTEM_FOLDER_MAP: Record<string, { labelKey: string; Icon: React.FC<{ size?: number }> }> = {
+  inbox:        { labelKey: 'mail.folders.inbox', Icon: Inbox as any },
+  INBOX:        { labelKey: 'mail.folders.inbox', Icon: Inbox as any },
+  sentitems:    { labelKey: 'mail.folders.sent', Icon: Send as any },
+  SENT:         { labelKey: 'mail.folders.sent', Icon: Send as any },
+  deleteditems: { labelKey: 'mail.folders.trash', Icon: Trash2 as any },
+  TRASH:        { labelKey: 'mail.folders.trash', Icon: Trash2 as any },
 };
 
 function collectAllNames(folders: MailFolder[]): Set<string> {
@@ -81,6 +82,7 @@ function FolderItem({
   readonly currentFolderId?: string;
   readonly searchQuery: string;
 }) {
+  const { t } = useTranslation();
   const { folder, label, children, isVirtual } = node;
   const hasChildren = children.length > 0;
   const isExpanded = expandedIds.has(folder.folder_id);
@@ -106,14 +108,14 @@ function FolderItem({
           disabled={isCurrent}
         >
           {sys ? <sys.Icon size={14} /> : <FolderIcon size={14} />}
-          <span className="folder-picker__label">{sys ? sys.label : label}</span>
+          <span className="folder-picker__label">{sys ? t(sys.labelKey) : label}</span>
         </button>
         {hasChildren && (
           <button
             className="folder-picker__chevron"
             onClick={() => onToggle(folder.folder_id)}
             tabIndex={-1}
-            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            aria-label={t(isExpanded ? 'mail.folders.collapse' : 'mail.folders.expand')}
           >
             <ChevronRight
               size={12}
@@ -146,6 +148,7 @@ interface FolderPickerPopoverProps {
 }
 
 export function FolderPickerPopover({ folders, onSelect, onClose, currentFolderId }: FolderPickerPopoverProps) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
@@ -171,7 +174,7 @@ export function FolderPickerPopover({ folders, onSelect, onClose, currentFolderI
         <input
           ref={inputRef}
           className="folder-picker__search-input"
-          placeholder="Rechercher…"
+          placeholder={t('mail.folders.search')}
           value={search}
           onChange={e => setSearch(e.target.value)}
           onKeyDown={e => { if (e.key === 'Escape') onClose(); }}
@@ -179,7 +182,7 @@ export function FolderPickerPopover({ folders, onSelect, onClose, currentFolderI
       </div>
       <div className="folder-picker__list">
         {visible.length === 0 ? (
-          <div className="folder-picker__empty">Aucun dossier</div>
+          <div className="folder-picker__empty">{t('mail.folders.empty')}</div>
         ) : visible.map(node => (
           <FolderItem
             key={node.folder.folder_id}

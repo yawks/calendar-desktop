@@ -3,6 +3,8 @@ import { MailProvider } from '../providers/MailProvider';
 import { Folder, MailSearchQuery, MailThread, MailMessage, MailFolder, MailIdentity } from '../types';
 import { buildUnreadCounts, DISPLAY_TO_STATIC } from '../utils';
 import { useMemo, useCallback } from 'react';
+import { getOfflineConversation, getOfflineInboxThreads } from '../utils/offlineMailCache';
+import { isTemporaryMailServiceError } from '../../../shared/utils/networkError';
 
 export const MAIL_KEYS = {
   all: ['mail'] as const,
@@ -15,6 +17,8 @@ export const MAIL_KEYS = {
 };
 
 const EMPTY_ARRAY: any[] = [];
+const retryTemporaryMailFailure = (failureCount: number, error: unknown) => failureCount < 3 && isTemporaryMailServiceError(error);
+const temporaryMailRetryDelay = (attempt: number) => Math.min(2_000 * 2 ** attempt, 10_000);
 
 export function useMailFolders(accountId: string, provider: MailProvider | null) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
@@ -26,7 +30,8 @@ export function useMailFolders(accountId: string, provider: MailProvider | null)
     enabled: !!provider,
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
-    retry: false,
+    retry: retryTemporaryMailFailure,
+    retryDelay: temporaryMailRetryDelay,
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailFolder[]), isLoading, isFetching, error, refetch }),
@@ -56,7 +61,8 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
       enabled: !!acc.provider,
       staleTime: 30 * 1000,
       refetchInterval: 60 * 1000,
-      retry: false,
+      retry: retryTemporaryMailFailure,
+      retryDelay: temporaryMailRetryDelay,
     })),
   });
 
@@ -100,7 +106,7 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
       return folders
         .filter(f => {
           const normalized = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
-          return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed', 'spam'].includes(normalized);
+          return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'scheduled', 'snoozed', 'spam'].includes(normalized);
         })
         .map(f => ({ ...f, accountId: acc.id, accountColor: color }));
     });
@@ -121,13 +127,21 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
     queryKey: [...MAIL_KEYS.threads(accountId, folder), limit, offset],
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
-      const threads = await provider.listThreads(folder, limit, offset);
+      let threads: MailThread[];
+      try {
+        threads = await provider.listThreads(folder, limit, offset);
+      } catch (error) {
+        const cached = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(accountId) : null;
+        if (!cached) throw error;
+        threads = cached.slice(0, limit);
+      }
       if (folder === 'sentitems') return threads.map(t => ({ ...t, unread_count: 0 }));
       return threads;
     },
     enabled: !!provider,
     refetchInterval: 60 * 1000,
-    retry: false,
+    retry: retryTemporaryMailFailure,
+    retryDelay: temporaryMailRetryDelay,
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailThread[]), isLoading, isFetching, error, refetch }),
@@ -136,13 +150,20 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
   );
 }
 
-export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[], limit = 50, offset = 0) {
+export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[], limit = 50, offset = 0, enabled = true) {
   const results = useQueries({
     queries: accounts.map((acc) => ({
       queryKey: [...MAIL_KEYS.threads(acc.id, folder), limit, offset],
       queryFn: async () => {
         if (!acc.provider) throw new Error('No provider');
-        const threads = await acc.provider.listThreads(folder, limit, offset);
+        let threads: MailThread[];
+        try {
+          threads = await acc.provider.listThreads(folder, limit, offset);
+        } catch (error) {
+          const cached = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(acc.id) : null;
+          if (!cached) throw error;
+          threads = cached.slice(0, limit);
+        }
         return threads.map(t => ({
           ...t,
           unread_count: folder === 'sentitems' ? 0 : t.unread_count,
@@ -151,9 +172,10 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
           accountColor: acc.color
         }));
       },
-      enabled: !!acc.provider,
+      enabled: enabled && !!acc.provider,
       refetchInterval: 60 * 1000,
-      retry: false,
+      retry: retryTemporaryMailFailure,
+      retryDelay: temporaryMailRetryDelay,
     })),
   });
 
@@ -199,7 +221,8 @@ export function useMailIdentities(accountId: string, provider: MailProvider | nu
     },
     enabled: !!provider && !!provider.listIdentities,
     staleTime: 5 * 60 * 1000,
-    retry: false,
+    retry: retryTemporaryMailFailure,
+    retryDelay: temporaryMailRetryDelay,
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailIdentity[]), isLoading, error, refetch }),
@@ -227,7 +250,8 @@ export function useAllAccountIdentities(
       },
       enabled: !!acc.provider?.listIdentities,
       staleTime: 5 * 60 * 1000,
-      retry: false,
+      retry: retryTemporaryMailFailure,
+      retryDelay: temporaryMailRetryDelay,
     })),
   });
 
@@ -264,12 +288,33 @@ export function useAllAccountIdentities(
   }, [dataTimestamps, accountIds]);
 }
 
-export function useMailConversation(accountId: string, conversationId: string | null, provider: MailProvider | null, isDraft = false, includeTrash = false) {
+export function useMailConversation(
+  accountId: string,
+  conversationId: string | null,
+  provider: MailProvider | null,
+  folder: Folder,
+  isDraft = false,
+  includeTrash = false,
+) {
   const { data, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), isDraft, includeTrash],
+    // EWS item and attachment IDs change when an item is moved. Keeping the
+    // source and destination folders in one cache entry can therefore replay
+    // an invalid ID after an archive/move operation.
+    queryKey: [...MAIL_KEYS.thread(accountId, conversationId ?? 'null'), folder, isDraft, includeTrash],
     queryFn: async () => {
       if (!provider || !conversationId) throw new Error('Invalid params');
-      return await provider.getThread(conversationId, includeTrash, isDraft, /* includeDrafts */ !isDraft);
+      try {
+        return await provider.getThread(conversationId, includeTrash, isDraft, /* includeDrafts */ !isDraft);
+      } catch (error) {
+        // The offline synchronizer currently stores Inbox conversations only.
+        // Never substitute one of those records while browsing Archive or a
+        // custom folder: its EWS IDs may have changed after the move.
+        const cached = folder === 'inbox' && !includeTrash && !isDraft
+          ? await getOfflineConversation(accountId, conversationId)
+          : null;
+        if (!cached) throw error;
+        return cached;
+      }
     },
     enabled: !!provider && !!conversationId,
     staleTime: 60 * 1000,
@@ -299,7 +344,8 @@ export function useMailSearch(accountId: string, query: MailSearchQuery, provide
     },
     enabled: !!provider && hasQuery,
     staleTime: 2 * 60 * 1000,
-    retry: false,
+    retry: retryTemporaryMailFailure,
+    retryDelay: temporaryMailRetryDelay,
   });
   return useMemo(
     () => ({ data: data ?? (EMPTY_ARRAY as MailThread[]), isLoading, error, refetch }),
@@ -327,7 +373,8 @@ export function useAllAccountSearch(query: MailSearchQuery, accounts: { id: stri
       },
       enabled: !!acc.provider && hasQuery,
       staleTime: 2 * 60 * 1000,
-      retry: false,
+      retry: retryTemporaryMailFailure,
+      retryDelay: temporaryMailRetryDelay,
     })),
   });
 

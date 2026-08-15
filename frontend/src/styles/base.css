@@ -1,0 +1,230 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Light theme (default) ───────────────────────── */
+:root {
+  --primary: #0877bd;
+  --primary-hover: #06649f;
+  --sidebar-width: 260px;
+  --header-height: 60px;
+  --border: #dfe3e7;
+  --text: #24282c;
+  --text-muted: #59636c;
+  --bg: #ffffff;
+  --bg-sidebar: #ffffff;
+  --bg-hover: #eef0f2;
+  --skeleton-base: #dfe4e8;
+  --skeleton-highlight: #f5f7f8;
+  --danger: #d93025;
+  --shadow: rgba(0,0,0,0.15);
+  --font-scale: 1;
+}
+
+[data-font-size="small"] { --font-scale: 0.85; }
+[data-font-size="medium"] { --font-scale: 1; }
+[data-font-size="intermediate"] { --font-scale: 1.1; }
+[data-font-size="large"] { --font-scale: 1.2; }
+
+/* ── Dark theme ──────────────────────────────────── */
+[data-theme="dark"] {
+  --primary: #6d9ee8;
+  --primary-hover: #5a8ed8;
+  --border: #393944;
+  --text: #abb0bb;
+  --text-muted: #aaacb3;
+  --bg: #1c1e20;
+  --bg-sidebar: #2c2d2e;
+  --bg-hover: #2d3236;
+  --skeleton-base: #343a3f;
+  --skeleton-highlight: #485057;
+  --danger: #c8607a;
+  --shadow: rgba(0,0,0,0.6);
+}
+
+[data-theme="dark"] .toastui-calendar-layout,
+[data-theme="dark"] .toastui-calendar-month,
+[data-theme="dark"] .toastui-calendar-week-view {
+  background: #1c1e20;
+  color: #a8b4cc;
+}
+
+[data-theme="dark"] .toastui-calendar-panel,
+[data-theme="dark"] .toastui-calendar-day-name__date,
+[data-theme="dark"] .toastui-calendar-day-name__name {
+  color: #a8b4cc;
+}
+
+body {
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+}
+
+#root {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── App layout ─────────────────────────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── App tabs (Calendar / Mail switcher) ─────────── */
+.app-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--sidebar-bg, var(--bg));
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.app-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, var(--text));
+  font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.app-tab:hover {
+  background: var(--hover, rgba(0,0,0,0.06));
+  color: var(--text);
+}
+
+.app-tab.active {
+  background: var(--primary, #1a73e8);
+  color: #fff;
+}
+
+/* Mail / Calendar selector shown only in the single-window layout. */
+.app-view-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.app-view-menu__trigger {
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-view-menu__trigger:hover,
+.app-view-menu__trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.app-view-menu__chevron {
+  display: block;
+  flex: 0 0 auto;
+  transition: transform .15s ease;
+}
+
+.app-view-menu__chevron--open {
+  transform: rotate(180deg);
+}
+
+.app-view-menu__popover {
+  position: absolute;
+  z-index: 500;
+  top: calc(100% + 7px);
+  left: 0;
+  display: flex;
+  min-width: 190px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  box-shadow: 0 7px 24px var(--shadow);
+}
+
+.app-view-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-view-menu__item:hover {
+  background: var(--bg-hover);
+}
+
+.app-view-menu__item span {
+  flex: 1;
+}
+
+.app-view-menu__check {
+  color: var(--primary);
+}
+
+/* ── First-run welcome ──────────────────────────── */
+.welcome-screen {
+  display: flex;
+  flex: 1;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 48px 24px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+}
+
+
+.welcome-screen h1 {
+  font-size: calc(30px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.welcome-screen p {
+  max-width: 520px;
+  color: var(--text-muted);
+  font-size: calc(16px * var(--font-scale, 1));
+  line-height: 1.55;
+}
+
+.welcome-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  text-decoration: none;
+}
+

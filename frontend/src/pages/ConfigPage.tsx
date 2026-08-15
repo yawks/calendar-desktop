@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Languages, Mail, Laptop, Cloud, Rss, Plus, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, Languages, Mail, Cloud, Rss, Plus, SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCalendars } from '../features/calendar/store/CalendarStore';
 import { useGoogleAuth } from '../shared/store/GoogleAuthStore';
@@ -10,7 +10,6 @@ import { useJmapAuth } from '../shared/store/JmapAuthStore';
 import { useDefaultCalendar } from '../features/calendar/store/defaultCalendarStore';
 import { ImapAccountManageModal } from './ImapAccountManageModal';
 import { JmapAccountManageModal } from './JmapAccountManageModal';
-import { EventKitManageModal } from './config/EventKitManageModal';
 import { GoogleAccountManageModal } from './config/GoogleAccountManageModal';
 import { ICSManageModal } from './config/ICSManageModal';
 import { NextcloudManageModal } from './config/NextcloudManageModal';
@@ -23,7 +22,6 @@ import { CalendarItem, GroupSection } from './config/ConfigShared';
 type SectionType = 'providers' | 'preferences';
 
 type EditModalState =
-  | { type: 'eventkit' }
   | { type: 'google'; accountId: string }
   | { type: 'exchange'; accountId: string }
   | { type: 'imap'; accountId: string }
@@ -47,7 +45,6 @@ export default function ConfigPage() {
   );
   const [editModal, setEditModal] = useState<EditModalState>(null);
 
-  const ekCals = calendars.filter((c) => c.type === 'eventkit');
   const icsCals = calendars.filter((c) => !c.type || c.type === 'ics');
   const nextcloudCals = calendars.filter((c) => c.type === 'nextcloud');
 
@@ -62,7 +59,7 @@ export default function ConfigPage() {
   }));
 
   const hasAnyProvider =
-    ekCals.length > 0 || accounts.length > 0 || exchangeAccounts.length > 0 ||
+    accounts.length > 0 || exchangeAccounts.length > 0 ||
     imapAccounts.length > 0 || jmapAccounts.length > 0 || icsCals.length > 0 || nextcloudCals.length > 0;
 
   const sections: { id: SectionType; label: string; icon: React.ReactNode }[] = [
@@ -70,20 +67,22 @@ export default function ConfigPage() {
     { id: 'preferences', label: t('config.sectPreferences'), icon: <Languages size={15} /> },
   ];
 
-  const openEventKit = () => {
-    setShowNewCalModal(false);
-    setEditModal({ type: 'eventkit' });
-  };
-
   const editingGoogleAccount = editModal?.type === 'google'
     ? accounts.find((a) => a.id === (editModal as { type: 'google'; accountId: string }).accountId)
     : undefined;
 
   return (
     <div className="app">
-      <header className="header">
-        <Link to="/" className="btn-config">{t('config.backToCalendar')}</Link>
-        <span style={{ fontSize: 'calc(18px * var(--font-scale, 1))', fontWeight: 400 }}>{t('config.pageTitle')}</span>
+      <header className="header config-header">
+        <Link
+          to="/"
+          className="btn-config btn-config--icon-only config-header-back"
+          aria-label={t('config.backToCalendar')}
+          title={t('config.backToCalendar')}
+        >
+          <ChevronLeft size={28} aria-hidden="true" />
+        </Link>
+        <span className="config-header-title">{t('config.pageTitle')}</span>
       </header>
 
       <div className="app-body">
@@ -126,18 +125,6 @@ export default function ConfigPage() {
                   <div className="empty-state" style={{ marginTop: 32 }}>
                     {t('config.noProvidersConfigured')}
                   </div>
-                )}
-
-                {/* macOS / EventKit */}
-                {ekCals.length > 0 && (
-                  <GroupSection
-                    title="macOS"
-                    icon={<Laptop size={13} />}
-                    onEdit={() => setEditModal({ type: 'eventkit' })}
-                    caps={['calendar']}
-                  >
-                    {ekCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
-                  </GroupSection>
                 )}
 
                 {/* Google — one group per account */}
@@ -272,13 +259,6 @@ export default function ConfigPage() {
       {showNewCalModal && (
         <NewCalendarModal
           onClose={() => setShowNewCalModal(false)}
-          onOpenEventKit={openEventKit}
-        />
-      )}
-      {editModal?.type === 'eventkit' && (
-        <EventKitManageModal
-          existingCalendars={calendars}
-          onClose={() => setEditModal(null)}
         />
       )}
       {editModal?.type === 'google' && editingGoogleAccount && (

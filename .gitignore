@@ -19,3 +19,7 @@ frontend/src-tauri/bundle/
 # Legacy web proxy artifacts
 proxy/node_modules/
 proxy/.env*
+deploy/certs/
+
+# Backend Rust build artifacts
+/backend/target/

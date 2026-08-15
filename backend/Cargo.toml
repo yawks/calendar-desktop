@@ -1,0 +1,30 @@
+[package]
+name = "courrier-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+url = "2"
+urlencoding = "2"
+getrandom = "0.2"
+serde_urlencoded = "0.7"
+app_lib = { package = "courrier", path = "provider-core" }
+
+# Cargo only applies registry patches declared by the root manifest.  The
+# vendored client accepts newer server mailbox roles instead of failing the
+# complete Mailbox/get response.
+[patch.crates-io]
+jmap-client = { path = "provider-core/vendor/jmap-client" }
+
+# Quick, incremental binary used only by compose.local-https.yaml. The default
+# Docker build continues to use Cargo's optimized release profile.
+[profile.local]
+inherits = "dev"
+debug = 0
+incremental = true

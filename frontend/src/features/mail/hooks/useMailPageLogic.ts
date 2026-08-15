@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { invoke } from '@tauri-apps/api/core';
+import { fileService } from '../../../shared/services/fileService';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { useImapAuth } from '../../../shared/store/ImapAuthStore';
@@ -20,6 +20,8 @@ import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAll
 import { useMailMutations } from './useMailMutations';
 import { cleanupContactIndex, recordContactObservations, searchContactIndex, type ContactObservation } from '../utils/contactIndex';
 import { useContactBackfill } from './useContactBackfill';
+import { useOfflineMailSync } from './useOfflineMailSync';
+import { isOfflineLikeError, isTemporaryMailServiceError } from '../../../shared/utils/networkError';
 
 export function useMailPageLogic() {
   const { t } = useTranslation();
@@ -77,6 +79,7 @@ export function useMailPageLogic() {
     ...account,
     provider: allProviders.get(account.id) ?? null,
   })), [allMailAccounts, allProviders]);
+  useOfflineMailSync(backfillAccounts);
   const contactBackfillStatus = useContactBackfill(backfillAccounts);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
@@ -227,6 +230,7 @@ export function useMailPageLogic() {
     selectedThread?.accountId ?? selectedAccountId,
     selectedThread?.conversation_id ?? null,
     allProviders.get(selectedThread?.accountId ?? selectedAccountId) ?? provider,
+    selectedFolder,
     selectedFolder === 'drafts',
     selectedFolder === 'deleteditems',
   );
@@ -248,6 +252,7 @@ export function useMailPageLogic() {
 
   useEffect(() => {
     if (!conversationQuery.error) return;
+    if (isOfflineLikeError(conversationQuery.error)) return;
     const message = conversationQuery.error instanceof Error
       ? conversationQuery.error.message
       : String(conversationQuery.error);
@@ -299,7 +304,7 @@ export function useMailPageLogic() {
     return (folderQuery.data ?? [])
       .filter(f => {
         const normalized = DISPLAY_TO_STATIC[f.display_name.toLowerCase()] ?? f.folder_id;
-        return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'snoozed', 'spam'].includes(normalized);
+        return !['inbox', 'sentitems', 'deleteditems', 'drafts', 'scheduled', 'snoozed', 'spam'].includes(normalized);
       })
       .map(f => ({ ...f, accountId: selectedAccountId, accountColor: info?.color, accountLabel: info?.label }));
   }, [isAllMode, allModeDynamicFolders, folderQuery.data, selectedAccountId, allAccountInfo]);
@@ -308,12 +313,17 @@ export function useMailPageLogic() {
 
   useEffect(() => {
     const threadErrors = isAllMode ? allThreadsQuery.errors : (threadsQuery.error ? [threadsQuery.error] : []);
-    const allErrors = [...threadErrors, ...allFoldersQuery.errors] as Error[];
+    const allErrors = ([...threadErrors, ...allFoldersQuery.errors] as Error[])
+      .filter(candidate => !isOfflineLikeError(candidate));
+    const temporaryMessage = t('mail.temporaryServiceUnavailable');
     if (allErrors.length > 0) {
-      const msg = allErrors[0].message;
+      const firstError = allErrors[0];
+      const msg = isTemporaryMailServiceError(firstError) ? temporaryMessage : firstError.message;
       setError(prev => prev === msg ? prev : msg);
+    } else {
+      setError(prev => prev === temporaryMessage ? null : prev);
     }
-  }, [isAllMode, allThreadsQuery.errors, threadsQuery.error, allFoldersQuery.errors]);
+  }, [isAllMode, allThreadsQuery.errors, threadsQuery.error, allFoldersQuery.errors, t]);
 
   // --- MUTATIONS ---
   const mutations = useMailMutations();
@@ -416,10 +426,13 @@ export function useMailPageLogic() {
   const contacts = useContactSuggestions(mailContacts);
   const [deleteToast, setDeleteToast] = useState<{ label: string } | null>(null);
   const [actionToast, setActionToast] = useState<{ label: string; onCancel?: () => void } | null>(null);
-  const [downloadToast, setDownloadToast] = useState<{ name: string; path: string } | null>(null);
+  const [downloadToast, setDownloadToast] = useState<{ name: string } | null>(null);
   const downloadToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('mail-sidebar-collapsed') === 'true');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => globalThis.matchMedia?.('(max-width: 700px)').matches
+      || localStorage.getItem('mail-sidebar-collapsed') === 'true'
+  );
   const getScreenKey = () => `${window.screen.width}x${window.screen.height}`;
   const screenKeyRef = useRef(getScreenKey());
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem(`mail-sidebar-width-${getScreenKey()}`) || 240));
@@ -559,14 +572,30 @@ export function useMailPageLogic() {
     return p?.capabilities.snooze ?? false;
   }, [resolveProvider, selectedThread?.accountId]);
 
-  const mailCapabilitiesByAccount = useMemo(
+  const [mailCapabilitiesByAccount, setMailCapabilitiesByAccount] = useState(
     () => new Map([...allProviders].map(([accountId, mailProvider]) => [accountId, mailProvider.capabilities] as const)),
-    [allProviders],
   );
+  useEffect(() => {
+    let cancelled = false;
+    const baseline = new Map([...allProviders].map(([accountId, mailProvider]) => [accountId, mailProvider.capabilities] as const));
+    setMailCapabilitiesByAccount(baseline);
+    void Promise.all([...allProviders].map(async ([accountId, mailProvider]) => {
+      if (!mailProvider.getCapabilities) return [accountId, mailProvider.capabilities] as const;
+      try {
+        return [accountId, await mailProvider.getCapabilities()] as const;
+      } catch (error) {
+        console.warn(`[mail:capabilities] ${accountId}`, error);
+        return [accountId, mailProvider.capabilities] as const;
+      }
+    })).then(entries => {
+      if (!cancelled) setMailCapabilitiesByAccount(new Map(entries));
+    });
+    return () => { cancelled = true; };
+  }, [allProviders]);
 
   const selectAccount = useCallback((accountId: string) => {
     if (accountId === selectedAccountId) return;
-    // Tauri invocations already in flight cannot be killed at the transport
+    // Provider requests already in flight cannot always be killed at the transport
     // level, but cancelling their queries prevents their results from being
     // applied after the source switch.
     void queryClient.cancelQueries({ queryKey: MAIL_KEYS.all });
@@ -752,6 +781,38 @@ export function useMailPageLogic() {
     moveToTrash(thread.conversation_id);
   }, [moveToTrash]);
 
+  const handleDeleteMessage = useCallback(async (message: MailMessage) => {
+    if (!selectedThread) return;
+    const p = resolveProvider(selectedThread.accountId);
+    if (!p) return;
+
+    const accountId = selectedThread.accountId ?? selectedAccountId;
+    const permanently = selectedFolder === 'deleteditems';
+    try {
+      if (permanently) await p.permanentlyDelete(message.item_id);
+      else await p.moveToTrash(message.item_id);
+
+      queryClient.setQueriesData<MailMessage[]>(
+        { queryKey: MAIL_KEYS.thread(accountId, selectedThread.conversation_id) },
+        old => Array.isArray(old) ? old.filter(item => item.item_id !== message.item_id) : old,
+      );
+      if (messages.filter(item => !item.is_draft).length <= 1) {
+        selectNextThread(selectedThread.conversation_id);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['mail', accountId] });
+      await queryClient.invalidateQueries({ queryKey: ['mail', 'all'] });
+      setActionToast({
+        label: permanently
+          ? t('mail.messageDeletedPermanently', 'Message supprimé définitivement')
+          : t('mail.messageMovedToTrash', 'Message déplacé vers la corbeille'),
+      });
+      setTimeout(() => setActionToast(null), 3000);
+    } catch (err) {
+      setError(getErrorMessage(err));
+      throw err;
+    }
+  }, [selectedThread, resolveProvider, selectedAccountId, selectedFolder, queryClient, messages, selectNextThread, t, setActionToast]);
+
   const persistSnooze = useCallback((conversationId: string, until: string) => {
     setSnoozedMap(prev => {
       const next = { ...prev, [conversationId]: until };
@@ -916,6 +977,10 @@ export function useMailPageLogic() {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) return;
     const canPreviewInApp = att.content_type.startsWith('image/') || att.content_type.includes('pdf');
+    if (att.local_data && canPreviewInApp) {
+      setAttachmentPreview({ attachment: att, loading: false, data: att.local_data });
+      return;
+    }
     if (!canPreviewInApp) {
       setLoadingAttachmentId(`preview:${att.attachment_id}`);
       try { await p.openAttachment(att); } catch (e) { setError(String(e)); }
@@ -937,16 +1002,17 @@ export function useMailPageLogic() {
     if (!p) return;
     setLoadingAttachmentId(`download:${att.attachment_id}`);
     try {
-      const data = await p.getAttachmentData(att);
-      const path = await invoke<string>('save_file_to_downloads', { filename: att.name, data });
+      const data = att.local_data ?? await p.getAttachmentData(att);
+      fileService.downloadBase64(att.name, data, att.content_type);
       if (downloadToastTimerRef.current) clearTimeout(downloadToastTimerRef.current);
-      setDownloadToast({ name: att.name, path });
+      setDownloadToast({ name: att.name });
       downloadToastTimerRef.current = setTimeout(() => setDownloadToast(null), 15000);
     } catch (e) { setError(String(e)); }
     setLoadingAttachmentId(null);
   }, [resolveProvider, selectedThread]);
 
   const getRawAttachmentData = useCallback(async (att: MailAttachment): Promise<string> => {
+    if (att.local_data) return att.local_data;
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) throw new Error('Provider introuvable');
     return p.getAttachmentData(att);
@@ -966,6 +1032,14 @@ export function useMailPageLogic() {
 
     const account = allMailAccounts.find(a => a.id === accountId);
     const optimisticId = '__optimistic__' + Date.now();
+    const optimisticAttachments: MailAttachment[] = (attachments ?? []).map((attachment, index) => ({
+      attachment_id: `${optimisticId}:attachment:${index}`,
+      name: attachment.name,
+      content_type: attachment.contentType,
+      size: attachment.size,
+      is_inline: attachment.isInline ?? false,
+      local_data: attachment.data,
+    }));
     const optimisticMsg: MailMessage = {
       item_id: optimisticId,
       change_key: '',
@@ -977,8 +1051,8 @@ export function useMailPageLogic() {
       body_html: body,
       date_time_received: new Date().toISOString(),
       is_read: true,
-      has_attachments: (attachments?.length ?? 0) > 0,
-      attachments: [],
+      has_attachments: optimisticAttachments.length > 0,
+      attachments: optimisticAttachments,
     };
 
     if (conversationId) {
@@ -1068,6 +1142,10 @@ export function useMailPageLogic() {
           eventId: `send:${optimisticId}`,
         }));
         await recordContactObservations(accountId, sentObservations);
+        if (sendAt) {
+          void queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(accountId, 'scheduled') });
+          void queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads', 'scheduled'] });
+        }
         void queryClient.invalidateQueries({ queryKey: ['contact-index'] });
         void queryClient.invalidateQueries({ queryKey: ['contact-index-search'] });
         if (conversationId) setTimeout(() => doPoll(1), 3000);
@@ -1242,7 +1320,7 @@ export function useMailPageLogic() {
     selectAccount, selectFolder, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, reloadThreads, loadMoreThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
-    handleDeleteThread, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
+    handleDeleteThread, handleDeleteMessage, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
     handleBulkSnooze, handleBulkMove, handleBulkToggleRead, previewAttachment,
     downloadAttachment, getRawAttachmentData, scheduleSend, cancelSend, handleSaveDraft,
     startResizingSidebar, startResizingThreadList, setSidebarCollapsed,

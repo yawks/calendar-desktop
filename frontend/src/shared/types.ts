@@ -21,14 +21,12 @@ export interface CalendarConfig {
   ownerEmail?: string;
   /** Group this calendar belongs to (default: 'default') */
   groupId?: string;
-  /** 'ics' (default) | 'google' | 'eventkit' | 'nextcloud' | 'exchange' */
-  type?: 'ics' | 'google' | 'eventkit' | 'nextcloud' | 'exchange';
+  /** 'ics' (default) | 'google' | 'nextcloud' | 'exchange' */
+  type?: 'ics' | 'google' | 'nextcloud' | 'exchange';
   /** Google Calendar ID (e.g. "primary" or "user@group.calendar.google.com") */
   googleCalendarId?: string;
   /** Reference to GoogleAccount.id */
   googleAccountId?: string;
-  /** EventKit calendarIdentifier (macOS only) */
-  eventKitCalendarId?: string;
   /** Nextcloud server base URL (e.g. https://cloud.example.com) */
   nextcloudServerUrl?: string;
   /** Nextcloud username */
@@ -46,6 +44,9 @@ export interface GoogleAccount {
   picture?: string;
   accessToken: string;
   refreshToken: string;
+  /** Per-account OAuth credentials, used only when the server is not configured. */
+  googleClientId?: string;
+  googleClientSecret?: string;
   /** Unix timestamp (ms) when the access token expires */
   expiresAt: number;
   /** UI color for this account (used in mail) */
@@ -85,6 +86,8 @@ export interface JmapAccount {
   authType?: 'bearer' | 'basic';
   /** Optional Fastmail web token used only for private webmail extensions. */
   fastmailToken?: string;
+  /** Cookie header paired with the private Fastmail web token. */
+  fastmailCookie?: string;
   /** UI color for this account (used in mail) */
   color?: string;
 }
@@ -110,7 +113,7 @@ export interface CreateEventPayload {
   isAllday: boolean;
   location?: string;
   description?: string;
-  /** CalendarConfig.id of the target calendar (Google or EventKit) */
+  /** CalendarConfig.id of the target calendar */
   calendarId: string;
   attendees?: Array<{ email: string; name?: string }>;
   tagId?: string | null;
@@ -134,7 +137,7 @@ export interface Attendee {
 
 export interface CalendarEvent {
   id: string;
-  /** Raw provider event ID (Google event ID or EventKit identifier) — used for updates */
+  /** Raw provider event ID — used for updates */
   sourceId?: string;
   calendarId: string;
   title: string;

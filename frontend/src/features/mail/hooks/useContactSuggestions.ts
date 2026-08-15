@@ -6,7 +6,6 @@ import type { MailProvider } from '../providers/MailProvider';
 import { isValidEmail } from '../utils';
 import { useCalendars } from '../../calendar/store/CalendarStore';
 import { useEWSEvents } from '../../calendar/hooks/useEWSEvents';
-import { useEventKitEvents } from '../../calendar/hooks/useEventKitEvents';
 import { useGoogleEvents } from '../../calendar/hooks/useGoogleEvents';
 import { useICSEvents } from '../../calendar/hooks/useICSEvents';
 import { useNextcloudEvents } from '../../calendar/hooks/useNextcloudEvents';
@@ -25,18 +24,16 @@ export function useContactSuggestions(
   const icsCals = useMemo(() => calendars.filter(c => !c.type || c.type === 'ics'), [calendars]);
   const googleCals = useMemo(() => calendars.filter(c => c.type === 'google'), [calendars]);
   const ncCals = useMemo(() => calendars.filter(c => c.type === 'nextcloud'), [calendars]);
-  const ekCals = useMemo(() => calendars.filter(c => c.type === 'eventkit'), [calendars]);
   const ewsCals = useMemo(() => calendars.filter(c => c.type === 'exchange'), [calendars]);
 
   const { events: icsEvents } = useICSEvents(icsCals);
   const { events: googleEvents } = useGoogleEvents(googleCals);
   const { events: ncEvents } = useNextcloudEvents(ncCals);
-  const { events: ekEvents } = useEventKitEvents(ekCals);
   const { events: ewsEvents } = useEWSEvents(ewsCals);
   const queryClient = useQueryClient();
   const allCalEvents = useMemo(
-    () => [...icsEvents, ...googleEvents, ...ncEvents, ...ekEvents, ...ewsEvents],
-    [icsEvents, googleEvents, ncEvents, ekEvents, ewsEvents],
+    () => [...icsEvents, ...googleEvents, ...ncEvents, ...ewsEvents],
+    [icsEvents, googleEvents, ncEvents, ewsEvents],
   );
   const eventObservations = useMemo(() => {
     const grouped = new Map<string, ContactObservation[]>();

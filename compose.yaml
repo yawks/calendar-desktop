@@ -1,0 +1,34 @@
+services:
+  courrier:
+    build:
+      context: .
+      args:
+        APP_COMMIT_ID: "${COURRIER_BUILD_COMMIT:?Utilisez scripts/update-all.sh pour construire image}"
+        APP_COMMIT_DATE: "${COURRIER_BUILD_DATE:?Utilisez scripts/update-all.sh pour construire image}"
+    image: courrier:local
+    restart: unless-stopped
+    ports:
+      # Deliberately loopback-only: public access must pass through Nginx.
+      - "127.0.0.1:8080:8080"
+    environment:
+      PORT: "8080"
+      COURRIER_ALLOWED_PROVIDER_HOSTS: "${COURRIER_ALLOWED_PROVIDER_HOSTS:-}"
+      COURRIER_PUBLIC_URL: "${COURRIER_PUBLIC_URL:-}"
+      COURRIER_GOOGLE_CLIENT_ID: "${COURRIER_GOOGLE_CLIENT_ID:-}"
+      COURRIER_GOOGLE_CLIENT_SECRET: "${COURRIER_GOOGLE_CLIENT_SECRET:-}"
+      COURRIER_GOOGLE_REDIRECT_URI: "${COURRIER_GOOGLE_REDIRECT_URI:-}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

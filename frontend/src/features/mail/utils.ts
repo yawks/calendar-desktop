@@ -27,7 +27,7 @@ export function decodeHtmlEntities(text: string): string {
     .trim();
 }
 
-/** Preserve useful details from Error objects, Tauri string rejections and
+/** Preserve useful details from Error objects, string rejections and
  * structured invoke errors. */
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -209,6 +209,8 @@ export const DISPLAY_TO_STATIC: Record<string, string> = {
   'junk e-mail': 'spam',
   'indésirables': 'spam',
   'snoozed': 'snoozed',
+  'scheduled': 'scheduled',
+  'programmés': 'scheduled',
 };
 
 export function buildUnreadCounts(folders: import('./types').MailFolder[]): Record<string, number> {

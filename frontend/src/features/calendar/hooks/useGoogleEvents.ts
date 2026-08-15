@@ -30,8 +30,10 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
 
-  const run = useCallback(async (force: boolean) => {
-    const googleCals = calendarsRef.current.filter((c) => c.type === 'google' && c.googleCalendarId && c.googleAccountId);
+  const run = useCallback(async (force: boolean, calendarId?: string) => {
+    const googleCals = calendarsRef.current.filter((c) =>
+      c.type === 'google' && c.googleCalendarId && c.googleAccountId
+    );
     if (!googleCals.length) {
       setEvents([]);
       setErrors({});
@@ -44,7 +46,7 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
 
     // Phase 2: refresh expired / forced caches
     const toRefresh = force
-      ? googleCals
+      ? googleCals.filter((cal) => !calendarId || cal.id === calendarId)
       : (await Promise.all(googleCals.map(async (cal) => ((await cacheIsFresh(cacheKey(cal.id), CACHE_TTL)) ? null : cal)))).filter(Boolean) as CalendarConfig[];
 
     if (!toRefresh.length) return;
@@ -98,7 +100,7 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
     run(false);
   }, [calKey, run]);
 
-  const refresh = useCallback(() => run(true), [run]);
+  const refresh = useCallback((calendarId?: string) => run(true, calendarId), [run]);
 
   return { events, loading, errors, refresh };
 }

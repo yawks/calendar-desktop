@@ -5,13 +5,13 @@ import {
   HelpCircle, History, Users, Check, Ban, Minus, Forward, UserCheck, Video, ChevronDown, Copy,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { invoke } from '@tauri-apps/api/core';
 import { CalendarConfig, CalendarEvent, Attendee, AttendeeStatus } from '../../../shared/types';
+import { openExternalUrl } from '../../../shared/services/fileService';
 import i18n from '../../../i18n';
 import { useTags } from '../store/TagStore';
 
 function openExternal(url: string) {
-  invoke('open_url', { url }).catch(console.error);
+  openExternalUrl(url);
 }
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
@@ -67,7 +67,8 @@ interface Props {
   readonly calendar: CalendarConfig | null;
   readonly onClose: () => void;
   readonly onEdit?: () => void;
-  readonly onDelete?: () => Promise<void>;
+  readonly onDelete?: (scope?: 'this' | 'all') => Promise<void>;
+  readonly onCancelEvent?: (scope?: 'this' | 'all') => Promise<void>;
   readonly onRsvp?: (status: RsvpStatus, comment?: string) => Promise<void>;
   readonly isOrganizer?: boolean;
   readonly overlayChildren?: React.ReactNode;
@@ -225,13 +226,14 @@ function AttendeeRow({ attendee }: { readonly attendee: Attendee }) {
   );
 }
 
-export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onRsvp, isOrganizer, overlayChildren }: Props) {
+export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onCancelEvent, onRsvp, isOrganizer, overlayChildren }: Props) {
   const { t } = useTranslation();
   const { tags, eventTags, setEventTag, removeEventTag } = useTags();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const tagBtnRef = useRef<HTMLButtonElement>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const showTagDropdownRef = useRef(false);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
@@ -250,6 +252,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     if (event) {
       if (!dialog.open) dialog.showModal();
       setShowDeleteConfirm(false);
+      setShowCancelConfirm(false);
       setDeleteError(null);
       setDeleteLoading(false);
     } else if (dialog.open) {
@@ -311,6 +314,31 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
         return STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
       })
     : [];
+
+  const deleteEvent = async (scope?: 'this' | 'all') => {
+    setDeleteLoading(true);
+    onClose();
+    try {
+      await onDelete!(scope);
+    } catch (e: unknown) {
+      if ((e as any)?.cancelled) setShowDeleteConfirm(false);
+      else setDeleteError(e instanceof Error ? e.message : t('eventModal.deleteError'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const cancelEvent = async (scope?: 'this' | 'all') => {
+    setDeleteLoading(true);
+    onClose();
+    try {
+      await onCancelEvent!(scope);
+    } catch (e: unknown) {
+      setDeleteError(e instanceof Error ? e.message : t('eventModal.cancelError'));
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   return (
     <dialog ref={dialogRef} className="modal-dialog">
@@ -395,6 +423,16 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                 <Trash2 size={16} />
               </button>
             )}
+            {onCancelEvent && !event.isCancelled && (
+              <button
+                className="btn-icon modal-close"
+                onClick={() => { setShowCancelConfirm(true); setShowDeleteConfirm(false); setDeleteError(null); setDeleteLoading(false); }}
+                aria-label={t('eventModal.cancelEvent')}
+                title={t('eventModal.cancelEvent')}
+              >
+                <Ban size={16} />
+              </button>
+            )}
             <button className="btn-icon modal-close" onClick={onClose} aria-label={t('eventModal.close')}>
               <X size={18} />
             </button>
@@ -402,35 +440,53 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
 
           {showDeleteConfirm && (
             <div className="modal-delete-bar">
-              <span>{t('eventModal.deleteConfirm')}</span>
+              <span>{event.isRecurringInstance ? t('eventModal.deleteRecurringConfirm') : t('eventModal.deleteConfirm')}</span>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  type="button"
-                  className="btn-delete-confirm"
-                  disabled={deleteLoading}
-                  onClick={async () => {
-                    setDeleteLoading(true);
-                    try {
-                      await onDelete!();
-                      onClose();
-                    } catch (e: unknown) {
-                      if ((e as any)?.cancelled) {
-                        setShowDeleteConfirm(false);
-                      } else {
-                        setDeleteError(e instanceof Error ? e.message : t('eventModal.deleteError'));
-                      }
-                    } finally {
-                      setDeleteLoading(false);
-                    }
-                  }}
-                >
-                  {t('eventModal.deleteConfirmYes')}
-                </button>
+                {event.isRecurringInstance ? (
+                  <>
+                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent('this')}>
+                      {t('eventModal.deleteThisOccurrence')}
+                    </button>
+                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent('all')}>
+                      {t('eventModal.deleteAllOccurrences')}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent()}>
+                    {t('eventModal.deleteConfirmYes')}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn-delete-cancel"
                   onClick={() => setShowDeleteConfirm(false)}
                 >
+                  {t('eventModal.deleteConfirmNo')}
+                </button>
+              </div>
+              {deleteError && <span className="rsvp-error">{deleteError}</span>}
+            </div>
+          )}
+
+          {showCancelConfirm && (
+            <div className="modal-delete-bar">
+              <span>{event.isRecurringInstance ? t('eventModal.cancelRecurringConfirm') : t('eventModal.cancelConfirm')}</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {event.isRecurringInstance ? (
+                  <>
+                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent('this')}>
+                      {t('eventModal.cancelThisOccurrence')}
+                    </button>
+                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent('all')}>
+                      {t('eventModal.cancelAllOccurrences')}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent()}>
+                    {t('eventModal.cancelEvent')}
+                  </button>
+                )}
+                <button type="button" className="btn-delete-cancel" onClick={() => setShowCancelConfirm(false)}>
                   {t('eventModal.deleteConfirmNo')}
                 </button>
               </div>

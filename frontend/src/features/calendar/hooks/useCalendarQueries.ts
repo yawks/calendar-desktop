@@ -1,8 +1,8 @@
 import { useQueries } from '@tanstack/react-query';
 import { CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
-import { invoke } from '@tauri-apps/api/core';
 import { useMemo } from 'react';
+import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 
 export const CALENDAR_KEYS = {
   all: ['calendar'] as const,
@@ -38,6 +38,11 @@ function ewsResponseToRsvp(ewsStatus: string): any {
   }
 }
 
+function displayableEwsAddress(address?: string): string {
+  const value = address?.trim() ?? '';
+  return value.toUpperCase().startsWith('/O=') ? '' : value;
+}
+
 async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise<CalendarEvent[]> {
   const now = new Date();
   const start = new Date(now);
@@ -55,7 +60,7 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
 
   let raw: EwsEventRaw[];
   try {
-    raw = await invoke<EwsEventRaw[]>('ews_get_calendar_events', {
+    raw = await exchangeCalendarApi.list<EwsEventRaw[]>({
       accessToken,
       ownerEmail: cal.ownerEmail,
       start: start.toISOString(),
@@ -80,10 +85,11 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
       status: ewsResponseToRsvp(a.response_type),
       isOrganizer: false,
     }));
-    if (ev.organizer_email) {
+    if (ev.organizer_email || ev.organizer_name) {
+      const organizerEmail = displayableEwsAddress(ev.organizer_email);
       attendees.unshift({
-        name: ev.organizer_name ?? ev.organizer_email,
-        email: ev.organizer_email,
+        name: ev.organizer_name ?? organizerEmail,
+        email: organizerEmail,
         status: 'ACCEPTED',
         isOrganizer: true,
       });

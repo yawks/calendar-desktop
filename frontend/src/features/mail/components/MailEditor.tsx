@@ -428,6 +428,7 @@ export interface MailEditorProps {
 export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
   ({ initialHTML, placeholder, disableAutoFocus, onSend }, ref) => {
     const isDirtyRef = useRef(false);
+    const focusFrameRef = useRef<number | null>(null);
 
     const editor = useEditor({
       extensions: [
@@ -482,9 +483,18 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
       },
     });
 
+    const focusEditor = useCallback(() => {
+      if (!editor || editor.isDestroyed) return;
+      if (focusFrameRef.current !== null) cancelAnimationFrame(focusFrameRef.current);
+      focusFrameRef.current = requestAnimationFrame(() => {
+        focusFrameRef.current = null;
+        if (!editor.isDestroyed) editor.view.dom.focus({ preventScroll: true });
+      });
+    }, [editor]);
+
     useImperativeHandle(ref, () => ({
       getHTML:    () => editor?.getHTML() ?? '',
-      focus:      () => { editor?.commands.focus('start'); },
+      focus:      focusEditor,
       isModified: () => isDirtyRef.current,
       replaceSignatureBlock: (signatureHtml: string, position: 'bottom' | 'above-quoted') => {
         if (!editor) return;
@@ -510,13 +520,18 @@ export const MailEditor = forwardRef<MailEditorHandle, MailEditorProps>(
         }
         editor.commands.setContent(next);
       },
-    }), [editor]);
+    }), [editor, focusEditor]);
 
     // Auto-focus the editor body on mount (skip when the caller wants focus elsewhere)
     useEffect(() => {
-      if (editor && !disableAutoFocus) editor.commands.focus('start');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [!!editor]);
+      if (editor && !disableAutoFocus) focusEditor();
+      return () => {
+        if (focusFrameRef.current !== null) {
+          cancelAnimationFrame(focusFrameRef.current);
+          focusFrameRef.current = null;
+        }
+      };
+    }, [editor, disableAutoFocus, focusEditor]);
 
     return (
       <div className="mail-editor">
