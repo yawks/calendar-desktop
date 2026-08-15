@@ -23,6 +23,7 @@ import { TagProvider } from './features/calendar/store/TagStore';
 import { ThemeProvider } from './shared/store/ThemeStore';
 import WelcomeScreen from './shared/components/WelcomeScreen';
 import { useAppCapabilities } from './shared/hooks/useAppCapabilities';
+import { NativeDeepLinks } from './shared/platform/NativeDeepLinks';
 import { VaultProvider } from './shared/security/VaultProvider';
 
 // Fenêtre calendrier secondaire (mode windows uniquement, route /calendar)
@@ -79,6 +80,7 @@ export default function App() {
                       <CalendarGroupProvider>
                         <TagProvider>
                           <BrowserRouter>
+                            <NativeDeepLinks />
                             <Routes>
                               <Route path="/" element={<RootView />} />
                               <Route path="/calendar" element={<CalendarWindowView />} />

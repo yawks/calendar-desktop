@@ -579,6 +579,7 @@
       "days_one": "{{count}} jour",
       "days_other": "{{count}} jours"
     },
+    "androidSync": { "title": "Synchronisation Android en arrière-plan", "serverUrl": "URL du serveur Courrier", "privacy": "Contenu lorsque Courrier est verrouillé", "generic": "Nouvel email (recommandé)", "sender": "Expéditeur uniquement", "senderSubject": "Expéditeur et sujet", "securityHint": "Le secret minimal de synchronisation est chiffré par Android Keystore sans biométrie interactive afin que le travail en arrière-plan fonctionne." },
     "mailNotifications": { "sectionTitle": "Notifications de nouveaux emails", "enabled": "Afficher une notification pour les nouveaux emails entrants", "hint": "Les notifications sont regroupées par compte pour rester lisibles sur Android.", "blocked": "Les notifications sont bloquées par votre navigateur ou votre système.", "unavailable": "Les notifications ne sont pas disponibles sur cet appareil.", "notificationTitle": "Courrier · {{account}}", "single": "{{sender}} — {{subject}}", "multiple_one": "{{count}} nouvel email", "multiple_other": "{{count}} nouveaux emails" },
     "buildInfo": { "date": "Date du commit", "commit": "Commit", "unknown": "Inconnue" },
     "logoDev": {

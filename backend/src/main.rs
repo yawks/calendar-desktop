@@ -3,6 +3,7 @@ mod exchange_auth;
 mod exchange_calendar;
 mod google_auth;
 mod mail_commands;
+mod mail_sync;
 
 use axum::{extract::{DefaultBodyLimit, Request}, http::{Method, StatusCode}, middleware::{self, Next}, response::{IntoResponse, Response}, routing::{get, post, put}, Json, Router};
 use serde::Serialize;
@@ -76,6 +77,7 @@ async fn main() {
         .route("/calendar/exchange/cancel", post(exchange_calendar::cancel))
         .route("/calendar/exchange/respond", post(exchange_calendar::respond))
         .route("/mail/commands/:command", post(mail_commands::dispatch))
+        .route("/mail/sync/detect", post(mail_sync::detect))
         .fallback(api_not_found);
     let google_state = google_auth::GoogleOAuthState::default();
     let google_routes = Router::new().route("/", get(google_auth::start)).route("/configuration", get(google_auth::configuration)).route("/prepare", post(google_auth::prepare)).route("/callback", get(google_auth::callback)).route("/complete.js", get(google_auth::complete_script)).route("/refresh", post(google_auth::refresh)).with_state(google_state);

@@ -16,6 +16,7 @@ import { NextcloudManageModal } from './config/NextcloudManageModal';
 import { ExchangeAccountManageModal } from './config/ExchangeAccountManageModal';
 import { NewCalendarModal } from './config/NewCalendarModal';
 import { PreferencesSection } from './config/PreferencesSection';
+import { NativeSettingsSection } from '../shared/platform/NativeSettingsSection';
 import { SignaturesSection } from './config/SignaturesSection';
 import { CalendarItem, GroupSection } from './config/ConfigShared';
 
@@ -248,6 +249,7 @@ export default function ConfigPage() {
                   <h2 className="config-section-title">{t('config.sectPreferences')}</h2>
                 </div>
                 <PreferencesSection />
+                <NativeSettingsSection />
               </>
             )}
 

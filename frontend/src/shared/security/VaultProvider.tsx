@@ -5,6 +5,7 @@ import { biometricApiAvailable, disableBiometricUnlock, enableBiometricUnlock, h
 import { Fingerprint, LockKeyhole } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { platform } from '../platform';
 const DB_KEY = 'courrier-encrypted-vault-v1';
 const ITERATIONS = 600_000;
 const LOCK_AFTER_MS = 30 * 60 * 1000;
@@ -197,6 +198,10 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, [payload, lock]);
 
   const read = useCallback(<T,>(key: string, fallback: T): T => (payloadRef.current[key] as T | undefined) ?? fallback, []);
+  useEffect(() => {
+    void platform.setVaultLocked(payload === null);
+  }, [payload]);
+
   const write = useCallback(<T,>(key: string, value: T) => {
     const next = { ...payloadRef.current, [key]: value };
     payloadRef.current = next;
