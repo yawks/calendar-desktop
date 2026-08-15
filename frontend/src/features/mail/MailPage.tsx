@@ -34,6 +34,7 @@ import { useDockBadge } from './hooks/useDockBadge';
 import { useMailPageLogic } from './hooks/useMailPageLogic';
 
 import { useIncomingMailNotifications } from './hooks/useIncomingMailNotifications';
+import { recordUserInitiatedUnread } from './utils/userInitiatedUnread';
 export default function MailApp() {
   const {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
@@ -67,6 +68,107 @@ export default function MailApp() {
   const [canceledScheduledDraft, setCanceledScheduledDraft] = useState<MailMessage | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<MailMessage | null>(null);
   const [messageDeleting, setMessageDeleting] = useState(false);
+  const mobileActionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (mobileActionToastTimerRef.current) clearTimeout(mobileActionToastTimerRef.current);
+  }, []);
+
+  const selectedThreadsSnapshot = () => threads.filter(thread => selectedThreadIds.has(thread.conversation_id));
+
+  const groupThreadsByProvider = (selected: MailThread[]) => {
+    const groups = new Map<string, { provider: NonNullable<ReturnType<typeof resolveProvider>>; ids: string[] }>();
+    for (const thread of selected) {
+      const accountId = thread.accountId ?? selectedAccountId;
+      const mailProvider = resolveProvider(thread.accountId);
+      if (!mailProvider) continue;
+      const group = groups.get(accountId) ?? { provider: mailProvider, ids: [] };
+      group.ids.push(thread.conversation_id);
+      groups.set(accountId, group);
+    }
+    return groups;
+  };
+
+  const showMobileUndo = (label: string, undo: () => Promise<void>) => {
+    if (!globalThis.matchMedia('(max-width: 700px)').matches) return;
+    if (mobileActionToastTimerRef.current) clearTimeout(mobileActionToastTimerRef.current);
+    const onCancel = () => {
+      if (mobileActionToastTimerRef.current) clearTimeout(mobileActionToastTimerRef.current);
+      setActionToast(null);
+      void undo().finally(() => reloadThreads());
+    };
+    setActionToast({ label, onCancel });
+    mobileActionToastTimerRef.current = setTimeout(() => setActionToast(null), 5000);
+  };
+
+  const undoMoveFor = async (selected: MailThread[], targetFolderId: string) => {
+    await Promise.all([...groupThreadsByProvider(selected).values()].map(group =>
+      group.provider.bulkMoveToFolder(group.ids, targetFolderId),
+    ));
+  };
+
+  const handleMobileBulkDelete = () => {
+    const selected = selectedThreadsSnapshot();
+    const sourceFolder = selectedFolder;
+    handleBulkDelete();
+    if (sourceFolder === 'deleteditems') return;
+    showMobileUndo(
+      t('mail.bulkMovedToTrash', '{{count}} conversation(s) déplacée(s) vers la corbeille', { count: selected.length }),
+      () => undoMoveFor(selected, sourceFolder),
+    );
+  };
+
+  const handleMobileBulkMove = (targetFolderId: string) => {
+    const selected = selectedThreadsSnapshot();
+    const sourceFolder = selectedFolder;
+    handleBulkMove(targetFolderId);
+    showMobileUndo(
+      t('mail.bulkMoved', '{{count}} conversation(s) déplacée(s)', { count: selected.length }),
+      () => undoMoveFor(selected, sourceFolder),
+    );
+  };
+
+  const handleMobileBulkSnooze = (until: string) => {
+    const selected = selectedThreadsSnapshot();
+    const sourceFolder = selectedFolder;
+    handleBulkSnooze(until);
+    showMobileUndo(
+      t('mail.bulkSnoozed', '{{count}} conversation(s) mise(s) en attente', { count: selected.length }),
+      async () => {
+        const snoozed = JSON.parse(localStorage.getItem('mail-snoozed') ?? '{}');
+        for (const thread of selected) delete snoozed[thread.conversation_id];
+        localStorage.setItem('mail-snoozed', JSON.stringify(snoozed));
+        await undoMoveFor(selected, sourceFolder);
+      },
+    );
+  };
+
+  const handleMobileBulkToggleRead = (read: boolean) => {
+    const selected = selectedThreadsSnapshot();
+    handleBulkToggleRead(read);
+    showMobileUndo(
+      read
+        ? t('mail.bulkMarkedRead', '{{count}} conversation(s) marquée(s) comme lue(s)', { count: selected.length })
+        : t('mail.bulkMarkedUnread', '{{count}} conversation(s) marquée(s) comme non lue(s)', { count: selected.length }),
+      async () => {
+        await Promise.all(selected.map(async thread => {
+          const accountId = thread.accountId ?? selectedAccountId;
+          const mailProvider = resolveProvider(thread.accountId);
+          if (!mailProvider) return;
+          const items = (await mailProvider.getThread(thread.conversation_id, false)).map(message => ({
+            item_id: message.item_id,
+            change_key: message.change_key,
+            conversation_id: thread.conversation_id,
+          }));
+          if (thread.unread_count === 0) await mailProvider.markRead(items);
+          else {
+            recordUserInitiatedUnread(accountId, thread.conversation_id);
+            await mailProvider.markUnread(items);
+          }
+        }));
+      },
+    );
+  };
 
   const pushMobileScreen = (screen: 'detail' | 'composer') => {
     if (!globalThis.matchMedia('(max-width: 700px)').matches) return;
@@ -396,7 +498,7 @@ export default function MailApp() {
               threads={threads}
               selectedIds={selectedThreadIds}
               onClearSelection={() => setSelectedThreadIds(new Set())}
-              onBulkDelete={handleBulkDelete}
+              onBulkDelete={handleMobileBulkDelete}
               onBulkArchive={() => {
                 const selected = threads.find(thread => selectedThreadIds.has(thread.conversation_id));
                 const folders = isAllMode ? (allAccountFolders.get(selected?.accountId ?? "") ?? []) : allFolders;
@@ -404,11 +506,11 @@ export default function MailApp() {
                   const name = folder.display_name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
                   return folder.folder_id.toLowerCase() === "archive" || name === "archive" || name === "archives";
                 })?.folder_id;
-                handleBulkMove(archiveFolderId ?? "archive");
+                handleMobileBulkMove(archiveFolderId ?? "archive");
               }}
-              onBulkSnooze={handleBulkSnooze}
-              onBulkMove={handleBulkMove}
-              onBulkToggleRead={handleBulkToggleRead}
+              onBulkSnooze={handleMobileBulkSnooze}
+              onBulkMove={handleMobileBulkMove}
+              onBulkToggleRead={handleMobileBulkToggleRead}
               moveFolders={isAllMode ? (allAccountFolders.get(threads.find(thread => selectedThreadIds.has(thread.conversation_id))?.accountId ?? "") ?? allFolders) : allFolders}
               supportsSnooze={threads.filter(thread => selectedThreadIds.has(thread.conversation_id)).every(thread => mailCapabilitiesByAccount.get(thread.accountId ?? selectedAccountId)?.snooze === true)}
             />

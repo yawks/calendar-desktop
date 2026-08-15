@@ -4,6 +4,7 @@ import { MAIL_KEYS } from './useMailQueries';
 import { MailThread, MailMessage, MailFolder } from '../types';
 import { DISPLAY_TO_STATIC, getErrorMessage } from '../utils';
 import { useMemo } from 'react';
+import { recordUserInitiatedUnread } from '../utils/userInitiatedUnread';
 
 export interface MutationParams {
   accountId: string;
@@ -35,6 +36,8 @@ export function useMailMutations() {
       else await provider.markUnread(items);
     },
     onMutate: async ({ accountId, conversationId, read, folderId, specificMessages, threadUnreadCount }) => {
+      if (!read) recordUserInitiatedUnread(accountId, conversationId);
+
       const threadsKey = ['mail', accountId, 'threads'];
       const allThreadsKey = ['mail', 'all', 'threads'];
       const messagesKey = MAIL_KEYS.thread(accountId, conversationId);
