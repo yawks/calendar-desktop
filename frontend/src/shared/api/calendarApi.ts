@@ -1,15 +1,13 @@
 type Credentials = { url: string; username: string; password: string };
 
 async function request<T>(path: string, body: unknown, method = 'POST'): Promise<T> {
-  const response = await fetch(`/api/calendar${path}`, {
+  const response = await fetch(apiUrl(`/api/calendar${path}`), {
     method,
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const payload = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-  if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
-  return payload as T;
+  return apiJson<T>(response);
 }
 
 export const calendarApi = {
@@ -29,3 +27,4 @@ export const calendarApi = {
     await request('/caldav/resource', credentials, 'DELETE');
   },
 };
+import { apiJson, apiUrl } from './apiRequest';

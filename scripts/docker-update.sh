@@ -44,13 +44,13 @@ echo "Build Courrier: commit $COURRIER_BUILD_COMMIT ($COURRIER_BUILD_DATE)"
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
   case "$TARGET" in
     frontend)
-      (cd frontend && npm test -- --run && npm run build)
+      (cd frontend && npm test -- --run)
       ;;
     backend)
       (cd backend && cargo test)
       ;;
     all)
-      (cd frontend && npm test -- --run && npm run build)
+      (cd frontend && npm test -- --run)
       (cd backend && cargo test)
       ;;
   esac
@@ -68,4 +68,3 @@ if [ "${COURRIER_LOCAL_HTTPS:-1}" = "1" ]; then
 else
   echo "Courrier est disponible derrière le reverse proxy configuré pour le port 8080."
 fi
-

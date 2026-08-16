@@ -83,7 +83,7 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
   const mergedCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     results.forEach((res) => {
-      if (res.data) {
+      if (Array.isArray(res.data)) {
         const c = buildUnreadCounts(res.data);
         for (const [k, v] of Object.entries(c)) {
           counts[k] = (counts[k] ?? 0) + (v as number);
@@ -101,7 +101,7 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
 
   const allModeDynamicFolders = useMemo(() => {
     return accounts.flatMap((acc, idx) => {
-      const folders = results[idx]?.data ?? [];
+      const folders = Array.isArray(results[idx]?.data) ? results[idx].data : [];
       const color = colorMap.get(acc.id);
       return folders
         .filter(f => {

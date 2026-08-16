@@ -1,8 +1,8 @@
+import { apiJson, apiUrl } from './apiRequest';
+
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`/api/calendar/exchange/${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const payload = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-  if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
-  return payload as T;
+  const response = await fetch(apiUrl(`/api/calendar/exchange/${path}`), { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return apiJson<T>(response);
 }
 
 export const exchangeCalendarApi = {

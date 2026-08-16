@@ -199,6 +199,22 @@ mod mime_tests {
         assert!(raw.contains("\r\naGVsbG8=\r\n"));
     }
 
+    #[test]
+    fn displays_non_utf8_raw_message_source_lossily() {
+        let source = b"Subject: test\r\nContent-Transfer-Encoding: 8bit\r\n\r\nhello \xe9 world";
+
+        let displayed = raw_message_source_to_string(source);
+
+        assert!(displayed.starts_with("Subject: test\r\n"));
+        assert!(displayed.ends_with("hello \u{fffd} world"));
+    }
+}
+
+fn raw_message_source_to_string(source: &[u8]) -> String {
+    // RFC 5322/MIME messages can contain non-UTF-8 8-bit or binary body parts.
+    // The frontend displays the source as a JavaScript string, so keep every
+    // valid UTF-8 segment and replace only undecodable byte sequences.
+    String::from_utf8_lossy(source).into_owned()
 }
 
 fn build_auth_header(config: &JmapConfig) -> String {
@@ -1467,8 +1483,7 @@ pub async fn jmap_get_raw_message(
         .ok_or_else(|| "JMAP message has no blobId".to_string())?;
     let source = client.download(blob_id).await
         .map_err(|e| format!("JMAP message download: {e}"))?;
-    String::from_utf8(source)
-        .map_err(|e| format!("JMAP message source is not valid UTF-8: {e}"))
+    Ok(raw_message_source_to_string(&source))
 }
 
 pub async fn jmap_mark_read(

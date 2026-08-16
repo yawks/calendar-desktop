@@ -7,7 +7,7 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 ANDROID_DIR="$FRONTEND_DIR/android"
 BUILD_TYPE=debug
 RUN_TESTS=1
-INSTALL_DEPS=1
+INSTALL_DEPS=auto
 CLEAN=0
 
 usage() {
@@ -17,7 +17,8 @@ Usage: scripts/build-android-apk.sh [options]
   --debug          APK debug installable (défaut)
   --release        APK release signé
   --skip-tests     Ne pas exécuter les tests
-  --skip-install   Réutiliser frontend/node_modules
+  --install        Forcer la réinstallation des dépendances npm
+  --skip-install   Réutiliser frontend/node_modules sans vérification
   --clean          Nettoyer Gradle avant le build
   -h, --help       Afficher cette aide
 
@@ -34,6 +35,7 @@ while [ "$#" -gt 0 ]; do
     --debug) BUILD_TYPE=debug ;;
     --release) BUILD_TYPE=release ;;
     --skip-tests) RUN_TESTS=0 ;;
+    --install) INSTALL_DEPS=1 ;;
     --skip-install) INSTALL_DEPS=0 ;;
     --clean) CLEAN=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -63,6 +65,14 @@ if [ "$BUILD_TYPE" = release ]; then
 fi
 
 cd "$FRONTEND_DIR"
+if [ "$INSTALL_DEPS" = auto ]; then
+  if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
+    INSTALL_DEPS=1
+  else
+    INSTALL_DEPS=0
+    echo "Dépendances npm à jour ; npm ci ignoré."
+  fi
+fi
 if [ "$INSTALL_DEPS" = 1 ]; then
   if grep -q '"node_modules/@capacitor/core"' package-lock.json 2>/dev/null; then
     npm ci
@@ -85,8 +95,8 @@ cd "$ANDROID_DIR"
 if [ -x ./gradlew ]; then
   GRADLE=./gradlew
 elif command -v gradle >/dev/null 2>&1; then
-  echo "Génération du Gradle Wrapper depuis le Gradle installé."
-  gradle wrapper
+  echo "Génération du Gradle Wrapper 8.11.1 depuis le Gradle installé."
+  gradle wrapper --gradle-version 8.11.1
   GRADLE=./gradlew
 else
   echo "Gradle Wrapper absent et commande gradle introuvable." >&2
@@ -94,13 +104,22 @@ else
   exit 1
 fi
 
-[ "$CLEAN" = 0 ] || "$GRADLE" clean
-[ "$RUN_TESTS" = 0 ] || "$GRADLE" test
-
 case "$BUILD_TYPE" in
-  debug) "$GRADLE" assembleDebug; APK_DIR="$ANDROID_DIR/app/build/outputs/apk/debug" ;;
-  release) "$GRADLE" assembleRelease; APK_DIR="$ANDROID_DIR/app/build/outputs/apk/release" ;;
+  debug) GRADLE_TEST_TASK=testDebugUnitTest; GRADLE_BUILD_TASK=assembleDebug; APK_DIR="$ANDROID_DIR/app/build/outputs/apk/debug" ;;
+  release) GRADLE_TEST_TASK=testReleaseUnitTest; GRADLE_BUILD_TASK=assembleRelease; APK_DIR="$ANDROID_DIR/app/build/outputs/apk/release" ;;
 esac
+
+if [ "$RUN_TESTS" = 1 ]; then
+  if [ "$CLEAN" = 1 ]; then
+    "$GRADLE" clean "$GRADLE_TEST_TASK" "$GRADLE_BUILD_TASK"
+  else
+    "$GRADLE" "$GRADLE_TEST_TASK" "$GRADLE_BUILD_TASK"
+  fi
+elif [ "$CLEAN" = 1 ]; then
+  "$GRADLE" clean "$GRADLE_BUILD_TASK"
+else
+  "$GRADLE" "$GRADLE_BUILD_TASK"
+fi
 
 APK=$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' | sort | head -n 1)
 [ -n "$APK" ] || { echo "Aucun APK produit dans $APK_DIR" >&2; exit 1; }

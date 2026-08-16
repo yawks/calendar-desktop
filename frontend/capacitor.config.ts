@@ -6,6 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   bundledWebRuntime: false,
   android: { allowMixedContent: false, captureInput: true },
+  plugins: { CapacitorHttp: { enabled: true } },
 };
 
 export default config;
