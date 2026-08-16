@@ -7,9 +7,11 @@ data class DetectionResult(val messages: List<NewMessage>, val cursor: String, v
 data class SyncAccount(
     val id: String, val provider: String, val email: String, val displayName: String?,
     val serverUrl: String, val credentials: JSONObject,
+    val serverUsername: String? = null, val serverPassword: String? = null,
 ) {
     fun encode() = JSONObject().put("id", id).put("provider", provider).put("email", email)
-        .put("displayName", displayName).put("serverUrl", serverUrl).put("credentials", credentials).toString()
+        .put("displayName", displayName).put("serverUrl", serverUrl).put("serverUsername", serverUsername)
+        .put("serverPassword", serverPassword).put("credentials", credentials).toString()
     fun withCredentialUpdate(update: JSONObject): SyncAccount {
         val merged = JSONObject(credentials.toString())
         update.keys().forEach { key -> if (!update.isNull(key)) merged.put(key, update.get(key)) }
@@ -18,8 +20,13 @@ data class SyncAccount(
     companion object {
         fun decode(value: String): SyncAccount {
             val item = JSONObject(value)
-            return SyncAccount(item.getString("id"), item.getString("provider"), item.getString("email"),
-                item.optString("displayName").ifBlank { null }, item.getString("serverUrl"), item.getJSONObject("credentials"))
+            return SyncAccount(
+                id = item.getString("id"), provider = item.getString("provider"), email = item.getString("email"),
+                displayName = item.optString("displayName").ifBlank { null }, serverUrl = item.getString("serverUrl"),
+                credentials = item.getJSONObject("credentials"),
+                serverUsername = item.optString("serverUsername").ifBlank { null },
+                serverPassword = item.optString("serverPassword").ifBlank { null },
+            )
         }
     }
 }

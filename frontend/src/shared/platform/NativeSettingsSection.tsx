@@ -9,10 +9,10 @@ import { useExchangeAuth } from '../store/ExchangeAuthStore';
 import { useJmapAuth } from '../store/JmapAuthStore';
 
 const KEY = 'courrier-native-settings-v1';
-type Settings = { serverUrl: string; privacy: NotificationPrivacy; enabled: string[] };
+type Settings = { serverUrl: string; serverUsername: string; serverPassword: string; privacy: NotificationPrivacy; enabled: string[] };
 const load = (): Settings => {
-  try { return { serverUrl: '', privacy: 'generic', enabled: [], ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; }
-  catch { return { serverUrl: '', privacy: 'generic', enabled: [] }; }
+  try { return { serverUrl: '', serverUsername: '', serverPassword: '', privacy: 'generic', enabled: [], ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; }
+  catch { return { serverUrl: '', serverUsername: '', serverPassword: '', privacy: 'generic', enabled: [] }; }
 };
 
 export function NativeSettingsSection() {
@@ -58,7 +58,7 @@ export function NativeSettingsSection() {
     if (!account) return;
     if (enabled) {
       if (!await platform.requestNotificationPermission()) return;
-      await platform.configureSync({ ...account, serverUrl: settings.serverUrl });
+      await platform.configureSync({ ...account, serverUrl: settings.serverUrl, serverUsername: settings.serverUsername, serverPassword: settings.serverPassword });
       saveLocally({ ...settings, enabled: [...new Set([...settings.enabled, accountId])] });
     } else {
       await platform.disableSync(accountId);
@@ -72,7 +72,7 @@ export function NativeSettingsSection() {
       await platform.setNotificationPrivacy(settings.privacy);
       await Promise.all(settings.enabled.map(accountId => {
         const account = accounts.find(item => item.accountId === accountId);
-        return account ? platform.configureSync({ ...account, serverUrl: settings.serverUrl }) : Promise.resolve();
+        return account ? platform.configureSync({ ...account, serverUrl: settings.serverUrl, serverUsername: settings.serverUsername, serverPassword: settings.serverPassword }) : Promise.resolve();
       }));
       localStorage.setItem(KEY, JSON.stringify(settings));
       setSaveState('saved');
@@ -93,6 +93,14 @@ export function NativeSettingsSection() {
       <label className="native-settings-field">
         <span>{t('settings.androidSync.serverUrl')}</span>
         <input type="url" required inputMode="url" placeholder="https://courrier.example" value={settings.serverUrl} onChange={event => update({ ...settings, serverUrl: event.target.value })} />
+      </label>
+      <label className="native-settings-field">
+        <span>{t('settings.androidSync.serverUsername')}</span>
+        <input type="text" autoComplete="username" value={settings.serverUsername} onChange={event => update({ ...settings, serverUsername: event.target.value })} />
+      </label>
+      <label className="native-settings-field">
+        <span>{t('settings.androidSync.serverPassword')}</span>
+        <input type="password" autoComplete="current-password" value={settings.serverPassword} onChange={event => update({ ...settings, serverPassword: event.target.value })} />
       </label>
       <label className="native-settings-field">
         <span><Bell size={14} />{t('settings.androidSync.privacy')}</span>

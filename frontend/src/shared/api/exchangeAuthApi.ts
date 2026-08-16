@@ -1,3 +1,5 @@
+import { apiHeaders, apiJson, apiUrl } from './apiRequest';
+
 export interface ExchangeTokenResponse {
   access_token: string;
   refresh_token?: string;
@@ -16,7 +18,7 @@ export interface ExchangeDeviceResponse {
 async function post<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(apiUrl(`/api/auth/exchange/${path}`), {
     method: 'POST', credentials: 'same-origin',
-    headers: { 'content-type': 'application/json' },
+    headers: apiHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(body ?? {}),
   });
   return apiJson<T>(response);
@@ -27,4 +29,3 @@ export const exchangeAuthApi = {
   pollDeviceToken: (deviceCode: string) => post<ExchangeTokenResponse>('token', { deviceCode }),
   refresh: (refreshToken: string) => post<ExchangeTokenResponse>('refresh', { refreshToken }),
 };
-import { apiJson, apiUrl } from './apiRequest';

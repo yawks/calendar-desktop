@@ -4,7 +4,7 @@ async function request<T>(path: string, body: unknown, method = 'POST'): Promise
   const response = await fetch(apiUrl(`/api/calendar${path}`), {
     method,
     credentials: 'same-origin',
-    headers: { 'content-type': 'application/json' },
+    headers: apiHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify(body),
   });
   return apiJson<T>(response);
@@ -27,4 +27,4 @@ export const calendarApi = {
     await request('/caldav/resource', credentials, 'DELETE');
   },
 };
-import { apiJson, apiUrl } from './apiRequest';
+import { apiHeaders, apiJson, apiUrl } from './apiRequest';

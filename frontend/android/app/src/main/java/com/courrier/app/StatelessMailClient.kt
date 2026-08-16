@@ -1,6 +1,7 @@
 package com.courrier.app
 
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -13,8 +14,12 @@ class StatelessMailClient(private val client: OkHttpClient = OkHttpClient()) : N
         require(account.serverUrl.startsWith("https://")) { "HTTPS is required" }
         val payload = JSONObject().put("provider", account.provider).put("credentials", account.credentials)
             .put("cursor", cursor).put("maxCount", 50)
-        val request = Request.Builder().url(account.serverUrl.trimEnd('/') + "/api/mail/sync/detect")
-            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        val requestBuilder = Request.Builder().url(account.serverUrl.trimEnd('/') + "/api/mail/sync/detect")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+        if (account.serverUsername != null || account.serverPassword != null) {
+            requestBuilder.header("Authorization", Credentials.basic(account.serverUsername ?: "", account.serverPassword ?: ""))
+        }
+        val request = requestBuilder.build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Courrier sync HTTP " + response.code)
             val body = JSONObject(response.body?.string() ?: "{}")

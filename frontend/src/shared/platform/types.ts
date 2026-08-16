@@ -7,6 +7,8 @@ export interface NativeSyncAccount {
   email: string;
   displayName?: string;
   serverUrl: string;
+  serverUsername?: string;
+  serverPassword?: string;
   credentials: Record<string, unknown>;
 }
 
