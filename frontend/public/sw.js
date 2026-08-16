@@ -10,7 +10,7 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
   await Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)));
   await self.clients.claim();
 })()));
-self.addEventListener('notificationclick', event => { event.notification.close(); const target = event.notification.data?.url || '/'; event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => { const client = clients.find(item => 'focus' in item); return client ? client.focus() : self.clients.openWindow(target); })); });
+self.addEventListener('notificationclick', event => { event.notification.close(); const base = event.notification.data?.url || '/'; const separator = base.includes('?') ? '&' : '?'; const target = event.action ? base + separator + 'action=' + encodeURIComponent(event.action) : base; event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => { const client = clients.find(item => 'focus' in item); return client ? client.navigate(target).then(() => client.focus()) : self.clients.openWindow(target); })); });
 self.addEventListener('fetch', event => {
   const request = event.request;
   const path = new URL(request.url).pathname;

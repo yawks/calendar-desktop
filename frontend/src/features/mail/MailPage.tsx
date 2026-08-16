@@ -20,7 +20,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import AppViewMenu from '../../shared/components/AppViewMenu';
 import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
 import { ComposerAttachment } from './providers/MailProvider';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { MailComposerHandle } from './components/MailComposer';
 import { MailSearchBar } from './components/MailSearchBar';
 import { MailSidebar } from './components/MailSidebar';
@@ -35,7 +35,10 @@ import { useMailPageLogic } from './hooks/useMailPageLogic';
 
 import { useIncomingMailNotifications } from './hooks/useIncomingMailNotifications';
 import { recordUserInitiatedUnread } from './utils/userInitiatedUnread';
+import { platform } from '../../shared/platform';
 export default function MailApp() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
     threads, threadsLoading, threadsRefreshing, threadsLoadingMore, threadTotalCount, selectedThread,
@@ -69,6 +72,7 @@ export default function MailApp() {
   const [messageToDelete, setMessageToDelete] = useState<MailMessage | null>(null);
   const [messageDeleting, setMessageDeleting] = useState(false);
   const mobileActionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handledNotificationActionRef = useRef<string | null>(null);
 
   useEffect(() => () => {
     if (mobileActionToastTimerRef.current) clearTimeout(mobileActionToastTimerRef.current);
@@ -248,6 +252,76 @@ export default function MailApp() {
     const match = accountIdentities.find(i => recipientEmails.has(i.email.toLowerCase()));
     if (match) handleIdentityChange(match.id);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const accountId = params.get('account');
+    const conversationId = params.get('conversation');
+    const rawAction = params.get('action') ?? 'open';
+    const action = ['open', 'reply', 'delete', 'archive'].includes(rawAction) ? rawAction : 'open';
+    if (!accountId || !conversationId) {
+      handledNotificationActionRef.current = null;
+      return;
+    }
+
+    const actionKey = accountId + ':' + conversationId + ':' + action;
+    if (handledNotificationActionRef.current === actionKey) return;
+    if (selectedAccountId !== accountId) {
+      selectAccount(accountId);
+      return;
+    }
+
+    const thread = threads.find(item =>
+      item.conversation_id === conversationId && (item.accountId ?? accountId) === accountId
+    );
+    if (!thread) return;
+
+    if (selectedThread?.conversation_id !== conversationId) {
+      pushMobileScreen('detail');
+      openThread(thread);
+      return;
+    }
+
+    if (action === 'reply') {
+      if (messagesLoading) return;
+      const lastMessage = messages.filter(message => !message.is_draft).slice(-1)[0];
+      if (!lastMessage) return;
+      handledNotificationActionRef.current = actionKey;
+      preselectIdentityForMsg(lastMessage);
+      setReplyMode('reply');
+      setReplyingTo(lastMessage);
+      pushMobileScreen('detail');
+    } else {
+      handledNotificationActionRef.current = actionKey;
+      if (action === 'delete') {
+        moveToTrash(conversationId);
+      } else if (action === 'archive') {
+        const archiveFolder = allFolders.find(folder => {
+          const id = folder.folder_id.toLowerCase();
+          const name = folder.display_name.toLowerCase();
+          return id === 'archive' || name === 'archive' || name === 'archives';
+        });
+        void handleMove(archiveFolder?.folder_id ?? 'archive');
+      }
+    }
+
+    void platform.cancelConversationNotifications(accountId, conversationId);
+    navigate('/', { replace: true });
+  }, [
+    allFolders,
+    handleMove,
+    location.search,
+    messages,
+    messagesLoading,
+    navigate,
+    openThread,
+    selectedAccountId,
+    selectedThread?.conversation_id,
+    selectAccount,
+    setReplyMode,
+    setReplyingTo,
+    threads,
+  ]);
 
   const displayedThreads = searchQuery ? searchResults : threads;
   const selectedThreadIndex = selectedThread
@@ -460,6 +534,8 @@ export default function MailApp() {
               scrollResetKey={`${selectedAccountId}:${selectedFolder}:${searchQuery ? 'search' : 'threads'}`}
               hasMore={!searchQuery && hasMoreThreads}
               onLoadMore={searchQuery ? undefined : loadMoreThreads}
+              onRefresh={searchQuery ? undefined : reloadThreads}
+              refreshing={!searchQuery && threadsRefreshing}
               isSearchMode={!!searchQuery}
               selectedId={selectedThread?.conversation_id ?? null}
               snoozedMap={snoozedMap}

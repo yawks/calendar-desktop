@@ -673,9 +673,9 @@ export function useMailPageLogic() {
   const reloadThreads = useCallback(async () => {
     setThreadOffset(0);
     if (isAllModeRef.current) {
-      queryClient.invalidateQueries({ queryKey: MAIL_KEYS.all });
+      await queryClient.invalidateQueries({ queryKey: MAIL_KEYS.all });
     } else {
-      queryClient.invalidateQueries({ queryKey: ['mail', selectedAccountId] });
+      await queryClient.invalidateQueries({ queryKey: ['mail', selectedAccountId] });
     }
   }, [queryClient, selectedAccountId]);
 

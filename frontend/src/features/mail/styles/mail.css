@@ -264,6 +264,19 @@
   width: 100%; flex: 1; min-height: 0;
   overflow-y: auto; display: flex; flex-direction: column;
 }
+.mail-pull-to-refresh {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .mail-pull-to-refresh {
+    display: flex; align-items: center; justify-content: center;
+    flex: 0 0 auto; overflow: hidden;
+    color: var(--primary);
+    transition: height 0.15s ease;
+  }
+  .mail-pull-to-refresh--refreshing { min-height: 42px; }
+}
 
 /* Thread list toolbar */
 .mail-thread-toolbar {

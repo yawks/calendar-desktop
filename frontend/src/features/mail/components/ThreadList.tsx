@@ -3,6 +3,10 @@ import { MailThread } from '../types';
 import { RefreshCw, SearchX, Inbox, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThreadItem } from './ThreadItem';
+import { Capacitor } from '@capacitor/core';
+
+const PULL_TO_REFRESH_THRESHOLD = 64;
+const PULL_TO_REFRESH_MAX_DISTANCE = 96;
 
 export interface ThreadListProps {
   readonly threads: MailThread[];
@@ -12,6 +16,8 @@ export interface ThreadListProps {
   readonly scrollResetKey?: string;
   readonly hasMore?: boolean;
   readonly onLoadMore?: () => void;
+  readonly onRefresh?: () => Promise<void> | void;
+  readonly refreshing?: boolean;
   readonly selectedId: string | null;
   readonly snoozedMap: Record<string, string>;
   readonly isInSnoozedFolder: boolean;
@@ -41,6 +47,8 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       scrollResetKey,
       hasMore = false,
       onLoadMore,
+      onRefresh,
+      refreshing = false,
       selectedId,
       snoozedMap,
       isInSnoozedFolder,
@@ -71,6 +79,9 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     const [filterOpen, setFilterOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const loadMoreRequestedRef = useRef(false);
+    const touchStartYRef = useRef<number | null>(null);
+    const pullDistanceRef = useRef(0);
+    const [pullDistance, setPullDistance] = useState(0);
 
     useImperativeHandle(ref, () => containerRef.current!);
 
@@ -96,6 +107,71 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       container.addEventListener('scroll', handleScroll, { passive: true });
       return () => container.removeEventListener('scroll', handleScroll);
     }, [onLoadMore, hasMore, loadingMore, threads.length]);
+
+    useEffect(() => {
+      const container = containerRef.current;
+      const isMobileLayout = globalThis.matchMedia?.('(max-width: 700px)').matches ?? false;
+      if (!container || !onRefresh || (Capacitor.getPlatform() !== 'android' && !isMobileLayout)) return;
+
+      const handleTouchStart = (event: TouchEvent) => {
+        if (refreshing || container.scrollTop > 0 || event.touches.length !== 1) {
+          touchStartYRef.current = null;
+          return;
+        }
+        touchStartYRef.current = event.touches[0].clientY;
+      };
+
+      const handleTouchMove = (event: TouchEvent) => {
+        if (touchStartYRef.current === null || event.touches.length !== 1) return;
+        const delta = event.touches[0].clientY - touchStartYRef.current;
+        if (delta <= 0 || container.scrollTop > 0) {
+          pullDistanceRef.current = 0;
+          setPullDistance(0);
+          return;
+        }
+        event.preventDefault();
+        const nextDistance = Math.min(PULL_TO_REFRESH_MAX_DISTANCE, delta * 0.5);
+        pullDistanceRef.current = nextDistance;
+        setPullDistance(nextDistance);
+      };
+
+      const resetPull = () => {
+        touchStartYRef.current = null;
+        pullDistanceRef.current = 0;
+        setPullDistance(0);
+      };
+
+      const finishPull = () => {
+        const shouldRefresh = pullDistanceRef.current >= PULL_TO_REFRESH_THRESHOLD && !refreshing;
+        resetPull();
+        if (shouldRefresh) void onRefresh();
+      };
+
+      container.addEventListener('touchstart', handleTouchStart, { passive: true });
+      container.addEventListener('touchmove', handleTouchMove, { passive: false });
+      container.addEventListener('touchend', finishPull);
+      container.addEventListener('touchcancel', resetPull);
+      return () => {
+        container.removeEventListener('touchstart', handleTouchStart);
+        container.removeEventListener('touchmove', handleTouchMove);
+        container.removeEventListener('touchend', finishPull);
+        container.removeEventListener('touchcancel', resetPull);
+      };
+    }, [onRefresh, refreshing]);
+
+    const pullIndicator = (pullDistance > 0 || refreshing) && (
+      <div
+        className={'mail-pull-to-refresh' + (refreshing ? ' mail-pull-to-refresh--refreshing' : '')}
+        style={{ height: refreshing ? 42 : pullDistance }}
+        aria-hidden="true"
+      >
+        <RefreshCw
+          size={20}
+          className={refreshing ? 'spin' : ''}
+          style={{ transform: refreshing ? undefined : 'rotate(' + Math.min(180, pullDistance * 2.8) + 'deg)' }}
+        />
+      </div>
+    );
 
     useEffect(() => {
       const el = containerRef.current;
@@ -207,6 +283,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       return (
         <div className="mail-thread-list-wrapper">
           <div className="mail-thread-list" ref={containerRef}>
+            {pullIndicator}
             {toolbar}
             <div className="mail-thread-list--empty">
               {isSearchMode
@@ -227,6 +304,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     return (
       <div className="mail-thread-list-wrapper">
         <div className="mail-thread-list" ref={containerRef}>
+          {pullIndicator}
           {toolbar}
           {selectedThreadIds.size > 0 && (
             <div className="mail-mobile-selection-header">

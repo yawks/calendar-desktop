@@ -23,6 +23,7 @@ deploy/certs/
 
 # Backend Rust build artifacts
 /backend/target/
+.cptr
 
 # Android / Capacitor generated artifacts
 /frontend/android/.gradle/

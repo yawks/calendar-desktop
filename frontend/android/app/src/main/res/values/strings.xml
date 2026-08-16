@@ -3,4 +3,13 @@
     <string name="cancel">Cancel</string>
     <string name="biometric_enable_title">Enable biometric unlock</string>
     <string name="biometric_unlock_title">Unlock Courrier</string>
+<string name="notification_channel_mail">New emails</string>
+    <string name="notification_new_mail">New email</string>
+    <string name="notification_action_reply">Reply</string>
+    <string name="notification_action_delete">Delete</string>
+    <string name="notification_action_archive">Archive</string>
+    <plurals name="notification_new_mail_count">
+        <item quantity="one">%d new email</item>
+        <item quantity="other">%d new emails</item>
+    </plurals>
 </resources>

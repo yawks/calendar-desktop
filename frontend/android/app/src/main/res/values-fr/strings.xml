@@ -3,4 +3,13 @@
     <string name="cancel">Annuler</string>
     <string name="biometric_enable_title">Activer le déverrouillage biométrique</string>
     <string name="biometric_unlock_title">Déverrouiller Courrier</string>
+<string name="notification_channel_mail">Nouveaux emails</string>
+    <string name="notification_new_mail">Nouvel email</string>
+    <string name="notification_action_reply">Répondre</string>
+    <string name="notification_action_delete">Supprimer</string>
+    <string name="notification_action_archive">Archiver</string>
+    <plurals name="notification_new_mail_count">
+        <item quantity="one">%d nouvel email</item>
+        <item quantity="other">%d nouveaux emails</item>
+    </plurals>
 </resources>
