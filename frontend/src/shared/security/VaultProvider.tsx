@@ -1,7 +1,7 @@
 import { get, set } from 'idb-keyval';
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, vaultSalt } from './vaultCrypto';
-import { biometricApiAvailable, disableBiometricUnlock, enableBiometricUnlock, hasBiometricUnlock, unlockWithBiometrics } from './biometricUnlock';
+import { biometricApiAvailable, biometricUnlockAvailable, disableBiometricUnlock, enableBiometricUnlock, hasBiometricUnlock, unlockWithBiometrics } from './biometricUnlock';
 import { Fingerprint, LockKeyhole } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -94,6 +94,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(biometricApiAvailable());
   const keyRef = useRef<CryptoKey | null>(null);
   const payloadRef = useRef<VaultPayload>({});
   const writeQueue = useRef(Promise.resolve());
@@ -101,9 +102,10 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   const biometricAutoAttempted = useRef(false);
 
   useEffect(() => {
-    void Promise.all([get<EncryptedVault>(DB_KEY), hasBiometricUnlock()]).then(([value, enabled]) => {
+    void Promise.all([get<EncryptedVault>(DB_KEY), hasBiometricUnlock(), biometricUnlockAvailable()]).then(([value, enabled, available]) => {
       setStored(value ?? null);
       setBiometricEnabled(enabled);
+      setBiometricAvailable(available);
     });
   }, []);
 
@@ -210,11 +212,11 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, [persist]);
   const contextValue = useMemo(() => ({
     read, write, lock,
-    biometricAvailable: biometricApiAvailable(),
+    biometricAvailable,
     biometricEnabled,
     enableBiometrics,
     disableBiometrics,
-  }), [read, write, lock, biometricEnabled, enableBiometrics, disableBiometrics]);
+  }), [read, write, lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics]);
 
   if (stored === undefined) return null;
   if (!payload) return <VaultScreen exists={stored !== null} busy={busy} error={error} biometricEnabled={biometricEnabled} onSubmit={submit} onBiometricUnlock={biometricUnlock} />;

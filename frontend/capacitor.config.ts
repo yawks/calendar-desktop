@@ -5,7 +5,11 @@ const config: CapacitorConfig = {
   appName: 'Courrier',
   webDir: 'dist',
   bundledWebRuntime: false,
-  android: { allowMixedContent: false, captureInput: true },
+  android: {
+    allowMixedContent: false,
+    captureInput: true,
+    adjustMarginsForEdgeToEdge: 'auto',
+  },
   plugins: { CapacitorHttp: { enabled: true } },
 };
 

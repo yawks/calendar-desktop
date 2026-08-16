@@ -9,6 +9,7 @@ BUILD_TYPE=debug
 RUN_TESTS=1
 INSTALL_DEPS=auto
 CLEAN=0
+INSTALL_APK=0
 
 usage() {
   cat <<'EOF'
@@ -19,6 +20,7 @@ Usage: scripts/build-android-apk.sh [options]
   --skip-tests     Ne pas exécuter les tests
   --install        Forcer la réinstallation des dépendances npm
   --skip-install   Réutiliser frontend/node_modules sans vérification
+  --install-apk    Installer l'APK produit sur l'appareil connecté via adb
   --clean          Nettoyer Gradle avant le build
   -h, --help       Afficher cette aide
 
@@ -37,6 +39,7 @@ while [ "$#" -gt 0 ]; do
     --skip-tests) RUN_TESTS=0 ;;
     --install) INSTALL_DEPS=1 ;;
     --skip-install) INSTALL_DEPS=0 ;;
+    --install-apk) INSTALL_APK=1 ;;
     --clean) CLEAN=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Option inconnue : $1" >&2; usage >&2; exit 2 ;;
@@ -50,6 +53,9 @@ require_command() {
 
 require_command npm
 require_command java
+if [ "$INSTALL_APK" = 1 ]; then
+  require_command adb
+fi
 [ -d "$ANDROID_DIR" ] || { echo "Projet Android absent : $ANDROID_DIR" >&2; exit 1; }
 [ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ] || {
   echo "ANDROID_HOME ou ANDROID_SDK_ROOT doit désigner le SDK Android." >&2
@@ -125,3 +131,9 @@ APK=$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' | sort | head -n 1)
 [ -n "$APK" ] || { echo "Aucun APK produit dans $APK_DIR" >&2; exit 1; }
 echo
 echo "APK Courrier créé : $APK"
+
+if [ "$INSTALL_APK" = 1 ]; then
+  echo "Installation de l'APK via adb…"
+  adb install -r "$APK"
+  echo "APK installé sur l'appareil connecté."
+fi

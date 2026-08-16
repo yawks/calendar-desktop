@@ -19,4 +19,8 @@ export interface NativePlatform {
   requestNotificationPermission(): Promise<boolean>;
   cancelConversationNotifications(accountId: string, conversationId: string): Promise<void>;
   setBadge(count: number): Promise<void>;
+  biometricStatus(): Promise<{ available: boolean; enabled: boolean }>;
+  enableBiometricUnlock(vaultKey: string): Promise<void>;
+  unlockWithBiometrics(): Promise<string>;
+  disableBiometricUnlock(): Promise<void>;
 }

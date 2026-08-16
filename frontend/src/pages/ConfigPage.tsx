@@ -122,6 +122,8 @@ export default function ConfigPage() {
                   </button>
                 </div>
 
+                <NativeSettingsSection />
+
                 {!hasAnyProvider && (
                   <div className="empty-state" style={{ marginTop: 32 }}>
                     {t('config.noProvidersConfigured')}
@@ -249,7 +251,6 @@ export default function ConfigPage() {
                   <h2 className="config-section-title">{t('config.sectPreferences')}</h2>
                 </div>
                 <PreferencesSection />
-                <NativeSettingsSection />
               </>
             )}
 

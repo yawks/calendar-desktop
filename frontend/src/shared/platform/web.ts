@@ -15,4 +15,8 @@ export const webPlatform: NativePlatform = {
     const value = navigator as Navigator & { setAppBadge?: (count: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
     if (count > 0) await value.setAppBadge?.(count); else await value.clearAppBadge?.();
   },
+  biometricStatus: async () => ({ available: false, enabled: false }),
+  enableBiometricUnlock: async () => undefined,
+  unlockWithBiometrics: async () => { throw new Error('Native biometrics are unavailable'); },
+  disableBiometricUnlock: async () => undefined,
 };

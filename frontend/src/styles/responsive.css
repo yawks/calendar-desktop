@@ -226,6 +226,9 @@
   .config-section-header { align-items: stretch; gap: 12px; margin-bottom: 24px; flex-direction: column; }
   .config-section-header .btn-primary { justify-content: center; min-height: 44px; }
   .config-group-header { flex-wrap: wrap; gap: 8px; }
+  .native-settings-card { padding: 16px; }
+  .native-settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .native-settings-actions .btn-primary { width: 100%; }
 
   .preferences-section { max-width: 100% !important; min-width: 0; overflow: hidden; }
   .preferences-segment {
@@ -556,4 +559,3 @@
 .config-group-body {
   padding: 2px 0;
 }
-

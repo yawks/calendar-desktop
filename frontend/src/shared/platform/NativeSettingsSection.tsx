@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Bell, CheckCircle2, LoaderCircle, Save, Server, ShieldCheck } from 'lucide-react';
 import { platform } from '.';
 import type { NativeSyncAccount, NotificationPrivacy } from '.';
 import { useImapAuth } from '../store/ImapAuthStore';
@@ -21,7 +22,9 @@ export function NativeSettingsSection() {
   const { accounts: imapAccounts } = useImapAuth();
   const { accounts: jmapAccounts } = useJmapAuth();
   const [settings, setSettings] = useState(load);
-  const save = (next: Settings) => { setSettings(next); localStorage.setItem(KEY, JSON.stringify(next)); };
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const saveLocally = (next: Settings) => { setSettings(next); localStorage.setItem(KEY, JSON.stringify(next)); };
+  const update = (next: Settings) => { saveLocally(next); setSaveState('idle'); };
   const accounts: Array<Omit<NativeSyncAccount, 'serverUrl'>> = [
     ...googleAccounts.filter(account => (account.enabledCapabilities ?? ['calendar', 'email']).includes('email')).map(account => ({
       accountId: account.id, provider: 'gmail' as const, email: account.email, displayName: account.name,
@@ -46,7 +49,7 @@ export function NativeSettingsSection() {
     const removed = settings.enabled.filter(accountId => !present.has(accountId));
     if (removed.length === 0) return;
     void Promise.all(removed.map(accountId => platform.disableSync(accountId))).then(() => {
-      save({ ...settings, enabled: settings.enabled.filter(accountId => present.has(accountId)) });
+      saveLocally({ ...settings, enabled: settings.enabled.filter(accountId => present.has(accountId)) });
     });
   }, [settings.enabled.join(','), accounts.map(account => account.accountId).join(',')]);
   if (!platform.isNativeAndroid) return null;
@@ -56,19 +59,65 @@ export function NativeSettingsSection() {
     if (enabled) {
       if (!await platform.requestNotificationPermission()) return;
       await platform.configureSync({ ...account, serverUrl: settings.serverUrl });
-      save({ ...settings, enabled: [...new Set([...settings.enabled, accountId])] });
+      saveLocally({ ...settings, enabled: [...new Set([...settings.enabled, accountId])] });
     } else {
       await platform.disableSync(accountId);
-      save({ ...settings, enabled: settings.enabled.filter(id => id !== accountId) });
+      saveLocally({ ...settings, enabled: settings.enabled.filter(id => id !== accountId) });
     }
   };
-  return <section className="settings-section">
-    <h3>{t('settings.androidSync.title')}</h3>
-    <label>{t('settings.androidSync.serverUrl')}<input type="url" required placeholder="https://courrier.example" value={settings.serverUrl} onChange={event => save({ ...settings, serverUrl: event.target.value })} /></label>
-    <label>{t('settings.androidSync.privacy')}<select value={settings.privacy} onChange={event => { const privacy = event.target.value as NotificationPrivacy; save({ ...settings, privacy }); void platform.setNotificationPrivacy(privacy); }}>
-      <option value="generic">{t('settings.androidSync.generic')}</option><option value="sender">{t('settings.androidSync.sender')}</option><option value="sender-subject">{t('settings.androidSync.senderSubject')}</option>
-    </select></label>
-    <p>{t('settings.androidSync.securityHint')}</p>
-    {accounts.map(account => <label key={account.accountId}><input type="checkbox" checked={settings.enabled.includes(account.accountId)} disabled={!settings.serverUrl.startsWith('https://')} onChange={event => void toggle(account.accountId, event.target.checked)} />{account.email} · {account.provider}</label>)}
+  const persistNativeSettings = async () => {
+    if (!settings.serverUrl.startsWith('https://')) { setSaveState('error'); return; }
+    setSaveState('saving');
+    try {
+      await platform.setNotificationPrivacy(settings.privacy);
+      await Promise.all(settings.enabled.map(accountId => {
+        const account = accounts.find(item => item.accountId === accountId);
+        return account ? platform.configureSync({ ...account, serverUrl: settings.serverUrl }) : Promise.resolve();
+      }));
+      localStorage.setItem(KEY, JSON.stringify(settings));
+      setSaveState('saved');
+    } catch (error) {
+      console.error('[Android sync] settings save failed', error);
+      setSaveState('error');
+    }
+  };
+  return <section className="native-settings-card" aria-labelledby="android-sync-title">
+    <div className="native-settings-card__header">
+      <span className="native-settings-card__icon" aria-hidden="true"><Server size={20} /></span>
+      <div>
+        <h3 id="android-sync-title">{t('settings.androidSync.title')}</h3>
+        <p>{t('settings.androidSync.description')}</p>
+      </div>
+    </div>
+    <div className="native-settings-grid">
+      <label className="native-settings-field">
+        <span>{t('settings.androidSync.serverUrl')}</span>
+        <input type="url" required inputMode="url" placeholder="https://courrier.example" value={settings.serverUrl} onChange={event => update({ ...settings, serverUrl: event.target.value })} />
+      </label>
+      <label className="native-settings-field">
+        <span><Bell size={14} />{t('settings.androidSync.privacy')}</span>
+        <select value={settings.privacy} onChange={event => update({ ...settings, privacy: event.target.value as NotificationPrivacy })}>
+          <option value="generic">{t('settings.androidSync.generic')}</option>
+          <option value="sender">{t('settings.androidSync.sender')}</option>
+          <option value="sender-subject">{t('settings.androidSync.senderSubject')}</option>
+        </select>
+      </label>
+    </div>
+    {accounts.length > 0 && <fieldset className="native-settings-accounts">
+      <legend>{t('settings.androidSync.accounts')}</legend>
+      {accounts.map(account => <label key={account.accountId}>
+        <input type="checkbox" checked={settings.enabled.includes(account.accountId)} disabled={!settings.serverUrl.startsWith('https://')} onChange={event => void toggle(account.accountId, event.target.checked)} />
+        <span><strong>{account.email}</strong><small>{account.provider.toUpperCase()}</small></span>
+      </label>)}
+    </fieldset>}
+    <p className="native-settings-security"><ShieldCheck size={16} />{t('settings.androidSync.securityHint')}</p>
+    <div className="native-settings-actions">
+      <button className="btn-primary" type="button" disabled={saveState === 'saving' || !settings.serverUrl.startsWith('https://')} onClick={() => void persistNativeSettings()}>
+        {saveState === 'saving' ? <LoaderCircle className="native-settings-spinner" size={16} /> : <Save size={16} />}
+        {t(saveState === 'saving' ? 'settings.androidSync.saving' : 'settings.androidSync.save')}
+      </button>
+      {saveState === 'saved' && <span className="native-settings-status native-settings-status--success" role="status"><CheckCircle2 size={16} />{t('settings.androidSync.saved')}</span>}
+      {saveState === 'error' && <span className="native-settings-status native-settings-status--error" role="alert">{t('settings.androidSync.saveError')}</span>}
+    </div>
   </section>;
 }

@@ -9,6 +9,10 @@ interface CourrierNativePlugin {
   requestNotificationPermission(): Promise<{ granted: boolean }>;
   cancelConversationNotifications(options: { accountId: string; conversationId: string }): Promise<void>;
   setBadge(options: { count: number }): Promise<void>;
+  biometricStatus(): Promise<{ available: boolean; enabled: boolean }>;
+  enableBiometricUnlock(options: { vaultKey: string }): Promise<void>;
+  unlockWithBiometrics(): Promise<{ vaultKey: string }>;
+  disableBiometricUnlock(): Promise<void>;
 }
 
 const plugin = registerPlugin<CourrierNativePlugin>('CourrierNative');
@@ -22,4 +26,8 @@ export const nativeAndroidPlatform: NativePlatform = {
   requestNotificationPermission: async () => (await plugin.requestNotificationPermission()).granted,
   cancelConversationNotifications: (accountId, conversationId) => plugin.cancelConversationNotifications({ accountId, conversationId }),
   setBadge: count => plugin.setBadge({ count }),
+  biometricStatus: () => plugin.biometricStatus(),
+  enableBiometricUnlock: vaultKey => plugin.enableBiometricUnlock({ vaultKey }),
+  unlockWithBiometrics: async () => (await plugin.unlockWithBiometrics()).vaultKey,
+  disableBiometricUnlock: () => plugin.disableBiometricUnlock(),
 };
