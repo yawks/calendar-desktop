@@ -12,7 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 
 class NativeNotifier(private val context: Context) {
     private val manager = NotificationManagerCompat.from(context)
-    private val preferences = context.getSharedPreferences("native_sync_preferences", 0)
+    private val preferences = context.getSharedPreferences("native_sync_preferences", Context.MODE_PRIVATE)
 
     init {
         if (Build.VERSION.SDK_INT >= 26) {
@@ -24,6 +24,7 @@ class NativeNotifier(private val context: Context) {
     }
 
     fun notify(account: SyncAccount, messages: List<NewMessage>) {
+        if (!preferences.getBoolean("notificationsEnabled", true)) return
         val group = "courrier.account." + account.id
         messages.forEach { message ->
             val contentIntent = mailIntent(account.id, message.conversationId, null, message.id.hashCode())
@@ -38,7 +39,7 @@ class NativeNotifier(private val context: Context) {
                 else -> context.getString(R.string.notification_new_mail)
             }
             val notification = NotificationCompat.Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_courrier)
+                .setSmallIcon(R.drawable.ic_courrier_notification)
                 .setContentTitle(account.email)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -54,7 +55,7 @@ class NativeNotifier(private val context: Context) {
         manager.notify(
             ("summary:" + account.id).hashCode(),
             NotificationCompat.Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_courrier)
+                .setSmallIcon(R.drawable.ic_courrier_notification)
                 .setContentTitle(account.email)
                 .setContentText(context.resources.getQuantityString(R.plurals.notification_new_mail_count, messages.size, messages.size))
                 .setGroup(group)

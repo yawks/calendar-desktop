@@ -514,6 +514,7 @@
   .mail-message-block__body .mail-email-iframe { min-height: 60px; }
   .mail-thread-item__snippet { width: 100%; min-width: 0; }
   .mail-thread-item__snippet-text { width: 100%; padding-right: 0 !important; }
+  .native-android .mail-thread-item__snippet { margin-bottom: 4px; }
   .mail-message-block .mail-actions-menu {
     position: absolute;
     right: 0;

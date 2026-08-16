@@ -1,5 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import type { NativePlatform, NativeSyncAccount, NotificationPrivacy } from './types';
+import type { NativeNotificationPermission, NativePlatform, NativeSyncAccount, NotificationPrivacy } from './types';
 
 interface CourrierNativePlugin {
   configureSync(options: NativeSyncAccount): Promise<void>;
@@ -7,6 +7,8 @@ interface CourrierNativePlugin {
   setNotificationPrivacy(options: { privacy: NotificationPrivacy }): Promise<void>;
   setVaultLocked(options: { locked: boolean }): Promise<void>;
   requestNotificationPermission(): Promise<{ granted: boolean }>;
+  notificationPermission(): Promise<{ permission: NativeNotificationPermission }>;
+  setNotificationsEnabled(options: { enabled: boolean }): Promise<void>;
   cancelConversationNotifications(options: { accountId: string; conversationId: string }): Promise<void>;
   setBadge(options: { count: number }): Promise<void>;
   biometricStatus(): Promise<{ available: boolean; enabled: boolean }>;
@@ -24,6 +26,8 @@ export const nativeAndroidPlatform: NativePlatform = {
   setNotificationPrivacy: privacy => plugin.setNotificationPrivacy({ privacy }),
   setVaultLocked: locked => plugin.setVaultLocked({ locked }),
   requestNotificationPermission: async () => (await plugin.requestNotificationPermission()).granted,
+  notificationPermission: async () => (await plugin.notificationPermission()).permission,
+  setNotificationsEnabled: enabled => plugin.setNotificationsEnabled({ enabled }),
   cancelConversationNotifications: (accountId, conversationId) => plugin.cancelConversationNotifications({ accountId, conversationId }),
   setBadge: count => plugin.setBadge({ count }),
   biometricStatus: () => plugin.biometricStatus(),

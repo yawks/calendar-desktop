@@ -1,4 +1,5 @@
 export type NotificationPrivacy = 'generic' | 'sender' | 'sender-subject';
+export type NativeNotificationPermission = 'granted' | 'denied' | 'default';
 export type NativeProvider = 'imap' | 'gmail' | 'exchange' | 'jmap';
 
 export interface NativeSyncAccount {
@@ -19,6 +20,8 @@ export interface NativePlatform {
   setNotificationPrivacy(privacy: NotificationPrivacy): Promise<void>;
   setVaultLocked(locked: boolean): Promise<void>;
   requestNotificationPermission(): Promise<boolean>;
+  notificationPermission(): Promise<NativeNotificationPermission>;
+  setNotificationsEnabled(enabled: boolean): Promise<void>;
   cancelConversationNotifications(accountId: string, conversationId: string): Promise<void>;
   setBadge(count: number): Promise<void>;
   biometricStatus(): Promise<{ available: boolean; enabled: boolean }>;

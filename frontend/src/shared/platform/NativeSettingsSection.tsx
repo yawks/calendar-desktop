@@ -104,7 +104,11 @@ export function NativeSettingsSection() {
       </label>
       <label className="native-settings-field">
         <span><Bell size={14} />{t('settings.androidSync.privacy')}</span>
-        <select value={settings.privacy} onChange={event => update({ ...settings, privacy: event.target.value as NotificationPrivacy })}>
+        <select value={settings.privacy} onChange={event => {
+          const privacy = event.target.value as NotificationPrivacy;
+          update({ ...settings, privacy });
+          void platform.setNotificationPrivacy(privacy);
+        }}>
           <option value="generic">{t('settings.androidSync.generic')}</option>
           <option value="sender">{t('settings.androidSync.sender')}</option>
           <option value="sender-subject">{t('settings.androidSync.senderSubject')}</option>

@@ -16,6 +16,8 @@ class CourrierNativePlugin:Plugin(){
  @PluginMethod fun setNotificationPrivacy(call:PluginCall){context.getSharedPreferences("native_sync_preferences",0).edit().putString("privacy",call.getString("privacy")?:"generic").apply();call.resolve()}
  @PluginMethod fun setVaultLocked(call:PluginCall){context.getSharedPreferences("native_sync_preferences",0).edit().putBoolean("vaultLocked",call.getBoolean("locked",true)==true).apply();call.resolve()}
  @PluginMethod fun requestNotificationPermission(call:PluginCall){if(Build.VERSION.SDK_INT<33||getPermissionState("notifications")==PermissionState.GRANTED)call.resolve(JSObject().put("granted",true))else requestPermissionForAlias("notifications",call,"permissionResult")}
+ @PluginMethod fun notificationPermission(call:PluginCall){val state=if(Build.VERSION.SDK_INT<33)"granted" else when(getPermissionState("notifications")){PermissionState.GRANTED->"granted";PermissionState.DENIED->"denied";else->"default"};call.resolve(JSObject().put("permission",state))}
+ @PluginMethod fun setNotificationsEnabled(call:PluginCall){context.getSharedPreferences("native_sync_preferences",0).edit().putBoolean("notificationsEnabled",call.getBoolean("enabled",false)==true).apply();call.resolve()}
  @PermissionCallback private fun permissionResult(call:PluginCall){call.resolve(JSObject().put("granted",getPermissionState("notifications")==PermissionState.GRANTED))}
  @PluginMethod fun cancelConversationNotifications(call:PluginCall){NativeNotifier(context).cancelConversation(call.getString("conversationId")?:"");call.resolve()}
  @PluginMethod fun setBadge(call:PluginCall){call.resolve()}

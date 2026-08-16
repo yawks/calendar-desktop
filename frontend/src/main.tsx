@@ -5,6 +5,10 @@ import './i18n';
 import App from './App';
 import { platform } from './shared/platform';
 
+if (platform.isNativeAndroid) {
+  document.documentElement.classList.add('native-android');
+}
+
 globalThis.addEventListener('error', event => {
   const detail = event.error instanceof Error ? event.error.stack : undefined;
   console.error('[GlobalError]', detail ?? event.message, `${event.filename}:${event.lineno}:${event.colno}`);
