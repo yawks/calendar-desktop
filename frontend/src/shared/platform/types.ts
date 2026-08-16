@@ -10,6 +10,7 @@ export interface NativeSyncAccount {
   serverUrl: string;
   serverUsername?: string;
   serverPassword?: string;
+  syncIntervalMinutes?: number;
   credentials: Record<string, unknown>;
 }
 

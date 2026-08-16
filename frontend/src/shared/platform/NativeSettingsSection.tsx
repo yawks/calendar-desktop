@@ -9,10 +9,10 @@ import { useExchangeAuth } from '../store/ExchangeAuthStore';
 import { useJmapAuth } from '../store/JmapAuthStore';
 
 const KEY = 'courrier-native-settings-v1';
-type Settings = { serverUrl: string; serverUsername: string; serverPassword: string; privacy: NotificationPrivacy; enabled: string[] };
+type Settings = { serverUrl: string; serverUsername: string; serverPassword: string; syncIntervalMinutes: number; privacy: NotificationPrivacy; enabled: string[] };
 const load = (): Settings => {
-  try { return { serverUrl: '', serverUsername: '', serverPassword: '', privacy: 'generic', enabled: [], ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; }
-  catch { return { serverUrl: '', serverUsername: '', serverPassword: '', privacy: 'generic', enabled: [] }; }
+  try { return { serverUrl: '', serverUsername: '', serverPassword: '', syncIntervalMinutes: 15, privacy: 'generic', enabled: [], ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; }
+  catch { return { serverUrl: '', serverUsername: '', serverPassword: '', syncIntervalMinutes: 15, privacy: 'generic', enabled: [] }; }
 };
 
 export function NativeSettingsSection() {
@@ -58,7 +58,7 @@ export function NativeSettingsSection() {
     if (!account) return;
     if (enabled) {
       if (!await platform.requestNotificationPermission()) return;
-      await platform.configureSync({ ...account, serverUrl: settings.serverUrl, serverUsername: settings.serverUsername, serverPassword: settings.serverPassword });
+      await platform.configureSync({ ...account, serverUrl: settings.serverUrl, serverUsername: settings.serverUsername, serverPassword: settings.serverPassword, syncIntervalMinutes: settings.syncIntervalMinutes });
       saveLocally({ ...settings, enabled: [...new Set([...settings.enabled, accountId])] });
     } else {
       await platform.disableSync(accountId);
@@ -72,7 +72,7 @@ export function NativeSettingsSection() {
       await platform.setNotificationPrivacy(settings.privacy);
       await Promise.all(settings.enabled.map(accountId => {
         const account = accounts.find(item => item.accountId === accountId);
-        return account ? platform.configureSync({ ...account, serverUrl: settings.serverUrl, serverUsername: settings.serverUsername, serverPassword: settings.serverPassword }) : Promise.resolve();
+        return account ? platform.configureSync({ ...account, serverUrl: settings.serverUrl, serverUsername: settings.serverUsername, serverPassword: settings.serverPassword, syncIntervalMinutes: settings.syncIntervalMinutes }) : Promise.resolve();
       }));
       localStorage.setItem(KEY, JSON.stringify(settings));
       setSaveState('saved');
@@ -101,6 +101,16 @@ export function NativeSettingsSection() {
       <label className="native-settings-field">
         <span>{t('settings.androidSync.serverPassword')}</span>
         <input type="password" autoComplete="current-password" value={settings.serverPassword} onChange={event => update({ ...settings, serverPassword: event.target.value })} />
+      </label>
+      <label className="native-settings-field">
+        <span>{t('settings.androidSync.syncInterval')}</span>
+        <select value={settings.syncIntervalMinutes} onChange={event => update({ ...settings, syncIntervalMinutes: Number(event.target.value) })}>
+          <option value={5}>{t('settings.androidSync.every5m')}</option>
+          <option value={10}>{t('settings.androidSync.every10m')}</option>
+          <option value={15}>{t('settings.androidSync.every15m')}</option>
+          <option value={30}>{t('settings.androidSync.every30m')}</option>
+          <option value={60}>{t('settings.androidSync.every1h')}</option>
+        </select>
       </label>
       <label className="native-settings-field">
         <span><Bell size={14} />{t('settings.androidSync.privacy')}</span>

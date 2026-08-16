@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import android.util.Log
 
 interface NewMailDetector { fun detect(account: SyncAccount, cursor: String?): DetectionResult }
 
@@ -21,6 +22,7 @@ class StatelessMailClient(private val client: OkHttpClient = OkHttpClient()) : N
         }
         val request = requestBuilder.build()
         client.newCall(request).execute().use { response ->
+            Log.i("CourrierSync", "Server response HTTP ${response.code} for provider=${account.provider}")
             if (!response.isSuccessful) error("Courrier sync HTTP " + response.code)
             val body = JSONObject(response.body?.string() ?: "{}")
             val array = body.getJSONArray("messages")

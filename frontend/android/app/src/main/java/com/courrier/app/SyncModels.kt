@@ -8,10 +8,12 @@ data class SyncAccount(
     val id: String, val provider: String, val email: String, val displayName: String?,
     val serverUrl: String, val credentials: JSONObject,
     val serverUsername: String? = null, val serverPassword: String? = null,
+    val syncIntervalMinutes: Int = 15,
 ) {
     fun encode() = JSONObject().put("id", id).put("provider", provider).put("email", email)
         .put("displayName", displayName).put("serverUrl", serverUrl).put("serverUsername", serverUsername)
-        .put("serverPassword", serverPassword).put("credentials", credentials).toString()
+        .put("serverPassword", serverPassword).put("syncIntervalMinutes", syncIntervalMinutes)
+        .put("credentials", credentials).toString()
     fun withCredentialUpdate(update: JSONObject): SyncAccount {
         val merged = JSONObject(credentials.toString())
         update.keys().forEach { key -> if (!update.isNull(key)) merged.put(key, update.get(key)) }
@@ -26,6 +28,7 @@ data class SyncAccount(
                 credentials = item.getJSONObject("credentials"),
                 serverUsername = item.optString("serverUsername").ifBlank { null },
                 serverPassword = item.optString("serverPassword").ifBlank { null },
+                syncIntervalMinutes = item.optInt("syncIntervalMinutes", 15),
             )
         }
     }

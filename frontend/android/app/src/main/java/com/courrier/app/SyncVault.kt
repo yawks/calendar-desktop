@@ -12,4 +12,5 @@ class SyncVault(context:Context) {
  fun put(a:SyncAccount) { val c=Cipher.getInstance("AES/GCM/NoPadding").apply{init(Cipher.ENCRYPT_MODE,key())}; prefs.edit().putString(a.id,Base64.encodeToString(c.iv+c.doFinal(a.encode().toByteArray()),Base64.NO_WRAP)).apply() }
  fun get(id:String):SyncAccount?=prefs.getString(id,null)?.let{val b=Base64.decode(it,Base64.NO_WRAP);val c=Cipher.getInstance("AES/GCM/NoPadding").apply{init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,b.copyOfRange(0,12)))};SyncAccount.decode(String(c.doFinal(b.copyOfRange(12,b.size))))}
  fun delete(id:String){prefs.edit().remove(id).apply()}
+ fun accountIds():Set<String> = prefs.all.keys
 }

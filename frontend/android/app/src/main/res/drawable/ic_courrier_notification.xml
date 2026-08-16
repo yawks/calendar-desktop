@@ -3,8 +3,28 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- Calendar page and the two binding rings from the Courrier logo. -->
     <path
         android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M3,5L21,5L21,19L3,19ZM5,7L12,12L19,7L17.3,7L12,10.8L6.7,7ZM5,9.1L5,17L19,17L19,9.1L12,14Z" />
+        android:pathData="M5,5
+            C5,4.45 5.45,4 6,4
+            L7,4 7,2 9,2 9,4 15,4 15,2 17,2 17,4 18,4
+            C18.55,4 19,4.45 19,5
+            L19,14 5,14 Z
+            M7,7 L9,7 9,9 7,9 Z
+            M11,7 L13,7 13,9 11,9 Z
+            M15,7 L17,7 17,9 15,9 Z
+            M7,10 L9,10 9,12 7,12 Z
+            M11,10 L13,10 13,12 11,12 Z
+            M15,10 L17,10 17,12 15,12 Z" />
+
+    <!-- Envelope wrapped around the lower half of the calendar. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M2,10 L12,17 22,10 22,21 2,21 Z
+            M4.2,13.1 L4.2,18.8 9.2,15.3 Z
+            M19.8,13.1 L14.8,15.3 19.8,18.8 Z
+            M5.2,19 L18.8,19 12,14.3 Z" />
 </vector>
