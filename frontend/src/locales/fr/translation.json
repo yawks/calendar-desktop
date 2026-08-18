@@ -228,6 +228,21 @@
     "connectProvider": "Connecter une source",
     "chooseProviderType": "Choisissez une source à connecter :",
     "noProvidersConfigured": "Aucune source configurée. Cliquez sur « Connecter une source » pour commencer.",
+    "sourceColumns": {
+      "type": "Type",
+      "account": "Compte",
+      "services": "Services",
+      "actions": "Actions"
+    },
+    "sourceTypes": {
+      "google": "Google",
+      "exchange": "Exchange",
+      "imap": "IMAP / SMTP",
+      "jmap": "JMAP",
+      "ics": "ICS / iCal",
+      "nextcloud": "Nextcloud / CalDAV"
+    },
+    "editSource": "Modifier la source {{source}}",
     "cap": {
       "calendar": "Calendrier",
       "email": "Email"
@@ -296,6 +311,7 @@
     "add": "Ajouter",
     "oauthCredentials": "Identifiants OAuth",
     "oauthDescription": "Les identifiants Google OAuth ne sont pas configurés sur le serveur. Saisissez obligatoirement ceux de votre projet Google Cloud Console (type « Application Web »). Ils seront conservés dans votre coffre chiffré.",
+    "oauthNativeDescription": "Saisissez les identifiants OAuth Google de cette plateforme. L’autorisation s’ouvrira dans le navigateur ou l’écran Google natif et reviendra directement dans Courrier, sans serveur.",
     "oauthServerConfigured": "Les identifiants Google OAuth sont configurés sur le serveur. Vous pouvez vous connecter directement.",
     "googleClientId": "Client ID Google",
     "googleClientSecret": "Client Secret Google",
@@ -579,7 +595,7 @@
       "days_one": "{{count}} jour",
       "days_other": "{{count}} jours"
     },
-    "androidSync": { "title": "Synchronisation Android en arrière-plan", "description": "Configurez les notifications et les comptes synchronisés lorsque l’application est fermée.", "serverUrl": "URL du serveur Courrier", "serverUsername": "Utilisateur Basic Auth (optionnel)", "serverPassword": "Mot de passe Basic Auth (optionnel)", "syncInterval": "Synchroniser les emails", "every5m": "Toutes les 5 minutes", "every10m": "Toutes les 10 minutes", "every15m": "Toutes les 15 minutes", "every30m": "Toutes les 30 minutes", "every1h": "Toutes les heures", "privacy": "Contenu lorsque Courrier est verrouillé", "generic": "Nouvel email (recommandé)", "sender": "Expéditeur uniquement", "senderSubject": "Expéditeur et sujet", "accounts": "Comptes synchronisés", "securityHint": "Le secret minimal de synchronisation est chiffré par Android Keystore sans biométrie interactive afin que le travail en arrière-plan fonctionne.", "save": "Enregistrer", "saving": "Enregistrement…", "saved": "Modifications enregistrées", "saveError": "Impossible d’enregistrer. Vérifiez que l’URL commence par https://." },
+    "androidSync": { "title": "Synchronisation Android en arrière-plan", "description": "Configurez les notifications et les comptes synchronisés localement lorsque l’application est fermée.", "syncInterval": "Synchroniser les emails", "every5m": "Toutes les 5 minutes", "every10m": "Toutes les 10 minutes", "every15m": "Toutes les 15 minutes", "every30m": "Toutes les 30 minutes", "every1h": "Toutes les heures", "privacy": "Contenu lorsque Courrier est verrouillé", "generic": "Nouvel email (recommandé)", "sender": "Expéditeur uniquement", "senderSubject": "Expéditeur et sujet", "accounts": "Comptes synchronisés", "securityHint": "Le secret minimal de synchronisation est chiffré par Android Keystore sans biométrie interactive afin que le travail en arrière-plan fonctionne.", "save": "Enregistrer", "saving": "Enregistrement…", "saved": "Modifications enregistrées", "saveError": "Impossible d’enregistrer la configuration native." },
     "mailNotifications": { "sectionTitle": "Notifications de nouveaux emails", "enabled": "Afficher une notification pour les nouveaux emails entrants", "hint": "Chaque nouvelle conversation possède sa notification. Android peut les regrouper dans un ensemble extensible.", "blocked": "Les notifications sont bloquées par votre navigateur ou votre système.", "unavailable": "Les notifications ne sont pas disponibles sur cet appareil.", "notificationTitle": "Courrier · {{account}}", "single": "{{sender}} — {{subject}}", "multiple_one": "{{count}} nouvel email", "multiple_other": "{{count}} nouveaux emails", "replyAction": "Répondre", "deleteAction": "Supprimer", "archiveAction": "Archiver" },
     "buildInfo": { "date": "Date du commit", "commit": "Commit", "unknown": "Inconnue" },
     "logoDev": {

@@ -8,7 +8,10 @@ def releaseSigningAvailable = [releaseKeystore, releaseAlias, releaseStorePasswo
 
 android {
     namespace 'com.courrier.app'; compileSdk 35
-    defaultConfig { applicationId 'com.courrier.app'; minSdk 26; targetSdk 35; versionCode 1; versionName '0.1.0'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
+    defaultConfig {
+        applicationId 'com.courrier.app'; minSdk 26; targetSdk 35; versionCode 3; versionName '0.1.2'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+    }
     signingConfigs {
         if (releaseSigningAvailable) {
             release {
@@ -38,6 +41,8 @@ dependencies {
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'androidx.work:work-runtime-ktx:2.10.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0'
+    implementation 'com.google.android.gms:play-services-auth:21.4.0'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
 }

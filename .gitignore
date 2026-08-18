@@ -15,6 +15,7 @@ frontend/.env*
 # Tauri / Rust build artifacts
 frontend/src-tauri/target/
 frontend/src-tauri/bundle/
+/desktop-native/target/
 
 # Legacy web proxy artifacts
 proxy/node_modules/
@@ -34,3 +35,4 @@ deploy/certs/
 /frontend/android/app/src/main/assets/capacitor.config.json
 /frontend/android/app/src/main/assets/capacitor.plugins.json
 /frontend/android/capacitor-cordova-android-plugins/
+/frontend/android/app/src/main/jniLibs/

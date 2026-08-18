@@ -7,6 +7,30 @@
   background: var(--bg);
 }
 
+.vault-loading {
+  display: grid;
+  min-height: 100dvh;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+.vault-loading__spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: vault-loading-spin .75s linear infinite;
+}
+
+@keyframes vault-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
 .vault-form {
   width: min(420px, 100%);
   box-sizing: border-box;
@@ -225,7 +249,24 @@
   .config-content { max-width: none; width: 100%; box-sizing: border-box; padding: 20px 16px max(24px, env(safe-area-inset-bottom)); }
   .config-section-header { align-items: stretch; gap: 12px; margin-bottom: 24px; flex-direction: column; }
   .config-section-header .btn-primary { justify-content: center; min-height: 44px; }
-  .config-group-header { flex-wrap: wrap; gap: 8px; }
+  .config-source-list { border-radius: 9px; }
+  .config-source-list-header { display: none; }
+  .config-group-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "provider actions"
+      "account actions"
+      "services services";
+    gap: 5px 12px;
+    padding: 14px;
+  }
+  .config-group-provider { grid-area: provider; }
+  .config-group-title { grid-area: account; padding-left: 40px; color: var(--text-muted); white-space: normal; overflow-wrap: anywhere; }
+  .config-group-capabilities { grid-area: services; padding: 6px 0 0 40px; }
+  .config-group-actions { grid-area: actions; }
+  .config-group-body { padding: 0 14px 12px 54px; }
+  .config-group-edit-btn { width: 40px; height: 40px; }
+  .cal-item-meta { white-space: normal; overflow-wrap: anywhere; }
   .native-settings-card { padding: 16px; }
   .native-settings-grid { grid-template-columns: minmax(0, 1fr); }
   .native-settings-actions .btn-primary { width: 100%; }
@@ -271,14 +312,18 @@
   .config-form-footer > div { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px !important; }
   .config-form-footer button { min-height: 44px; justify-content: center; }
 
-  .nc-modal-overlay, .modal-overlay { padding: 0; align-items: flex-end; }
+  .nc-modal-overlay, .modal-overlay {
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+    align-items: center;
+  }
   .nc-modal-box, .modal-content {
     max-width: none !important;
     width: 100%;
-    max-height: calc(100dvh - env(safe-area-inset-top));
-    border-radius: 16px 16px 0 0;
+    max-height: calc(100dvh - max(24px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+    border-radius: 16px;
   }
-  .nc-modal-header, .nc-modal-body { padding-inline: 16px; }
+  .nc-modal-header { flex: 0 0 auto; }
+  .nc-modal-body { padding-inline: 16px; overflow-y: auto; overscroll-behavior: contain; }
 
   .mail-app .header {
     position: relative;
@@ -534,31 +579,4 @@
   .vault-brand--top { padding-top: max(16px, env(safe-area-inset-top)); }
   .vault-brand__logo { width: 44px; height: 44px; border-radius: 11px; }
   .vault-form input, .vault-form button { min-height: 46px; }
-}
-
-.config-group-edit-btn {
-  opacity: 0;
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 3px 5px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  transition: opacity 0.15s;
-  flex-shrink: 0;
-}
-
-.config-group-header:hover .config-group-edit-btn {
-  opacity: 1;
-}
-
-.config-group-edit-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.config-group-body {
-  padding: 2px 0;
 }

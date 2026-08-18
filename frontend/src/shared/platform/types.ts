@@ -7,7 +7,7 @@ export interface NativeSyncAccount {
   provider: NativeProvider;
   email: string;
   displayName?: string;
-  serverUrl: string;
+  serverUrl?: string;
   serverUsername?: string;
   serverPassword?: string;
   syncIntervalMinutes?: number;
@@ -29,4 +29,8 @@ export interface NativePlatform {
   enableBiometricUnlock(vaultKey: string): Promise<void>;
   unlockWithBiometrics(): Promise<string>;
   disableBiometricUnlock(): Promise<void>;
+  mailCommand?<T>(command: string, args: Record<string, unknown>): Promise<T>;
+  exchangeAuth?<T>(command: 'exchange_auth_device' | 'exchange_auth_token' | 'exchange_auth_refresh', args: Record<string, unknown>): Promise<T>;
+  googleAuthorize?(options: { serverClientId: string; capabilities: ('calendar' | 'email')[] }): Promise<{ serverAuthCode: string }>;
+  openExternalUrl?(url: string): Promise<void>;
 }

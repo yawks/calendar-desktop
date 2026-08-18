@@ -28,13 +28,11 @@ import { VaultProvider } from './shared/security/VaultProvider';
 
 // Fenêtre calendrier secondaire (mode windows uniquement, route /calendar)
 function CalendarWindowView() {
-  const { hasSource, hasCalendar } = useAppCapabilities();
+  const { hasSource } = useAppCapabilities();
 
   if (!hasSource) return <WelcomeScreen />;
 
-  return (
-    hasCalendar ? <CalendarPage /> : <MailApp />
-  );
+  return <CalendarPage />;
 }
 
 function RootView() {
@@ -58,6 +56,7 @@ function RootView() {
 }
 
 export default function App() {
+  const isCalendarWindow = new URLSearchParams(globalThis.location.search).get('window') === 'calendar';
   return (
     <PersistQueryClientProvider
       client={queryClient}
@@ -82,7 +81,7 @@ export default function App() {
                           <BrowserRouter>
                             <NativeDeepLinks />
                             <Routes>
-                              <Route path="/" element={<RootView />} />
+                              <Route path="/" element={isCalendarWindow ? <CalendarWindowView /> : <RootView />} />
                               <Route path="/calendar" element={<CalendarWindowView />} />
                               <Route path="/config" element={<ConfigPage />} />
                             </Routes>

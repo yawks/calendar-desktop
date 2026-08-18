@@ -26,12 +26,17 @@ async fn fetch_gmail_attachment_bytes(
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        return Err(format!("Gmail API {}: {}", response.status(), response.text().await.unwrap_or_default()));
+        return Err(format!(
+            "Gmail API {}: {}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        ));
     }
     let payload: GmailAttachmentResponse = response.json().await.map_err(|e| e.to_string())?;
     // Gmail returns base64url (URL-safe, no padding). Strip any stray whitespace/padding
     // characters and decode with the correct engine.
-    let clean: String = payload.data
+    let clean: String = payload
+        .data
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect();
@@ -62,12 +67,19 @@ pub async fn gmail_open_attachment(
     attachment_id: String,
     filename: String,
 ) -> Result<(), String> {
-    let (bytes, _) = fetch_gmail_attachment_bytes(&access_token, &message_id, &attachment_id).await?;
+    let (bytes, _) =
+        fetch_gmail_attachment_bytes(&access_token, &message_id, &attachment_id).await?;
 
     // Sanitise filename and write to the OS temp directory
     let safe_name: String = filename
         .chars()
-        .map(|c| if c.is_alphanumeric() || ".-_ ".contains(c) { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || ".-_ ".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let path = std::env::temp_dir().join(&safe_name);
     std::fs::write(&path, &bytes).map_err(|e| format!("Write temp file: {}", e))?;

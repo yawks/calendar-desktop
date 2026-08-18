@@ -134,9 +134,10 @@ export function CalendarItem({ cal, isDefault, onSetDefault }: {
 // ── Group section with hover edit icon ─────────────────────────────────────────
 
 export function GroupSection({
-  title, icon, onEdit, children, caps, color, onColorChange,
+  title, providerLabel, icon, onEdit, children, caps, color, onColorChange,
 }: {
   title: string;
+  providerLabel: string;
   icon: React.ReactNode;
   onEdit: () => void;
   children: React.ReactNode;
@@ -148,15 +149,21 @@ export function GroupSection({
   return (
     <div className="config-group">
       <div className="config-group-header">
-        <div className="config-group-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          {icon}{title}
+        <div className="config-group-provider">
+          <span className="config-group-provider-icon">{icon}</span>
+          <span>{providerLabel}</span>
+        </div>
+        <div className="config-group-title">
+          {title}
+        </div>
+        <div className="config-group-capabilities">
           {caps && caps.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, marginLeft: 2 }}>
+            <div className="config-group-capability-list">
               {caps.map((cap) => <CapBadge key={cap} cap={cap} />)}
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="config-group-actions">
           {onColorChange && (
             <label
               title={t('config.accountColor', 'Account color')}
@@ -174,7 +181,7 @@ export function GroupSection({
                 value={color ?? '#888888'}
                 onChange={(e) => onColorChange(e.target.value)}
                 style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
-                tabIndex={-1}
+                aria-label={t('config.accountColor')}
               />
             </label>
           )}
@@ -183,6 +190,7 @@ export function GroupSection({
             className="config-group-edit-btn"
             onClick={onEdit}
             title={t('config.edit')}
+            aria-label={t('config.editSource', { source: title })}
           >
             <Settings2 size={13} />
           </button>

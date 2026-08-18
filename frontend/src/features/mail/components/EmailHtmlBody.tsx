@@ -11,6 +11,21 @@ function parseHexColor(raw: string): [number, number, number] | null {
   return m ? [Number.parseInt(m[1], 16), Number.parseInt(m[2], 16), Number.parseInt(m[3], 16)] : null;
 }
 
+function sanitizeEmailHtml(html: string): string {
+  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  parsed.querySelectorAll('script, iframe, frame, object, embed, base, meta[http-equiv="refresh"]').forEach(element => element.remove());
+  parsed.querySelectorAll<HTMLElement>('*').forEach(element => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().toLowerCase();
+      if (name.startsWith('on') || ((name === 'href' || name === 'src') && value.startsWith('javascript:'))) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+  return parsed.body.innerHTML;
+}
+
 export function EmailHtmlBody({ html, bodyText }: { readonly html: string; readonly bodyText?: string }) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
@@ -70,7 +85,7 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   // Detect quote boundary from plain text, then pass the marker to the iframe script.
   const quoteMarker = bodyText ? findQuoteMarker(bodyText) : null;
 
-  const safeHtml = disableSenderDarkModeCss(html)
+  const safeHtml = sanitizeEmailHtml(disableSenderDarkModeCss(html))
     .replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
 
   const handleFrameLoad = () => {
@@ -114,13 +129,24 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
     observer.observe(doc.documentElement);
     resizeObserverRef.current = observer;
     doc.addEventListener('load', resize, true);
-    doc.addEventListener('click', event => {
-      const anchor = (event.target as Element | null)?.closest?.('a');
-      if (!anchor) return;
-      const href = (anchor as HTMLAnchorElement).href;
-      if (!href || href.startsWith('javascript:')) return;
-      event.preventDefault();
-      void openExternalUrl(href);
+    doc.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
+      const href = anchor.href;
+      if (!href || href.startsWith('javascript:')) {
+        anchor.removeAttribute('href');
+        return;
+      }
+      anchor.removeAttribute('href');
+      anchor.setAttribute('role', 'link');
+      anchor.tabIndex = 0;
+      const openLink = (event: Event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        openExternalUrl(href);
+      };
+      anchor.addEventListener('click', openLink, true);
+      anchor.addEventListener('keydown', event => {
+        if (event.key === 'Enter') openLink(event);
+      }, true);
     });
     resize();
   };
@@ -171,7 +197,7 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
     <iframe
       ref={iframeRef}
       srcDoc={srcdoc}
-      sandbox="allow-same-origin"
+      sandbox="allow-same-origin allow-scripts"
       onLoad={handleFrameLoad}
       className="mail-email-iframe"
       title="email-body"

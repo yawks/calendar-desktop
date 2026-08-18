@@ -15,6 +15,10 @@ interface CourrierNativePlugin {
   enableBiometricUnlock(options: { vaultKey: string }): Promise<void>;
   unlockWithBiometrics(): Promise<{ vaultKey: string }>;
   disableBiometricUnlock(): Promise<void>;
+  mailCommand(options: { command: string; args: Record<string, unknown> }): Promise<{ value: unknown }>;
+  exchangeAuth(options: { command: 'exchange_auth_device' | 'exchange_auth_token' | 'exchange_auth_refresh'; args: Record<string, unknown> }): Promise<{ value: unknown }>;
+  googleAuthorize(options: { serverClientId: string; capabilities: ('calendar' | 'email')[] }): Promise<{ serverAuthCode: string }>;
+  openExternalUrl(options: { url: string }): Promise<void>;
 }
 
 const plugin = registerPlugin<CourrierNativePlugin>('CourrierNative');
@@ -34,4 +38,8 @@ export const nativeAndroidPlatform: NativePlatform = {
   enableBiometricUnlock: vaultKey => plugin.enableBiometricUnlock({ vaultKey }),
   unlockWithBiometrics: async () => (await plugin.unlockWithBiometrics()).vaultKey,
   disableBiometricUnlock: () => plugin.disableBiometricUnlock(),
+  mailCommand: async <T>(command: string, args: Record<string, unknown>) => (await plugin.mailCommand({ command, args })).value as T,
+  exchangeAuth: async <T>(command: 'exchange_auth_device' | 'exchange_auth_token' | 'exchange_auth_refresh', args: Record<string, unknown>) => (await plugin.exchangeAuth({ command, args })).value as T,
+  googleAuthorize: options => plugin.googleAuthorize(options),
+  openExternalUrl: url => plugin.openExternalUrl({ url }),
 };

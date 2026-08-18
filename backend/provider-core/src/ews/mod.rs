@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use chrono::Local;
+use serde::{Deserialize, Serialize};
+use std::error::Error;
 
 const CLIENT_ID: &str = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
 const EWS_SCOPE: &str = "https://outlook.office.com/EWS.AccessAsUser.All offline_access";
@@ -7,6 +8,17 @@ const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
 const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const DEVICE_CODE_ENDPOINT: &str =
     "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode";
+
+fn request_error(error: reqwest::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
+}
 
 // ── Auth structures ────────────────────────────────────────────────────────────
 
@@ -72,7 +84,7 @@ pub async fn ews_start_device_auth() -> Result<DeviceAuthResponse, String> {
         .body(body)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(request_error)?;
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
 
@@ -111,7 +123,7 @@ pub async fn ews_poll_device_token(device_code: String) -> Result<TokenResponse,
         .body(body)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(request_error)?;
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
 
@@ -143,7 +155,7 @@ pub async fn ews_refresh_access_token(refresh_token: String) -> Result<TokenResp
         .body(body)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(request_error)?;
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
 
@@ -223,10 +235,10 @@ pub(crate) async fn send_ews_request(
 /// Escape XML special characters in a text value.
 pub(crate) fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&apos;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// Extract the text content of the first occurrence of `<tag>…</tag>`.
@@ -244,7 +256,8 @@ pub(crate) fn xml_content(xml: &str, tag: &str) -> Option<String> {
         // The byte right after the tag name must be '>', ' ', '\t', '\n', '\r', or '/'
         // (self-closing tags), but NOT another identifier character.
         match bytes.get(pos + open_prefix.len()) {
-            Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'/') | None => break pos,
+            Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'/')
+            | None => break pos,
             _ => search_from = pos + 1,
         }
     };
@@ -314,8 +327,8 @@ pub(crate) fn xml_all(xml: &str, tag: &str) -> Vec<String> {
 fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
     // Surface EWS-level errors before trying to parse items
     if xml.contains("ResponseClass=\"Error\"") {
-        let msg = xml_content(xml, "m:MessageText")
-            .unwrap_or_else(|| "Unknown EWS error".to_string());
+        let msg =
+            xml_content(xml, "m:MessageText").unwrap_or_else(|| "Unknown EWS error".to_string());
         return Err(msg);
     }
 
@@ -348,14 +361,14 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
             .map(|v| v == "true")
             .unwrap_or(false);
         let location = xml_content(&item_xml, "t:Location").filter(|s| !s.is_empty());
-        let my_response_type = xml_content(&item_xml, "t:MyResponseType")
-            .unwrap_or_else(|| "Unknown".to_string());
+        let my_response_type =
+            xml_content(&item_xml, "t:MyResponseType").unwrap_or_else(|| "Unknown".to_string());
 
         // CalendarView expands recurring series into occurrences and exceptions.
         let calendar_item_type = xml_content(&item_xml, "t:CalendarItemType").unwrap_or_default();
-        let recurring_master_id =
-            (calendar_item_type == "Occurrence" || calendar_item_type == "Exception")
-                .then(|| item_id.clone());
+        let recurring_master_id = (calendar_item_type == "Occurrence"
+            || calendar_item_type == "Exception")
+            .then(|| item_id.clone());
 
         // recurring_master_id may be enriched later via batch GetItem (CleanGlobalObjectId) if available.
         let recurring_master_id = recurring_master_id;
@@ -377,8 +390,7 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         for list_tag in &["t:RequiredAttendees", "t:OptionalAttendees"] {
             if let Some(list_xml) = xml_content(&item_xml, list_tag) {
                 for att_xml in xml_all(&list_xml, "t:Attendee") {
-                    let routing_type = xml_content(&att_xml, "t:RoutingType")
-                        .unwrap_or_default();
+                    let routing_type = xml_content(&att_xml, "t:RoutingType").unwrap_or_default();
                     let email = if routing_type.eq_ignore_ascii_case("SMTP") {
                         xml_content(&att_xml, "t:EmailAddress").unwrap_or_default()
                     } else {
@@ -452,15 +464,20 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
         };
 
         let organizer_xml = xml_content(&item_xml, "t:Organizer");
-        let organizer_name = organizer_xml.as_deref().and_then(|o| xml_content(o, "t:Name")).filter(|s| !s.is_empty());
-        let organizer_email = organizer_xml.as_deref().and_then(|o| xml_content(o, "t:EmailAddress")).filter(|s| !s.is_empty());
+        let organizer_name = organizer_xml
+            .as_deref()
+            .and_then(|o| xml_content(o, "t:Name"))
+            .filter(|s| !s.is_empty());
+        let organizer_email = organizer_xml
+            .as_deref()
+            .and_then(|o| xml_content(o, "t:EmailAddress"))
+            .filter(|s| !s.is_empty());
 
         let mut attendees: Vec<EwsAttendee> = Vec::new();
         for list_tag in &["t:RequiredAttendees", "t:OptionalAttendees"] {
             if let Some(list_xml) = xml_content(&item_xml, list_tag) {
                 for att_xml in xml_all(&list_xml, "t:Attendee") {
-                    let routing_type = xml_content(&att_xml, "t:RoutingType")
-                        .unwrap_or_default();
+                    let routing_type = xml_content(&att_xml, "t:RoutingType").unwrap_or_default();
                     let email = if routing_type.eq_ignore_ascii_case("SMTP") {
                         xml_content(&att_xml, "t:EmailAddress").unwrap_or_default()
                     } else {
@@ -469,7 +486,11 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
                     let name = xml_content(&att_xml, "t:Name").filter(|s| !s.is_empty());
                     let response_type = xml_content(&att_xml, "t:ResponseType")
                         .unwrap_or_else(|| "Unknown".to_string());
-                    attendees.push(EwsAttendee { email, name, response_type });
+                    attendees.push(EwsAttendee {
+                        email,
+                        name,
+                        response_type,
+                    });
                 }
             }
         }
@@ -493,8 +514,13 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
                 let id_element = attachment_xml
                     .find("<t:AttachmentId ")
                     .or_else(|| attachment_xml.find("<AttachmentId "))
-                    .and_then(|start| attachment_xml[start..].find("/>").map(|end| &attachment_xml[start..start + end]));
-                let Some(attachment_id) = id_element.and_then(|element| xml_attr(element, "Id")) else {
+                    .and_then(|start| {
+                        attachment_xml[start..]
+                            .find("/>")
+                            .map(|end| &attachment_xml[start..start + end])
+                    });
+                let Some(attachment_id) = id_element.and_then(|element| xml_attr(element, "Id"))
+                else {
                     continue;
                 };
                 let Some(content_id) = xml_content_ns(&attachment_xml, "t:ContentId") else {
@@ -509,11 +535,23 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
                 if !content_type.to_ascii_lowercase().starts_with("image/") {
                     continue;
                 }
-                inline_images.push(CalendarInlineImage { attachment_id, content_id, content_type });
+                inline_images.push(CalendarInlineImage {
+                    attachment_id,
+                    content_id,
+                    content_type,
+                });
             }
         }
 
-        results.push(GetItemDetail { item_id, organizer_name, organizer_email, attendees, clean_global_object_id, body, inline_images });
+        results.push(GetItemDetail {
+            item_id,
+            organizer_name,
+            organizer_email,
+            attendees,
+            clean_global_object_id,
+            body,
+            inline_images,
+        });
     }
 
     results
@@ -521,8 +559,8 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
 
 fn xml_decode(s: &str) -> String {
     s.replace("&lt;", "<")
-     .replace("&gt;", ">")
-     .replace("&amp;", "&")
-     .replace("&quot;", "\"")
-     .replace("&apos;", "'")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
 }

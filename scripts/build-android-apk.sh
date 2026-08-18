@@ -10,6 +10,7 @@ RUN_TESTS=1
 INSTALL_DEPS=auto
 CLEAN=0
 INSTALL_APK=0
+ANDROID_ABIS=
 
 usage() {
   cat <<'EOF'
@@ -22,6 +23,8 @@ Usage: scripts/build-android-apk.sh [options]
   --skip-install   Réutiliser frontend/node_modules sans vérification
   --install-apk    Installer l'APK produit sur l'appareil connecté via adb
   --clean          Nettoyer Gradle avant le build
+  --abis LISTE     ABI Rust séparées par des espaces (défaut debug: arm64-v8a,
+                   release: arm64-v8a x86_64)
   -h, --help       Afficher cette aide
 
 Signature release (variables d'environnement) :
@@ -41,6 +44,7 @@ while [ "$#" -gt 0 ]; do
     --skip-install) INSTALL_DEPS=0 ;;
     --install-apk) INSTALL_APK=1 ;;
     --clean) CLEAN=1 ;;
+    --abis) shift; [ "$#" -gt 0 ] || { echo "Valeur absente pour --abis" >&2; exit 2; }; ANDROID_ABIS=$1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Option inconnue : $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -96,6 +100,15 @@ fi
 [ "$RUN_TESTS" = 0 ] || npm test
 npm run build
 node_modules/.bin/cap sync android
+
+if [ -z "$ANDROID_ABIS" ]; then
+  [ "$BUILD_TYPE" = debug ] && ANDROID_ABIS="arm64-v8a" || ANDROID_ABIS="arm64-v8a x86_64"
+fi
+ANDROID_HOME=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}} \
+ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}} \
+COURRIER_ANDROID_ABIS="$ANDROID_ABIS" \
+COURRIER_ANDROID_RUST_PROFILE="$BUILD_TYPE" \
+  "$SCRIPT_DIR/build-android-native.sh"
 
 cd "$ANDROID_DIR"
 if [ -x ./gradlew ]; then

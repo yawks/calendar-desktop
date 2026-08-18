@@ -9,6 +9,7 @@ import { useJmapAuth } from '../../shared/store/JmapAuthStore';
 import { ExchangeAccount } from '../../shared/types';
 import { openExternalUrl } from '../../shared/services/fileService';
 import { exchangeAuthApi } from '../../shared/api/exchangeAuthApi';
+import { usesNativeGoogleAuth } from '../../shared/api/nativeGoogleAuth';
 import { CapBadge, ColorSwatches, ConnectionTestRow, DEFAULT_COLORS, TestResult, nextColor, testNextcloudConnection } from './ConfigShared';
 
 export function NewCalendarModal({
@@ -34,6 +35,10 @@ export function NewCalendarModal({
   const [googleClientSecret, setGoogleClientSecret] = useState('');
 
   useEffect(() => {
+    if (usesNativeGoogleAuth()) {
+      setGoogleServerConfigured(false);
+      return;
+    }
     fetch('/auth/google/configuration')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((data: { configured: boolean }) => setGoogleServerConfigured(data.configured))
@@ -106,16 +111,21 @@ export function NewCalendarModal({
   const handleConnectGoogle = async () => {
     setConnecting(true);
     setConnectError('');
-    const credentials = googleServerConfigured
-      ? undefined
-      : { clientId: googleClientId.trim(), clientSecret: googleClientSecret.trim() };
-    const account = await connectGoogle(pendingCapabilities, credentials);
-    setConnecting(false);
-    if (account) {
-      updateGoogleCapabilities(account.id, pendingCapabilities);
-      onClose();
-    } else {
-      setConnectError(t('config.googleConnectionError'));
+    try {
+      const credentials = googleServerConfigured
+        ? undefined
+        : { clientId: googleClientId.trim(), clientSecret: googleClientSecret.trim() };
+      const account = await connectGoogle(pendingCapabilities, credentials);
+      if (account) {
+        updateGoogleCapabilities(account.id, pendingCapabilities);
+        onClose();
+      } else {
+        setConnectError(t('config.googleConnectionError'));
+      }
+    } catch (error) {
+      setConnectError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setConnecting(false);
     }
   };
 
@@ -320,7 +330,7 @@ export function NewCalendarModal({
           <button type="button" className="nc-modal-close" onClick={onClose}><X size={20} /></button>
         </div>
 
-        <div className="nc-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+        <div className="nc-modal-body">
           {/* Step 1: pick type */}
           {step === 'pick' && (
             <>
@@ -376,7 +386,7 @@ export function NewCalendarModal({
           {step === 'google' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <p style={{ margin: 0, fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                {googleServerConfigured ? t('config.oauthServerConfigured') : t('config.oauthDescription')}
+                {googleServerConfigured ? t('config.oauthServerConfigured') : t(usesNativeGoogleAuth() ? 'config.oauthNativeDescription' : 'config.oauthDescription')}
               </p>
               {googleServerConfigured === false && (
                 <>

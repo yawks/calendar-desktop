@@ -19,7 +19,7 @@ class MailSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
         return try {
             val state = applicationContext.getSharedPreferences("native_sync_state", Context.MODE_PRIVATE)
             val initialized = state.contains(accountId)
-            val detection = StatelessMailClient().detect(account, state.getString(accountId, null))
+            val detection = NativeMailClient().detect(account, state.getString(accountId, null))
             val currentMessageIds = JSONArray(detection.cursor).let { array ->
                 (0 until array.length()).map { array.getString(it) }.toSet()
             }

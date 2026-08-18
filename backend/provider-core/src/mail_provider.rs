@@ -172,7 +172,11 @@ pub trait MailProvider {
 
     async fn list_folders(&self) -> Result<Vec<MailFolder>, String>;
     async fn get_inbox_unread(&self) -> Result<u32, String>;
-    async fn list_threads(&self, folder: &str, max_count: Option<u32>) -> Result<Vec<MailThread>, String>;
+    async fn list_threads(
+        &self,
+        folder: &str,
+        max_count: Option<u32>,
+    ) -> Result<Vec<MailThread>, String>;
     async fn get_thread(
         &self,
         conversation_id: &str,
@@ -198,7 +202,11 @@ pub trait MailProvider {
 
     // ── Optional (default: not_supported) ─────────────────────────────────────
 
-    async fn search_threads(&self, _query: &MailSearchQuery, _max_count: Option<u32>) -> Result<Vec<MailThread>, String> {
+    async fn search_threads(
+        &self,
+        _query: &MailSearchQuery,
+        _max_count: Option<u32>,
+    ) -> Result<Vec<MailThread>, String> {
         Err("not_supported".to_string())
     }
     async fn save_draft(&self, _params: SaveDraftParams) -> Result<String, String> {
@@ -210,7 +218,11 @@ pub trait MailProvider {
     async fn move_to_folder(&self, _item_id: &str, _folder_id: &str) -> Result<(), String> {
         Err("not_supported".to_string())
     }
-    async fn bulk_move_to_folder(&self, _item_ids: Vec<String>, _folder_id: &str) -> Result<(), String> {
+    async fn bulk_move_to_folder(
+        &self,
+        _item_ids: Vec<String>,
+        _folder_id: &str,
+    ) -> Result<(), String> {
         Err("not_supported".to_string())
     }
     async fn find_or_create_snoozed_folder(&self) -> Result<String, String> {
@@ -222,7 +234,11 @@ pub trait MailProvider {
     async fn list_identities(&self) -> Result<Vec<MailIdentity>, String> {
         Err("not_supported".to_string())
     }
-    async fn search_contacts(&self, _query: &str, _max_count: Option<u32>) -> Result<Vec<Contact>, String> {
+    async fn search_contacts(
+        &self,
+        _query: &str,
+        _max_count: Option<u32>,
+    ) -> Result<Vec<Contact>, String> {
         Err("not_supported".to_string())
     }
     /// Returns the contact photo as a base64-encoded string (JPEG/PNG), or `None` if unavailable.

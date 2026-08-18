@@ -4,10 +4,13 @@ import './index.css';
 import './i18n';
 import App from './App';
 import { platform } from './shared/platform';
+import { installDesktopExternalLinkHandler } from './shared/services/fileService';
 
 if (platform.isNativeAndroid) {
   document.documentElement.classList.add('native-android');
 }
+
+installDesktopExternalLinkHandler();
 
 globalThis.addEventListener('error', event => {
   const detail = event.error instanceof Error ? event.error.stack : undefined;

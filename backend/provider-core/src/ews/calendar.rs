@@ -61,7 +61,9 @@ pub async fn ews_get_calendar_events(
         if let Ok(details_xml) = send_ews_request(&access_token, &get_body, anchor_mailbox).await {
             let mut detailed = parse_get_item_response(&details_xml);
             for detail in detailed.iter_mut() {
-                let Some(mut body) = detail.body.take() else { continue };
+                let Some(mut body) = detail.body.take() else {
+                    continue;
+                };
                 if body.contains("cid:") {
                     eprintln!(
                         "[EWS calendar] resolving {} inline image(s) for item {}",
@@ -70,7 +72,12 @@ pub async fn ews_get_calendar_events(
                     );
                 }
                 for image in &detail.inline_images {
-                    match crate::mail::fetch_ews_attachment_base64(&access_token, &image.attachment_id).await {
+                    match crate::mail::fetch_ews_attachment_base64(
+                        &access_token,
+                        &image.attachment_id,
+                    )
+                    .await
+                    {
                         Ok(base64) => {
                             let data_uri = format!("data:{};base64,{}", image.content_type, base64);
                             let double_quoted = format!("src=\"cid:{}\"", image.content_id);
@@ -79,7 +86,9 @@ pub async fn ews_get_calendar_events(
                                 .replace(&double_quoted, &format!("src=\"{}\"", data_uri))
                                 .replace(&single_quoted, &format!("src='{}'", data_uri));
                         }
-                        Err(error) => eprintln!("[EWS calendar] inline image fetch failed: {}", error),
+                        Err(error) => {
+                            eprintln!("[EWS calendar] inline image fetch failed: {}", error)
+                        }
                     }
                 }
                 detail.body = Some(body);
@@ -133,16 +142,21 @@ pub async fn ews_create_event(
     let attendees_xml = attendees
         .unwrap_or_default()
         .iter()
-        .map(|email| format!(
+        .map(|email| {
+            format!(
             "<t:Attendee><t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox></t:Attendee>",
             email
-        ))
+        )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let attendees_block = if attendees_xml.is_empty() {
         String::new()
     } else {
-        format!("<t:RequiredAttendees>{}</t:RequiredAttendees>", attendees_xml)
+        format!(
+            "<t:RequiredAttendees>{}</t:RequiredAttendees>",
+            attendees_xml
+        )
     };
 
     let invitations_attr = if attendees_xml.is_empty() {
@@ -179,8 +193,8 @@ pub async fn ews_create_event(
     let xml = send_ews_request(&access_token, &soap_body, None).await?;
 
     if xml.contains("ResponseClass=\"Error\"") {
-        let msg = xml_content(&xml, "m:MessageText")
-            .unwrap_or_else(|| "EWS create error".to_string());
+        let msg =
+            xml_content(&xml, "m:MessageText").unwrap_or_else(|| "EWS create error".to_string());
         return Err(msg);
     }
 
@@ -251,7 +265,10 @@ pub async fn ews_update_event(
     // RecurringMasterItemId lets EWS resolve the master from the occurrence
     // currently being edited, without confusing it with our local series key.
     let target_id = if update_series {
-        format!(r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#, item_id, change_key)
+        format!(
+            r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#,
+            item_id, change_key
+        )
     } else {
         format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, item_id, change_key)
     };
@@ -274,8 +291,8 @@ pub async fn ews_update_event(
     let xml = send_ews_request(&access_token, &soap_body, None).await?;
 
     if xml.contains("ResponseClass=\"Error\"") {
-        let msg = xml_content(&xml, "m:MessageText")
-            .unwrap_or_else(|| "EWS update error".to_string());
+        let msg =
+            xml_content(&xml, "m:MessageText").unwrap_or_else(|| "EWS update error".to_string());
         return Err(msg);
     }
     Ok(())
@@ -295,7 +312,10 @@ pub async fn ews_delete_event(
         "SendToNone"
     };
     let target_id = if delete_series {
-        format!(r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#, item_id, change_key)
+        format!(
+            r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#,
+            item_id, change_key
+        )
     } else {
         format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, item_id, change_key)
     };
@@ -311,8 +331,8 @@ pub async fn ews_delete_event(
     let xml = send_ews_request(&access_token, &soap_body, None).await?;
 
     if xml.contains("ResponseClass=\"Error\"") {
-        let msg = xml_content(&xml, "m:MessageText")
-            .unwrap_or_else(|| "EWS delete error".to_string());
+        let msg =
+            xml_content(&xml, "m:MessageText").unwrap_or_else(|| "EWS delete error".to_string());
         return Err(msg);
     }
     Ok(())
@@ -343,10 +363,15 @@ pub async fn ews_cancel_event(
         }
         let item_element = master_xml
             .find("<t:ItemId ")
-            .and_then(|start| master_xml[start..].find("/>").map(|end| &master_xml[start..start + end]))
+            .and_then(|start| {
+                master_xml[start..]
+                    .find("/>")
+                    .map(|end| &master_xml[start..start + end])
+            })
             .ok_or_else(|| "EWS recurring master ID missing".to_string())?;
         (
-            xml_attr(item_element, "Id").ok_or_else(|| "EWS recurring master ID missing".to_string())?,
+            xml_attr(item_element, "Id")
+                .ok_or_else(|| "EWS recurring master ID missing".to_string())?,
             xml_attr(item_element, "ChangeKey").unwrap_or_default(),
         )
     } else {
@@ -365,8 +390,8 @@ pub async fn ews_cancel_event(
     );
     let xml = send_ews_request(&access_token, &soap_body, None).await?;
     if xml.contains("ResponseClass=\"Error\"") {
-        let msg = xml_content(&xml, "m:MessageText")
-            .unwrap_or_else(|| "EWS cancel error".to_string());
+        let msg =
+            xml_content(&xml, "m:MessageText").unwrap_or_else(|| "EWS cancel error".to_string());
         return Err(msg);
     }
     Ok(())
@@ -424,21 +449,30 @@ pub async fn ews_get_free_busy(
     if let Some(schedules) = json["value"].as_array() {
         for schedule in schedules {
             let schedule_id = schedule["scheduleId"].as_str().unwrap_or("").to_lowercase();
-            let matched = emails.iter().find(|e| e.to_lowercase() == schedule_id).cloned();
+            let matched = emails
+                .iter()
+                .find(|e| e.to_lowercase() == schedule_id)
+                .cloned();
             if let Some(email) = matched {
                 let mut slots = Vec::new();
                 if let Some(items) = schedule["scheduleItems"].as_array() {
                     for item in items {
                         let status = item["status"].as_str().unwrap_or("free");
-                        if status == "free" || status == "workingElsewhere" { continue; }
+                        if status == "free" || status == "workingElsewhere" {
+                            continue;
+                        }
                         let busy_type = match status {
                             "tentative" => "Tentative",
-                            "oof"       => "OOF",
-                            _           => "Busy",
+                            "oof" => "OOF",
+                            _ => "Busy",
                         };
                         let s = item["start"]["dateTime"].as_str().unwrap_or("").to_string();
                         let e = item["end"]["dateTime"].as_str().unwrap_or("").to_string();
-                        slots.push(EwsFreeBusySlot { start: s, end: e, busy_type: busy_type.to_string() });
+                        slots.push(EwsFreeBusySlot {
+                            start: s,
+                            end: e,
+                            busy_type: busy_type.to_string(),
+                        });
                     }
                 }
                 result.insert(email, slots);
@@ -518,8 +552,8 @@ pub async fn ews_get_free_busy_ews(
     let xml = send_ews_request(&access_token, &soap_body, anchor_mailbox).await?;
 
     if xml.contains("ResponseClass=\"Error\"") {
-        let msg = xml_content(&xml, "m:MessageText")
-            .unwrap_or_else(|| "EWS free/busy error".to_string());
+        let msg =
+            xml_content(&xml, "m:MessageText").unwrap_or_else(|| "EWS free/busy error".to_string());
         return Err(msg);
     }
 
@@ -589,7 +623,10 @@ async fn get_graph_token(refresh_token: &str) -> Result<String, String> {
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
     if let Some(err) = json.get("error").and_then(|e| e.as_str()) {
-        let desc = json.get("error_description").and_then(|e| e.as_str()).unwrap_or("");
+        let desc = json
+            .get("error_description")
+            .and_then(|e| e.as_str())
+            .unwrap_or("");
         return Err(format!("Graph token error: {}: {}", err, desc));
     }
     json["access_token"]
@@ -618,7 +655,9 @@ pub async fn ews_respond_to_invitation(
     let body_element = match &body {
         Some(text) if !text.is_empty() => format!(
             "\n      <t:Body BodyType=\"Text\">{}</t:Body>",
-            text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+            text.replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
         ),
         _ => String::new(),
     };
@@ -639,11 +678,11 @@ pub async fn ews_respond_to_invitation(
 
     let xml = send_ews_request(&access_token, &soap_body, Some(owner_email.as_str())).await?;
 
-    let response_code = xml_content_ns(&xml, "m:ResponseCode")
-        .unwrap_or_else(|| "MissingResponseCode".to_string());
+    let response_code =
+        xml_content_ns(&xml, "m:ResponseCode").unwrap_or_else(|| "MissingResponseCode".to_string());
     if response_code != "NoError" {
-        let msg = xml_content(&xml, "m:MessageText")
-            .unwrap_or_else(|| "Unknown EWS error".to_string());
+        let msg =
+            xml_content(&xml, "m:MessageText").unwrap_or_else(|| "Unknown EWS error".to_string());
         return Err(format!("EWS RSVP {}: {}", response_code, msg));
     }
     eprintln!("[EWS RSVP] {} succeeded for {}", response_type, owner_email);

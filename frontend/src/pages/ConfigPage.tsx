@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, Languages, Mail, Cloud, Rss, Plus, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, Languages, Cloud, Rss, Plus, SlidersHorizontal, Server, Waypoints } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCalendars } from '../features/calendar/store/CalendarStore';
 import { useGoogleAuth } from '../shared/store/GoogleAuthStore';
@@ -130,22 +130,28 @@ export default function ConfigPage() {
                   </div>
                 )}
 
+                {hasAnyProvider && (
+                  <div className="config-source-list">
+                    <div className="config-source-list-header" aria-hidden="true">
+                      <span>{t('config.sourceColumns.type')}</span>
+                      <span>{t('config.sourceColumns.account')}</span>
+                      <span>{t('config.sourceColumns.services')}</span>
+                      <span>{t('config.sourceColumns.actions')}</span>
+                    </div>
+
                 {/* Google — one group per account */}
                 {googleGroups.map(({ account, cals }) => (
                   <GroupSection
                     key={account.id}
                     title={account.email}
+                    providerLabel={t('config.sourceTypes.google')}
                     icon={
-                      account.picture
-                        ? <img src={account.picture} alt="" style={{ width: 14, height: 14, borderRadius: '50%' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        : (
                           <svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true">
                             <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" />
                             <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" />
                             <path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" />
                             <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.163 6.656 3.58 9 3.58z" />
                           </svg>
-                        )
                     }
                     onEdit={() => setEditModal({ type: 'google', accountId: account.id })}
                     caps={account.enabledCapabilities ?? ['calendar', 'email']}
@@ -164,6 +170,7 @@ export default function ConfigPage() {
                   <GroupSection
                     key={account.id}
                     title={account.email}
+                    providerLabel={t('config.sourceTypes.exchange')}
                     icon={
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                         <rect width="24" height="24" rx="4" fill="#0078d4" />
@@ -187,7 +194,8 @@ export default function ConfigPage() {
                   <GroupSection
                     key={account.id}
                     title={account.email}
-                    icon={<Mail size={13} />}
+                    providerLabel={t('config.sourceTypes.imap')}
+                    icon={<Server size={15} />}
                     onEdit={() => setEditModal({ type: 'imap', accountId: account.id })}
                     caps={['email']}
                     color={account.color}
@@ -204,7 +212,8 @@ export default function ConfigPage() {
                   <GroupSection
                     key={account.id}
                     title={account.email}
-                    icon={<Mail size={13} />}
+                    providerLabel={t('config.sourceTypes.jmap')}
+                    icon={<Waypoints size={15} />}
                     onEdit={() => setEditModal({ type: 'jmap', accountId: account.id })}
                     caps={['email']}
                     color={account.color}
@@ -219,7 +228,8 @@ export default function ConfigPage() {
                 {/* ICS */}
                 {icsCals.length > 0 && (
                   <GroupSection
-                    title="ICS / iCal"
+                    title={t('config.sourceTypes.ics')}
+                    providerLabel={t('config.sourceTypes.ics')}
                     icon={<Rss size={13} />}
                     onEdit={() => setEditModal({ type: 'ics' })}
                     caps={['calendar']}
@@ -231,13 +241,16 @@ export default function ConfigPage() {
                 {/* Nextcloud */}
                 {nextcloudCals.length > 0 && (
                   <GroupSection
-                    title="Nextcloud / CalDAV"
+                    title={t('config.sourceTypes.nextcloud')}
+                    providerLabel={t('config.sourceTypes.nextcloud')}
                     icon={<Cloud size={13} />}
                     onEdit={() => setEditModal({ type: 'nextcloud' })}
                     caps={['calendar']}
                   >
                     {nextcloudCals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)}
                   </GroupSection>
+                )}
+                  </div>
                 )}
 
                 {/* Signatures (sous-section intégrée) */}

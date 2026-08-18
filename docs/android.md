@@ -18,14 +18,17 @@ Pour produire directement un APK debug installable :
 scripts/build-android-apk.sh
 ```
 
-Le script installe les dépendances, exécute les tests, construit Vite, synchronise Capacitor puis lance Gradle. L'APK est créé sous `frontend/android/app/build/outputs/apk/debug/`. Utiliser `--skip-tests`, `--skip-install` ou `--clean` si nécessaire.
+Le script installe les dépendances, exécute les tests, construit Vite, synchronise Capacitor puis lance Gradle. L'APK est créé sous `frontend/android/app/build/outputs/apk/debug/`. Utiliser `--skip-tests` et `--skip-install` pendant l'itération ; réserver `--clean` au diagnostic, car il invalide les caches.
+
+Un build debug compile par défaut le cœur Rust non optimisé pour `arm64-v8a` uniquement. Pour un émulateur x86_64, utiliser `scripts/build-android-apk.sh --debug --abis "x86_64"`. Une release compile automatiquement `arm64-v8a` et `x86_64` avec les optimisations Rust.
 
 Pour une release signée, définir `COURRIER_ANDROID_KEYSTORE`, `COURRIER_ANDROID_KEY_ALIAS`, `COURRIER_ANDROID_STORE_PASSWORD` et `COURRIER_ANDROID_KEY_PASSWORD`, puis lancer `scripts/build-android-apk.sh --release`. Les secrets de signature sont lus uniquement depuis l'environnement.
 
 Open with `npm run android:open`. The checked-in Gradle project is under `frontend/android`; Capacitor copies `frontend/dist` during sync. Do not commit signing keys, `local.properties`, OAuth client secrets or real account data.
 
-Configure an HTTPS Courrier server URL in Preferences. Cleartext HTTP and user-added certificate authorities are rejected. The backend remains stateless: credentials are sent only in an HTTPS POST body to `/api/mail/commands/*`; request bodies must never be logged or persisted. No TLS bypass exists.
-Background detection uses one provider-neutral endpoint, `POST /api/mail/sync/detect`. Its request carries the provider credentials only for that HTTPS request; the response contains a bounded snapshot cursor, minimal notification metadata, and an optional refreshed access token that Android immediately re-encrypts. No account or cursor is stored server-side. Gmail uses the Gmail REST API, Exchange reuses EWS, and IMAP/JMAP reuse the existing Rust providers. JMAP client state is request-scoped so its token is not retained in the server cache.
+Android embarque désormais `provider-core` sous forme de bibliothèques JNI. Les releases ciblent `arm64-v8a` et `x86_64`; les builds debug peuvent cibler une seule ABI pour réduire le temps de compilation. Les commandes interactives et la détection en arrière-plan contactent directement Gmail, Exchange/EWS, IMAP, JMAP et CalDAV/Nextcloud. Aucune URL de serveur Courrier n'est nécessaire.
+
+`scripts/build-android-native.sh` compile le cœur Rust avec le NDK avant chaque build APK. `NativeCore.kt` fournit le contrat JSON minimal utilisé par le plugin Capacitor et WorkManager.
 
 The Web/PWA providers do not call this endpoint and retain their existing behavior. The endpoint exists only as a thin stateless protocol adapter for background-capable clients.
 
@@ -38,10 +41,17 @@ Each message has its own stable notification ID and account group key, plus a gr
 
 A future real-time implementation belongs behind `NewMailDetector` and a separately enabled foreground service. No foreground service is declared or started now.
 
-## Current limitations
+## Configuration OAuth Google
 
-- Background detection supports Gmail, Microsoft Exchange, IMAP and JMAP through the same native contract. Native account onboarding with Authorization Code + PKCE and verified HTTPS App Links remains to be completed; accounts configured by the existing React flows can already be copied into the Android sync vault.
-- The server URL is configured globally. App Links over HTTPS need a deployment-owned domain and `.well-known/assetlinks.json`; the custom scheme works without it.
-- Badge support is a facade and currently a no-op on Android because launcher badge behavior is vendor-specific.
-- Notification removal after a read is exposed by the bridge, but mail mutation integration remains pending.
-- This container has no Node, Java or Android SDK, so generated dependency locks, Gradle wrapper binaries, Android compilation and device tests must be produced/run on a development machine.
+L'autorisation initiale utilise Google Identity Services dans une activité Android native, puis le cœur Rust échange localement le code à usage unique. Elle ne passe pas par Courrier Server. Dans Google Cloud Console, créer dans le même projet :
+
+- un client OAuth « Application Web » dont l'identifiant et le secret sont saisis dans le coffre Courrier (utilisé pour demander l'accès hors connexion) ;
+- un client OAuth « Android » pour le package `com.courrier.app`, associé aux empreintes SHA-1 des clés debug et release.
+
+L'écran de consentement doit autoriser les scopes Gmail, Calendar et Contacts demandés par l'application. En mode test, ajouter les comptes concernés comme utilisateurs de test.
+
+## Limites actuelles
+
+- Le badge est une façade sans effet garanti, son comportement dépendant du lanceur Android.
+- La suppression d'une notification après lecture est exposée par le pont ; toutes les mutations de messages ne l'appellent pas encore systématiquement.
+- WorkManager impose un intervalle périodique minimal de 15 minutes. Le temps réel nécessiterait un service de premier plan distinct.

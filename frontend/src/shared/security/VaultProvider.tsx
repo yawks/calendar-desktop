@@ -1,11 +1,12 @@
 import { get, set } from 'idb-keyval';
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, vaultSalt } from './vaultCrypto';
+import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, exportVaultKey, importVaultKey, vaultSalt } from './vaultCrypto';
 import { biometricApiAvailable, biometricUnlockAvailable, disableBiometricUnlock, enableBiometricUnlock, hasBiometricUnlock, unlockWithBiometrics } from './biometricUnlock';
 import { Fingerprint, LockKeyhole } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { platform } from '../platform';
+import { getTauriInvoke } from '../platform/tauriRuntime';
 const DB_KEY = 'courrier-encrypted-vault-v1';
 const ITERATIONS = 600_000;
 const LOCK_AFTER_MS = 30 * 60 * 1000;
@@ -88,18 +89,59 @@ function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiomet
   </main>;
 }
 
+function VaultLoading() {
+  const { t } = useTranslation();
+  return <main className="vault-loading" aria-label={t('vault.working')} aria-busy="true">
+    <span className="vault-loading__spinner" aria-hidden="true" />
+    <span>{t('vault.working')}</span>
+  </main>;
+}
+
 export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [stored, setStored] = useState<EncryptedVault | null | undefined>(undefined);
   const [payload, setPayload] = useState<VaultPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [desktopSessionChecked, setDesktopSessionChecked] = useState(() => !getTauriInvoke());
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(biometricApiAvailable());
   const keyRef = useRef<CryptoKey | null>(null);
   const payloadRef = useRef<VaultPayload>({});
   const writeQueue = useRef(Promise.resolve());
-  const lock = useCallback(() => { keyRef.current = null; payloadRef.current = {}; setPayload(null); }, []);
+  const lock = useCallback(() => {
+    keyRef.current = null;
+    payloadRef.current = {};
+    setPayload(null);
+    void getTauriInvoke()?.('clear_vault_session_key').catch(error => {
+      console.error('[Vault] failed to clear desktop session key', error);
+    });
+  }, []);
   const biometricAutoAttempted = useRef(false);
+
+  useEffect(() => {
+    const invoke = getTauriInvoke();
+    if (!stored || !invoke || keyRef.current) {
+      if (stored !== undefined) setDesktopSessionChecked(true);
+      return;
+    }
+    void invoke<number[] | null>('get_vault_session_key').then(async rawKey => {
+      if (!rawKey || keyRef.current) return;
+      const key = await importVaultKey(Uint8Array.from(rawKey).buffer);
+      const nextPayload = await decryptVaultWithKey<VaultPayload>(stored, key);
+      keyRef.current = key;
+      payloadRef.current = nextPayload;
+      setPayload(nextPayload);
+    }).catch(error => console.error('[Vault] desktop session unlock failed', error))
+      .finally(() => setDesktopSessionChecked(true));
+  }, [stored]);
+
+  const rememberDesktopSession = useCallback((key: CryptoKey) => {
+    const invoke = getTauriInvoke();
+    if (!invoke) return;
+    void exportVaultKey(key).then(rawKey => invoke('set_vault_session_key', {
+      key: Array.from(new Uint8Array(rawKey)),
+    })).catch(error => console.error('[Vault] desktop session key export failed', error));
+  }, []);
 
   useEffect(() => {
     void Promise.all([get<EncryptedVault>(DB_KEY), hasBiometricUnlock(), biometricUnlockAvailable()]).then(([value, enabled, available]) => {
@@ -148,11 +190,12 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
       payloadRef.current = nextPayload;
       setStored(nextStored);
       setPayload(nextPayload);
+      rememberDesktopSession(key);
     } catch (cause) {
       console.error('[Vault] unlock/create failed', cause);
       setError(stored ? 'vault.invalidPassword' : 'vault.creationFailed');
     } finally { setBusy(false); }
-  }, [stored]);
+  }, [stored, rememberDesktopSession]);
 
   const biometricUnlock = useCallback(async () => {
     if (!stored) return;
@@ -163,11 +206,12 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
       keyRef.current = key;
       payloadRef.current = nextPayload;
       setPayload(nextPayload);
+      rememberDesktopSession(key);
     } catch (cause) {
       console.error('[Vault] biometric unlock failed', cause);
       setError('vault.biometricFailed');
     } finally { setBusy(false); }
-  }, [stored]);
+  }, [stored, rememberDesktopSession]);
 
   const enableBiometrics = useCallback(async () => {
     const key = keyRef.current;
@@ -218,7 +262,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     disableBiometrics,
   }), [read, write, lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics]);
 
-  if (stored === undefined) return null;
+  if (stored === undefined || !desktopSessionChecked) return <VaultLoading />;
   if (!payload) return <VaultScreen exists={stored !== null} busy={busy} error={error} biometricEnabled={biometricEnabled} onSubmit={submit} onBiometricUnlock={biometricUnlock} />;
   return <VaultContext.Provider value={contextValue}>{children}</VaultContext.Provider>;
 }

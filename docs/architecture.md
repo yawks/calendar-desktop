@@ -1,4 +1,6 @@
-# Architecture Web/PWA
+# Architecture native et Web/PWA
+
+Les applications Android et desktop utilisent React comme interface et appellent directement `provider-core` via JNI ou les commandes Tauri. Axum reste un adaptateur optionnel réservé au déploiement Web/PWA ; il n'est requis par aucun build natif. Voir `docs/android.md` et `docs/desktop-native.md`.
 
 Courrier est servi depuis une origine HTTP unique. Le navigateur charge l'application React/PWA et appelle exclusivement `/api/*`. Le serveur Rust/Axum sert l'API, les fichiers statiques Vite et le fallback SPA pour les routes telles que `/calendar`.
 
@@ -30,6 +32,8 @@ EventKit a été supprimé du domaine, de l'interface, des données de démonstr
 ICS et CalDAV utilisent désormais l'API HTTP. Durant la phase transitoire, leurs hôtes doivent être explicitement autorisés avec `COURRIER_ALLOWED_PROVIDER_HOSTS` (liste séparée par des virgules). Une liste vide refuse tout accès sortant. Cette restriction empêche l'API de devenir un proxy SSRF arbitraire ; elle sera remplacée par le registre de comptes serveur lorsque les credentials auront quitté le navigateur.
 
 Le device flow et le renouvellement OAuth Exchange passent également par des endpoints Axum à destination Microsoft fixe. Le stockage serveur des refresh tokens reste la prochaine étape avant de retirer ces secrets des anciens stores locaux.
+
+La détection provider-neutral des nouveaux messages est désormais implémentée dans `provider-core`, sans dépendance Axum. La route `/api/mail/sync/detect` n'est plus qu'un adaptateur HTTP. Cette frontière permettra aux builds desktop puis Android d'appeler le même cœur Rust localement, une fois les bindings natifs et le packaging NDK ajoutés.
 
 La création, la modification, la suppression, l'annulation et les réponses RSVP Exchange passent maintenant par des routes EWS typées. Le serveur construit lui-même les enveloppes SOAP et échappe les valeurs utilisateur ; aucune route SOAP arbitraire n'est exposée.
 

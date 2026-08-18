@@ -1,6 +1,6 @@
 # Courrier
 
-Application Web/PWA de calendrier et de messagerie. React s'exécute dans le navigateur ; le serveur Rust/Axum sert l'application et fournit les adaptateurs Google, CalDAV, Exchange/EWS, Gmail, IMAP/SMTP et JMAP.
+Application de calendrier et de messagerie partageant une interface React et un cœur Rust entre Android natif (Capacitor + JNI), desktop natif multiplateforme (Tauri 2) et Web/PWA (Axum).
 
 Les credentials des comptes ne sont pas persistés côté serveur. Ils sont conservés dans un coffre IndexedDB chiffré par le mot de passe maître de l'utilisateur.
 
@@ -25,6 +25,24 @@ cargo run
 cd frontend && npm test && npm run build
 cd ../backend && cargo test
 ```
+
+## Applications natives
+
+Android contacte directement Gmail, Exchange/EWS, IMAP/SMTP, JMAP et CalDAV/Nextcloud via le cœur Rust embarqué :
+
+```bash
+./scripts/build-android-apk.sh --debug --skip-install
+```
+
+Le desktop réutilise le même cœur et produit le bundle propre au système courant :
+
+```bash
+cd frontend
+npm run desktop:build:fast # itération locale, sans installeur
+npm run desktop:build
+```
+
+Voir [docs/android.md](docs/android.md) et [docs/desktop-native.md](docs/desktop-native.md). Le serveur Axum reste uniquement la distribution Web/PWA et n'est embarqué dans aucune application native.
 
 ## Docker
 
@@ -114,9 +132,9 @@ Les principales variables sont :
 ## Architecture
 
 ```text
-Navigateur/PWA -> Nginx HTTPS + Basic Auth -> Axum -> providers distants
-      |
-      `-> coffre chiffré IndexedDB + caches locaux
+Android (Capacitor/JNI) -----\
+Desktop (Tauri) -------------+-> provider-core Rust -> services distants
+Web/PWA -> Axum (adaptateur)-/
 ```
 
 Voir `docs/architecture.md` pour les frontières de sécurité et les détails de migration.

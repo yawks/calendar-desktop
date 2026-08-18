@@ -1,10 +1,21 @@
+import { getTauriInvoke } from '../platform/tauriRuntime';
+
 const DESKTOP_MEDIA = '(min-width: 768px) and (hover: hover) and (pointer: fine)';
 
 export function isDesktopContext(): boolean {
   return globalThis.matchMedia?.(DESKTOP_MEDIA).matches ?? false;
 }
 
-export function openAppWindow(path: string, name: string): Window | null {
+export async function openAppWindow(path: string, name: string, title = 'Courrier'): Promise<Window | null> {
+  const invoke = getTauriInvoke();
+  if (invoke) {
+    await invoke('open_app_window', {
+      label: name.replace(/^courrier-/, ''),
+      path,
+      title,
+    });
+    return null;
+  }
   if (!isDesktopContext()) {
     globalThis.location.assign(path);
     return null;

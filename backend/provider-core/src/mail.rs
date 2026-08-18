@@ -18,13 +18,29 @@ pub struct EwsProvider {
 
 impl EwsProvider {
     pub fn new(access_token: String) -> Self {
-        Self { access_token, user_email: None, list_offset: 0 }
+        Self {
+            access_token,
+            user_email: None,
+            list_offset: 0,
+        }
     }
     pub fn with_user_email(access_token: String, user_email: String) -> Self {
-        Self { access_token, user_email: Some(user_email), list_offset: 0 }
+        Self {
+            access_token,
+            user_email: Some(user_email),
+            list_offset: 0,
+        }
     }
-    pub fn with_user_email_and_offset(access_token: String, user_email: Option<String>, list_offset: u32) -> Self {
-        Self { access_token, user_email, list_offset }
+    pub fn with_user_email_and_offset(
+        access_token: String,
+        user_email: Option<String>,
+        list_offset: u32,
+    ) -> Self {
+        Self {
+            access_token,
+            user_email,
+            list_offset,
+        }
     }
 }
 
@@ -74,7 +90,11 @@ async fn send(access_token: &str, soap_body: &str) -> Result<String, String> {
             return Err("ews_photo_unavailable".to_string());
         }
         eprintln!("[EWS send] HTTP {} body:\n{}", status, &body);
-        return Err(format!("EWS HTTP {}: {}", status, &body[..body.len().min(2000)]));
+        return Err(format!(
+            "EWS HTTP {}: {}",
+            status,
+            &body[..body.len().min(2000)]
+        ));
     }
     Ok(body)
 }
@@ -127,7 +147,10 @@ async fn find_all_mail_folder_ids(access_token: &str) -> Vec<String> {
 
     let xml = match send(access_token, soap_body).await {
         Ok(x) => x,
-        Err(e) => { eprintln!("[find_all_mail_folder_ids] error: {}", e); return vec![]; }
+        Err(e) => {
+            eprintln!("[find_all_mail_folder_ids] error: {}", e);
+            return vec![];
+        }
     };
 
     let containers: Vec<String> = xml_all_ns(&xml, "t:Folders");
@@ -168,10 +191,19 @@ fn parse_root_item_id(xml: &str) -> Option<(String, String)> {
 }
 
 /// Build the recipient XML blocks used in CreateItem.
-fn build_recipients_blocks(to: &[String], cc: &[String], bcc: &[String]) -> (String, String, String) {
+fn build_recipients_blocks(
+    to: &[String],
+    cc: &[String],
+    bcc: &[String],
+) -> (String, String, String) {
     let fmt_list = |list: &[String]| {
         list.iter()
-            .map(|e| format!("<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>", xml_escape(e)))
+            .map(|e| {
+                format!(
+                    "<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>",
+                    xml_escape(e)
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n        ")
     };
@@ -179,17 +211,26 @@ fn build_recipients_blocks(to: &[String], cc: &[String], bcc: &[String]) -> (Str
     let cc_block = if cc.is_empty() {
         String::new()
     } else {
-        format!("\n      <t:CcRecipients>\n        {}\n      </t:CcRecipients>", fmt_list(cc))
+        format!(
+            "\n      <t:CcRecipients>\n        {}\n      </t:CcRecipients>",
+            fmt_list(cc)
+        )
     };
     let bcc_block = if bcc.is_empty() {
         String::new()
     } else {
-        format!("\n      <t:BccRecipients>\n        {}\n      </t:BccRecipients>", fmt_list(bcc))
+        format!(
+            "\n      <t:BccRecipients>\n        {}\n      </t:BccRecipients>",
+            fmt_list(bcc)
+        )
     };
     (to_block, cc_block, bcc_block)
 }
 
-pub(crate) async fn fetch_ews_attachment_base64(access_token: &str, attachment_id: &str) -> Result<String, String> {
+pub(crate) async fn fetch_ews_attachment_base64(
+    access_token: &str,
+    attachment_id: &str,
+) -> Result<String, String> {
     let soap_body = format!(
         r#"<m:GetAttachment>
   <m:AttachmentShape/>
@@ -330,7 +371,12 @@ impl MailProvider for EwsProvider {
             } else {
                 folder_id
             };
-            folders.push(MailFolder { folder_id, display_name, total_count, unread_count });
+            folders.push(MailFolder {
+                folder_id,
+                display_name,
+                total_count,
+                unread_count,
+            });
         }
 
         Ok(folders)
@@ -362,12 +408,17 @@ impl MailProvider for EwsProvider {
         Ok(count)
     }
 
-    async fn list_threads(&self, folder: &str, max_count: Option<u32>) -> Result<Vec<MailThread>, String> {
+    async fn list_threads(
+        &self,
+        folder: &str,
+        max_count: Option<u32>,
+    ) -> Result<Vec<MailThread>, String> {
         let access_token = &self.access_token;
         let count = max_count.unwrap_or(50);
 
         if folder == "scheduled" {
-            let soap_body = format!(r#"<m:FindItem Traversal="Shallow">
+            let soap_body = format!(
+                r#"<m:FindItem Traversal="Shallow">
   <m:ItemShape>
     <t:BaseShape>AllProperties</t:BaseShape>
     <t:AdditionalProperties>
@@ -376,31 +427,52 @@ impl MailProvider for EwsProvider {
   </m:ItemShape>
   <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="0" BasePoint="Beginning"/>
   <m:ParentFolderIds><t:DistinguishedFolderId Id="outbox"/></m:ParentFolderIds>
-</m:FindItem>"#);
+</m:FindItem>"#
+            );
             let xml = send(access_token, &soap_body).await?;
             if xml.contains("ResponseClass=\"Error\"") {
                 return Err(ews_err(&xml, "EWS error listing scheduled messages"));
             }
             let mut threads = Vec::new();
             for msg_xml in xml_all_ns(&xml, "t:Message") {
-                let item_id = msg_xml.find("<t:ItemId ")
+                let item_id = msg_xml
+                    .find("<t:ItemId ")
                     .or_else(|| msg_xml.find("<ItemId "))
-                    .and_then(|start| msg_xml[start..].find("/>").map(|end| &msg_xml[start..start + end]))
+                    .and_then(|start| {
+                        msg_xml[start..]
+                            .find("/>")
+                            .map(|end| &msg_xml[start..start + end])
+                    })
                     .and_then(|element| xml_attr(element, "Id"));
-                let conversation_id = msg_xml.find("<t:ConversationId ")
+                let conversation_id = msg_xml
+                    .find("<t:ConversationId ")
                     .or_else(|| msg_xml.find("<ConversationId "))
-                    .and_then(|start| msg_xml[start..].find("/>").map(|end| &msg_xml[start..start + end]))
+                    .and_then(|start| {
+                        msg_xml[start..]
+                            .find("/>")
+                            .map(|end| &msg_xml[start..start + end])
+                    })
                     .and_then(|element| xml_attr(element, "Id"))
                     .or(item_id);
-                let Some(conversation_id) = conversation_id else { continue };
+                let Some(conversation_id) = conversation_id else {
+                    continue;
+                };
                 let deferred_until = xml_content_ns(&msg_xml, "t:ExtendedProperty")
                     .and_then(|property| xml_content_ns(&property, "t:Value"))
-                    .unwrap_or_else(|| xml_content_ns(&msg_xml, "t:DateTimeCreated").unwrap_or_default());
+                    .unwrap_or_else(|| {
+                        xml_content_ns(&msg_xml, "t:DateTimeCreated").unwrap_or_default()
+                    });
                 let recipients_xml = xml_content_ns(&msg_xml, "t:ToRecipients").unwrap_or_default();
-                let to_recipients = xml_all_ns(&recipients_xml, "t:Mailbox").into_iter().filter_map(|mailbox| {
-                    let email = xml_content_ns(&mailbox, "t:EmailAddress")?;
-                    Some(MailRecipient { name: xml_content_ns(&mailbox, "t:Name"), email })
-                }).collect();
+                let to_recipients = xml_all_ns(&recipients_xml, "t:Mailbox")
+                    .into_iter()
+                    .filter_map(|mailbox| {
+                        let email = xml_content_ns(&mailbox, "t:EmailAddress")?;
+                        Some(MailRecipient {
+                            name: xml_content_ns(&mailbox, "t:Name"),
+                            email,
+                        })
+                    })
+                    .collect();
                 threads.push(MailThread {
                     conversation_id,
                     topic: xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default(),
@@ -410,7 +482,8 @@ impl MailProvider for EwsProvider {
                     unread_count: 0,
                     from_name: None,
                     from_email: None,
-                    has_attachments: xml_content_ns(&msg_xml, "t:HasAttachments").is_some_and(|value| value == "true"),
+                    has_attachments: xml_content_ns(&msg_xml, "t:HasAttachments")
+                        .is_some_and(|value| value == "true"),
                     to_recipients,
                     cc_recipients: vec![],
                     unique_senders: vec![],
@@ -461,7 +534,8 @@ impl MailProvider for EwsProvider {
                     None => continue,
                 };
                 let topic = xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default();
-                let last_delivery_time = xml_content_ns(&msg_xml, "t:DateTimeReceived").unwrap_or_default();
+                let last_delivery_time =
+                    xml_content_ns(&msg_xml, "t:DateTimeReceived").unwrap_or_default();
                 let has_attachments = xml_content_ns(&msg_xml, "t:HasAttachments")
                     .map(|v| v == "true")
                     .unwrap_or(false);
@@ -469,7 +543,9 @@ impl MailProvider for EwsProvider {
                 let sender_mb = xml_content_ns(&sender_xml, "t:Mailbox").unwrap_or_default();
                 let sender_name = xml_content_ns(&sender_mb, "t:Name")
                     .filter(|s| !s.is_empty())
-                    .or_else(|| xml_content_ns(&sender_mb, "t:EmailAddress").filter(|s| !s.is_empty()));
+                    .or_else(|| {
+                        xml_content_ns(&sender_mb, "t:EmailAddress").filter(|s| !s.is_empty())
+                    });
                 threads.push(MailThread {
                     conversation_id: item_id,
                     topic,
@@ -491,7 +567,8 @@ impl MailProvider for EwsProvider {
 
         if folder == "snoozed" {
             let folder_id = self.find_or_create_snoozed_folder().await?;
-            let soap_body = format!(r#"<m:FindItem Traversal="Shallow">
+            let soap_body = format!(
+                r#"<m:FindItem Traversal="Shallow">
   <m:ItemShape>
     <t:BaseShape>IdOnly</t:BaseShape>
     <t:AdditionalProperties>
@@ -506,23 +583,37 @@ impl MailProvider for EwsProvider {
   </m:ItemShape>
   <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="{offset}" BasePoint="Beginning"/>
   <m:ParentFolderIds><t:FolderId Id="{folder_id}"/></m:ParentFolderIds>
-</m:FindItem>"#, offset = self.list_offset);
+</m:FindItem>"#,
+                offset = self.list_offset
+            );
             let xml = send(access_token, &soap_body).await?;
             if xml.contains("ResponseClass=\"Error\"") {
                 return Err(ews_err(&xml, "EWS error listing snoozed messages"));
             }
             let mut threads = Vec::new();
             for msg_xml in xml_all_ns(&xml, "t:Message") {
-                let item_id = msg_xml.find("<t:ItemId ")
+                let item_id = msg_xml
+                    .find("<t:ItemId ")
                     .or_else(|| msg_xml.find("<ItemId "))
-                    .and_then(|start| msg_xml[start..].find("/>").map(|end| &msg_xml[start..start + end]))
+                    .and_then(|start| {
+                        msg_xml[start..]
+                            .find("/>")
+                            .map(|end| &msg_xml[start..start + end])
+                    })
                     .and_then(|element| xml_attr(element, "Id"));
-                let conversation_id = msg_xml.find("<t:ConversationId ")
+                let conversation_id = msg_xml
+                    .find("<t:ConversationId ")
                     .or_else(|| msg_xml.find("<ConversationId "))
-                    .and_then(|start| msg_xml[start..].find("/>").map(|end| &msg_xml[start..start + end]))
+                    .and_then(|start| {
+                        msg_xml[start..]
+                            .find("/>")
+                            .map(|end| &msg_xml[start..start + end])
+                    })
                     .and_then(|element| xml_attr(element, "Id"))
                     .or(item_id);
-                let Some(conversation_id) = conversation_id else { continue };
+                let Some(conversation_id) = conversation_id else {
+                    continue;
+                };
                 let from_xml = xml_content_ns(&msg_xml, "t:From").unwrap_or_default();
                 let mailbox = xml_content_ns(&from_xml, "t:Mailbox").unwrap_or_default();
                 let from_email = xml_content_ns(&mailbox, "t:EmailAddress");
@@ -533,12 +624,19 @@ impl MailProvider for EwsProvider {
                     conversation_id,
                     topic: xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default(),
                     snippet: String::new(),
-                    last_delivery_time: xml_content_ns(&msg_xml, "t:DateTimeReceived").unwrap_or_default(),
+                    last_delivery_time: xml_content_ns(&msg_xml, "t:DateTimeReceived")
+                        .unwrap_or_default(),
                     message_count: 1,
-                    unread_count: if xml_content_ns(&msg_xml, "t:IsRead").as_deref() == Some("true") { 0 } else { 1 },
+                    unread_count: if xml_content_ns(&msg_xml, "t:IsRead").as_deref() == Some("true")
+                    {
+                        0
+                    } else {
+                        1
+                    },
                     from_name,
                     from_email,
-                    has_attachments: xml_content_ns(&msg_xml, "t:HasAttachments").as_deref() == Some("true"),
+                    has_attachments: xml_content_ns(&msg_xml, "t:HasAttachments").as_deref()
+                        == Some("true"),
                     to_recipients: vec![],
                     cc_recipients: vec![],
                     unique_senders: vec![],
@@ -647,13 +745,18 @@ impl MailProvider for EwsProvider {
                 xml_all_ns(&recipients_xml, "t:String")
                     .into_iter()
                     .filter_map(|elem| {
-                        let value = xml_content_ns(&elem, "t:String")
-                            .filter(|s| !s.is_empty())?;
+                        let value = xml_content_ns(&elem, "t:String").filter(|s| !s.is_empty())?;
                         // EWS returns display names (not SMTP addresses) here
                         if value.contains('@') {
-                            Some(MailRecipient { name: None, email: value })
+                            Some(MailRecipient {
+                                name: None,
+                                email: value,
+                            })
                         } else {
-                            Some(MailRecipient { name: Some(value.clone()), email: value })
+                            Some(MailRecipient {
+                                name: Some(value.clone()),
+                                email: value,
+                            })
                         }
                     })
                     .collect()
@@ -667,14 +770,21 @@ impl MailProvider for EwsProvider {
                 xml_all_ns(&senders_xml, "t:String")
                     .into_iter()
                     .filter_map(|elem| {
-                        let value = xml_content_ns(&elem, "t:String")
-                            .filter(|s| !s.is_empty())?;
+                        let value = xml_content_ns(&elem, "t:String").filter(|s| !s.is_empty())?;
                         // Exclude own email (case-insensitive)
-                        if !own.is_empty() && value.to_lowercase() == own { return None; }
+                        if !own.is_empty() && value.to_lowercase() == own {
+                            return None;
+                        }
                         if value.contains('@') {
-                            Some(MailRecipient { name: None, email: value })
+                            Some(MailRecipient {
+                                name: None,
+                                email: value,
+                            })
                         } else {
-                            Some(MailRecipient { name: Some(value.clone()), email: value })
+                            Some(MailRecipient {
+                                name: Some(value.clone()),
+                                email: value,
+                            })
                         }
                     })
                     .collect()
@@ -697,22 +807,33 @@ impl MailProvider for EwsProvider {
             });
         }
 
-
         // Use the count returned by FindConversation so the list can render
         // immediately. An exact cross-folder recount must not block this path.
 
         Ok(threads)
     }
 
-    async fn search_threads(&self, query: &MailSearchQuery, max_count: Option<u32>) -> Result<Vec<MailThread>, String> {
+    async fn search_threads(
+        &self,
+        query: &MailSearchQuery,
+        max_count: Option<u32>,
+    ) -> Result<Vec<MailThread>, String> {
         let access_token = &self.access_token;
         let thread_limit = max_count.unwrap_or(50) as usize;
 
         let mut aqs_parts: Vec<String> = Vec::new();
-        if let Some(from) = &query.from { aqs_parts.push(format!("from:{}", from)); }
-        if let Some(to)   = &query.to   { aqs_parts.push(format!("to:{}", to)); }
-        if let Some(cc)   = &query.cc   { aqs_parts.push(format!("cc:{}", cc)); }
-        if let Some(bcc)  = &query.bcc  { aqs_parts.push(format!("bcc:{}", bcc)); }
+        if let Some(from) = &query.from {
+            aqs_parts.push(format!("from:{}", from));
+        }
+        if let Some(to) = &query.to {
+            aqs_parts.push(format!("to:{}", to));
+        }
+        if let Some(cc) = &query.cc {
+            aqs_parts.push(format!("cc:{}", cc));
+        }
+        if let Some(bcc) = &query.bcc {
+            aqs_parts.push(format!("bcc:{}", bcc));
+        }
         if let Some(subj) = &query.subject {
             if subj.contains(' ') {
                 aqs_parts.push(format!("subject:\"{}\"", subj));
@@ -720,8 +841,12 @@ impl MailProvider for EwsProvider {
                 aqs_parts.push(format!("subject:{}", subj));
             }
         }
-        if let Some(text) = &query.text { aqs_parts.push(text.clone()); }
-        if let Some(date) = &query.date { aqs_parts.push(format!("received:{}", date)); }
+        if let Some(text) = &query.text {
+            aqs_parts.push(text.clone());
+        }
+        if let Some(date) = &query.date {
+            aqs_parts.push(format!("received:{}", date));
+        }
 
         let aqs_query = aqs_parts.join(" ");
         if aqs_query.is_empty() {
@@ -745,7 +870,10 @@ impl MailProvider for EwsProvider {
             }]
         } else {
             let discovered = find_all_mail_folder_ids(access_token).await;
-            eprintln!("[mail_search_threads] discovered {} mail folder(s)", discovered.len());
+            eprintln!(
+                "[mail_search_threads] discovered {} mail folder(s)",
+                discovered.len()
+            );
             if discovered.is_empty() {
                 vec![
                     r#"<t:DistinguishedFolderId Id="inbox"/>"#.to_string(),
@@ -754,7 +882,10 @@ impl MailProvider for EwsProvider {
                     r#"<t:DistinguishedFolderId Id="deleteditems"/>"#.to_string(),
                 ]
             } else {
-                discovered.into_iter().map(|id| format!(r#"<t:FolderId Id="{}"/>"#, id)).collect()
+                discovered
+                    .into_iter()
+                    .map(|id| format!(r#"<t:FolderId Id="{}"/>"#, id))
+                    .collect()
             }
         };
 
@@ -771,11 +902,15 @@ impl MailProvider for EwsProvider {
                     Some(id) => id,
                     None => continue,
                 };
-                let topic      = xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default();
-                let date       = xml_content_ns(&msg_xml, "t:DateTimeReceived").unwrap_or_default();
-                let is_read    = xml_content_ns(&msg_xml, "t:IsRead").map(|v| v == "true").unwrap_or(true);
-                let has_attach = xml_content_ns(&msg_xml, "t:HasAttachments").map(|v| v == "true").unwrap_or(false);
-                let from_name  = xml_content_ns(&msg_xml, "t:From")
+                let topic = xml_content_ns(&msg_xml, "t:Subject").unwrap_or_default();
+                let date = xml_content_ns(&msg_xml, "t:DateTimeReceived").unwrap_or_default();
+                let is_read = xml_content_ns(&msg_xml, "t:IsRead")
+                    .map(|v| v == "true")
+                    .unwrap_or(true);
+                let has_attach = xml_content_ns(&msg_xml, "t:HasAttachments")
+                    .map(|v| v == "true")
+                    .unwrap_or(false);
+                let from_name = xml_content_ns(&msg_xml, "t:From")
                     .as_deref()
                     .and_then(|f| xml_content_ns(f, "t:Name"))
                     .filter(|s| !s.is_empty());
@@ -784,12 +919,14 @@ impl MailProvider for EwsProvider {
             rows
         }
 
-        let handles: Vec<_> = folder_id_xmls.into_iter().map(|folder_id_xml| {
-            let token = access_token.clone();
-            let query_escaped = escaped_query.clone();
-            tokio::spawn(async move {
-                let soap_body = format!(
-                    r#"<m:FindItem Traversal="Shallow">
+        let handles: Vec<_> = folder_id_xmls
+            .into_iter()
+            .map(|folder_id_xml| {
+                let token = access_token.clone();
+                let query_escaped = escaped_query.clone();
+                tokio::spawn(async move {
+                    let soap_body = format!(
+                        r#"<m:FindItem Traversal="Shallow">
   <m:ItemShape>
     <t:BaseShape>AllProperties</t:BaseShape>
   </m:ItemShape>
@@ -798,13 +935,16 @@ impl MailProvider for EwsProvider {
   </m:ParentFolderIds>
   <m:QueryString>{query_escaped}</m:QueryString>
 </m:FindItem>"#,
-                );
-                match send(&token, &soap_body).await {
-                    Ok(xml) if !xml.contains("ResponseClass=\"Error\"") => search_xml_to_rows(&xml),
-                    _ => vec![],
-                }
+                    );
+                    match send(&token, &soap_body).await {
+                        Ok(xml) if !xml.contains("ResponseClass=\"Error\"") => {
+                            search_xml_to_rows(&xml)
+                        }
+                        _ => vec![],
+                    }
+                })
             })
-        }).collect();
+            .collect();
 
         let mut all_rows: Vec<Row> = Vec::new();
         for handle in handles {
@@ -822,32 +962,40 @@ impl MailProvider for EwsProvider {
         for (conv_id, topic, date, is_read, has_attach, from_name) in all_rows {
             if let Some(t) = by_conv.get_mut(&conv_id) {
                 t.message_count += 1;
-                if !is_read { t.unread_count += 1; }
-                if has_attach { t.has_attachments = true; }
+                if !is_read {
+                    t.unread_count += 1;
+                }
+                if has_attach {
+                    t.has_attachments = true;
+                }
             } else {
                 order.push(conv_id.clone());
-                by_conv.insert(conv_id.clone(), MailThread {
-                    conversation_id: conv_id,
-                    topic,
-                    snippet: String::new(),
-                    last_delivery_time: date,
-                    message_count: 1,
-                    unread_count: if is_read { 0 } else { 1 },
-                    from_name,
-                    from_email: None,
-                    has_attachments: has_attach,
-                    to_recipients: vec![],
-                    cc_recipients: vec![],
-                    unique_senders: vec![],
-                    snoozed_until: None,
-                });
+                by_conv.insert(
+                    conv_id.clone(),
+                    MailThread {
+                        conversation_id: conv_id,
+                        topic,
+                        snippet: String::new(),
+                        last_delivery_time: date,
+                        message_count: 1,
+                        unread_count: if is_read { 0 } else { 1 },
+                        from_name,
+                        from_email: None,
+                        has_attachments: has_attach,
+                        to_recipients: vec![],
+                        cc_recipients: vec![],
+                        unique_senders: vec![],
+                        snoozed_until: None,
+                    },
+                );
             }
             if order.len() >= thread_limit && by_conv.len() >= thread_limit {
                 break;
             }
         }
 
-        let threads: Vec<MailThread> = order.into_iter()
+        let threads: Vec<MailThread> = order
+            .into_iter()
             .filter_map(|id| by_conv.remove(&id))
             .take(thread_limit)
             .collect();
@@ -890,7 +1038,10 @@ impl MailProvider for EwsProvider {
                 if let Some(msg) = parse_message(&msg_xml) {
                     let inline = parse_inline_images(&msg_xml);
                     let body = inject_inline_images(access_token, msg.body_html, inline).await;
-                    messages.push(MailMessage { body_html: body, ..msg });
+                    messages.push(MailMessage {
+                        body_html: body,
+                        ..msg
+                    });
                 }
             }
             return Ok(messages);
@@ -903,17 +1054,20 @@ impl MailProvider for EwsProvider {
             } else {
                 r#"<m:FoldersToIgnore>
     <t:DistinguishedFolderId Id="drafts"/>
-  </m:FoldersToIgnore>"#.to_string()
+  </m:FoldersToIgnore>"#
+                    .to_string()
             }
         } else if show_drafts {
             r#"<m:FoldersToIgnore>
     <t:DistinguishedFolderId Id="deleteditems"/>
-  </m:FoldersToIgnore>"#.to_string()
+  </m:FoldersToIgnore>"#
+                .to_string()
         } else {
             r#"<m:FoldersToIgnore>
     <t:DistinguishedFolderId Id="deleteditems"/>
     <t:DistinguishedFolderId Id="drafts"/>
-  </m:FoldersToIgnore>"#.to_string()
+  </m:FoldersToIgnore>"#
+                .to_string()
         };
 
         let soap_body = format!(
@@ -942,8 +1096,14 @@ impl MailProvider for EwsProvider {
             return Err(ews_err(&xml, "EWS error getting thread"));
         }
 
-        eprintln!("[mail] GetConversationItems response has t:Attachments: {}", xml.contains("t:Attachments"));
-        eprintln!("[mail] GetConversationItems response has t:IsInline: {}", xml.contains("t:IsInline"));
+        eprintln!(
+            "[mail] GetConversationItems response has t:Attachments: {}",
+            xml.contains("t:Attachments")
+        );
+        eprintln!(
+            "[mail] GetConversationItems response has t:IsInline: {}",
+            xml.contains("t:IsInline")
+        );
 
         const ITEM_TYPES: &[&str] = &[
             "t:Message",
@@ -976,7 +1136,10 @@ impl MailProvider for EwsProvider {
         let mut messages = Vec::new();
         for (msg, inline) in pending {
             let body = inject_inline_images(access_token, msg.body_html.clone(), inline).await;
-            messages.push(MailMessage { body_html: body, ..msg });
+            messages.push(MailMessage {
+                body_html: body,
+                ..msg
+            });
         }
 
         messages.sort_by(|a, b| a.date_time_received.cmp(&b.date_time_received));
@@ -1026,8 +1189,11 @@ impl MailProvider for EwsProvider {
     }
 
     async fn bulk_move_to_trash(&self, item_ids: Vec<String>) -> Result<(), String> {
-        if item_ids.is_empty() { return Ok(()); }
-        let items_xml: String = item_ids.iter()
+        if item_ids.is_empty() {
+            return Ok(());
+        }
+        let items_xml: String = item_ids
+            .iter()
             .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
             .collect::<Vec<_>>()
             .join("\n");
@@ -1049,8 +1215,11 @@ impl MailProvider for EwsProvider {
     }
 
     async fn bulk_permanently_delete(&self, item_ids: Vec<String>) -> Result<(), String> {
-        if item_ids.is_empty() { return Ok(()); }
-        let items_xml: String = item_ids.iter()
+        if item_ids.is_empty() {
+            return Ok(());
+        }
+        let items_xml: String = item_ids
+            .iter()
             .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
             .collect::<Vec<_>>()
             .join("\n");
@@ -1068,8 +1237,14 @@ impl MailProvider for EwsProvider {
         Ok(())
     }
 
-    async fn bulk_move_to_folder(&self, item_ids: Vec<String>, folder_id: &str) -> Result<(), String> {
-        if item_ids.is_empty() { return Ok(()); }
+    async fn bulk_move_to_folder(
+        &self,
+        item_ids: Vec<String>,
+        folder_id: &str,
+    ) -> Result<(), String> {
+        if item_ids.is_empty() {
+            return Ok(());
+        }
 
         // Exchange items have exactly one parent folder. Unlike Gmail/JMAP we
         // cannot add the destination while retaining Sent, so exclude items
@@ -1077,7 +1252,8 @@ impl MailProvider for EwsProvider {
         let sent_folder_id = get_distinguished_folder_id(&self.access_token, "sentitems")
             .await
             .ok_or_else(|| "Unable to resolve the Exchange Sent Items folder".to_string())?;
-        let item_refs: String = item_ids.iter()
+        let item_refs: String = item_ids
+            .iter()
             .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
             .collect::<Vec<_>>()
             .join("\n");
@@ -1096,7 +1272,10 @@ impl MailProvider for EwsProvider {
         );
         let inspect_xml = send(&self.access_token, &inspect_body).await?;
         if inspect_xml.contains("ResponseClass=\"Error\"") {
-            return Err(ews_err(&inspect_xml, "EWS error checking Sent items before move"));
+            return Err(ews_err(
+                &inspect_xml,
+                "EWS error checking Sent items before move",
+            ));
         }
 
         const ITEM_TYPES: &[&str] = &[
@@ -1125,9 +1304,12 @@ impl MailProvider for EwsProvider {
                 }
             }
         }
-        if movable_ids.is_empty() { return Ok(()); }
+        if movable_ids.is_empty() {
+            return Ok(());
+        }
 
-        let items_xml: String = movable_ids.iter()
+        let items_xml: String = movable_ids
+            .iter()
             .map(|id| format!("    <t:ItemId Id=\"{}\"/>", id))
             .collect::<Vec<_>>()
             .join("\n");
@@ -1168,12 +1350,17 @@ impl MailProvider for EwsProvider {
                 return Err("Scheduled-send date must be in the future".to_string());
             }
             if params.reply_to_item_id.is_some() {
-                return Err("EWS scheduled send is currently supported for new messages only".to_string());
+                return Err(
+                    "EWS scheduled send is currently supported for new messages only".to_string(),
+                );
             }
-            format!(r#"<t:ExtendedProperty>
+            format!(
+                r#"<t:ExtendedProperty>
         <t:ExtendedFieldURI PropertyTag="0x3FEF" PropertyType="SystemTime"/>
         <t:Value>{}</t:Value>
-      </t:ExtendedProperty>"#, date.to_rfc3339())
+      </t:ExtendedProperty>"#,
+                date.to_rfc3339()
+            )
         } else {
             String::new()
         };
@@ -1181,7 +1368,8 @@ impl MailProvider for EwsProvider {
         if atts.is_empty() {
             let soap_body = match (&params.reply_to_item_id, &params.reply_to_change_key) {
                 (Some(id), Some(ck)) if forward => {
-                    let (to_block, cc_block, bcc_block) = build_recipients_blocks(&params.to, &params.cc, &params.bcc);
+                    let (to_block, cc_block, bcc_block) =
+                        build_recipients_blocks(&params.to, &params.cc, &params.bcc);
                     format!(
                         r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
   <m:Items>
@@ -1209,7 +1397,8 @@ impl MailProvider for EwsProvider {
                     body = xml_escape(&params.body_html),
                 ),
                 _ => {
-                    let (to_block, cc_block, bcc_block) = build_recipients_blocks(&params.to, &params.cc, &params.bcc);
+                    let (to_block, cc_block, bcc_block) =
+                        build_recipients_blocks(&params.to, &params.cc, &params.bcc);
                     if is_scheduled {
                         format!(
                             r#"<m:CreateItem MessageDisposition="SaveOnly">
@@ -1263,7 +1452,8 @@ impl MailProvider for EwsProvider {
         // With attachments: 3-step flow (SaveOnly → CreateAttachment → SendItem)
         // For scheduled sends, save to outbox; for immediate sends, save to drafts.
         let create_body = {
-            let (to_block, cc_block, bcc_block) = build_recipients_blocks(&params.to, &params.cc, &params.bcc);
+            let (to_block, cc_block, bcc_block) =
+                build_recipients_blocks(&params.to, &params.cc, &params.bcc);
             let folder = if is_scheduled { "outbox" } else { "drafts" };
             format!(
                 r#"<m:CreateItem MessageDisposition="SaveOnly">
@@ -1299,7 +1489,12 @@ impl MailProvider for EwsProvider {
             let cid_block = if is_inline {
                 att.content_id
                     .as_deref()
-                    .map(|cid| format!("\n    <t:ContentId>{cid}</t:ContentId>", cid = xml_escape(cid)))
+                    .map(|cid| {
+                        format!(
+                            "\n    <t:ContentId>{cid}</t:ContentId>",
+                            cid = xml_escape(cid)
+                        )
+                    })
                     .unwrap_or_default()
             } else {
                 String::new()
@@ -1374,7 +1569,8 @@ impl MailProvider for EwsProvider {
     }
 
     async fn save_draft(&self, params: SaveDraftParams) -> Result<String, String> {
-        let (to_block, cc_block, bcc_block) = build_recipients_blocks(&params.to, &params.cc, &params.bcc);
+        let (to_block, cc_block, bcc_block) =
+            build_recipients_blocks(&params.to, &params.cc, &params.bcc);
         let soap_body = format!(
             r#"<m:CreateItem MessageDisposition="SaveOnly">
   <m:SavedItemFolderId>
@@ -1400,7 +1596,9 @@ impl MailProvider for EwsProvider {
         let item_id = xml_all_ns(&xml, "t:Message")
             .into_iter()
             .find_map(|msg_xml| {
-                let start = msg_xml.find("<t:ItemId ").or_else(|| msg_xml.find("<ItemId "))?;
+                let start = msg_xml
+                    .find("<t:ItemId ")
+                    .or_else(|| msg_xml.find("<ItemId "))?;
                 let end = msg_xml[start..].find("/>")?;
                 xml_attr(&msg_xml[start..start + end], "Id")
             })
@@ -1416,7 +1614,13 @@ impl MailProvider for EwsProvider {
 
         let safe_name: String = filename
             .chars()
-            .map(|c| if c.is_alphanumeric() || ".-_ ".contains(c) { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || ".-_ ".contains(c) {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let path = std::env::temp_dir().join(&safe_name);
         std::fs::write(&path, &bytes).map_err(|e| format!("Write temp file: {}", e))?;
@@ -1545,7 +1749,11 @@ impl MailProvider for EwsProvider {
         Err("not_supported".to_string())
     }
 
-    async fn search_contacts(&self, query: &str, max_count: Option<u32>) -> Result<Vec<crate::mail_provider::Contact>, String> {
+    async fn search_contacts(
+        &self,
+        query: &str,
+        max_count: Option<u32>,
+    ) -> Result<Vec<crate::mail_provider::Contact>, String> {
         if query.trim().is_empty() {
             return Ok(vec![]);
         }
@@ -1556,7 +1764,8 @@ impl MailProvider for EwsProvider {
             xml_escape(query.trim())
         );
         let xml = send(&self.access_token, &soap_body).await?;
-        if xml.contains("ResponseClass=\"Error\"") && !xml.contains("ErrorNameResolutionNoResults") {
+        if xml.contains("ResponseClass=\"Error\"") && !xml.contains("ErrorNameResolutionNoResults")
+        {
             return Err(ews_err(&xml, "EWS contact search error"));
         }
         let max = max_count.unwrap_or(25).min(100) as usize;
@@ -1569,12 +1778,23 @@ impl MailProvider for EwsProvider {
                 if email.trim().is_empty() || !seen.insert(email.to_lowercase()) {
                     return None;
                 }
-                let name = xml_content_ns(&mailbox, "t:Name").filter(|value| !value.trim().is_empty());
+                let name =
+                    xml_content_ns(&mailbox, "t:Name").filter(|value| !value.trim().is_empty());
                 let source = xml_content_ns(&resolution, "t:ContactSource")
-                    .map(|value| if value == "ActiveDirectory" { "ews-directory" } else { "ews-contact" })
+                    .map(|value| {
+                        if value == "ActiveDirectory" {
+                            "ews-directory"
+                        } else {
+                            "ews-contact"
+                        }
+                    })
                     .unwrap_or("ews-contact")
                     .to_string();
-                Some(crate::mail_provider::Contact { email, name, source: Some(source) })
+                Some(crate::mail_provider::Contact {
+                    email,
+                    name,
+                    source: Some(source),
+                })
             })
             .take(max)
             .collect();
@@ -1583,14 +1803,12 @@ impl MailProvider for EwsProvider {
 
     async fn get_contact_photo(&self, email: &str) -> Result<Option<String>, String> {
         let email = email.trim();
-        let valid_smtp_address = email
-            .split_once('@')
-            .is_some_and(|(local, domain)| {
-                !local.is_empty()
-                    && !domain.is_empty()
-                    && !domain.contains('@')
-                    && !email.chars().any(char::is_whitespace)
-            });
+        let valid_smtp_address = email.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty()
+                && !domain.is_empty()
+                && !domain.contains('@')
+                && !email.chars().any(char::is_whitespace)
+        });
         if !valid_smtp_address {
             // Conversation summaries can contain a display name, an Exchange
             // legacy identifier, or an empty value instead of an SMTP address.
@@ -1638,11 +1856,14 @@ struct ContactObservation {
 }
 
 fn ews_mailboxes(xml: &str) -> Vec<(String, Option<String>)> {
-    xml_all_ns(xml, "t:Mailbox").into_iter().filter_map(|mailbox| {
-        let email = xml_content_ns(&mailbox, "t:EmailAddress")?;
-        let name = xml_content_ns(&mailbox, "t:Name").filter(|value| !value.trim().is_empty());
-        Some((email, name))
-    }).collect()
+    xml_all_ns(xml, "t:Mailbox")
+        .into_iter()
+        .filter_map(|mailbox| {
+            let email = xml_content_ns(&mailbox, "t:EmailAddress")?;
+            let name = xml_content_ns(&mailbox, "t:Name").filter(|value| !value.trim().is_empty());
+            Some((email, name))
+        })
+        .collect()
 }
 
 pub async fn mail_backfill_contacts(
@@ -1657,7 +1878,8 @@ pub async fn mail_backfill_contacts(
         "inbox" | "sentitems" => format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder),
         _ => format!(r#"<t:FolderId Id="{}"/>"#, xml_escape(&folder)),
     };
-    let soap_body = format!(r#"<m:FindItem Traversal="Shallow">
+    let soap_body = format!(
+        r#"<m:FindItem Traversal="Shallow">
   <m:ItemShape>
     <t:BaseShape>IdOnly</t:BaseShape>
     <t:AdditionalProperties>
@@ -1673,7 +1895,8 @@ pub async fn mail_backfill_contacts(
   <m:IndexedPageItemView MaxEntriesReturned="{count}" Offset="{offset}" BasePoint="Beginning"/>
   <m:SortOrder><t:FieldOrder Order="Descending"><t:FieldURI FieldURI="item:DateTimeReceived"/></t:FieldOrder></m:SortOrder>
   <m:ParentFolderIds>{parent_folder}</m:ParentFolderIds>
-</m:FindItem>"#);
+</m:FindItem>"#
+    );
     let xml = send(&access_token, &soap_body).await?;
     if xml.contains("ResponseClass=\"Error\"") {
         return Err(ews_err(&xml, "EWS contact backfill error"));
@@ -1687,34 +1910,57 @@ pub async fn mail_backfill_contacts(
             .or_else(|| xml_content_ns(&item, "t:DateTimeReceived"))
             .and_then(|value| chrono::DateTime::parse_from_rfc3339(&value).ok())
             .map(|date| date.timestamp());
-        let Some(occurred_at) = occurred else { continue };
+        let Some(occurred_at) = occurred else {
+            continue;
+        };
         oldest_at = Some(oldest_at.map_or(occurred_at, |current| current.min(occurred_at)));
-        let event_id = xml_content_ns(&item, "t:InternetMessageId").or_else(|| {
-            item.find("<t:ItemId ")
-                .and_then(|start| item[start..].find("/>").map(|end| &item[start..start + end]))
-                .and_then(|element| xml_attr(element, "Id"))
-        }).unwrap_or_else(|| format!("ews:{folder}:{offset}:{occurred_at}"));
+        let event_id = xml_content_ns(&item, "t:InternetMessageId")
+            .or_else(|| {
+                item.find("<t:ItemId ")
+                    .and_then(|start| {
+                        item[start..]
+                            .find("/>")
+                            .map(|end| &item[start..start + end])
+                    })
+                    .and_then(|element| xml_attr(element, "Id"))
+            })
+            .unwrap_or_else(|| format!("ews:{folder}:{offset}:{occurred_at}"));
         let senders = xml_content_ns(&item, "t:From")
             .map(|value| ews_mailboxes(&value))
             .unwrap_or_default();
-        let sent_by_user = folder == "sentitems" || senders.iter().any(|(email, _)| {
-            !user_email.is_empty() && email.eq_ignore_ascii_case(&user_email)
-        });
+        let sent_by_user = folder == "sentitems"
+            || senders.iter().any(|(email, _)| {
+                !user_email.is_empty() && email.eq_ignore_ascii_case(&user_email)
+            });
         let (kind, mailboxes) = if sent_by_user {
-            let mut recipients = xml_content_ns(&item, "t:ToRecipients").map(|value| ews_mailboxes(&value)).unwrap_or_default();
-            if let Some(cc) = xml_content_ns(&item, "t:CcRecipients") { recipients.extend(ews_mailboxes(&cc)); }
-            if let Some(bcc) = xml_content_ns(&item, "t:BccRecipients") { recipients.extend(ews_mailboxes(&bcc)); }
+            let mut recipients = xml_content_ns(&item, "t:ToRecipients")
+                .map(|value| ews_mailboxes(&value))
+                .unwrap_or_default();
+            if let Some(cc) = xml_content_ns(&item, "t:CcRecipients") {
+                recipients.extend(ews_mailboxes(&cc));
+            }
+            if let Some(bcc) = xml_content_ns(&item, "t:BccRecipients") {
+                recipients.extend(ews_mailboxes(&bcc));
+            }
             ("sent", recipients)
         } else {
             ("received", senders)
         };
         for (email, display_name) in mailboxes {
             observations.push(ContactObservation {
-                email, display_name, kind: kind.to_string(), occurred_at, event_id: event_id.clone(),
+                email,
+                display_name,
+                kind: kind.to_string(),
+                occurred_at,
+                event_id: event_id.clone(),
             });
         }
     }
-    Ok(ContactBackfillBatch { observations, item_count, oldest_at })
+    Ok(ContactBackfillBatch {
+        observations,
+        item_count,
+        oldest_at,
+    })
 }
 
 pub async fn mail_list_folders(access_token: String) -> Result<Vec<MailFolder>, String> {
@@ -1728,23 +1974,30 @@ pub async fn mail_list_threads(
     offset: Option<u32>,
     user_email: Option<String>,
 ) -> Result<Vec<MailThread>, String> {
-    let provider = EwsProvider::with_user_email_and_offset(access_token, user_email, offset.unwrap_or(0));
+    let provider =
+        EwsProvider::with_user_email_and_offset(access_token, user_email, offset.unwrap_or(0));
     provider.list_threads(&folder, max_count).await
 }
 
 pub async fn mail_get_thread_count(access_token: String, folder: String) -> Result<u32, String> {
     let parent_folder_id = match folder.as_str() {
-        "inbox" | "sentitems" | "deleteditems" => format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder),
+        "inbox" | "sentitems" | "deleteditems" => {
+            format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder)
+        }
         "spam" => r#"<t:DistinguishedFolderId Id="junkemail"/>"#.to_string(),
         id => format!(r#"<t:FolderId Id="{}"/>"#, xml_escape(id)),
     };
-    let body = format!(r#"<m:FindConversation>
+    let body = format!(
+        r#"<m:FindConversation>
   <m:IndexedPageItemView MaxEntriesReturned="1" Offset="0" BasePoint="Beginning"/>
   <m:ParentFolderId>{parent_folder_id}</m:ParentFolderId>
   <m:ConversationShape><t:BaseShape>IdOnly</t:BaseShape></m:ConversationShape>
-</m:FindConversation>"#);
+</m:FindConversation>"#
+    );
     let xml = send(&access_token, &body).await?;
-    if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error counting conversations")); }
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS error counting conversations"));
+    }
     xml_content_ns(&xml, "m:TotalConversationsInView")
         .and_then(|value| value.parse().ok())
         .ok_or_else(|| "EWS returned an invalid conversation count".to_string())
@@ -1755,7 +2008,9 @@ pub async fn mail_search_threads(
     query: MailSearchQuery,
     max_count: Option<u32>,
 ) -> Result<Vec<MailThread>, String> {
-    EwsProvider::new(access_token).search_threads(&query, max_count).await
+    EwsProvider::new(access_token)
+        .search_threads(&query, max_count)
+        .await
 }
 
 pub async fn mail_get_thread(
@@ -1782,26 +2037,43 @@ pub async fn mail_get_thread_headers(
         format!("<m:GetItem><m:ItemShape>{}</m:ItemShape><m:ItemIds><t:ItemId Id=\"{}\"/></m:ItemIds></m:GetItem>", thread_header_shape(), conversation_id)
     } else {
         let ignore = if include_trash.unwrap_or(false) {
-            if include_drafts.unwrap_or(false) { String::new() } else { "<m:FoldersToIgnore><t:DistinguishedFolderId Id=\"drafts\"/></m:FoldersToIgnore>".into() }
+            if include_drafts.unwrap_or(false) {
+                String::new()
+            } else {
+                "<m:FoldersToIgnore><t:DistinguishedFolderId Id=\"drafts\"/></m:FoldersToIgnore>"
+                    .into()
+            }
         } else if include_drafts.unwrap_or(false) {
-            "<m:FoldersToIgnore><t:DistinguishedFolderId Id=\"deleteditems\"/></m:FoldersToIgnore>".into()
+            "<m:FoldersToIgnore><t:DistinguishedFolderId Id=\"deleteditems\"/></m:FoldersToIgnore>"
+                .into()
         } else {
             "<m:FoldersToIgnore><t:DistinguishedFolderId Id=\"deleteditems\"/><t:DistinguishedFolderId Id=\"drafts\"/></m:FoldersToIgnore>".into()
         };
-        format!(r#"<m:GetConversationItems>
+        format!(
+            r#"<m:GetConversationItems>
   <m:ItemShape>{}</m:ItemShape>
   {ignore}<m:MaxItemsToReturn>50</m:MaxItemsToReturn><m:SortOrder>TreeOrderDescending</m:SortOrder>
   <m:Conversations><t:Conversation><t:ConversationId Id="{conversation_id}"/></t:Conversation></m:Conversations>
-</m:GetConversationItems>"#, thread_header_shape())
+</m:GetConversationItems>"#,
+            thread_header_shape()
+        )
     };
     let xml = send(&access_token, &ids_xml).await?;
-    if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error getting thread headers")); }
-    const ITEM_TYPES: &[&str] = &["t:Message", "t:MeetingRequest", "t:MeetingResponse", "t:MeetingCancellation"];
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS error getting thread headers"));
+    }
+    const ITEM_TYPES: &[&str] = &[
+        "t:Message",
+        "t:MeetingRequest",
+        "t:MeetingResponse",
+        "t:MeetingCancellation",
+    ];
     let mut messages = Vec::new();
     let containers = if is_draft.unwrap_or(false) {
         vec![xml.clone()]
     } else {
-        xml_all_ns(&xml, "t:ConversationNode").into_iter()
+        xml_all_ns(&xml, "t:ConversationNode")
+            .into_iter()
             .filter_map(|node| xml_content_ns(&node, "t:Items"))
             .collect()
     };
@@ -1820,13 +2092,18 @@ pub async fn mail_get_thread_headers(
     Ok(messages)
 }
 
-pub async fn mail_get_thread_snippet(access_token: String, conversation_id: String) -> Result<String, String> {
-    let body = format!(r#"<m:GetConversationItems>
+pub async fn mail_get_thread_snippet(
+    access_token: String,
+    conversation_id: String,
+) -> Result<String, String> {
+    let body = format!(
+        r#"<m:GetConversationItems>
   <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="item:Preview"/></t:AdditionalProperties></m:ItemShape>
   <m:FoldersToIgnore><t:DistinguishedFolderId Id="deleteditems"/><t:DistinguishedFolderId Id="drafts"/></m:FoldersToIgnore>
   <m:MaxItemsToReturn>1</m:MaxItemsToReturn><m:SortOrder>TreeOrderDescending</m:SortOrder>
   <m:Conversations><t:Conversation><t:ConversationId Id="{conversation_id}"/></t:Conversation></m:Conversations>
-</m:GetConversationItems>"#);
+</m:GetConversationItems>"#
+    );
     let xml = send(&access_token, &body).await?;
     if !xml.contains("ResponseClass=\"Error\"") {
         return Ok(xml_content_ns(&xml, "t:Preview").unwrap_or_default());
@@ -1834,10 +2111,12 @@ pub async fn mail_get_thread_snippet(access_token: String, conversation_id: Stri
 
     // Draft lists use an item id as their row identifier rather than a
     // conversation id. Keep the UI contract opaque by accepting either form.
-    let item_body = format!(r#"<m:GetItem>
+    let item_body = format!(
+        r#"<m:GetItem>
   <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="item:Preview"/></t:AdditionalProperties></m:ItemShape>
   <m:ItemIds><t:ItemId Id="{conversation_id}"/></m:ItemIds>
-</m:GetItem>"#);
+</m:GetItem>"#
+    );
     let item_xml = send(&access_token, &item_body).await?;
     if item_xml.contains("ResponseClass=\"Error\"") {
         return Err(ews_err(&item_xml, "EWS error getting item preview"));
@@ -1857,14 +2136,28 @@ fn thread_header_shape() -> &'static str {
     </t:AdditionalProperties>"#
 }
 
-pub async fn mail_get_message_content(access_token: String, item_id: String) -> Result<MailMessage, String> {
-    let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:BodyType>HTML</t:BodyType><t:AdditionalProperties><t:FieldURI FieldURI="message:IsRead"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="{item_id}"/></m:ItemIds></m:GetItem>"#);
+pub async fn mail_get_message_content(
+    access_token: String,
+    item_id: String,
+) -> Result<MailMessage, String> {
+    let body = format!(
+        r#"<m:GetItem><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:BodyType>HTML</t:BodyType><t:AdditionalProperties><t:FieldURI FieldURI="message:IsRead"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="{item_id}"/></m:ItemIds></m:GetItem>"#
+    );
     let xml = send(&access_token, &body).await?;
-    if xml.contains("ResponseClass=\"Error\"") { return Err(ews_err(&xml, "EWS error getting message body")); }
-    for item_type in ["t:Message", "t:MeetingRequest", "t:MeetingResponse", "t:MeetingCancellation"] {
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS error getting message body"));
+    }
+    for item_type in [
+        "t:Message",
+        "t:MeetingRequest",
+        "t:MeetingResponse",
+        "t:MeetingCancellation",
+    ] {
         if let Some(msg_xml) = xml_all_ns(&xml, item_type).into_iter().next() {
             if let Some(mut msg) = parse_message(&msg_xml) {
-                if item_type != "t:Message" { msg.ics_mime = build_meeting_ics(&msg_xml, item_type); }
+                if item_type != "t:Message" {
+                    msg.ics_mime = build_meeting_ics(&msg_xml, item_type);
+                }
                 let inline = parse_inline_images(&msg_xml);
                 msg.body_html = inject_inline_images(&access_token, msg.body_html, inline).await;
                 return Ok(msg);
@@ -1891,7 +2184,9 @@ pub async fn mail_get_raw_message(access_token: String, item_id: String) -> Resu
     let encoded = xml_content_ns(&xml, "t:MimeContent")
         .ok_or_else(|| "EWS did not return MIME content".to_string())?;
     let compact: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
-    let bytes = BASE64.decode(compact.as_bytes()).map_err(|e| format!("Invalid MIME base64: {e}"))?;
+    let bytes = BASE64
+        .decode(compact.as_bytes())
+        .map_err(|e| format!("Invalid MIME base64: {e}"))?;
     String::from_utf8(bytes).map_err(|e| format!("Original message is not valid UTF-8: {e}"))
 }
 
@@ -1910,10 +2205,19 @@ pub async fn mail_send(
 ) -> Result<(), String> {
     EwsProvider::new(access_token)
         .send_mail(SendMailParams {
-            to, cc, bcc, subject, body_html,
-            reply_to_item_id, reply_to_change_key,
-            attachments, is_forward,
-            identity_id: None, in_reply_to: None, references: None, send_at,
+            to,
+            cc,
+            bcc,
+            subject,
+            body_html,
+            reply_to_item_id,
+            reply_to_change_key,
+            attachments,
+            is_forward,
+            identity_id: None,
+            in_reply_to: None,
+            references: None,
+            send_at,
         })
         .await
 }
@@ -1927,28 +2231,25 @@ pub async fn mail_save_draft(
     body_html: String,
 ) -> Result<String, String> {
     EwsProvider::new(access_token)
-        .save_draft(SaveDraftParams { to, cc, bcc, subject, body_html })
+        .save_draft(SaveDraftParams {
+            to,
+            cc,
+            bcc,
+            subject,
+            body_html,
+        })
         .await
 }
 
-pub async fn mail_mark_read(
-    access_token: String,
-    items: Vec<MailItemRef>,
-) -> Result<(), String> {
+pub async fn mail_mark_read(access_token: String, items: Vec<MailItemRef>) -> Result<(), String> {
     EwsProvider::new(access_token).mark_read(&items).await
 }
 
-pub async fn mail_mark_unread(
-    access_token: String,
-    items: Vec<MailItemRef>,
-) -> Result<(), String> {
+pub async fn mail_mark_unread(access_token: String, items: Vec<MailItemRef>) -> Result<(), String> {
     EwsProvider::new(access_token).mark_unread(&items).await
 }
 
-pub async fn mail_move_to_trash(
-    access_token: String,
-    item_id: String,
-) -> Result<(), String> {
+pub async fn mail_move_to_trash(access_token: String, item_id: String) -> Result<(), String> {
     EwsProvider::new(access_token).move_to_trash(&item_id).await
 }
 
@@ -1956,14 +2257,18 @@ pub async fn mail_bulk_move_to_trash(
     access_token: String,
     item_ids: Vec<String>,
 ) -> Result<(), String> {
-    EwsProvider::new(access_token).bulk_move_to_trash(item_ids).await
+    EwsProvider::new(access_token)
+        .bulk_move_to_trash(item_ids)
+        .await
 }
 
 pub async fn mail_bulk_permanently_delete(
     access_token: String,
     item_ids: Vec<String>,
 ) -> Result<(), String> {
-    EwsProvider::new(access_token).bulk_permanently_delete(item_ids).await
+    EwsProvider::new(access_token)
+        .bulk_permanently_delete(item_ids)
+        .await
 }
 
 pub async fn mail_bulk_move_to_folder(
@@ -1971,14 +2276,15 @@ pub async fn mail_bulk_move_to_folder(
     item_ids: Vec<String>,
     folder_id: String,
 ) -> Result<(), String> {
-    EwsProvider::new(access_token).bulk_move_to_folder(item_ids, &folder_id).await
+    EwsProvider::new(access_token)
+        .bulk_move_to_folder(item_ids, &folder_id)
+        .await
 }
 
-pub async fn mail_permanently_delete(
-    access_token: String,
-    item_id: String,
-) -> Result<(), String> {
-    EwsProvider::new(access_token).permanently_delete(&item_id).await
+pub async fn mail_permanently_delete(access_token: String, item_id: String) -> Result<(), String> {
+    EwsProvider::new(access_token)
+        .permanently_delete(&item_id)
+        .await
 }
 
 pub async fn mail_open_attachment(
@@ -1986,24 +2292,28 @@ pub async fn mail_open_attachment(
     attachment_id: String,
     filename: String,
 ) -> Result<(), String> {
-    EwsProvider::new(access_token).open_attachment(&attachment_id, &filename).await
+    EwsProvider::new(access_token)
+        .open_attachment(&attachment_id, &filename)
+        .await
 }
 
 pub async fn mail_get_attachment_data(
     access_token: String,
     attachment_id: String,
 ) -> Result<String, String> {
-    EwsProvider::new(access_token).get_attachment_data(&attachment_id, None, None).await
+    EwsProvider::new(access_token)
+        .get_attachment_data(&attachment_id, None, None)
+        .await
 }
 
 pub async fn mail_get_inbox_unread(access_token: String) -> Result<u32, String> {
     EwsProvider::new(access_token).get_inbox_unread().await
 }
 
-pub async fn mail_find_or_create_snoozed_folder(
-    access_token: String,
-) -> Result<String, String> {
-    EwsProvider::new(access_token).find_or_create_snoozed_folder().await
+pub async fn mail_find_or_create_snoozed_folder(access_token: String) -> Result<String, String> {
+    EwsProvider::new(access_token)
+        .find_or_create_snoozed_folder()
+        .await
 }
 
 pub async fn mail_move_to_folder(
@@ -2011,13 +2321,12 @@ pub async fn mail_move_to_folder(
     item_id: String,
     folder_id: String,
 ) -> Result<(), String> {
-    EwsProvider::new(access_token).move_to_folder(&item_id, &folder_id).await
+    EwsProvider::new(access_token)
+        .move_to_folder(&item_id, &folder_id)
+        .await
 }
 
-pub async fn mail_snooze(
-    access_token: String,
-    item_id: String,
-) -> Result<String, String> {
+pub async fn mail_snooze(access_token: String, item_id: String) -> Result<String, String> {
     EwsProvider::new(access_token).snooze(&item_id).await
 }
 
@@ -2026,14 +2335,18 @@ pub async fn mail_search_contacts(
     query: String,
     max_count: Option<u32>,
 ) -> Result<Vec<crate::mail_provider::Contact>, String> {
-    EwsProvider::new(access_token).search_contacts(&query, max_count).await
+    EwsProvider::new(access_token)
+        .search_contacts(&query, max_count)
+        .await
 }
 
 pub async fn mail_get_contact_photo(
     access_token: String,
     email: String,
 ) -> Result<Option<String>, String> {
-    EwsProvider::new(access_token).get_contact_photo(&email).await
+    EwsProvider::new(access_token)
+        .get_contact_photo(&email)
+        .await
 }
 
 // ── Private parsing helpers ───────────────────────────────────────────────────
@@ -2049,8 +2362,7 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
         .unwrap_or_default();
 
     let subject = xml_content_ns(msg_xml, "t:Subject").unwrap_or_default();
-    let date_time_received =
-        xml_content_ns(msg_xml, "t:DateTimeReceived").unwrap_or_default();
+    let date_time_received = xml_content_ns(msg_xml, "t:DateTimeReceived").unwrap_or_default();
     let is_read = xml_content_ns(msg_xml, "t:IsRead")
         .map(|v| v == "true")
         .unwrap_or(false);
@@ -2058,8 +2370,8 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
         .map(|v| v == "true")
         .unwrap_or(false);
 
-    let from_xml = xml_content_ns(msg_xml, "t:From")
-        .or_else(|| xml_content_ns(msg_xml, "t:Sender"));
+    let from_xml =
+        xml_content_ns(msg_xml, "t:From").or_else(|| xml_content_ns(msg_xml, "t:Sender"));
     let from_mailbox = from_xml
         .as_deref()
         .and_then(|s| xml_content_ns(s, "t:Mailbox"));
@@ -2082,7 +2394,11 @@ fn parse_message(msg_xml: &str) -> Option<MailMessage> {
     let attachments = parse_attachments(msg_xml);
 
     let body_text = strip_html_tags(&body_html);
-    let body_text = if body_text.trim().is_empty() { None } else { Some(body_text) };
+    let body_text = if body_text.trim().is_empty() {
+        None
+    } else {
+        Some(body_text)
+    };
     let ics_mime: Option<String> = None;
 
     let is_draft = xml_content_ns(msg_xml, "t:IsDraft")
@@ -2115,26 +2431,40 @@ fn strip_html_tags(html: &str) -> String {
     let mut buf = String::with_capacity(html.len() / 2);
     let mut pos = 0;
     loop {
-        let style  = lower[pos..].find("<style") .map(|p| (pos + p, "</style>"));
+        let style = lower[pos..].find("<style").map(|p| (pos + p, "</style>"));
         let script = lower[pos..].find("<script").map(|p| (pos + p, "</script>"));
         let next = match (style, script) {
-            (None, None) => { buf.push_str(&html[pos..]); break; }
+            (None, None) => {
+                buf.push_str(&html[pos..]);
+                break;
+            }
             (Some(a), None) => a,
             (None, Some(b)) => b,
-            (Some(a), Some(b)) => if a.0 <= b.0 { a } else { b },
+            (Some(a), Some(b)) => {
+                if a.0 <= b.0 {
+                    a
+                } else {
+                    b
+                }
+            }
         };
         let (start, end_tag) = next;
         buf.push_str(&html[pos..start]);
-        pos = lower[start..].find(end_tag)
+        pos = lower[start..]
+            .find(end_tag)
             .map(|rel| start + rel + end_tag.len())
             .unwrap_or(html.len());
     }
     let mut out = String::with_capacity(buf.len());
     let mut in_tag = false;
     for c in buf.chars() {
-        if c == '<' { in_tag = true; }
-        else if c == '>' { in_tag = false; }
-        else if !in_tag { out.push(c); }
+        if c == '<' {
+            in_tag = true;
+        } else if c == '>' {
+            in_tag = false;
+        } else if !in_tag {
+            out.push(c);
+        }
     }
     out
 }
@@ -2163,7 +2493,9 @@ fn parse_attachments(msg_xml: &str) -> Vec<MailAttachment> {
             .map(|v| v == "true")
             .unwrap_or(false);
 
-        if is_inline { continue; }
+        if is_inline {
+            continue;
+        }
 
         attachments.push(MailAttachment {
             attachment_id,
@@ -2194,7 +2526,9 @@ fn parse_inline_images(msg_xml: &str) -> Vec<InlineImage> {
         let is_inline = xml_content_ns(&att_xml, "t:IsInline")
             .map(|v| v == "true")
             .unwrap_or(false);
-        if !is_inline { continue; }
+        if !is_inline {
+            continue;
+        }
 
         let id_elem = att_xml
             .find("<t:AttachmentId ")
@@ -2206,10 +2540,14 @@ fn parse_inline_images(msg_xml: &str) -> Vec<InlineImage> {
         };
 
         let content_id = xml_content_ns(&att_xml, "t:ContentId");
-        let content_type = xml_content_ns(&att_xml, "t:ContentType")
-            .unwrap_or_else(|| "image/png".to_string());
+        let content_type =
+            xml_content_ns(&att_xml, "t:ContentType").unwrap_or_else(|| "image/png".to_string());
 
-        images.push(InlineImage { attachment_id, content_id, content_type });
+        images.push(InlineImage {
+            attachment_id,
+            content_id,
+            content_type,
+        });
     }
 
     images
@@ -2277,24 +2615,23 @@ async fn inject_inline_images(
 
 fn replace_next_empty_src(html: &str, data_uri: &str) -> String {
     if let Some(pos) = html.find("src=\"\"") {
-        return format!("{}src=\"{}\"{}",
-            &html[..pos], data_uri, &html[pos + 6..]);
+        return format!("{}src=\"{}\"{}", &html[..pos], data_uri, &html[pos + 6..]);
     }
     if let Some(pos) = html.find("src=''") {
-        return format!("{}src='{}'{}",
-            &html[..pos], data_uri, &html[pos + 6..]);
+        return format!("{}src='{}'{}", &html[..pos], data_uri, &html[pos + 6..]);
     }
     let needle = "src";
     let mut search = 0;
     while let Some(rel) = html[search..].find(needle) {
         let abs = search + rel;
         let after = abs + needle.len();
-        let preceded_ok = abs == 0 || !html[..abs].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-        let next_non_ws = html[after..].trim_start_matches(|c: char| c == ' ' || c == '\t' || c == '\r' || c == '\n');
+        let preceded_ok = abs == 0
+            || !html[..abs].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        let next_non_ws = html[after..]
+            .trim_start_matches(|c: char| c == ' ' || c == '\t' || c == '\r' || c == '\n');
         let followed_ok = !next_non_ws.starts_with('=');
         if preceded_ok && followed_ok {
-            return format!("{}src=\"{}\"{}",
-                &html[..abs], data_uri, &html[after..]);
+            return format!("{}src=\"{}\"{}", &html[..abs], data_uri, &html[after..]);
         }
         search = abs + 1;
     }
@@ -2305,8 +2642,7 @@ fn parse_recipients(msg_xml: &str, tag: &str) -> Vec<MailRecipient> {
     let mut recipients = Vec::new();
     if let Some(list_xml) = xml_content_ns(msg_xml, tag) {
         for mailbox_xml in xml_all_ns(&list_xml, "t:Mailbox") {
-            let email =
-                xml_content_ns(&mailbox_xml, "t:EmailAddress").unwrap_or_default();
+            let email = xml_content_ns(&mailbox_xml, "t:EmailAddress").unwrap_or_default();
             let name = xml_content_ns(&mailbox_xml, "t:Name").filter(|s| !s.is_empty());
             recipients.push(MailRecipient { name, email });
         }
@@ -2318,46 +2654,54 @@ fn parse_recipients(msg_xml: &str, tag: &str) -> Vec<MailRecipient> {
 
 fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
     let start_str = xml_content_ns(msg_xml, "t:Start")?;
-    let end_str   = xml_content_ns(msg_xml, "t:End")?;
+    let end_str = xml_content_ns(msg_xml, "t:End")?;
 
-    let summary   = xml_content_ns(msg_xml, "t:Subject").unwrap_or_default();
+    let summary = xml_content_ns(msg_xml, "t:Subject").unwrap_or_default();
     let is_all_day = xml_content_ns(msg_xml, "t:IsAllDayEvent")
         .map(|v| v == "true")
         .unwrap_or(false);
-    let location  = xml_content_ns(msg_xml, "t:Location");
+    let location = xml_content_ns(msg_xml, "t:Location");
 
     let uid = {
         let id_elem = msg_xml
             .find("<t:ItemId ")
             .and_then(|s| msg_xml[s..].find("/>").map(|e| &msg_xml[s..s + e]));
-        id_elem.and_then(|e| xml_attr(e, "Id")).unwrap_or_else(|| "unknown".to_string())
+        id_elem
+            .and_then(|e| xml_attr(e, "Id"))
+            .unwrap_or_else(|| "unknown".to_string())
     };
 
     let method = match item_type {
         "t:MeetingCancellation" => "CANCEL",
-        "t:MeetingResponse"     => "REPLY",
-        _                       => "REQUEST",
+        "t:MeetingResponse" => "REPLY",
+        _ => "REQUEST",
     };
 
-    let fmt_ics_dt = |s: &str| -> String {
-        s.chars().filter(|&c| c != '-' && c != ':').collect()
-    };
+    let fmt_ics_dt = |s: &str| -> String { s.chars().filter(|&c| c != '-' && c != ':').collect() };
 
     let (dtstart, dtend) = if is_all_day {
         let ds = start_str.get(..10).unwrap_or(&start_str).replace('-', "");
         let de = end_str.get(..10).unwrap_or(&end_str).replace('-', "");
-        (format!("DTSTART;VALUE=DATE:{}", ds), format!("DTEND;VALUE=DATE:{}", de))
+        (
+            format!("DTSTART;VALUE=DATE:{}", ds),
+            format!("DTEND;VALUE=DATE:{}", de),
+        )
     } else {
-        (format!("DTSTART:{}", fmt_ics_dt(&start_str)), format!("DTEND:{}", fmt_ics_dt(&end_str)))
+        (
+            format!("DTSTART:{}", fmt_ics_dt(&start_str)),
+            format!("DTEND:{}", fmt_ics_dt(&end_str)),
+        )
     };
 
-    let org_mb    = xml_content_ns(msg_xml, "t:Organizer")
-        .and_then(|o| xml_content_ns(&o, "t:Mailbox"));
-    let org_email = org_mb.as_deref()
+    let org_mb =
+        xml_content_ns(msg_xml, "t:Organizer").and_then(|o| xml_content_ns(&o, "t:Mailbox"));
+    let org_email = org_mb
+        .as_deref()
         .and_then(|m| xml_content_ns(m, "t:EmailAddress"))
         .unwrap_or_default()
         .to_lowercase();
-    let org_name  = org_mb.as_deref()
+    let org_name = org_mb
+        .as_deref()
         .and_then(|m| xml_content_ns(m, "t:Name"))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| org_email.clone());
@@ -2374,21 +2718,31 @@ fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
         dtend,
     ];
     if !org_email.is_empty() {
-        lines.push(format!("ORGANIZER;CN={}:mailto:{}", ics_escape_value(&org_name), org_email));
+        lines.push(format!(
+            "ORGANIZER;CN={}:mailto:{}",
+            ics_escape_value(&org_name),
+            org_email
+        ));
     }
     if let Some(loc) = location.filter(|s| !s.is_empty()) {
         lines.push(format!("LOCATION:{}", ics_escape_value(&loc)));
     }
 
     for list_tag in &["t:RequiredAttendees", "t:OptionalAttendees"] {
-        let role = if *list_tag == "t:RequiredAttendees" { "REQ-PARTICIPANT" } else { "OPT-PARTICIPANT" };
+        let role = if *list_tag == "t:RequiredAttendees" {
+            "REQ-PARTICIPANT"
+        } else {
+            "OPT-PARTICIPANT"
+        };
         if let Some(list_xml) = xml_content_ns(msg_xml, list_tag) {
             for att_xml in xml_all_ns(&list_xml, "t:Attendee") {
                 let email = xml_content_ns(&att_xml, "t:EmailAddress")
                     .unwrap_or_default()
                     .to_lowercase();
-                if email.is_empty() { continue; }
-                let name     = xml_content_ns(&att_xml, "t:Name")
+                if email.is_empty() {
+                    continue;
+                }
+                let name = xml_content_ns(&att_xml, "t:Name")
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| email.clone());
                 let partstat = xml_content_ns(&att_xml, "t:ResponseType")
@@ -2397,7 +2751,10 @@ fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
                     .unwrap_or("NEEDS-ACTION");
                 lines.push(format!(
                     "ATTENDEE;CN={};ROLE={};PARTSTAT={}:mailto:{}",
-                    ics_escape_value(&name), role, partstat, email,
+                    ics_escape_value(&name),
+                    role,
+                    partstat,
+                    email,
                 ));
             }
         }
@@ -2411,18 +2768,18 @@ fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
 fn ews_response_type_to_partstat(rt: &str) -> &'static str {
     match rt {
         "Accept" | "Organizer" => "ACCEPTED",
-        "Decline"              => "DECLINED",
-        "Tentative"            => "TENTATIVE",
-        _                      => "NEEDS-ACTION",
+        "Decline" => "DECLINED",
+        "Tentative" => "TENTATIVE",
+        _ => "NEEDS-ACTION",
     }
 }
 
 fn ics_escape_value(s: &str) -> String {
     s.replace('\\', "\\\\")
-     .replace(';', "\\;")
-     .replace(',', "\\,")
-     .replace('\n', "\\n")
-     .replace('\r', "")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace('\n', "\\n")
+        .replace('\r', "")
 }
 
 fn xml_escape(s: &str) -> String {

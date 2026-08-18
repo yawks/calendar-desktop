@@ -4,14 +4,15 @@ import org.json.JSONObject
 
 data class NewMessage(val id: String, val conversationId: String, val sender: String, val subject: String)
 data class DetectionResult(val messages: List<NewMessage>, val cursor: String, val credentialUpdate: JSONObject?)
+interface NewMailDetector { fun detect(account: SyncAccount, cursor: String?): DetectionResult }
 data class SyncAccount(
     val id: String, val provider: String, val email: String, val displayName: String?,
-    val serverUrl: String, val credentials: JSONObject,
+    val credentials: JSONObject,
     val serverUsername: String? = null, val serverPassword: String? = null,
     val syncIntervalMinutes: Int = 15,
 ) {
     fun encode() = JSONObject().put("id", id).put("provider", provider).put("email", email)
-        .put("displayName", displayName).put("serverUrl", serverUrl).put("serverUsername", serverUsername)
+        .put("displayName", displayName).put("serverUsername", serverUsername)
         .put("serverPassword", serverPassword).put("syncIntervalMinutes", syncIntervalMinutes)
         .put("credentials", credentials).toString()
     fun withCredentialUpdate(update: JSONObject): SyncAccount {
@@ -24,7 +25,7 @@ data class SyncAccount(
             val item = JSONObject(value)
             return SyncAccount(
                 id = item.getString("id"), provider = item.getString("provider"), email = item.getString("email"),
-                displayName = item.optString("displayName").ifBlank { null }, serverUrl = item.getString("serverUrl"),
+                displayName = item.optString("displayName").ifBlank { null },
                 credentials = item.getJSONObject("credentials"),
                 serverUsername = item.optString("serverUsername").ifBlank { null },
                 serverPassword = item.optString("serverPassword").ifBlank { null },

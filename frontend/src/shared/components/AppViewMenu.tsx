@@ -2,7 +2,6 @@ import { CalendarDays, Check, ChevronDown, Mail } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppTab, useLayout } from '../store/LayoutStore';
-import { useAppCapabilities } from '../hooks/useAppCapabilities';
 import { openOrFocusWindow } from './WindowSwitcher';
 
 interface Props {
@@ -12,11 +11,9 @@ interface Props {
 export default function AppViewMenu({ current }: Props) {
   const { t } = useTranslation();
   const { layout, setActiveTab } = useLayout();
-  const { hasCalendar, hasMail } = useAppCapabilities();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const canSwitch = hasCalendar && hasMail;
   const label = current === 'mail'
     ? t('tabs.mail', 'Mail')
     : t('tabs.calendar', 'Calendrier');
@@ -36,10 +33,6 @@ export default function AppViewMenu({ current }: Props) {
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [open]);
-
-  if (!canSwitch) {
-    return <span className="header-logo"><span>{label}</span></span>;
-  }
 
   const select = async (tab: AppTab) => {
     setOpen(false);

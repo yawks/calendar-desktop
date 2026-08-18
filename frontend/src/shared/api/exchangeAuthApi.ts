@@ -1,4 +1,6 @@
 import { apiHeaders, apiJson, apiUrl } from './apiRequest';
+import { hasNativeTransport, invokeNative } from './nativeTransport';
+import { platform } from '../platform';
 
 export interface ExchangeTokenResponse {
   access_token: string;
@@ -16,6 +18,18 @@ export interface ExchangeDeviceResponse {
 }
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
+  if (hasNativeTransport()) {
+    const command = path === 'device' ? 'exchange_auth_device' : path === 'token' ? 'exchange_auth_token' : 'exchange_auth_refresh';
+    if (platform.exchangeAuth) {
+      try {
+        return await platform.exchangeAuth<T>(command, (body ?? {}) as Record<string, unknown>);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Exchange Android/${path}: ${message}`);
+      }
+    }
+    return invokeNative<T>(command, (body ?? {}) as Record<string, unknown>);
+  }
   const response = await fetch(apiUrl(`/api/auth/exchange/${path}`), {
     method: 'POST', credentials: 'same-origin',
     headers: apiHeaders({ 'content-type': 'application/json' }),
