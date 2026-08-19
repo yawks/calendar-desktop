@@ -3,12 +3,15 @@ import { useOfflineMailSettings } from '../../../shared/store/OfflineMailStore';
 import type { MailProvider } from '../providers/MailProvider';
 import type { MailMessage } from '../types';
 import { clearOfflineMailCache, storeOfflineInbox } from '../utils/offlineMailCache';
+import { useQueryClient } from '@tanstack/react-query';
+import { MAIL_KEYS } from './useMailQueries';
 
 const REFRESH_INTERVAL = 15 * 60 * 1000;
 const CONCURRENCY = 4;
 
 export function useOfflineMailSync(accounts: { id: string; provider: MailProvider | null }[]) {
   const { settings } = useOfflineMailSettings();
+  const queryClient = useQueryClient();
   const running = useRef(false);
 
   const synchronize = useCallback(async () => {
@@ -40,17 +43,23 @@ export function useOfflineMailSync(accounts: { id: string; provider: MailProvide
                   }
                 }));
                 conversations.set(thread.conversation_id, completeMessages);
+                if (!thread.snippet && provider.getThreadSnippet) {
+                  try {
+                    thread.snippet = await provider.getThreadSnippet(thread.conversation_id);
+                  } catch { /* the conversation remains available even if its preview fails */ }
+                }
               } catch { /* keep syncing the remaining conversations */ }
             }
           };
           await Promise.all(Array.from({ length: Math.min(CONCURRENCY, threads.length) }, worker));
           await storeOfflineInbox(id, threads, conversations);
+          await queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(id, 'inbox') });
         } catch { /* one unavailable account must not block the others */ }
       }));
     } finally {
       running.current = false;
     }
-  }, [accounts, settings.enabled, settings.maxAgeDays, settings.maxThreads]);
+  }, [accounts, queryClient, settings.enabled, settings.maxAgeDays, settings.maxThreads]);
 
   useEffect(() => {
     if (!settings.enabled) {

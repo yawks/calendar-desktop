@@ -5,6 +5,7 @@ import { buildUnreadCounts, DISPLAY_TO_STATIC } from '../utils';
 import { useMemo, useCallback } from 'react';
 import { getOfflineConversation, getOfflineInboxThreads } from '../utils/offlineMailCache';
 import { isTemporaryMailServiceError } from '../../../shared/utils/networkError';
+import { useOfflineMailSettings } from '../../../shared/store/OfflineMailStore';
 
 export const MAIL_KEYS = {
   all: ['mail'] as const,
@@ -123,17 +124,22 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
 }
 
 export function useMailThreads(accountId: string, folder: Folder, provider: MailProvider | null, limit = 50, offset = 0) {
+  const { settings: offlineMail } = useOfflineMailSettings();
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: [...MAIL_KEYS.threads(accountId, folder), limit, offset],
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
       let threads: MailThread[];
+      const cached = offlineMail.enabled && folder === 'inbox' && offset === 0
+        ? await getOfflineInboxThreads(accountId)
+        : null;
+      if (cached) return cached.slice(0, limit);
       try {
         threads = await provider.listThreads(folder, limit, offset);
       } catch (error) {
-        const cached = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(accountId) : null;
-        if (!cached) throw error;
-        threads = cached.slice(0, limit);
+        const fallback = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(accountId) : null;
+        if (!fallback) throw error;
+        threads = fallback.slice(0, limit);
       }
       if (folder === 'sentitems') return threads.map(t => ({ ...t, unread_count: 0 }));
       return threads;
@@ -151,18 +157,24 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
 }
 
 export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[], limit = 50, offset = 0, enabled = true) {
+  const { settings: offlineMail } = useOfflineMailSettings();
   const results = useQueries({
     queries: accounts.map((acc) => ({
       queryKey: [...MAIL_KEYS.threads(acc.id, folder), limit, offset],
       queryFn: async () => {
         if (!acc.provider) throw new Error('No provider');
         let threads: MailThread[];
-        try {
+        const cached = offlineMail.enabled && folder === 'inbox' && offset === 0
+          ? await getOfflineInboxThreads(acc.id)
+          : null;
+        if (cached) {
+          threads = cached.slice(0, limit);
+        } else try {
           threads = await acc.provider.listThreads(folder, limit, offset);
         } catch (error) {
-          const cached = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(acc.id) : null;
-          if (!cached) throw error;
-          threads = cached.slice(0, limit);
+          const fallback = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(acc.id) : null;
+          if (!fallback) throw error;
+          threads = fallback.slice(0, limit);
         }
         return threads.map(t => ({
           ...t,
