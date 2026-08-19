@@ -4,6 +4,8 @@ export const webPlatform: NativePlatform = {
   isNativeAndroid: false,
   configureSync: async () => undefined,
   disableSync: async () => undefined,
+  runSyncNow: async () => undefined,
+  getSyncStatus: async () => ({}),
   setNotificationPrivacy: async () => undefined,
   setVaultLocked: async () => undefined,
   requestNotificationPermission: async () => {

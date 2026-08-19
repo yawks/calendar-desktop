@@ -14,10 +14,20 @@ export interface NativeSyncAccount {
   credentials: Record<string, unknown>;
 }
 
+export interface NativeSyncStatus {
+  state?: 'running' | 'success' | 'retrying' | 'error';
+  lastAttemptAt?: number;
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
+  lastErrorCode?: string;
+}
+
 export interface NativePlatform {
   readonly isNativeAndroid: boolean;
   configureSync(account: NativeSyncAccount): Promise<void>;
   disableSync(accountId: string): Promise<void>;
+  runSyncNow(accountId: string): Promise<void>;
+  getSyncStatus(accountId: string): Promise<NativeSyncStatus>;
   setNotificationPrivacy(privacy: NotificationPrivacy): Promise<void>;
   setVaultLocked(locked: boolean): Promise<void>;
   requestNotificationPermission(): Promise<boolean>;

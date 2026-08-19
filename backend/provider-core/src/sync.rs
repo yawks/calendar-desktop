@@ -32,6 +32,7 @@ pub struct SyncMessage {
     pub conversation_id: String,
     pub sender: String,
     pub subject: String,
+    pub snippet: String,
     pub received_at: String,
 }
 
@@ -239,6 +240,7 @@ async fn detect_gmail(
                 .into(),
             sender: header("From"),
             subject: header("Subject"),
+            snippet: detail.get("snippet").and_then(Value::as_str).unwrap_or_default().into(),
             received_at: detail
                 .get("internalDate")
                 .and_then(Value::as_str)
@@ -258,6 +260,7 @@ fn canonical(threads: Vec<crate::mail_provider::MailThread>) -> Vec<SyncMessage>
             conversation_id: thread.conversation_id,
             sender: thread.from_name.or(thread.from_email).unwrap_or_default(),
             subject: thread.topic,
+            snippet: thread.snippet,
             received_at: thread.last_delivery_time,
         })
         .collect()

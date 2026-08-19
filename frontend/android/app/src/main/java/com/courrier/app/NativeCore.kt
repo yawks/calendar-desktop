@@ -18,7 +18,7 @@ object NativeCore {
         val messagesJson = body.getJSONArray("messages")
         val messages = (0 until messagesJson.length()).map { index ->
             val item = messagesJson.getJSONObject(index)
-            NewMessage(item.getString("id"), item.getString("conversationId"), item.optString("sender"), item.optString("subject"))
+            NewMessage(item.getString("id"), item.getString("conversationId"), item.optString("sender"), item.optString("subject"), item.optString("snippet"))
         }
         return DetectionResult(messages, body.getString("cursor"), body.optJSONObject("credentialUpdate"))
     }

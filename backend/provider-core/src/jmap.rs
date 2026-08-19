@@ -262,6 +262,23 @@ mod mime_tests {
         assert!(displayed.starts_with("Subject: test\r\n"));
         assert!(displayed.ends_with("hello \u{fffd} world"));
     }
+
+    #[test]
+    fn retries_regional_fastmail_attachment_host_via_canonical_host() {
+        let urls = attachment_download_urls(
+            "https://phl-www.fastmailusercontent.com/jmap/download/u1/blob/attachment?type=application/octet-stream",
+        );
+
+        assert_eq!(urls.len(), 2);
+        assert_eq!(urls[0], "https://phl-www.fastmailusercontent.com/jmap/download/u1/blob/attachment?type=application/octet-stream");
+        assert_eq!(urls[1], "https://www.fastmailusercontent.com/jmap/download/u1/blob/attachment?type=application/octet-stream");
+    }
+
+    #[test]
+    fn does_not_rewrite_non_fastmail_attachment_hosts() {
+        let urls = attachment_download_urls("https://mail.example.com/download/blob");
+        assert_eq!(urls, ["https://mail.example.com/download/blob"]);
+    }
 }
 
 fn raw_message_source_to_string(source: &[u8]) -> String {
@@ -280,6 +297,65 @@ fn build_auth_header(config: &JmapConfig) -> String {
         }
         _ => format!("Bearer {}", config.token),
     }
+}
+
+fn attachment_download_urls(advertised_url: &str) -> Vec<String> {
+    let mut urls = vec![advertised_url.to_string()];
+    let Ok(mut canonical_url) = reqwest::Url::parse(advertised_url) else {
+        return urls;
+    };
+    let Some(host) = canonical_url.host_str().map(str::to_string) else {
+        return urls;
+    };
+
+    // Fastmail now advertises region-specific content hosts (for example
+    // phl-www.fastmailusercontent.com). Some system DNS resolvers cannot reach
+    // those aliases even though Fastmail's canonical download host remains
+    // available, so retry the exact same JMAP resource through that host.
+    if host.ends_with(".fastmailusercontent.com")
+        && host != "www.fastmailusercontent.com"
+        && canonical_url
+            .set_host(Some("www.fastmailusercontent.com"))
+            .is_ok()
+    {
+        urls.push(canonical_url.into());
+    }
+    urls
+}
+
+async fn download_attachment_bytes(
+    advertised_url: &str,
+    auth_header: &str,
+) -> Result<Vec<u8>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("JMAP download client error: {e}"))?;
+    let mut failures = Vec::new();
+
+    for url in attachment_download_urls(advertised_url) {
+        match client
+            .get(&url)
+            .header("Authorization", auth_header)
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => {
+                return response
+                    .bytes()
+                    .await
+                    .map(|bytes| bytes.to_vec())
+                    .map_err(|e| format!("JMAP attachment response body: {e}"));
+            }
+            Ok(response) => failures.push(format!("{} returned {}", url, response.status())),
+            Err(error) => failures.push(format!("{}: {}", url, error)),
+        }
+    }
+
+    Err(format!(
+        "JMAP attachment download failed: {}",
+        failures.join("; ")
+    ))
 }
 
 // ── Client cache ──────────────────────────────────────────────────────────────
@@ -1564,18 +1640,7 @@ impl MailProvider for JmapProvider {
             .replace("{type}", "application/octet-stream");
 
         let auth_header = build_auth_header(&self.config);
-        let response = reqwest::Client::new()
-            .get(&download_url)
-            .header("Authorization", &auth_header)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let status = response.status();
-        if !status.is_success() {
-            return Err(format!("{}", status));
-        }
-        let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+        let bytes = download_attachment_bytes(&download_url, &auth_header).await?;
         Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
     }
 

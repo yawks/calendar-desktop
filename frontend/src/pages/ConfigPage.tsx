@@ -17,6 +17,7 @@ import { ExchangeAccountManageModal } from './config/ExchangeAccountManageModal'
 import { NewCalendarModal } from './config/NewCalendarModal';
 import { PreferencesSection } from './config/PreferencesSection';
 import { NativeSettingsSection } from '../shared/platform/NativeSettingsSection';
+import { DesktopSyncTestSection } from './config/DesktopSyncTestSection';
 import { SignaturesSection } from './config/SignaturesSection';
 import { CalendarItem, GroupSection } from './config/ConfigShared';
 
@@ -123,6 +124,7 @@ export default function ConfigPage() {
                 </div>
 
                 <NativeSettingsSection />
+                <DesktopSyncTestSection />
 
                 {!hasAnyProvider && (
                   <div className="empty-state" style={{ marginTop: 32 }}>

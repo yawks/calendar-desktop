@@ -33,31 +33,26 @@ class NativeNotifier(private val context: Context) {
         Log.i(TAG, "Posting ${messages.size} notification(s) for account=${account.id}")
         val group = "courrier.account." + account.id
         val active = notificationMap(account.id)
+        val grouped = (active.keys + messages.map { it.id }).distinct().size > 1
         messages.forEach { message ->
             val contentIntent = mailIntent(account.id, message.conversationId, null, message.id.hashCode())
-            val privacy = if (preferences.getBoolean("vaultLocked", true)) {
-                preferences.getString("privacy", "generic")
-            } else {
-                "sender-subject"
-            }
-            val text = when (privacy) {
-                "sender" -> message.sender
-                "sender-subject" -> message.sender + " — " + message.subject
-                else -> context.getString(R.string.notification_new_mail)
-            }
-            val notification = NotificationCompat.Builder(context, CHANNEL)
+            val sender = message.sender.ifBlank { account.email }
+            val text = message.snippet.ifBlank { message.subject.ifBlank { context.getString(R.string.notification_new_mail) } }
+            val builder = NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_courrier_notification)
-                .setContentTitle(account.email)
+                .setContentTitle(sender)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setContentIntent(contentIntent)
+                .setDeleteIntent(dismissIntent(account.id, message.id, message.id.hashCode() * 10 + 4))
                 .setAutoCancel(true)
                 .setGroup(group)
+                .setSortKey(message.id)
                 .addAction(0, context.getString(R.string.notification_action_reply), mailIntent(account.id, message.conversationId, "reply", message.id.hashCode() * 10 + 1))
-                .addAction(0, context.getString(R.string.notification_action_delete), mailIntent(account.id, message.conversationId, "delete", message.id.hashCode() * 10 + 2))
-                .addAction(0, context.getString(R.string.notification_action_archive), mailIntent(account.id, message.conversationId, "archive", message.id.hashCode() * 10 + 3))
-                .build()
-            manager.notify(message.id.hashCode(), notification)
+                .addAction(0, context.getString(R.string.notification_action_delete), actionIntent(account.id, message.id, message.conversationId, "delete", message.id.hashCode() * 10 + 2))
+                .addAction(0, context.getString(R.string.notification_action_archive), actionIntent(account.id, message.id, message.conversationId, "archive", message.id.hashCode() * 10 + 3))
+            if (grouped) builder.setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            manager.notify(message.id.hashCode(), builder.build())
             active[message.id] = message.conversationId
         }
         saveNotificationMap(account.id, active)
@@ -75,13 +70,17 @@ class NativeNotifier(private val context: Context) {
         if (removed.isNotEmpty()) {
             Log.i(TAG, "Cancelled ${removed.size} stale notification(s) for account=${account.id}")
             saveNotificationMap(account.id, active)
-            updateSummary(account.id, account.email, active.size)
         }
+        // Re-apply the one-vs-many presentation even when the unread set did not
+        // change (for example after upgrading from an older notification layout).
+        updateSummary(account.id, account.email, active.size)
     }
 
     private fun updateSummary(accountId: String, email: String, count: Int) {
         val summaryId = ("summary:" + accountId).hashCode()
-        if (count == 0) {
+        // A group summary for one child replaces the useful sender/snippet card
+        // with "1 new email" on some Android variants. Keep the child standalone.
+        if (count <= 1) {
             manager.cancel(summaryId)
             return
         }
@@ -93,6 +92,8 @@ class NativeNotifier(private val context: Context) {
                 .setContentText(context.resources.getQuantityString(R.plurals.notification_new_mail_count, count, count))
                 .setGroup("courrier.account." + accountId)
                 .setGroupSummary(true)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+                .setOnlyAlertOnce(true)
                 .build(),
         )
     }
@@ -120,6 +121,21 @@ class NativeNotifier(private val context: Context) {
         return PendingIntent.getActivity(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
+    private fun actionIntent(accountId: String, messageId: String, conversationId: String, action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java)
+            .putExtra(NotificationActionWorker.ACCOUNT_ID, accountId).putExtra(NotificationActionWorker.MESSAGE_ID, messageId)
+            .putExtra(NotificationActionWorker.CONVERSATION_ID, conversationId).putExtra(NotificationActionWorker.ACTION, action)
+        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    private fun dismissIntent(accountId: String, messageId: String, requestCode: Int): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java)
+            .putExtra(NotificationActionWorker.ACCOUNT_ID, accountId)
+            .putExtra(NotificationActionWorker.MESSAGE_ID, messageId)
+            .putExtra(NotificationActionWorker.ACTION, NotificationActionWorker.DISMISS)
+        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
     fun cancelAccount(id: String) {
         notificationMap(id).keys.forEach { manager.cancel(it.hashCode()) }
         manager.cancel(("summary:" + id).hashCode())
@@ -132,6 +148,14 @@ class NativeNotifier(private val context: Context) {
             manager.cancel(messageId.hashCode())
             active.remove(messageId)
         }
+        saveNotificationMap(accountId, active)
+        updateSummary(accountId, preferences.getString("notificationEmail:$accountId", accountId) ?: accountId, active.size)
+    }
+
+    fun cancelMessage(accountId: String, messageId: String) {
+        val active = notificationMap(accountId)
+        manager.cancel(messageId.hashCode())
+        active.remove(messageId)
         saveNotificationMap(accountId, active)
         updateSummary(accountId, preferences.getString("notificationEmail:$accountId", accountId) ?: accountId, active.size)
     }

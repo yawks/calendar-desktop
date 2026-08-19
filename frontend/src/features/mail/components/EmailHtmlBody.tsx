@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useFontSize } from '../../../shared/store/FontSizeStore';
 import { openExternalUrl } from '../../../shared/services/fileService';
+import { platform } from '../../../shared/platform';
 import { disableSenderDarkModeCss } from '../utils/emailDarkMode';
 import { findQuoteMarker, processEmailQuotes } from '../utils/emailQuoteParser';
 
@@ -88,6 +89,31 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   const safeHtml = sanitizeEmailHtml(disableSenderDarkModeCss(html))
     .replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
 
+  // Android WebView can expose the top-level layout viewport to srcdoc media
+  // queries instead of the iframe width. Apply the mobile constraints without
+  // a media query there so fixed-width email templates cannot escape the frame.
+  const responsiveWidthRules = `
+    .ew, .ew * {
+      max-width: 100% !important;
+      min-width: 0 !important;
+    }
+    .ew table {
+      width: 100% !important;
+      table-layout: fixed;
+    }
+    .ew td, .ew th {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .ew img, .ew video, .ew canvas, .ew svg {
+      max-width: 100% !important;
+      height: auto !important;
+    }
+  `;
+  const responsiveWidthStyle = platform.isNativeAndroid
+    ? responsiveWidthRules
+    : `@media only screen and (max-width: 720px) { ${responsiveWidthRules} }`;
+
   const handleFrameLoad = () => {
     const frame = iframeRef.current;
     const doc = frame?.contentDocument;
@@ -95,6 +121,63 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
 
     const root = doc.querySelector<HTMLElement>('.ew') ?? doc.body;
     processEmailQuotes(root, { label: prevMsgLabel, quoteMarker, attributionTemplate });
+
+    if (platform.isNativeAndroid) {
+      root.style.setProperty('width', '100%', 'important');
+      root.style.setProperty('max-width', '100%', 'important');
+      root.style.setProperty('min-width', '0', 'important');
+      root.style.setProperty('overflow-x', 'hidden', 'important');
+      root.querySelectorAll<HTMLElement>('*').forEach(element => {
+        element.style.setProperty('max-width', '100%', 'important');
+        element.style.setProperty('min-width', '0', 'important');
+        if (element.matches('table')) {
+          element.style.setProperty('width', '100%', 'important');
+          element.style.setProperty('table-layout', 'fixed', 'important');
+        }
+        if (element.matches('td, th')) {
+          element.style.setProperty('overflow-wrap', 'anywhere', 'important');
+          element.style.setProperty('word-break', 'break-word', 'important');
+        }
+        if (element.matches('img, video, canvas, svg')) {
+          element.style.setProperty('height', 'auto', 'important');
+        }
+      });
+
+      const fitToFrameWidth = () => {
+        root.style.removeProperty('zoom');
+        const availableWidth = doc.documentElement.clientWidth;
+        const contentWidth = root.scrollWidth;
+        if (availableWidth > 0 && contentWidth > availableWidth + 1) {
+          root.style.setProperty('zoom', String(availableWidth / contentWidth), 'important');
+        }
+      };
+      fitToFrameWidth();
+
+      const reportLayout = () => {
+        const elements = Array.from(root.querySelectorAll<HTMLElement>('*'));
+        const widest = elements.reduce<HTMLElement | null>((current, element) => {
+          if (!current) return element;
+          return element.getBoundingClientRect().width > current.getBoundingClientRect().width ? element : current;
+        }, null);
+        console.info('[EmailHtmlBody:layout]', JSON.stringify({
+          frameClientWidth: frame.clientWidth,
+          frameRectWidth: Math.round(frame.getBoundingClientRect().width),
+          documentClientWidth: doc.documentElement.clientWidth,
+          documentScrollWidth: doc.documentElement.scrollWidth,
+          bodyClientWidth: doc.body.clientWidth,
+          bodyScrollWidth: doc.body.scrollWidth,
+          rootClientWidth: root.clientWidth,
+          rootScrollWidth: root.scrollWidth,
+          widestTag: widest?.tagName ?? null,
+          widestWidth: widest ? Math.round(widest.getBoundingClientRect().width) : null,
+        }));
+      };
+      reportLayout();
+      requestAnimationFrame(() => {
+        fitToFrameWidth();
+        reportLayout();
+      });
+    }
 
     if (isDark) {
       doc.querySelectorAll<HTMLElement>('.ew *').forEach(element => {
@@ -158,18 +241,20 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
 <meta name="viewport" content="width=device-width">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; overflow: hidden; }
+  html, body { width: 100%; max-width: 100%; margin: 0; padding: 0; overflow: hidden; }
   .ew {
+    width: 100%; max-width: 100%; overflow: hidden;
     padding: 4px 0;
     font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
     font-size: ${14 * fontScale}px; line-height: 1.6;
     color: #202124; background: #fff;
     word-break: break-word; overflow-wrap: anywhere;
   }
-  img { max-width: 100%; height: auto; }
+  img, video, canvas, svg { max-width: 100%; height: auto; }
   a { color: #1a73e8; cursor: pointer; }
   pre, code { white-space: pre-wrap; word-break: break-all; font-size: ${13 * fontScale}px; }
   table { max-width: 100%; }
+  ${responsiveWidthStyle}
   blockquote {
     border-left: 3px solid #dadce0;
     margin: 8px 0; padding-left: 12px; color: #70757a;

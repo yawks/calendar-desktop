@@ -1474,6 +1474,20 @@ pub async fn imap_move_to_trash(
         .await
 }
 
+pub async fn imap_archive(config: ImapConfig, folder: String, id: String) -> Result<(), String> {
+    let mut session = get_imap_session(&config).await?;
+    session.select(&folder).await.map_err(|e| format!("IMAP select error: {e}"))?;
+    let folders: Vec<_> = session.list(None, Some("*")).await.map_err(|e| format!("IMAP list error: {e}"))?.collect().await;
+    let archive = folders.iter().filter_map(|item| item.as_ref().ok()).find(|item| {
+        let name = item.name().to_lowercase();
+        name.contains("archive") || name.contains("archives")
+    }).map(|item| item.name().to_string()).unwrap_or_else(|| "Archive".to_string());
+    session.copy(&id, &archive).await.map_err(|e| format!("IMAP copy error: {e}"))?;
+    session.store(&id, "+FLAGS (\\Deleted)").await.map_err(|e| format!("IMAP store error: {e}"))?.collect::<Vec<_>>().await;
+    session.expunge().await.map_err(|e| format!("IMAP expunge error: {e}"))?.collect::<Vec<_>>().await;
+    Ok(())
+}
+
 pub async fn imap_permanently_delete(
     config: ImapConfig,
     folder: String,

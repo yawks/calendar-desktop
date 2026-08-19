@@ -4,16 +4,19 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 
 class MailSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val accountId = inputData.getString("accountId") ?: return Result.failure()
-        val scheduleSlot = inputData.getInt("scheduleSlot", 0)
+        val status = SyncStatusStore(applicationContext)
+        status.started(accountId)
         Log.i(TAG, "Sync started for account=$accountId")
         val account = SyncVault(applicationContext).get(accountId)
         if (account == null) {
             Log.w(TAG, "Sync skipped: no encrypted account configuration for account=$accountId")
+            status.failed(accountId, "missing_sync_configuration", retrying = false)
             return Result.success()
         }
         return try {
@@ -32,16 +35,18 @@ class MailSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
             state.edit().putString(accountId, detection.cursor).putStringSet("seen:" + accountId, seen).apply()
             detection.credentialUpdate?.let { SyncVault(applicationContext).put(account.withCredentialUpdate(it)) }
             if (fresh.isNotEmpty()) NativeNotifier(applicationContext).notify(account, fresh)
+            status.succeeded(accountId)
             Log.i(TAG, "Sync completed for account=$accountId")
-            SyncScheduler.scheduleNext(applicationContext, accountId, scheduleSlot)
             Result.success()
-        } catch (error: IllegalArgumentException) {
-            Log.e(TAG, "Permanent sync failure for account=$accountId: ${error.message}", error)
-            SyncScheduler.scheduleNext(applicationContext, accountId, scheduleSlot)
-            Result.failure()
+        } catch (error: CancellationException) {
+            status.failed(accountId, "worker_cancelled", retrying = true)
+            throw error
         } catch (error: Exception) {
-            Log.e(TAG, "Temporary sync failure for account=$accountId: ${error.message}", error)
-            Result.retry()
+            val code = SyncFailureClassifier.code(error)
+            val retrying = SyncFailureClassifier.isRetryable(code)
+            status.failed(accountId, code, retrying)
+            Log.e(TAG, "Sync failure account=$accountId code=$code retrying=$retrying", error)
+            if (retrying) Result.retry() else Result.failure()
         }
     }
 

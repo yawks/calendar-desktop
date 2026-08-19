@@ -1,9 +1,11 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import type { NativeNotificationPermission, NativePlatform, NativeSyncAccount, NotificationPrivacy } from './types';
+import type { NativeNotificationPermission, NativePlatform, NativeSyncAccount, NativeSyncStatus, NotificationPrivacy } from './types';
 
 interface CourrierNativePlugin {
   configureSync(options: NativeSyncAccount): Promise<void>;
   disableSync(options: { accountId: string }): Promise<void>;
+  runSyncNow(options: { accountId: string }): Promise<void>;
+  getSyncStatus(options: { accountId: string }): Promise<NativeSyncStatus>;
   setNotificationPrivacy(options: { privacy: NotificationPrivacy }): Promise<void>;
   setVaultLocked(options: { locked: boolean }): Promise<void>;
   requestNotificationPermission(): Promise<{ granted: boolean }>;
@@ -27,6 +29,8 @@ export const nativeAndroidPlatform: NativePlatform = {
   isNativeAndroid: Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android',
   configureSync: account => plugin.configureSync(account),
   disableSync: accountId => plugin.disableSync({ accountId }),
+  runSyncNow: accountId => plugin.runSyncNow({ accountId }),
+  getSyncStatus: accountId => plugin.getSyncStatus({ accountId }),
   setNotificationPrivacy: privacy => plugin.setNotificationPrivacy({ privacy }),
   setVaultLocked: locked => plugin.setVaultLocked({ locked }),
   requestNotificationPermission: async () => (await plugin.requestNotificationPermission()).granted,

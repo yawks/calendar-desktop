@@ -5,6 +5,13 @@ import { MailThread, MailMessage, MailFolder } from '../types';
 import { DISPLAY_TO_STATIC, getErrorMessage } from '../utils';
 import { useMemo } from 'react';
 import { recordUserInitiatedUnread } from '../utils/userInitiatedUnread';
+import {
+  clearOfflineInboxRemovals,
+  removeOfflineInboxConversations,
+  updateOfflineInboxReadState,
+} from '../utils/offlineMailCache';
+import { useOfflineMailSettings } from '../../../shared/store/OfflineMailStore';
+import { synchronizeOfflineInboxAccount } from './useOfflineMailSync';
 
 export interface MutationParams {
   accountId: string;
@@ -22,6 +29,14 @@ function makeThreadFilter(conversationId: string) {
 
 export function useMailMutations() {
   const queryClient = useQueryClient();
+  const { settings: offlineMail } = useOfflineMailSettings();
+  const removeCachedConversations = (accountId: string, conversationIds: string[]) =>
+    offlineMail.enabled ? removeOfflineInboxConversations(accountId, conversationIds) : Promise.resolve();
+  const syncMovedToInbox = async (accountId: string, provider: MailProvider, conversationIds: string[]) => {
+    if (!offlineMail.enabled) return;
+    await clearOfflineInboxRemovals(accountId, conversationIds);
+    await synchronizeOfflineInboxAccount(accountId, provider, offlineMail, queryClient);
+  };
 
   const markReadMutation = useMutation({
     mutationFn: async ({ provider, conversationId, read, specificMessages }: MutationParams & { conversationId: string; read: boolean; folderId?: string; specificMessages?: MailMessage[]; threadUnreadCount?: number }) => {
@@ -118,6 +133,14 @@ export function useMailMutations() {
         }
       }
     },
+    onSuccess: (_data, variables) => offlineMail.enabled
+      ? updateOfflineInboxReadState(
+          variables.accountId,
+          variables.conversationId,
+          variables.read,
+          variables.specificMessages?.map(message => message.item_id),
+        )
+      : undefined,
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
     },
@@ -178,6 +201,10 @@ export function useMailMutations() {
         }
       }
     },
+    onSuccess: (_data, variables) => removeCachedConversations(
+      variables.accountId,
+      [variables.conversationId],
+    ),
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
@@ -218,6 +245,10 @@ export function useMailMutations() {
         queryClient.setQueryData(['mail', 'all', 'threads'], context.previousAllThreads);
       }
     },
+    onSuccess: (_data, variables) => removeCachedConversations(
+      variables.accountId,
+      [variables.conversationId],
+    ),
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
@@ -257,6 +288,10 @@ export function useMailMutations() {
         queryClient.setQueryData(['mail', 'all', 'threads'], context.previousAllThreads);
       }
     },
+    onSuccess: (_data, variables) => removeCachedConversations(
+      variables.accountId,
+      variables.conversationIds,
+    ),
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
@@ -274,6 +309,9 @@ export function useMailMutations() {
         queryClient.setQueryData(['mail', 'all', 'threads'], context.previousAllThreads);
       }
     },
+    onSuccess: (_data, variables) => variables.targetFolderId === 'inbox'
+      ? syncMovedToInbox(variables.accountId, variables.provider, variables.conversationIds)
+      : removeCachedConversations(variables.accountId, variables.conversationIds),
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
@@ -311,6 +349,9 @@ export function useMailMutations() {
         queryClient.setQueryData(['mail', 'all', 'threads'], context.previousAllThreads);
       }
     },
+    onSuccess: (_data, variables) => variables.targetFolderId === 'inbox'
+      ? syncMovedToInbox(variables.accountId, variables.provider, [variables.conversationId])
+      : removeCachedConversations(variables.accountId, [variables.conversationId]),
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
@@ -362,6 +403,10 @@ export function useMailMutations() {
         queryClient.setQueryData(['mail', 'all', 'threads'], context.previousAllThreads);
       }
     },
+    onSuccess: (_data, variables) => removeCachedConversations(
+      variables.accountId,
+      [variables.conversationId],
+    ),
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });

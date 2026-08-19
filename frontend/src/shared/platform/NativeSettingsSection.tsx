@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, CheckCircle2, LoaderCircle, Save, Server, ShieldCheck } from 'lucide-react';
+import { Bell, CheckCircle2, LoaderCircle, RefreshCw, Save, Server, ShieldCheck } from 'lucide-react';
 import { platform } from '.';
-import type { NativeSyncAccount, NotificationPrivacy } from '.';
+import type { NativeSyncAccount, NativeSyncStatus, NotificationPrivacy } from '.';
 import { useImapAuth } from '../store/ImapAuthStore';
 import { useGoogleAuth } from '../store/GoogleAuthStore';
 import { useExchangeAuth } from '../store/ExchangeAuthStore';
@@ -11,7 +11,10 @@ import { useJmapAuth } from '../store/JmapAuthStore';
 const KEY = 'courrier-native-settings-v1';
 type Settings = { syncIntervalMinutes: number; privacy: NotificationPrivacy; enabled: string[] };
 const load = (): Settings => {
-  try { return { syncIntervalMinutes: 15, privacy: 'generic', enabled: [], ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; }
+  try {
+    const saved = { syncIntervalMinutes: 15, privacy: 'generic', enabled: [], ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as Settings;
+    return { ...saved, syncIntervalMinutes: Math.max(15, saved.syncIntervalMinutes) };
+  }
   catch { return { syncIntervalMinutes: 15, privacy: 'generic', enabled: [] }; }
 };
 
@@ -22,6 +25,7 @@ export function NativeSettingsSection() {
   const { accounts: imapAccounts } = useImapAuth();
   const { accounts: jmapAccounts } = useJmapAuth();
   const [settings, setSettings] = useState(load);
+  const [syncStatuses, setSyncStatuses] = useState<Record<string, NativeSyncStatus>>({});
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const saveLocally = (next: Settings) => { setSettings(next); localStorage.setItem(KEY, JSON.stringify(next)); };
   const update = (next: Settings) => { saveLocally(next); setSaveState('idle'); };
@@ -43,6 +47,16 @@ export function NativeSettingsSection() {
       credentials: { email: account.email, session_url: account.sessionUrl, token: account.token, auth_type: account.authType, fastmail_token: account.fastmailToken, fastmail_cookie: account.fastmailCookie },
     })),
   ];
+  const refreshStatuses = async () => {
+    const entries = await Promise.all(settings.enabled.map(async accountId => [accountId, await platform.getSyncStatus(accountId)] as const));
+    setSyncStatuses(Object.fromEntries(entries));
+  };
+  useEffect(() => {
+    if (!platform.isNativeAndroid) return;
+    void refreshStatuses();
+    const timer = window.setInterval(() => void refreshStatuses(), 5000);
+    return () => window.clearInterval(timer);
+  }, [settings.enabled.join(',')]);
   useEffect(() => {
     if (!platform.isNativeAndroid) return;
     const present = new Set(accounts.map(account => account.accountId));
@@ -80,6 +94,17 @@ export function NativeSettingsSection() {
       setSaveState('error');
     }
   };
+  const testSync = async (accountId: string) => {
+    setSyncStatuses(current => ({ ...current, [accountId]: { ...current[accountId], state: 'running', lastAttemptAt: Date.now() } }));
+    await platform.runSyncNow(accountId);
+  };
+  const statusLabel = (status?: NativeSyncStatus) => {
+    if (!status?.state) return t('settings.androidSync.neverRun');
+    if (status.state === 'running') return t('settings.androidSync.running');
+    if (status.state === 'retrying') return t('settings.androidSync.retrying', { code: status.lastErrorCode });
+    if (status.state === 'error') return t('settings.androidSync.failed', { code: status.lastErrorCode });
+    return t('settings.androidSync.lastSuccess', { date: new Date(status.lastSuccessAt ?? 0).toLocaleString() });
+  };
   return <section className="native-settings-card" aria-labelledby="android-sync-title">
     <div className="native-settings-card__header">
       <span className="native-settings-card__icon" aria-hidden="true"><Server size={20} /></span>
@@ -92,8 +117,6 @@ export function NativeSettingsSection() {
       <label className="native-settings-field">
         <span>{t('settings.androidSync.syncInterval')}</span>
         <select value={settings.syncIntervalMinutes} onChange={event => update({ ...settings, syncIntervalMinutes: Number(event.target.value) })}>
-          <option value={5}>{t('settings.androidSync.every5m')}</option>
-          <option value={10}>{t('settings.androidSync.every10m')}</option>
           <option value={15}>{t('settings.androidSync.every15m')}</option>
           <option value={30}>{t('settings.androidSync.every30m')}</option>
           <option value={60}>{t('settings.androidSync.every1h')}</option>
@@ -114,10 +137,18 @@ export function NativeSettingsSection() {
     </div>
     {accounts.length > 0 && <fieldset className="native-settings-accounts">
       <legend>{t('settings.androidSync.accounts')}</legend>
-      {accounts.map(account => <label key={account.accountId}>
-        <input type="checkbox" checked={settings.enabled.includes(account.accountId)} onChange={event => void toggle(account.accountId, event.target.checked)} />
-        <span><strong>{account.email}</strong><small>{account.provider.toUpperCase()}</small></span>
-      </label>)}
+      {accounts.map(account => <div key={account.accountId}>
+        <label>
+          <input type="checkbox" checked={settings.enabled.includes(account.accountId)} onChange={event => void toggle(account.accountId, event.target.checked)} />
+          <span><strong>{account.email}</strong><small>{account.provider.toUpperCase()}</small></span>
+        </label>
+        {settings.enabled.includes(account.accountId) && <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 8px 26px', fontSize: 12, color: 'var(--text-muted)' }}>
+          <span>{statusLabel(syncStatuses[account.accountId])}</span>
+          <button type="button" className="btn-secondary" style={{ padding: '3px 7px' }} onClick={() => void testSync(account.accountId)} disabled={syncStatuses[account.accountId]?.state === 'running'}>
+            <RefreshCw size={12} /> {t('settings.androidSync.testNow')}
+          </button>
+        </div>}
+      </div>)}
     </fieldset>}
     <p className="native-settings-security"><ShieldCheck size={16} />{t('settings.androidSync.securityHint')}</p>
     <div className="native-settings-actions">

@@ -8,6 +8,10 @@
     <string name="notification_action_reply">Reply</string>
     <string name="notification_action_delete">Delete</string>
     <string name="notification_action_archive">Archive</string>
+    <string name="notification_action_done">Email %1$s</string>
+    <string name="notification_action_failed">Unable to update email</string>
+    <string name="notification_archived">archived</string>
+    <string name="notification_deleted">deleted</string>
     <plurals name="notification_new_mail_count">
         <item quantity="one">%d new email</item>
         <item quantity="other">%d new emails</item>

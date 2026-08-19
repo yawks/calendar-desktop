@@ -130,16 +130,16 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
       let threads: MailThread[];
-      const cached = offlineMail.enabled && folder === 'inbox' && offset === 0
+      const cached = offlineMail.enabled && folder === 'inbox'
         ? await getOfflineInboxThreads(accountId)
         : null;
-      if (cached) return cached.slice(0, limit);
+      if (cached) return cached.slice(offset, offset + limit);
       try {
         threads = await provider.listThreads(folder, limit, offset);
       } catch (error) {
-        const fallback = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(accountId) : null;
+        const fallback = folder === 'inbox' ? await getOfflineInboxThreads(accountId) : null;
         if (!fallback) throw error;
-        threads = fallback.slice(0, limit);
+        threads = fallback.slice(offset, offset + limit);
       }
       if (folder === 'sentitems') return threads.map(t => ({ ...t, unread_count: 0 }));
       return threads;
@@ -164,17 +164,17 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
       queryFn: async () => {
         if (!acc.provider) throw new Error('No provider');
         let threads: MailThread[];
-        const cached = offlineMail.enabled && folder === 'inbox' && offset === 0
+        const cached = offlineMail.enabled && folder === 'inbox'
           ? await getOfflineInboxThreads(acc.id)
           : null;
         if (cached) {
-          threads = cached.slice(0, limit);
+          threads = cached.slice(offset, offset + limit);
         } else try {
           threads = await acc.provider.listThreads(folder, limit, offset);
         } catch (error) {
-          const fallback = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(acc.id) : null;
+          const fallback = folder === 'inbox' ? await getOfflineInboxThreads(acc.id) : null;
           if (!fallback) throw error;
-          threads = fallback.slice(0, limit);
+          threads = fallback.slice(offset, offset + limit);
         }
         return threads.map(t => ({
           ...t,

@@ -243,6 +243,8 @@
       "nextcloud": "Nextcloud / CalDAV"
     },
     "editSource": "Modifier la source {{source}}",
+    "showSourceDetails": "Afficher les détails de la source",
+    "hideSourceDetails": "Masquer les détails de la source",
     "cap": {
       "calendar": "Calendrier",
       "email": "Email"
@@ -595,7 +597,8 @@
       "days_one": "{{count}} jour",
       "days_other": "{{count}} jours"
     },
-    "androidSync": { "title": "Synchronisation Android en arrière-plan", "description": "Configurez les notifications et les comptes synchronisés localement lorsque l’application est fermée.", "syncInterval": "Synchroniser les emails", "every5m": "Toutes les 5 minutes", "every10m": "Toutes les 10 minutes", "every15m": "Toutes les 15 minutes", "every30m": "Toutes les 30 minutes", "every1h": "Toutes les heures", "privacy": "Contenu lorsque Courrier est verrouillé", "generic": "Nouvel email (recommandé)", "sender": "Expéditeur uniquement", "senderSubject": "Expéditeur et sujet", "accounts": "Comptes synchronisés", "securityHint": "Le secret minimal de synchronisation est chiffré par Android Keystore sans biométrie interactive afin que le travail en arrière-plan fonctionne.", "save": "Enregistrer", "saving": "Enregistrement…", "saved": "Modifications enregistrées", "saveError": "Impossible d’enregistrer la configuration native." },
+    "androidSync": { "title": "Synchronisation Android en arrière-plan", "description": "Configurez les notifications et les comptes synchronisés localement lorsque l’application est fermée.", "syncInterval": "Synchroniser les emails", "every5m": "Toutes les 5 minutes", "every10m": "Toutes les 10 minutes", "every15m": "Toutes les 15 minutes", "every30m": "Toutes les 30 minutes", "every1h": "Toutes les heures", "privacy": "Contenu lorsque Courrier est verrouillé", "generic": "Nouvel email (recommandé)", "sender": "Expéditeur uniquement", "senderSubject": "Expéditeur et sujet", "accounts": "Comptes synchronisés", "securityHint": "Le secret minimal de synchronisation est chiffré par Android Keystore sans biométrie interactive afin que le travail en arrière-plan fonctionne.", "neverRun": "Aucune synchronisation native enregistrée", "running": "Synchronisation en cours…", "retrying": "Nouvel essai après l’erreur : {{code}}", "failed": "Synchronisation bloquée : {{code}}", "lastSuccess": "Dernière réussite : {{date}}", "testNow": "Tester", "save": "Enregistrer", "saving": "Enregistrement…", "saved": "Modifications enregistrées", "saveError": "Impossible d’enregistrer la configuration native." },
+    "desktopSyncTest": { "title": "Diagnostic de synchronisation", "description": "Vérifiez l’authentification et l’accès à la boîte de réception de chaque compte.", "testNow": "Tester" },
     "mailNotifications": { "sectionTitle": "Notifications de nouveaux emails", "enabled": "Afficher une notification pour les nouveaux emails entrants", "hint": "Chaque nouvelle conversation possède sa notification. Android peut les regrouper dans un ensemble extensible.", "blocked": "Les notifications sont bloquées par votre navigateur ou votre système.", "unavailable": "Les notifications ne sont pas disponibles sur cet appareil.", "notificationTitle": "Courrier · {{account}}", "single": "{{sender}} — {{subject}}", "multiple_one": "{{count}} nouvel email", "multiple_other": "{{count}} nouveaux emails", "replyAction": "Répondre", "deleteAction": "Supprimer", "archiveAction": "Archiver" },
     "buildInfo": { "date": "Date du commit", "commit": "Commit", "unknown": "Inconnue" },
     "logoDev": {

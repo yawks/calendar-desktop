@@ -22,6 +22,8 @@ import { cleanupContactIndex, recordContactObservations, searchContactIndex, typ
 import { useContactBackfill } from './useContactBackfill';
 import { useOfflineMailSync } from './useOfflineMailSync';
 import { isOfflineLikeError, isTemporaryMailServiceError } from '../../../shared/utils/networkError';
+import { useOfflineMailSettings } from '../../../shared/store/OfflineMailStore';
+import { removeOfflineInboxMessages } from '../utils/offlineMailCache';
 
 export function useMailPageLogic() {
   const { t } = useTranslation();
@@ -30,6 +32,7 @@ export function useMailPageLogic() {
   const { accounts: imapAccounts } = useImapAuth();
   const { accounts: jmapAccounts } = useJmapAuth();
   const { preference, setPreference } = useTheme();
+  const { settings: offlineMail } = useOfflineMailSettings();
 
   const mailEwsAccounts = useMemo(
     () => ewsAccounts.filter(a => !a.enabledCapabilities || a.enabledCapabilities.includes('email')),
@@ -79,7 +82,7 @@ export function useMailPageLogic() {
     ...account,
     provider: allProviders.get(account.id) ?? null,
   })), [allMailAccounts, allProviders]);
-  useOfflineMailSync(backfillAccounts);
+  const synchronizeOfflineMail = useOfflineMailSync(backfillAccounts);
   const contactBackfillStatus = useContactBackfill(backfillAccounts);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
@@ -672,12 +675,15 @@ export function useMailPageLogic() {
 
   const reloadThreads = useCallback(async () => {
     setThreadOffset(0);
+    if (selectedFolder === 'inbox' && offlineMail.enabled) {
+      await synchronizeOfflineMail();
+    }
     if (isAllModeRef.current) {
       await queryClient.invalidateQueries({ queryKey: MAIL_KEYS.all });
     } else {
       await queryClient.invalidateQueries({ queryKey: ['mail', selectedAccountId] });
     }
-  }, [queryClient, selectedAccountId]);
+  }, [offlineMail.enabled, queryClient, selectedAccountId, selectedFolder, synchronizeOfflineMail]);
 
   const loadMoreThreads = useCallback(async () => {
     if (threadsFetching || !hasMoreThreads) return;
@@ -792,6 +798,11 @@ export function useMailPageLogic() {
       if (permanently) await p.permanentlyDelete(message.item_id);
       else await p.moveToTrash(message.item_id);
 
+      if (offlineMail.enabled && selectedFolder === 'inbox') {
+        await removeOfflineInboxMessages(accountId, selectedThread.conversation_id, [message.item_id]);
+        void synchronizeOfflineMail();
+      }
+
       queryClient.setQueriesData<MailMessage[]>(
         { queryKey: MAIL_KEYS.thread(accountId, selectedThread.conversation_id) },
         old => Array.isArray(old) ? old.filter(item => item.item_id !== message.item_id) : old,
@@ -811,7 +822,7 @@ export function useMailPageLogic() {
       setError(getErrorMessage(err));
       throw err;
     }
-  }, [selectedThread, resolveProvider, selectedAccountId, selectedFolder, queryClient, messages, selectNextThread, t, setActionToast]);
+  }, [selectedThread, resolveProvider, selectedAccountId, selectedFolder, offlineMail.enabled, queryClient, messages, selectNextThread, t, setActionToast]);
 
   const persistSnooze = useCallback((conversationId: string, until: string) => {
     setSnoozedMap(prev => {
@@ -1096,6 +1107,9 @@ export function useMailPageLogic() {
               : t);
           queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'threads'] }, bump);
           queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', 'all', 'threads'] }, bump);
+          if (selectedFolder === 'inbox' && offlineMail.enabled) {
+            void synchronizeOfflineMail();
+          }
           removeOptimistic();
           return;
         }

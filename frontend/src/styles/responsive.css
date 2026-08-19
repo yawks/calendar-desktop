@@ -173,7 +173,7 @@
 }
 .mail-thread-detail__source-dot { display: none; }
 
-@media (max-width: 700px) {
+@media (max-width: 700px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
   html, body, #root { min-width: 0; width: 100%; height: 100dvh; overflow: hidden; }
   button, input, select, textarea { font-size: max(16px, 1em); }
   .btn-icon, .btn-today, .config-sidebar-item { min-height: 44px; min-width: 44px; }
@@ -251,22 +251,53 @@
   .config-section-header .btn-primary { justify-content: center; min-height: 44px; }
   .config-source-list { border-radius: 9px; }
   .config-source-list-header { display: none; }
-  .config-group-header {
-    grid-template-columns: minmax(0, 1fr) auto;
+  .config-source-list .config-group-header {
+    grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
-      "provider actions"
-      "account actions"
-      "services services";
-    gap: 5px 12px;
-    padding: 14px;
+      "provider provider actions"
+      "account services actions";
+    gap: 3px 8px;
+    min-height: 64px;
+    padding: 9px 12px;
   }
-  .config-group-provider { grid-area: provider; }
-  .config-group-title { grid-area: account; padding-left: 40px; color: var(--text-muted); white-space: normal; overflow-wrap: anywhere; }
-  .config-group-capabilities { grid-area: services; padding: 6px 0 0 40px; }
-  .config-group-actions { grid-area: actions; }
-  .config-group-body { padding: 0 14px 12px 54px; }
-  .config-group-edit-btn { width: 40px; height: 40px; }
-  .cal-item-meta { white-space: normal; overflow-wrap: anywhere; }
+  .config-source-list .config-group-provider { grid-area: provider; }
+  .config-source-list .config-group-title { grid-area: account; padding-left: 40px; color: var(--text-muted); white-space: normal; overflow-wrap: anywhere; }
+  .config-source-list .config-group-capabilities { grid-area: services; }
+  .config-source-list .config-group-actions { grid-area: actions; }
+  .config-source-list .config-group-body { display: none; padding: 2px 12px 10px 52px; }
+  .config-source-list .config-group--expanded .config-group-body { display: block; }
+  .config-source-list .config-group-details-btn { display: flex; width: 36px; height: 36px; }
+  .config-source-list .config-group-edit-btn { width: 40px; height: 40px; }
+  .config-source-list .cal-item-meta { white-space: nowrap; }
+
+  /* As for mail-thread-item, Android WebView can stretch/shrink repeated flex
+     children against the scroll viewport instead of preserving intrinsic rows. */
+  .native-android .config-source-list .config-group {
+    height: auto;
+    min-height: 0;
+    flex: 0 0 auto;
+  }
+  .native-android .config-source-list .config-group:not(.config-group--expanded) {
+    height: 58px;
+    min-height: 58px;
+    max-height: 58px;
+    overflow: hidden;
+  }
+  .native-android .config-source-list .config-group-header {
+    box-sizing: border-box;
+    height: 58px;
+    min-height: 58px;
+    max-height: 58px;
+    flex: 0 0 auto;
+    padding-block: 7px;
+    overflow: hidden;
+  }
+  .native-android .config-source-list .config-group--expanded .config-group-header {
+    height: auto;
+    max-height: none;
+  }
+  .native-android .config-source-list .config-group-provider-icon { width: 28px; height: 28px; flex-basis: 28px; }
+  .native-android .config-source-list .config-group-title { padding-left: 38px; }
   .native-settings-card { padding: 16px; }
   .native-settings-grid { grid-template-columns: minmax(0, 1fr); }
   .native-settings-actions .btn-primary { width: 100%; }
@@ -382,6 +413,7 @@
   .mail-app .mail-header-gap { display: none; }
   .mail-app .header .btn-icon,
   .mail-app .btn-config--icon-only { flex: 0 0 40px; width: 40px; min-width: 40px; padding: 0; }
+  .mail-app .btn-config--icon-only { margin-left: 6px; }
   .mail-body { position: relative; min-width: 0; margin: 0; border-radius: 0; border-inline: 0; border-bottom: 0; }
   .mail-account-tabs { display: none; }
   .mail-body > div:has(> .mail-sidebar) {
@@ -465,6 +497,13 @@
   .mail-mobile-detail-nav__arrows { display: flex; align-items: center; }
   .mail-mobile-detail-nav__arrows button { width: 42px; }
   .mail-app--detail-open .mail-body { border-top: 0; }
+  .mail-message-block,
+  .mail-message-block__body {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
   .mail-message-block__body { padding-inline: 14px; }
 
   .mail-thread-detail__toolbar {

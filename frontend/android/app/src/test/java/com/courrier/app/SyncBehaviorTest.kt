@@ -7,4 +7,5 @@ class SyncBehaviorTest{
  @Test fun credentialUpdatesAreMergedWithoutDroppingRefreshToken(){val a=SyncAccount("a","gmail","a@b.c",null,JSONObject().put("refreshToken","r"));val updated=a.withCredentialUpdate(JSONObject().put("accessToken","new"));assertEquals("r",updated.credentials.getString("refreshToken"));assertEquals("new",updated.credentials.getString("accessToken"))}
  @Test fun allProvidersUseTheSameAccountContract(){for(provider in listOf("gmail","exchange","imap","jmap"))assertEquals(provider,SyncAccount("a",provider,"a@b.c",null,JSONObject()).provider)}
  @Test fun groupKeysAreSeparatedByAccount(){assertNotEquals(SyncScheduler.workName("a"),SyncScheduler.workName("b"))}
+ @Test fun syncFailuresAreClassifiedWithoutMatchingFrontendMessages(){assertTrue(SyncFailureClassifier.isRetryable("provider_request_failed"));assertFalse(SyncFailureClassifier.isRetryable("reauthorization_required"));assertEquals("provider_request_failed",SyncFailureClassifier.code(IllegalStateException("provider_request_failed")))}
 }

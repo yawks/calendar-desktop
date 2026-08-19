@@ -623,6 +623,10 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
             let a: ImapId = args(value)?;
             output(crate::imap::imap_move_to_trash(a.config, a.folder, a.id).await)
         }
+        "imap_archive" => {
+            let a: ImapId = args(value)?;
+            output(crate::imap::imap_archive(a.config, a.folder, a.id).await)
+        }
         "imap_permanently_delete" => {
             let a: ImapId = args(value)?;
             output(crate::imap::imap_permanently_delete(a.config, a.folder, a.id).await)

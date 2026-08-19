@@ -83,6 +83,8 @@
 
 /* ── Sources list ───────────────────────────────── */
 .config-source-list {
+  display: flex;
+  flex-direction: column;
   margin-bottom: 36px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -90,8 +92,13 @@
   background: var(--bg);
 }
 
+.config-source-list .config-group {
+  min-height: 0;
+  margin: 0;
+}
+
 .config-source-list-header,
-.config-group-header {
+.config-source-list .config-group-header {
   display: grid;
   grid-template-columns: minmax(145px, .8fr) minmax(190px, 1.2fr) minmax(155px, .9fr) 72px;
   align-items: center;
@@ -112,11 +119,13 @@
 
 .config-source-list-header span:last-child { text-align: right; }
 
-.config-group + .config-group { border-top: 1px solid var(--border); }
+.config-source-list .config-group + .config-group { border-top: 1px solid var(--border); }
 
-.config-group-header {
+.config-source-list .config-group-header {
   min-height: 58px;
+  margin: 0;
   padding: 10px 16px;
+  border-bottom: 0;
 }
 
 .config-group-provider,
@@ -146,10 +155,16 @@
   color: var(--text-muted);
 }
 
-.config-group-title {
+.config-source-list .config-group-title {
+  display: block;
+  flex: none;
   overflow: hidden;
+  color: var(--text);
   font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 400;
+  letter-spacing: normal;
   text-overflow: ellipsis;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -163,7 +178,8 @@
 .config-group-capability-list { flex-wrap: wrap; gap: 4px; }
 .config-group-actions { justify-content: flex-end; }
 
-.config-group-edit-btn {
+.config-group-edit-btn,
+.config-group-details-btn {
   display: flex;
   width: 30px;
   height: 30px;
@@ -177,7 +193,12 @@
   cursor: pointer;
 }
 
-.config-group-edit-btn:hover { background: var(--bg-hover); color: var(--text); }
+.config-group-edit-btn:hover,
+.config-group-details-btn:hover { background: var(--bg-hover); color: var(--text); }
+
+.config-group-details-btn { display: none; }
+.config-group-details-btn svg { transition: transform .15s ease; }
+.config-group--expanded .config-group-details-btn svg { transform: rotate(180deg); }
 
 .config-group-body {
   padding: 0 16px 10px 188px;

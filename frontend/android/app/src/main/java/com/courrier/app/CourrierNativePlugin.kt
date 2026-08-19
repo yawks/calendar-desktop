@@ -16,7 +16,7 @@ import com.getcapacitor.annotation.PermissionCallback
 import org.json.JSONObject
 @CapacitorPlugin(name="CourrierNative",permissions=[Permission(alias="notifications",strings=[Manifest.permission.POST_NOTIFICATIONS])])
 class CourrierNativePlugin:Plugin(){
- @PluginMethod fun configureSync(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");SyncVault(context).put(SyncAccount(id=id,provider=call.getString("provider")?:"",email=call.getString("email")?:"",displayName=call.getString("displayName"),credentials=JSONObject(call.getObject("credentials")?.toString()?:"{}"),syncIntervalMinutes=(call.getInt("syncIntervalMinutes")?:15).coerceIn(5,60)));SyncScheduler.enable(context,id);call.resolve()}
+ @PluginMethod fun configureSync(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");SyncVault(context).put(SyncAccount(id=id,provider=call.getString("provider")?:"",email=call.getString("email")?:"",displayName=call.getString("displayName"),credentials=JSONObject(call.getObject("credentials")?.toString()?:"{}"),syncIntervalMinutes=(call.getInt("syncIntervalMinutes")?:15).coerceIn(15,60)));SyncScheduler.enable(context,id);call.resolve()}
  @PluginMethod fun mailCommand(call:PluginCall){
   try{
    val command=call.getString("command")?:return call.reject("command required");val args=call.getObject("args")?:JSObject()
@@ -55,6 +55,8 @@ class CourrierNativePlugin:Plugin(){
   call.resolve(JSObject().put("serverAuthCode",code))
  }
  @PluginMethod fun disableSync(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");SyncScheduler.disable(context,id);call.resolve()}
+ @PluginMethod fun runSyncNow(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");if(SyncVault(context).get(id)==null)return call.reject("sync is not configured");SyncScheduler.runNow(context,id);call.resolve()}
+ @PluginMethod fun getSyncStatus(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");call.resolve(JSObject(SyncStatusStore(context).get(id).toString()))}
  @PluginMethod fun setNotificationPrivacy(call:PluginCall){context.getSharedPreferences("native_sync_preferences",0).edit().putString("privacy",call.getString("privacy")?:"generic").apply();call.resolve()}
  @PluginMethod fun setVaultLocked(call:PluginCall){context.getSharedPreferences("native_sync_preferences",0).edit().putBoolean("vaultLocked",call.getBoolean("locked",true)==true).apply();call.resolve()}
  @PluginMethod fun requestNotificationPermission(call:PluginCall){if(Build.VERSION.SDK_INT<33||getPermissionState("notifications")==PermissionState.GRANTED)call.resolve(JSObject().put("granted",true))else requestPermissionForAlias("notifications",call,"permissionResult")}

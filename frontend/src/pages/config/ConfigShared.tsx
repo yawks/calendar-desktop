@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, Mail, Settings2, Star } from 'lucide-react';
+import { CalendarDays, ChevronDown, Mail, Settings2, Star } from 'lucide-react';
 import i18n from '../../i18n';
 import { CalendarConfig } from '../../shared/types';
 import { calendarApi } from '../../shared/api/calendarApi';
@@ -146,8 +146,9 @@ export function GroupSection({
   onColorChange?: (c: string) => void;
 }) {
   const { t } = useTranslation();
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   return (
-    <div className="config-group">
+    <div className={`config-group${detailsExpanded ? ' config-group--expanded' : ''}`}>
       <div className="config-group-header">
         <div className="config-group-provider">
           <span className="config-group-provider-icon">{icon}</span>
@@ -185,6 +186,16 @@ export function GroupSection({
               />
             </label>
           )}
+          <button
+            type="button"
+            className="config-group-details-btn"
+            onClick={() => setDetailsExpanded((expanded) => !expanded)}
+            title={detailsExpanded ? t('config.hideSourceDetails') : t('config.showSourceDetails')}
+            aria-label={detailsExpanded ? t('config.hideSourceDetails') : t('config.showSourceDetails')}
+            aria-expanded={detailsExpanded}
+          >
+            <ChevronDown size={16} aria-hidden="true" />
+          </button>
           <button
             type="button"
             className="config-group-edit-btn"

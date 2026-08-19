@@ -35,7 +35,7 @@ The Web/PWA providers do not call this endpoint and retain their existing behavi
 
 ## Scheduling and notifications
 
-Each account uses unique periodic work with Android's 15-minute minimum, connected-network constraint and exponential backoff. WorkManager persists across reboot. The first successful run initializes a bounded set of message IDs and sends no notification; retries and restarts filter already-seen stable IDs.
+Each account uses unique periodic WorkManager work with Android's 15-minute minimum, connected-network constraint and exponential backoff. WorkManager persists across process death and reboot. The first successful run initializes a bounded set of message IDs and sends no notification; retries and restarts filter already-seen stable IDs.
 
 Each message has its own stable notification ID and account group key, plus a group summary. Expanding the Android group reveals child notifications. Taps use `courrier://mail/account/<id>/conversation/<id>`; the React router receives account and conversation query parameters.
 

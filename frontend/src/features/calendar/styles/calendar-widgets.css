@@ -735,7 +735,7 @@
   border-top-color: #c8607a !important;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 700px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
   .mail-stats-overlay { align-items: stretch; }
   .mail-stats-dialog {
     width: 100vw;
@@ -816,7 +816,7 @@
 /* Mobile multi-selection stays in the conversation list. */
 .mail-mobile-selection-toolbar, .mail-mobile-selection-header { display: none; }
 
-@media (max-width: 700px) {
+@media (max-width: 700px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
   .mail-mobile-selection-toolbar { display: block; }
   .mail-mobile-selection-toolbar.mail-thread-detail { min-height: 0; padding: 0; }
   .mail-thread-list:has(.mail-mobile-selection-header) { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
@@ -847,7 +847,7 @@
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 700px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
   .mail-thread-list, .mail-thread-list * {
     -webkit-user-select: none;
     user-select: none;
@@ -870,7 +870,7 @@
   color: var(--text);
 }
 
-@media (max-width: 700px) {
+@media (max-width: 700px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
   .preferences-layout-section {
     display: none;
   }

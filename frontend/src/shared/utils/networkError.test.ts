@@ -8,6 +8,8 @@ describe('isOfflineLikeError', () => {
     new Error('Gmail API 503: Service unavailable'),
     'Network request failed',
     '504 Gateway Timeout',
+    new Error('Transport error: error sending request for url (https://phl.api.fastmail.com/jmap/api/): error trying to connect: dns error: failed to lookup address information: No address associated with hostname'),
+    new Error('error sending request for url (https://outlook.office365.com/EWS/Exchange.asmx)'),
   ])('recognises transient connectivity failures', error => {
     expect(isOfflineLikeError(error)).toBe(true);
   });
