@@ -3,6 +3,7 @@ import { GoogleAccount } from '../types';
 import { useVault } from '../security/VaultProvider';
 import { hasNativeTransport, invokeNative } from '../api/nativeTransport';
 import { connectNativeGoogle, usesNativeGoogleAuth } from '../api/nativeGoogleAuth';
+import { clearConnectionIssue } from './ConnectionIssueStore';
 
 const STORAGE_KEY = 'calendar-desktop-google-accounts';
 
@@ -63,6 +64,7 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
   const addAccount = useCallback((account: Omit<GoogleAccount, 'id'>): GoogleAccount => {
     const full: GoogleAccount = { ...account, id: account.email };
     dispatch({ type: 'ADD', payload: full });
+    clearConnectionIssue(full.id);
     return full;
   }, []);
 

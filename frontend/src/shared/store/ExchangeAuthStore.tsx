@@ -2,6 +2,7 @@ import { createContext, useContext, useReducer, useEffect, useCallback, useMemo,
 import { ExchangeAccount } from '../types';
 import { exchangeAuthApi } from '../api/exchangeAuthApi';
 import { useVault } from '../security/VaultProvider';
+import { clearConnectionIssue } from './ConnectionIssueStore';
 
 const STORAGE_KEY = 'calendar-desktop-exchange-accounts';
 
@@ -62,6 +63,7 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
 
   const addAccount = useCallback((account: ExchangeAccount) => {
     dispatch({ type: 'ADD', payload: account });
+    clearConnectionIssue(account.id);
   }, []);
 
   const removeAccount = useCallback((id: string) => {

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Settings,
   X,
+  TriangleAlert,
 } from 'lucide-react';
 import { MailMessage, MailThread } from './types';
 import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
@@ -36,6 +37,7 @@ import { useMailPageLogic } from './hooks/useMailPageLogic';
 import { useIncomingMailNotifications } from './hooks/useIncomingMailNotifications';
 import { recordUserInitiatedUnread } from './utils/userInitiatedUnread';
 import { platform } from '../../shared/platform';
+import { useConnectionIssues } from '../../shared/store/ConnectionIssueStore';
 export default function MailApp() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -71,8 +73,33 @@ export default function MailApp() {
   const [canceledScheduledDraft, setCanceledScheduledDraft] = useState<MailMessage | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<MailMessage | null>(null);
   const [messageDeleting, setMessageDeleting] = useState(false);
+  const connectionIssues = useConnectionIssues();
+  const displayedConnectionIssue = connectionIssues.find(issue => issue.message === error) ?? connectionIssues[0];
   const mobileActionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledNotificationActionRef = useRef<string | null>(null);
+
+  // A notification can target a conversation which is not in the currently
+  // loaded inbox page. In that case the deep link first opens a minimal thread
+  // shell; enrich it as soon as the conversation query returns its messages so
+  // the detail header does not stay without subject or sender.
+  useEffect(() => {
+    if (!selectedThread || messagesLoading || messages.length === 0) return;
+    if (selectedThread.topic && (selectedThread.from_name || selectedThread.from_email)) return;
+    const lastMessage = messages.filter(message => !message.is_draft).slice(-1)[0] ?? messages[messages.length - 1];
+    setSelectedThread(current => {
+      if (!current || current.conversation_id !== selectedThread.conversation_id) return current;
+      return {
+        ...current,
+        topic: current.topic || lastMessage.subject,
+        from_name: current.from_name || lastMessage.from_name,
+        from_email: current.from_email || lastMessage.from_email,
+        last_delivery_time: current.last_delivery_time || lastMessage.date_time_received,
+        message_count: messages.length,
+        unread_count: messages.filter(message => !message.is_read).length,
+        has_attachments: messages.some(message => message.has_attachments),
+      };
+    });
+  }, [messages, messagesLoading, selectedThread, setSelectedThread]);
 
   useEffect(() => () => {
     if (mobileActionToastTimerRef.current) clearTimeout(mobileActionToastTimerRef.current);
@@ -263,27 +290,55 @@ export default function MailApp() {
       handledNotificationActionRef.current = null;
       return;
     }
+    console.info('[notification-link] processing action', action);
 
     const actionKey = accountId + ':' + conversationId + ':' + action;
     if (handledNotificationActionRef.current === actionKey) return;
     if (selectedAccountId !== accountId) {
+      console.info('[notification-link] selecting account');
       selectAccount(accountId);
       return;
     }
+    // Native new-mail notifications always target the inbox. When the same
+    // account is already selected but another folder is open, its thread is not
+    // present in `threads` and the deep link would otherwise do nothing.
+    if (selectedFolder !== 'inbox') {
+      console.info('[notification-link] selecting inbox');
+      selectFolder('inbox');
+      return;
+    }
 
-    const thread = threads.find(item =>
+    const listedThread = threads.find(item =>
       item.conversation_id === conversationId && (item.accountId ?? accountId) === accountId
     );
-    if (!thread) return;
 
-    if (selectedThread?.conversation_id !== conversationId) {
+    if (selectedThread?.conversation_id !== conversationId || (selectedThread.accountId ?? accountId) !== accountId) {
+      console.info('[notification-link] selecting conversation', listedThread ? 'listed' : 'direct');
+      // The notification may target a conversation outside the currently loaded
+      // page (or one removed from the unread list meanwhile). Selecting a minimal
+      // shell lets useMailConversation load it directly from the provider.
+      const thread = listedThread ?? {
+        conversation_id: conversationId,
+        topic: '',
+        snippet: '',
+        last_delivery_time: '',
+        message_count: 1,
+        unread_count: 1,
+        from_name: null,
+        from_email: null,
+        has_attachments: false,
+        accountId,
+      };
       pushMobileScreen('detail');
       openThread(thread);
       return;
     }
 
     if (action === 'reply') {
-      if (messagesLoading) return;
+      if (messagesLoading) {
+        console.info('[notification-link] waiting for messages');
+        return;
+      }
       const lastMessage = messages.filter(message => !message.is_draft).slice(-1)[0];
       if (!lastMessage) return;
       handledNotificationActionRef.current = actionKey;
@@ -291,6 +346,7 @@ export default function MailApp() {
       setReplyMode('reply');
       setReplyingTo(lastMessage);
       pushMobileScreen('detail');
+      console.info('[notification-link] reply ready');
     } else {
       handledNotificationActionRef.current = actionKey;
       if (action === 'delete') {
@@ -306,6 +362,7 @@ export default function MailApp() {
     }
 
     void platform.cancelConversationNotifications(accountId, conversationId);
+    console.info('[notification-link] completed');
     navigate('/', { replace: true });
   }, [
     allFolders,
@@ -316,8 +373,10 @@ export default function MailApp() {
     navigate,
     openThread,
     selectedAccountId,
+    selectedFolder,
     selectedThread?.conversation_id,
     selectAccount,
+    selectFolder,
     setReplyMode,
     setReplyingTo,
     threads,
@@ -373,8 +432,14 @@ export default function MailApp() {
 
       {error && (
         <div className="mail-error-banner">
-          {error}
-          <button className="btn-icon" onClick={() => setError(null)}><X size={14} /></button>
+          <TriangleAlert size={16} aria-hidden="true" />
+          <span className="mail-error-banner__message">{error}</span>
+          {displayedConnectionIssue && (
+            <Link className="mail-error-banner__reconnect" to={`/config?reconnect=${encodeURIComponent(displayedConnectionIssue.accountId)}`}>
+              {t('config.reconnect', 'Reconnect')}
+            </Link>
+          )}
+          <button className="btn-icon" onClick={() => setError(null)} aria-label={t('common.close', 'Close')}><X size={14} /></button>
         </div>
       )}
 

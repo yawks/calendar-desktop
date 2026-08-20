@@ -15,6 +15,7 @@ export const webPlatform: NativePlatform = {
   notificationPermission: async () => !('Notification' in globalThis) ? 'denied' : Notification.permission,
   setNotificationsEnabled: async () => undefined,
   cancelConversationNotifications: async () => undefined,
+  consumeNotificationUrl: async () => null,
   setBadge: async count => {
     const value = navigator as Navigator & { setAppBadge?: (count: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
     if (count > 0) await value.setAppBadge?.(count); else await value.clearAppBadge?.();

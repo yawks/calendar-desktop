@@ -36,11 +36,18 @@ fn java_string(mut env: EnvUnowned<'_>, result: Result<String, String>) -> jstri
 
 #[no_mangle]
 pub extern "system" fn Java_com_courrier_app_NativeCore_detect(
-    env: EnvUnowned<'_>,
+    mut env: EnvUnowned<'_>,
     _class: JClass<'_>,
     request_json: JString<'_>,
 ) -> jstring {
-    let input = request_json.to_string();
+    // Formatting JString directly before EnvUnowned::with_env has initialized
+    // the JVM singleton produces the literal "<JNI Not Initialized>". Read the
+    // Java argument through the current JNI environment instead.
+    let input = env
+        .with_env(|env| -> jni::errors::Result<String> {
+            Ok(request_json.mutf8_chars(env)?.to_string())
+        })
+        .resolve::<ThrowRuntimeExAndDefault>();
     let result = (|| {
         let request = serde_json::from_str(&input).map_err(|error| error.to_string())?;
         let response = runtime()
@@ -53,15 +60,24 @@ pub extern "system" fn Java_com_courrier_app_NativeCore_detect(
 
 #[no_mangle]
 pub extern "system" fn Java_com_courrier_app_NativeCore_command(
-    env: EnvUnowned<'_>,
+    mut env: EnvUnowned<'_>,
     _class: JClass<'_>,
     command: JString<'_>,
     arguments_json: JString<'_>,
 ) -> jstring {
+    let command = env
+        .with_env(|env| -> jni::errors::Result<String> {
+            Ok(command.mutf8_chars(env)?.to_string())
+        })
+        .resolve::<ThrowRuntimeExAndDefault>();
+    let arguments_json = env
+        .with_env(|env| -> jni::errors::Result<String> {
+            Ok(arguments_json.mutf8_chars(env)?.to_string())
+        })
+        .resolve::<ThrowRuntimeExAndDefault>();
     let result = (|| {
-        let command = command.to_string();
         let arguments: Value =
-            serde_json::from_str(&arguments_json.to_string()).map_err(|error| error.to_string())?;
+            serde_json::from_str(&arguments_json).map_err(|error| error.to_string())?;
         let response = runtime()
             .block_on(crate::command::dispatch(&command, arguments))
             .map_err(|error| error.detail)?;

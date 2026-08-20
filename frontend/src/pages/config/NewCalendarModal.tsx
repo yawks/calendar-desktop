@@ -13,9 +13,10 @@ import { usesNativeGoogleAuth } from '../../shared/api/nativeGoogleAuth';
 import { CapBadge, ColorSwatches, ConnectionTestRow, DEFAULT_COLORS, TestResult, nextColor, testNextcloudConnection } from './ConfigShared';
 
 export function NewCalendarModal({
-  onClose,
+  onClose, initialProvider,
 }: {
   onClose: () => void;
+  initialProvider?: 'exchange' | 'google' | 'imap' | 'jmap';
 }) {
   const { t } = useTranslation();
   const { addCalendar, calendars } = useCalendars();
@@ -24,9 +25,9 @@ export function NewCalendarModal({
   const { addAccount: addImapAccount } = useImapAuth();
   const { addAccount: addJmapAccount } = useJmapAuth();
 
-  const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange' | 'imap' | 'jmap'>('pick');
+  const [step, setStep] = useState<'pick' | 'capabilities' | 'configure' | 'google' | 'exchange' | 'imap' | 'jmap'>(() => initialProvider ?? 'pick');
   const [selectedType, setSelectedType] = useState<'ics' | 'nextcloud' | null>(null);
-  const [pendingProviderType, setPendingProviderType] = useState<'google' | 'exchange' | null>(null);
+  const [pendingProviderType, setPendingProviderType] = useState<'google' | 'exchange' | null>(() => initialProvider === 'google' || initialProvider === 'exchange' ? initialProvider : null);
   const [pendingCapabilities, setPendingCapabilities] = useState<('calendar' | 'email')[]>(['calendar', 'email']);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState('');

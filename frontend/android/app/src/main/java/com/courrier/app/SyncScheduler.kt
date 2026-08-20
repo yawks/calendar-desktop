@@ -47,6 +47,18 @@ object SyncScheduler {
         )
     }
 
+    fun runNotificationDiagnostic(context: Context, id: String) {
+        val request = OneTimeWorkRequestBuilder<MailSyncWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setInputData(workDataOf("accountId" to id, MailSyncWorker.NOTIFICATION_DIAGNOSTIC to true))
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "${workName(id)}-notification-diagnostic",
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
+    }
+
     fun disable(context: Context, id: String) {
         val manager = WorkManager.getInstance(context)
         manager.cancelUniqueWork(workName(id))

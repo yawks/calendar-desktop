@@ -16,7 +16,10 @@ import com.getcapacitor.annotation.PermissionCallback
 import org.json.JSONObject
 @CapacitorPlugin(name="CourrierNative",permissions=[Permission(alias="notifications",strings=[Manifest.permission.POST_NOTIFICATIONS])])
 class CourrierNativePlugin:Plugin(){
- @PluginMethod fun configureSync(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");SyncVault(context).put(SyncAccount(id=id,provider=call.getString("provider")?:"",email=call.getString("email")?:"",displayName=call.getString("displayName"),credentials=JSONObject(call.getObject("credentials")?.toString()?:"{}"),syncIntervalMinutes=(call.getInt("syncIntervalMinutes")?:15).coerceIn(15,60)));SyncScheduler.enable(context,id);call.resolve()}
+ private var pendingNotificationUrl:String?=null
+ override fun handleOnNewIntent(intent:Intent){super.handleOnNewIntent(intent);intent.dataString?.takeIf{it.startsWith("courrier://mail/")}?.let{pendingNotificationUrl=it;Log.i("CourrierDeepLink","Notification intent retained (warm launch)")}}
+ @PluginMethod fun consumeNotificationUrl(call:PluginCall){val url=pendingNotificationUrl?:activity.intent?.dataString?.takeIf{it.startsWith("courrier://mail/")};pendingNotificationUrl=null;activity.intent?.data=null;Log.i("CourrierDeepLink","Notification intent consumed present=${url!=null}");call.resolve(JSObject().put("url",url))}
+ @PluginMethod fun configureSync(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");SyncVault(context).put(SyncAccount(id=id,provider=call.getString("provider")?:"",email=call.getString("email")?:"",displayName=call.getString("displayName"),credentials=JSONObject(call.getObject("credentials")?.toString()?:"{}"),syncIntervalMinutes=(call.getInt("syncIntervalMinutes")?:15).coerceIn(15,60)));SyncScheduler.enable(context,id);SyncScheduler.runNow(context,id);call.resolve()}
  @PluginMethod fun mailCommand(call:PluginCall){
   try{
    val command=call.getString("command")?:return call.reject("command required");val args=call.getObject("args")?:JSObject()

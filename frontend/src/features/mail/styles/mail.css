@@ -24,6 +24,8 @@
   color: var(--danger); font-size: calc(13px * var(--font-scale, 1));
   border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 }
+.mail-error-banner__message { flex: 1; }
+.mail-error-banner__reconnect { color: inherit; font-weight: 700; text-decoration: underline; white-space: nowrap; }
 
 .mail-account-select {
   height: 30px; padding: 0 8px; border: 1px solid var(--border);

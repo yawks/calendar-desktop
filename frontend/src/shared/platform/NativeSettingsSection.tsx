@@ -26,6 +26,7 @@ export function NativeSettingsSection() {
   const { accounts: jmapAccounts } = useJmapAuth();
   const [settings, setSettings] = useState(load);
   const [syncStatuses, setSyncStatuses] = useState<Record<string, NativeSyncStatus>>({});
+  const [togglingAccounts, setTogglingAccounts] = useState<Set<string>>(new Set());
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const saveLocally = (next: Settings) => { setSettings(next); localStorage.setItem(KEY, JSON.stringify(next)); };
   const update = (next: Settings) => { saveLocally(next); setSaveState('idle'); };
@@ -70,13 +71,26 @@ export function NativeSettingsSection() {
   const toggle = async (accountId: string, enabled: boolean) => {
     const account = accounts.find(item => item.accountId === accountId);
     if (!account) return;
-    if (enabled) {
-      if (!await platform.requestNotificationPermission()) return;
-      await platform.configureSync({ ...account, syncIntervalMinutes: settings.syncIntervalMinutes });
-      saveLocally({ ...settings, enabled: [...new Set([...settings.enabled, accountId])] });
-    } else {
-      await platform.disableSync(accountId);
-      saveLocally({ ...settings, enabled: settings.enabled.filter(id => id !== accountId) });
+    if (togglingAccounts.has(accountId)) return;
+    const previous = settings;
+    const next = enabled
+      ? { ...settings, enabled: [...new Set([...settings.enabled, accountId])] }
+      : { ...settings, enabled: settings.enabled.filter(id => id !== accountId) };
+    saveLocally(next);
+    setTogglingAccounts(current => new Set(current).add(accountId));
+    try {
+      if (enabled) {
+        if (!await platform.requestNotificationPermission()) throw new Error('notification_permission_denied');
+        await platform.configureSync({ ...account, syncIntervalMinutes: settings.syncIntervalMinutes });
+      } else {
+        await platform.disableSync(accountId);
+      }
+    } catch (error) {
+      console.error('[Android sync] account toggle failed', error);
+      saveLocally(previous);
+      setSaveState('error');
+    } finally {
+      setTogglingAccounts(current => { const result = new Set(current); result.delete(accountId); return result; });
     }
   };
   const persistNativeSettings = async () => {
@@ -139,7 +153,7 @@ export function NativeSettingsSection() {
       <legend>{t('settings.androidSync.accounts')}</legend>
       {accounts.map(account => <div key={account.accountId}>
         <label>
-          <input type="checkbox" checked={settings.enabled.includes(account.accountId)} onChange={event => void toggle(account.accountId, event.target.checked)} />
+          <input type="checkbox" checked={settings.enabled.includes(account.accountId)} disabled={togglingAccounts.has(account.accountId)} onChange={event => void toggle(account.accountId, event.target.checked)} />
           <span><strong>{account.email}</strong><small>{account.provider.toUpperCase()}</small></span>
         </label>
         {settings.enabled.includes(account.accountId) && <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 8px 26px', fontSize: 12, color: 'var(--text-muted)' }}>

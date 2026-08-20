@@ -10,6 +10,22 @@ type ReadOverlay = { read: boolean; messageIds?: string[] };
 type ReadOverlays = Record<string, ReadOverlay>;
 let database: IDBDatabase | null = null;
 
+function finishTransaction(
+  transaction: IDBTransaction,
+  operation: string,
+  resolve: () => void,
+): void {
+  transaction.oncomplete = () => resolve();
+  transaction.onerror = () => {
+    console.error(`[offline-mail] ${operation}:error`, transaction.error);
+    resolve();
+  };
+  transaction.onabort = () => {
+    console.error(`[offline-mail] ${operation}:abort`, transaction.error);
+    resolve();
+  };
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   if (database) return Promise.resolve(database);
   return new Promise((resolve, reject) => {
@@ -95,8 +111,7 @@ export async function removeOfflineInboxConversations(accountId: string, convers
     };
     threadsRequest.onsuccess = () => { threads = (threadsRequest.result as MailThread[] | undefined) ?? []; threadsLoaded = true; apply(); };
     removalsRequest.onsuccess = () => { removals = (removalsRequest.result as string[] | undefined) ?? []; removalsLoaded = true; apply(); };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => resolve();
+    finishTransaction(transaction, `remove-conversations:${conversationIds.length}`, resolve);
   });
 }
 
@@ -112,8 +127,7 @@ export async function clearOfflineInboxRemovals(accountId: string, conversationI
     request.onsuccess = () => store.put(
       ((request.result as string[] | undefined) ?? []).filter(id => !cleared.has(id)), accountId,
     );
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => resolve();
+    finishTransaction(transaction, `clear-removals:${conversationIds.length}`, resolve);
   });
 }
 
@@ -157,8 +171,7 @@ export async function updateOfflineInboxReadState(
     };
     threadsRequest.onsuccess = () => { threads = (threadsRequest.result as MailThread[] | undefined) ?? []; threadsLoaded = true; apply(); };
     messagesRequest.onsuccess = () => { messages = (messagesRequest.result as MailMessage[] | undefined) ?? []; messagesLoaded = true; apply(); };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => resolve();
+    finishTransaction(transaction, 'update-read-state', resolve);
   });
 }
 
@@ -215,8 +228,7 @@ export async function removeOfflineInboxMessages(
     };
     threadsRequest.onsuccess = () => { threads = (threadsRequest.result as MailThread[] | undefined) ?? []; threadsLoaded = true; apply(); };
     messagesRequest.onsuccess = () => { messages = (messagesRequest.result as MailMessage[] | undefined) ?? []; messagesLoaded = true; apply(); };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => resolve();
+    finishTransaction(transaction, `remove-messages:${messageIds.length}`, resolve);
   });
 }
 
@@ -291,8 +303,7 @@ export async function storeOfflineInbox(
     previousRequest.onsuccess = () => { previousThreads = (previousRequest.result as MailThread[] | undefined) ?? []; previousLoaded = true; apply(); };
     removalsRequest.onsuccess = () => { removals = (removalsRequest.result as string[] | undefined) ?? []; removalsLoaded = true; apply(); };
     readStatesRequest.onsuccess = () => { readStates = (readStatesRequest.result as ReadOverlays | undefined) ?? {}; readStatesLoaded = true; apply(); };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => resolve();
+    finishTransaction(transaction, `store-inbox:${threads.length}`, resolve);
   });
 }
 
@@ -304,7 +315,6 @@ export async function clearOfflineMailCache(): Promise<void> {
     transaction.objectStore(MESSAGES).clear();
     transaction.objectStore(REMOVALS).clear();
     transaction.objectStore(READ_STATES).clear();
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => resolve();
+    finishTransaction(transaction, 'clear-cache', resolve);
   });
 }

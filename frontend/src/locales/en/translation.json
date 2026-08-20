@@ -226,6 +226,7 @@
     "sectPreferences": "Preferences",
     "newCalendar": "New calendar",
     "connectProvider": "Connect source",
+    "reconnect": "Reconnect",
     "chooseProviderType": "Choose a source to connect:",
     "noProvidersConfigured": "No sources configured. Click \"Connect source\" to begin.",
     "sourceColumns": {

@@ -156,7 +156,9 @@
 }
 
 .config-source-list .config-group-title {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   flex: none;
   overflow: hidden;
   color: var(--text);
@@ -166,6 +168,12 @@
   text-overflow: ellipsis;
   text-transform: none;
   white-space: nowrap;
+}
+.config-group-warning { flex: 0 0 auto; color: var(--danger); }
+.config-group-reconnect-btn {
+  min-height: 30px; padding: 0 9px; border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: 6px; background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger);
+  font-size: calc(11px * var(--font-scale, 1)); font-weight: 700; cursor: pointer;
 }
 
 .config-group-capability-list,

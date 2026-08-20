@@ -24,6 +24,7 @@ import { useOfflineMailSync } from './useOfflineMailSync';
 import { isOfflineLikeError, isTemporaryMailServiceError } from '../../../shared/utils/networkError';
 import { useOfflineMailSettings } from '../../../shared/store/OfflineMailStore';
 import { removeOfflineInboxMessages } from '../utils/offlineMailCache';
+import { clearConnectionIssue, isConnectionFailure, reportConnectionIssue } from '../../../shared/store/ConnectionIssueStore';
 
 export function useMailPageLogic() {
   const { t } = useTranslation();
@@ -260,7 +261,12 @@ export function useMailPageLogic() {
       ? conversationQuery.error.message
       : String(conversationQuery.error);
     setError(message);
-  }, [conversationQuery.error]);
+    const accountId = selectedThread?.accountId ?? selectedAccountId;
+    const account = allMailAccounts.find(item => item.id === accountId);
+    if (account && isConnectionFailure(conversationQuery.error)) {
+      reportConnectionIssue({ accountId, provider: account.providerType === 'ews' ? 'exchange' : account.providerType === 'gmail' ? 'google' : account.providerType, message });
+    }
+  }, [conversationQuery.error, selectedThread?.accountId, selectedAccountId, allMailAccounts]);
 
   const searchSingleQuery = useMailSearch(selectedAccountId, searchQuery!, isAllMode ? null : provider);
   const searchAllQuery = useAllAccountSearch(searchQuery!, allAccountInfo);
@@ -315,18 +321,23 @@ export function useMailPageLogic() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const threadErrors = isAllMode ? allThreadsQuery.errors : (threadsQuery.error ? [threadsQuery.error] : []);
-    const allErrors = ([...threadErrors, ...allFoldersQuery.errors] as Error[])
-      .filter(candidate => !isOfflineLikeError(candidate));
+    const threadErrors = isAllMode ? allThreadsQuery.errors : (threadsQuery.error ? [{ accountId: selectedAccountId, error: threadsQuery.error }] : []);
+    const allErrors = [...threadErrors, ...allFoldersQuery.errors]
+      .filter(candidate => !isOfflineLikeError(candidate.error));
     const temporaryMessage = t('mail.temporaryServiceUnavailable');
     if (allErrors.length > 0) {
       const firstError = allErrors[0];
-      const msg = isTemporaryMailServiceError(firstError) ? temporaryMessage : firstError.message;
+      const msg = isTemporaryMailServiceError(firstError.error) ? temporaryMessage : getErrorMessage(firstError.error);
+      const account = allMailAccounts.find(item => item.id === firstError.accountId);
+      if (account && isConnectionFailure(firstError.error)) {
+        reportConnectionIssue({ accountId: account.id, provider: account.providerType === 'ews' ? 'exchange' : account.providerType === 'gmail' ? 'google' : account.providerType, message: msg });
+      }
       setError(prev => prev === msg ? prev : msg);
     } else {
+      for (const account of allMailAccounts) clearConnectionIssue(account.id);
       setError(prev => prev === temporaryMessage ? null : prev);
     }
-  }, [isAllMode, allThreadsQuery.errors, threadsQuery.error, allFoldersQuery.errors, t]);
+  }, [isAllMode, allThreadsQuery.errors, threadsQuery.error, allFoldersQuery.errors, t, selectedAccountId, allMailAccounts]);
 
   // --- MUTATIONS ---
   const mutations = useMailMutations();

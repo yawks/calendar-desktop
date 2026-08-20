@@ -8,6 +8,11 @@ object NativeCore {
     private external fun detect(requestJson: String): String
     external fun command(command: String, argumentsJson: String): String
 
+    // JNI string conversion/runtime setup is shared by all workers. WorkManager
+    // may start one worker per account at the same instant; serializing detection
+    // prevents concurrent calls from reaching Rust with an empty/invalid JSON
+    // request (observed as `expected value at line 1 column 1`).
+    @Synchronized
     fun detect(account: SyncAccount, cursor: String?): DetectionResult {
         val request = JSONObject()
             .put("provider", account.provider)

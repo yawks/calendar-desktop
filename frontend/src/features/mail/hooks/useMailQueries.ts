@@ -96,7 +96,7 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
   }, [dataTimestamps]);
 
   const errors = useMemo(() =>
-    results.map(r => r.error).filter((e): e is Error => !!e),
+    results.flatMap((r, index) => r.error ? [{ accountId: accounts[index].id, error: r.error as Error }] : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [errorTimestamps]);
 
@@ -205,7 +205,7 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
   }, [dataTimestamps]);
 
   const errors = useMemo(() =>
-    results.map(r => r.error).filter((e): e is Error => !!e),
+    results.flatMap((r, index) => r.error ? [{ accountId: accounts[index].id, error: r.error as Error }] : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [errorTimestamps]);
 

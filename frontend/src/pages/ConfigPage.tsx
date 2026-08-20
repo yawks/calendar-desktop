@@ -20,6 +20,7 @@ import { NativeSettingsSection } from '../shared/platform/NativeSettingsSection'
 import { DesktopSyncTestSection } from './config/DesktopSyncTestSection';
 import { SignaturesSection } from './config/SignaturesSection';
 import { CalendarItem, GroupSection } from './config/ConfigShared';
+import { useConnectionIssues } from '../shared/store/ConnectionIssueStore';
 
 type SectionType = 'providers' | 'preferences';
 
@@ -40,10 +41,15 @@ export default function ConfigPage() {
   const { accounts: imapAccounts, updateAccountColor: updateImapColor } = useImapAuth();
   const { accounts: jmapAccounts, updateAccountColor: updateJmapColor } = useJmapAuth();
   const { defaultCalendarId, setDefaultCalendar } = useDefaultCalendar();
+  const connectionIssues = useConnectionIssues();
+  const requestedReconnectId = new URLSearchParams(globalThis.location.search).get('reconnect');
 
   const [activeSection, setActiveSection] = useState<SectionType>('providers');
   const [showNewCalModal, setShowNewCalModal] = useState(
-    () => new URLSearchParams(globalThis.location.search).get('addSource') === '1',
+    () => {
+      const params = new URLSearchParams(globalThis.location.search);
+      return params.get('addSource') === '1' || params.has('reconnect');
+    },
   );
   const [editModal, setEditModal] = useState<EditModalState>(null);
 
@@ -159,6 +165,8 @@ export default function ConfigPage() {
                     caps={account.enabledCapabilities ?? ['calendar', 'email']}
                     color={account.color}
                     onColorChange={(c) => updateGoogleColor(account.id, c)}
+                    connectionError={connectionIssues.find(issue => issue.accountId === account.id)?.message}
+                    onReconnect={connectionIssues.some(issue => issue.accountId === account.id) ? () => setShowNewCalModal(true) : undefined}
                   >
                     {cals.length > 0
                       ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
@@ -183,6 +191,8 @@ export default function ConfigPage() {
                     caps={account.enabledCapabilities ?? ['calendar', 'email']}
                     color={account.color}
                     onColorChange={(c) => updateExchangeColor(account.id, c)}
+                    connectionError={connectionIssues.find(issue => issue.accountId === account.id)?.message}
+                    onReconnect={connectionIssues.some(issue => issue.accountId === account.id) ? () => setShowNewCalModal(true) : undefined}
                   >
                     {cals.length > 0
                       ? cals.map((cal) => <CalendarItem key={cal.id} cal={cal} isDefault={defaultCalendarId === cal.id} onSetDefault={() => setDefaultCalendar(cal.id)} />)
@@ -202,6 +212,8 @@ export default function ConfigPage() {
                     caps={['email']}
                     color={account.color}
                     onColorChange={(c) => updateImapColor(account.id, c)}
+                    connectionError={connectionIssues.find(issue => issue.accountId === account.id)?.message}
+                    onReconnect={connectionIssues.some(issue => issue.accountId === account.id) ? () => setEditModal({ type: 'imap', accountId: account.id }) : undefined}
                   >
                     <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', padding: '2px 0' }}>
                       {account.imapServer}
@@ -220,6 +232,8 @@ export default function ConfigPage() {
                     caps={['email']}
                     color={account.color}
                     onColorChange={(c) => updateJmapColor(account.id, c)}
+                    connectionError={connectionIssues.find(issue => issue.accountId === account.id)?.message}
+                    onReconnect={connectionIssues.some(issue => issue.accountId === account.id) ? () => setEditModal({ type: 'jmap', accountId: account.id }) : undefined}
                   >
                     <div style={{ fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', padding: '2px 0' }}>
                       {account.sessionUrl}
@@ -277,6 +291,7 @@ export default function ConfigPage() {
       {showNewCalModal && (
         <NewCalendarModal
           onClose={() => setShowNewCalModal(false)}
+          initialProvider={connectionIssues.find(issue => issue.accountId === requestedReconnectId)?.provider}
         />
       )}
       {editModal?.type === 'google' && editingGoogleAccount && (

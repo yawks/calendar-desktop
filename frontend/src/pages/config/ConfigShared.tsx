@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, ChevronDown, Mail, Settings2, Star } from 'lucide-react';
+import { CalendarDays, ChevronDown, Mail, Settings2, Star, TriangleAlert } from 'lucide-react';
 import i18n from '../../i18n';
 import { CalendarConfig } from '../../shared/types';
 import { calendarApi } from '../../shared/api/calendarApi';
@@ -134,7 +134,7 @@ export function CalendarItem({ cal, isDefault, onSetDefault }: {
 // ── Group section with hover edit icon ─────────────────────────────────────────
 
 export function GroupSection({
-  title, providerLabel, icon, onEdit, children, caps, color, onColorChange,
+  title, providerLabel, icon, onEdit, children, caps, color, onColorChange, connectionError, onReconnect,
 }: {
   title: string;
   providerLabel: string;
@@ -144,6 +144,8 @@ export function GroupSection({
   caps?: ('calendar' | 'email')[];
   color?: string;
   onColorChange?: (c: string) => void;
+  connectionError?: string;
+  onReconnect?: () => void;
 }) {
   const { t } = useTranslation();
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -156,6 +158,7 @@ export function GroupSection({
         </div>
         <div className="config-group-title">
           {title}
+          {connectionError && <TriangleAlert className="config-group-warning" size={16} aria-label={connectionError} />}
         </div>
         <div className="config-group-capabilities">
           {caps && caps.length > 0 && (
@@ -165,6 +168,11 @@ export function GroupSection({
           )}
         </div>
         <div className="config-group-actions">
+          {onReconnect && (
+            <button type="button" className="config-group-reconnect-btn" onClick={onReconnect} title={connectionError}>
+              {t('config.reconnect')}
+            </button>
+          )}
           {onColorChange && (
             <label
               title={t('config.accountColor', 'Account color')}
