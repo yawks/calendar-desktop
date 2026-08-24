@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ComponentProps } from 'react';
 import { MailThread } from '../types';
 import {
   Archive, Clock, FolderInput, MoreHorizontal, Paperclip, ShieldAlert, Trash2, X
@@ -17,6 +17,9 @@ export interface MultiSelectionPanelProps {
   readonly onBulkMove: (folderId: string) => void;
   readonly onBulkToggleRead: (markAsRead: boolean) => void;
   readonly moveFolders: import('../types').MailFolder[];
+  readonly moveSources?: ComponentProps<typeof FolderPickerPopover>['sources'];
+  readonly moveSourceAccountId?: string;
+  readonly onBulkTransfer?: (accountId: string, folderId: string, operation: 'copy' | 'move') => void;
   readonly supportsSnooze: boolean;
   readonly compact?: boolean;
   readonly className?: string;
@@ -48,7 +51,7 @@ function computeSnoozeOptions() {
 
 export function MultiSelectionPanel({
   threads, selectedIds, onClearSelection, onBulkDelete, onBulkArchive,
-  onBulkSnooze, onBulkMove, onBulkToggleRead, moveFolders, supportsSnooze, compact = false, className
+  onBulkSnooze, onBulkMove, onBulkToggleRead, moveFolders, moveSources, moveSourceAccountId, onBulkTransfer, supportsSnooze, compact = false, className
 }: MultiSelectionPanelProps) {
   const { t } = useTranslation();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -130,6 +133,9 @@ export function MultiSelectionPanel({
               <FolderPickerPopover
                 folders={moveFolders}
                 onSelect={folderId => { onBulkMove(folderId); setMoveOpen(false); }}
+                sources={moveSources}
+                currentAccountId={moveSourceAccountId}
+                onSelectDestination={onBulkTransfer ? (accountId, folderId, operation) => { onBulkTransfer(accountId, folderId, operation); setMoveOpen(false); } : undefined}
                 onClose={() => setMoveOpen(false)}
               />
             </>

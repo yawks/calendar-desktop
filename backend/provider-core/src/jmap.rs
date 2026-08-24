@@ -2103,6 +2103,34 @@ pub async fn jmap_get_raw_message(
     Ok(raw_message_source_to_string(&source))
 }
 
+pub async fn jmap_import_raw_message(
+    state: &Arc<JmapClientState>,
+    config: JmapConfig,
+    raw_message: String,
+    folder_id: String,
+) -> Result<(), String> {
+    let client = get_client(state, &config).await?;
+    // list_folders deliberately exposes stable application keys for system
+    // mailboxes. Email/import, however, only accepts the server's opaque JMAP
+    // mailbox ID, so resolve those keys exactly as move_to_folder does.
+    let folder_ids = get_folder_ids(state, &client, &config).await?;
+    let resolved_folder_id = if folder_id == "snoozed" {
+        get_or_create_snoozed_id(state, &client, &config).await?
+    } else {
+        folder_ids.get(&folder_id).cloned().unwrap_or(folder_id)
+    };
+    client
+        .email_import(
+            raw_message.into_bytes(),
+            vec![resolved_folder_id],
+            None::<Vec<&str>>,
+            None,
+        )
+        .await
+        .map_err(|e| format!("Email/import: {e}"))?;
+    Ok(())
+}
+
 pub async fn jmap_mark_read(
     state: &Arc<JmapClientState>,
     config: JmapConfig,

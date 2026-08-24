@@ -40,7 +40,20 @@ function makeNode(name: string, real: MailFolder | undefined): FolderNode {
 }
 
 function sortTree(nodes: FolderNode[]): void {
-  nodes.sort((a, b) => a.label.localeCompare(b.label));
+  const systemOrder = ['inbox', 'drafts', 'scheduled', 'sent', 'trash', 'snoozed', 'spam'];
+  const aliases: Record<string, string> = {
+    inbox: 'inbox', drafts: 'drafts', draft: 'drafts', scheduled: 'scheduled',
+    sent: 'sent', sentitems: 'sent', trash: 'trash', deleteditems: 'trash',
+    snoozed: 'snoozed', spam: 'spam', junk: 'spam', junkemail: 'spam',
+  };
+  const rank = (node: FolderNode) => {
+    const id = node.folder.folder_id.toLowerCase();
+    const label = node.label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const role = aliases[id] ?? aliases[label];
+    const index = role ? systemOrder.indexOf(role) : -1;
+    return index === -1 ? systemOrder.length : index;
+  };
+  nodes.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
   for (const n of nodes) sortTree(n.children);
 }
 
@@ -145,12 +158,17 @@ interface FolderPickerPopoverProps {
   readonly onSelect: (folderId: string) => void;
   readonly onClose: () => void;
   readonly currentFolderId?: string;
+  readonly sources?: ReadonlyArray<{ accountId: string; label: string; color?: string; folders: MailFolder[]; canImport: boolean; canExport: boolean }>;
+  readonly currentAccountId?: string;
+  readonly onSelectDestination?: (accountId: string, folderId: string, operation: 'copy' | 'move') => void;
 }
 
-export function FolderPickerPopover({ folders, onSelect, onClose, currentFolderId }: FolderPickerPopoverProps) {
+export function FolderPickerPopover({ folders, onSelect, onClose, currentFolderId, sources, currentAccountId, onSelectDestination }: FolderPickerPopoverProps) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState<{ accountId: string; folderId: string; label: string } | null>(null);
+  const [operation, setOperation] = useState<'copy' | 'move'>('copy');
   const inputRef = useRef<HTMLInputElement>(null);
   const q = search.trim().toLowerCase();
 
@@ -158,6 +176,17 @@ export function FolderPickerPopover({ folders, onSelect, onClose, currentFolderI
 
   const tree = buildTree(folders ?? []);
   const visible = q ? tree.filter(n => matchesSearch(n, q)) : tree;
+  const orderedSources = sources ? [...sources].sort((a, b) => {
+    if (a.accountId === currentAccountId) return -1;
+    if (b.accountId === currentAccountId) return 1;
+    return 0;
+  }) : undefined;
+
+  const selectDestination = (accountId: string, folder: MailFolder) => {
+    if (!onSelectDestination) return onSelect(folder.folder_id);
+    if (accountId === currentAccountId) return onSelectDestination(accountId, folder.folder_id, 'move');
+    setPending({ accountId, folderId: folder.folder_id, label: folder.display_name });
+  };
 
   const handleToggle = (id: string) => {
     setExpandedIds(prev => {
@@ -180,8 +209,29 @@ export function FolderPickerPopover({ folders, onSelect, onClose, currentFolderI
           onKeyDown={e => { if (e.key === 'Escape') onClose(); }}
         />
       </div>
-      <div className="folder-picker__list">
-        {visible.length === 0 ? (
+      {pending ? <div className="folder-picker__transfer-confirm">
+        <button className="folder-picker__back" type="button" onClick={() => setPending(null)}>← {t('common.back', 'Retour')}</button>
+        <strong>{t('mail.transfer.toFolder', 'Vers « {{folder}} »', { folder: pending.label })}</strong>
+        <label className="folder-picker__operation"><input type="radio" checked={operation === 'copy'} onChange={() => setOperation('copy')} /><span><b>{t('mail.transfer.copy', 'Copier')}</b><small>{t('mail.transfer.copyHint', 'Conserver la conversation dans la source actuelle')}</small></span></label>
+        <label className="folder-picker__operation"><input type="radio" checked={operation === 'move'} onChange={() => setOperation('move')} /><span><b>{t('mail.transfer.move', 'Déplacer')}</b><small>{t('mail.transfer.moveHint', 'Supprimer l’original après une copie réussie')}</small></span></label>
+        <button className="folder-picker__confirm" type="button" onClick={() => onSelectDestination?.(pending.accountId, pending.folderId, operation)}>{operation === 'copy' ? t('mail.transfer.copy', 'Copier') : t('mail.transfer.move', 'Déplacer')}</button>
+      </div> : <div className="folder-picker__list">
+        {orderedSources ? orderedSources.map(source => {
+          const nodes = buildTree(source.folders);
+          const shown = q ? nodes.filter(node => matchesSearch(node, q)) : nodes;
+          if (!shown.length) return null;
+          const currentSourceCanExport = orderedSources.find(item => item.accountId === currentAccountId)?.canExport ?? false;
+          const unavailable = source.accountId !== currentAccountId && (!source.canImport || !currentSourceCanExport);
+          return <div className="folder-picker__source" key={source.accountId}>
+            <div className="folder-picker__source-label"><i style={{ background: source.color }} />{source.label}</div>
+            {unavailable ? <div className="folder-picker__source-unavailable">{t('mail.transfer.unsupported', 'Transfert non pris en charge')}</div> : shown.map(node => <FolderItem
+              key={`${source.accountId}:${node.folder.folder_id}`} node={node} depth={0}
+              onSelect={folderId => { const folder = source.folders.find(item => item.folder_id === folderId); if (folder) selectDestination(source.accountId, folder); }}
+              expandedIds={expandedIds} onToggle={handleToggle}
+              currentFolderId={source.accountId === currentAccountId ? currentFolderId : undefined} searchQuery={q}
+            />)}
+          </div>;
+        }) : visible.length === 0 ? (
           <div className="folder-picker__empty">{t('mail.folders.empty')}</div>
         ) : visible.map(node => (
           <FolderItem
@@ -195,7 +245,7 @@ export function FolderPickerPopover({ folders, onSelect, onClose, currentFolderI
             searchQuery={q}
           />
         ))}
-      </div>
+      </div>}
     </div>
   );
 }

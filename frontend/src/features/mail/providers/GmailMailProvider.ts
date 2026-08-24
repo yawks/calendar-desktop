@@ -584,6 +584,16 @@ export class GmailMailProvider implements MailProvider {
     return decodeBase64Url(message.raw);
   }
 
+  async importRawMessage(rawMessage: string, folderId: string): Promise<void> {
+    const token = await this.token();
+    const label = folderToLabel(folderId);
+    if (!label) throw new Error('Ce dossier Gmail ne peut pas recevoir de messages importés.');
+    await this.gPost(token, '/users/me/messages/import?internalDateSource=dateHeader&neverMarkSpam=true', {
+      raw: encodeBase64Url(rawMessage),
+      labelIds: [label],
+    });
+  }
+
   private parseMessage(msg: GmailMessage): MailMessage {
     const headers = msg.payload?.headers ?? [];
     const h = (name: string) => getHeader(headers, name);

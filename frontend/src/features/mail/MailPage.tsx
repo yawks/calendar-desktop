@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { MailMessage, MailThread } from './types';
 import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import AppViewMenu from '../../shared/components/AppViewMenu';
 import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
@@ -73,6 +73,75 @@ export default function MailApp() {
   const newMessageComposerRef = useRef<NewMessageComposerHandle>(null);
   const [canceledScheduledDraft, setCanceledScheduledDraft] = useState<MailMessage | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<MailMessage | null>(null);
+  const moveSources = useMemo(() => allMailAccounts.map(account => ({
+    accountId: account.id,
+    label: account.name || account.email,
+    color: account.color,
+    folders: allAccountFolders.get(account.id) ?? [],
+    canImport: Boolean(allProviders.get(account.id)?.importRawMessage),
+    canExport: Boolean(allProviders.get(account.id)?.getRawMessageSource),
+  })), [allMailAccounts, allAccountFolders, allProviders]);
+
+  const transferConversations = async (
+    selected: MailThread[], destinationAccountId: string, folderId: string, operation: 'copy' | 'move',
+  ) => {
+    const destination = allProviders.get(destinationAccountId);
+    if (!destination?.importRawMessage) throw new Error(t('mail.transfer.unsupported', 'Cette destination ne prend pas en charge l’import.'));
+    for (const thread of selected) {
+      const sourceAccountId = thread.accountId ?? selectedAccountId;
+      const source = allProviders.get(sourceAccountId);
+      if (!source?.getRawMessageSource) throw new Error(t('mail.transfer.exportUnsupported', 'Cette source ne permet pas d’exporter la conversation.'));
+      const sourceMessages = await source.getThread(thread.conversation_id, true, false, true);
+      for (const message of sourceMessages.filter(item => !item.is_draft)) {
+        const raw = await source.getRawMessageSource(message.item_id);
+        await destination.importRawMessage(raw, folderId);
+      }
+      if (operation === 'move') await source.bulkMoveToTrash([thread.conversation_id]);
+    }
+    if (operation === 'move') {
+      const movedKeys = new Set(selected.map(thread => `${thread.accountId ?? selectedAccountId}:${thread.conversation_id}`));
+      const selectedKey = selectedThread
+        ? `${selectedThread.accountId ?? selectedAccountId}:${selectedThread.conversation_id}`
+        : null;
+      if (selectedKey && movedKeys.has(selectedKey)) {
+        const currentIndex = threads.findIndex(thread => `${thread.accountId ?? selectedAccountId}:${thread.conversation_id}` === selectedKey);
+        const remaining = threads.filter(thread => !movedKeys.has(`${thread.accountId ?? selectedAccountId}:${thread.conversation_id}`));
+        const next = threads.slice(Math.max(0, currentIndex + 1)).find(thread => !movedKeys.has(`${thread.accountId ?? selectedAccountId}:${thread.conversation_id}`))
+          ?? [...threads.slice(0, Math.max(0, currentIndex))].reverse().find(thread => !movedKeys.has(`${thread.accountId ?? selectedAccountId}:${thread.conversation_id}`))
+          ?? remaining[0]
+          ?? null;
+        if (next) openThread(next);
+        else setSelectedThread(null);
+      }
+      setError(null);
+    }
+    setSelectedThreadIds(new Set());
+    setActionToast({ label: operation === 'copy' ? t('mail.transfer.copied', 'Conversation copiée') : t('mail.transfer.moved', 'Conversation déplacée') });
+    setTimeout(() => setActionToast(null), 5000);
+    await reloadThreads();
+  };
+
+  const handleTransfer = (destinationAccountId: string, folderId: string, operation: 'copy' | 'move') => {
+    if (!selectedThread) return;
+    const sourceAccountId = selectedThread.accountId ?? selectedAccountId;
+    if (destinationAccountId === sourceAccountId) return void handleMove(folderId);
+    void transferConversations([selectedThread], destinationAccountId, folderId, operation).catch(error => {
+      console.error('[mail.transfer] Cross-source conversation transfer failed', error);
+      setActionToast({ label: `${t('mail.transfer.failed', 'Transfert impossible')} — ${error instanceof Error ? error.message : String(error)}` });
+      setTimeout(() => setActionToast(null), 8000);
+    });
+  };
+
+  const handleBulkTransfer = (destinationAccountId: string, folderId: string, operation: 'copy' | 'move') => {
+    const selected = threads.filter(thread => selectedThreadIds.has(thread.conversation_id));
+    const sourceAccountId = selected[0]?.accountId ?? selectedAccountId;
+    if (destinationAccountId === sourceAccountId) return void handleBulkMove(folderId);
+    void transferConversations(selected, destinationAccountId, folderId, operation).catch(error => {
+      console.error('[mail.transfer] Cross-source bulk transfer failed', error);
+      setActionToast({ label: `${t('mail.transfer.failed', 'Transfert impossible')} — ${error instanceof Error ? error.message : String(error)}` });
+      setTimeout(() => setActionToast(null), 8000);
+    });
+  };
   const [messageDeleting, setMessageDeleting] = useState(false);
   const connectionIssues = useConnectionIssues();
   const displayedConnectionIssue = connectionIssues.find(issue => issue.message === error) ?? connectionIssues[0];
@@ -695,6 +764,9 @@ export default function MailApp() {
               onBulkMove={handleMobileBulkMove}
               onBulkToggleRead={handleMobileBulkToggleRead}
               moveFolders={isAllMode ? (allAccountFolders.get(threads.find(thread => selectedThreadIds.has(thread.conversation_id))?.accountId ?? "") ?? allFolders) : allFolders}
+              moveSources={moveSources}
+              moveSourceAccountId={threads.find(thread => selectedThreadIds.has(thread.conversation_id))?.accountId ?? selectedAccountId}
+              onBulkTransfer={handleBulkTransfer}
               supportsSnooze={threads.filter(thread => selectedThreadIds.has(thread.conversation_id)).every(thread => mailCapabilitiesByAccount.get(thread.accountId ?? selectedAccountId)?.snooze === true)}
             />
           )}
@@ -756,6 +828,9 @@ export default function MailApp() {
                     ? (allAccountFolders.get(threads.find(t => selectedThreadIds.has(t.conversation_id))?.accountId ?? '') ?? allFolders)
                     : allFolders
                 }
+                moveSources={moveSources}
+                moveSourceAccountId={threads.find(t => selectedThreadIds.has(t.conversation_id))?.accountId ?? selectedAccountId}
+                onBulkTransfer={handleBulkTransfer}
                 supportsSnooze={
                   selectedThreadIds.size > 0 && threads
                     .filter(thread => selectedThreadIds.has(thread.conversation_id))
@@ -949,6 +1024,9 @@ export default function MailApp() {
                     : allFolders
                 }
                 onMove={handleMove}
+                moveSources={moveSources}
+                moveSourceAccountId={selectedThread.accountId ?? selectedAccountId}
+                onTransfer={handleTransfer}
                 composerRef={composerRef}
               />
             )}

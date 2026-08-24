@@ -111,6 +111,11 @@ export class EwsMailProvider implements MailProvider {
     return invoke<string>('mail_get_raw_message', { accessToken, itemId });
   }
 
+  async importRawMessage(rawMessage: string, folderId: string): Promise<void> {
+    const accessToken = await this.token();
+    return invoke<void>('mail_import_raw_message', { accessToken, rawMessage, folderId });
+  }
+
   async listFolders(): Promise<MailFolder[]> {
     const accessToken = await this.token();
     return invoke<MailFolder[]>('mail_list_folders', { accessToken });

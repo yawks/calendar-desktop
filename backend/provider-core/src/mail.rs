@@ -2196,6 +2196,32 @@ pub async fn mail_get_raw_message(access_token: String, item_id: String) -> Resu
     String::from_utf8(bytes).map_err(|e| format!("Original message is not valid UTF-8: {e}"))
 }
 
+pub async fn mail_import_raw_message(
+    access_token: String,
+    raw_message: String,
+    folder_id: String,
+) -> Result<(), String> {
+    let folder = match folder_id.as_str() {
+        "inbox" | "sentitems" | "drafts" | "deleteditems" => {
+            format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, folder_id)
+        }
+        "spam" => r#"<t:DistinguishedFolderId Id="junkemail"/>"#.to_string(),
+        id => format!(r#"<t:FolderId Id="{}"/>"#, xml_escape(id)),
+    };
+    let mime = BASE64.encode(raw_message.as_bytes());
+    let soap_body = format!(
+        r#"<m:CreateItem MessageDisposition="SaveOnly">
+  <m:SavedItemFolderId>{folder}</m:SavedItemFolderId>
+  <m:Items><t:Message><t:MimeContent CharacterSet="UTF-8">{mime}</t:MimeContent></t:Message></m:Items>
+</m:CreateItem>"#
+    );
+    let xml = send(&access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS message import error"));
+    }
+    Ok(())
+}
+
 pub async fn mail_send(
     access_token: String,
     to: Vec<String>,

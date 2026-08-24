@@ -155,6 +155,13 @@ struct EwsMove {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct EwsImport {
+    access_token: String,
+    raw_message: String,
+    folder_id: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EwsBulkMove {
     access_token: String,
     item_ids: Vec<String>,
@@ -263,6 +270,13 @@ struct JmapItem {
 struct JmapRawItem {
     config: crate::jmap::JmapConfig,
     item_id: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JmapImport {
+    config: crate::jmap::JmapConfig,
+    raw_message: String,
+    folder_id: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -716,6 +730,13 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
             let a: EwsItem = args(value)?;
             output(crate::mail::mail_get_raw_message(a.access_token, a.item_id).await)
         }
+        "mail_import_raw_message" => {
+            let a: EwsImport = args(value)?;
+            output(
+                crate::mail::mail_import_raw_message(a.access_token, a.raw_message, a.folder_id)
+                    .await,
+            )
+        }
         "mail_mark_read" => {
             let a: EwsItems = args(value)?;
             output(crate::mail::mail_mark_read(a.access_token, a.items).await)
@@ -884,6 +905,18 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
             let a: JmapRawItem = args(value)?;
             output(crate::jmap::jmap_get_raw_message(jmap_state(), a.config, a.item_id).await)
         }
+        "jmap_import_raw_message" => {
+            let a: JmapImport = args(value)?;
+            output(
+                crate::jmap::jmap_import_raw_message(
+                    jmap_state(),
+                    a.config,
+                    a.raw_message,
+                    a.folder_id,
+                )
+                .await,
+            )
+        }
         "jmap_list_identities" => {
             let a: JmapBase = args(value)?;
             output(crate::jmap::jmap_list_identities(jmap_state(), a.config).await)
@@ -1030,6 +1063,19 @@ async fn google_refresh(request: GoogleRefresh) -> CommandResult {
         .as_millis() as u64
         + expires_in * 1000;
     Ok(serde_json::json!({ "access_token": value["access_token"], "expires_at": expires_at }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cross_source_import_commands_are_registered() {
+        for command in ["mail_import_raw_message", "jmap_import_raw_message"] {
+            let error = dispatch(command, serde_json::json!({})).await.unwrap_err();
+            assert_eq!(error.code, "invalid_arguments", "{command} was not routed");
+        }
+    }
 }
 
 async fn google_exchange_code(request: GoogleCodeExchange) -> CommandResult {

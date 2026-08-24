@@ -60,6 +60,9 @@ export interface ThreadDetailProps {
   readonly onUnsnooze: () => void;
   readonly moveFolders: import('../types').MailFolder[];
   readonly onMove: (folderId: string) => void;
+  readonly moveSources?: React.ComponentProps<typeof FolderPickerPopover>['sources'];
+  readonly moveSourceAccountId?: string;
+  readonly onTransfer?: (accountId: string, folderId: string, operation: 'copy' | 'move') => void;
   readonly isInSpamFolder?: boolean;
   readonly onMarkAsSpam?: () => void;
   readonly composerRef?: React.RefObject<MailComposerHandle>;
@@ -100,7 +103,7 @@ export function ThreadDetail({
   replyMode, onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
   supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, isInScheduledFolder, onScheduledSendCanceled, onUnsnooze,
-  moveFolders, onMove, isInSpamFolder, onMarkAsSpam, composerRef,
+  moveFolders, onMove, moveSources, moveSourceAccountId, onTransfer, isInSpamFolder, onMarkAsSpam, composerRef,
   sourceLabel, sourceColor,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
@@ -305,6 +308,9 @@ export function ThreadDetail({
               <FolderPickerPopover
                 folders={moveFolders}
                 onSelect={folderId => { onMove(folderId); setMoveOpen(false); }}
+                sources={moveSources}
+                currentAccountId={moveSourceAccountId}
+                onSelectDestination={onTransfer ? (accountId, folderId, operation) => { onTransfer(accountId, folderId, operation); setMoveOpen(false); } : undefined}
                 onClose={() => setMoveOpen(false)}
               />
             </>

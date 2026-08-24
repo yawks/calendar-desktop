@@ -1301,6 +1301,16 @@
 .folder-picker__empty {
   padding: 12px 10px; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-muted); text-align: center;
 }
+.folder-picker__source + .folder-picker__source { border-top: 2px solid color-mix(in srgb, var(--border) 70%, var(--text-muted)); margin-top: 8px; padding-top: 6px; }
+.folder-picker__source-label { display: flex; align-items: center; gap: 7px; margin: 0 3px 4px; padding: 6px 7px; border-radius: 5px; background: var(--bg-hover); color: var(--text); font-size: 11px; font-weight: 700; }
+.folder-picker__source-label i { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
+.folder-picker__source-unavailable { padding: 5px 8px 8px 22px; color: var(--text-muted); font-size: 11px; font-style: italic; }
+.folder-picker__transfer-confirm { display: flex; flex-direction: column; gap: 8px; padding: 6px 7px 8px; font-size: 12px; }
+.folder-picker__back { align-self: flex-start; padding: 2px 0; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
+.folder-picker__operation { display: flex; align-items: flex-start; gap: 8px; padding: 7px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.folder-picker__operation span { display: flex; flex-direction: column; gap: 2px; }
+.folder-picker__operation small { color: var(--text-muted); line-height: 1.3; }
+.folder-picker__confirm { align-self: flex-end; padding: 6px 12px; border: 0; border-radius: 6px; background: var(--primary); color: white; cursor: pointer; }
 
 /* Full-headers panel (below header row, above body) */
 .mail-message-block__headers-panel {
