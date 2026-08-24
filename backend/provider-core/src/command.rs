@@ -136,6 +136,13 @@ struct EwsItem {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct EwsSnooze {
+    access_token: String,
+    item_id: String,
+    until: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EwsItems {
     access_token: String,
     items: Vec<crate::mail_provider::MailItemRef>,
@@ -705,6 +712,19 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
             let a: EwsConversation = args(value)?;
             output(crate::mail::mail_get_thread_snippet(a.access_token, a.conversation_id).await)
         }
+        "mail_get_thread" => {
+            let a: EwsHeaders = args(value)?;
+            output(
+                crate::mail::mail_get_thread(
+                    a.access_token,
+                    a.conversation_id,
+                    a.include_trash,
+                    a.is_draft,
+                    a.include_drafts,
+                )
+                .await,
+            )
+        }
         "mail_get_thread_headers" => {
             let a: EwsHeaders = args(value)?;
             output(
@@ -785,8 +805,8 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
             output(crate::mail::mail_move_to_folder(a.access_token, a.item_id, a.folder_id).await)
         }
         "mail_snooze" => {
-            let a: EwsItem = args(value)?;
-            output(crate::mail::mail_snooze(a.access_token, a.item_id).await)
+            let a: EwsSnooze = args(value)?;
+            output(crate::mail::mail_snooze(a.access_token, a.item_id, a.until).await)
         }
         "mail_search_contacts" => {
             let a: EwsContact = args(value)?;
@@ -1075,6 +1095,25 @@ mod tests {
             let error = dispatch(command, serde_json::json!({})).await.unwrap_err();
             assert_eq!(error.code, "invalid_arguments", "{command} was not routed");
         }
+    }
+
+    #[tokio::test]
+    async fn ews_thread_command_is_registered() {
+        let error = dispatch("mail_get_thread", serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "invalid_arguments");
+    }
+
+    #[tokio::test]
+    async fn ews_snooze_requires_a_date() {
+        let error = dispatch(
+            "mail_snooze",
+            serde_json::json!({ "accessToken": "token", "itemId": "item" }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_arguments");
     }
 }
 

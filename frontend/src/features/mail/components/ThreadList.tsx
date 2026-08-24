@@ -277,8 +277,8 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     if (loading) {
       return (
         <div className="mail-thread-list-wrapper">
+          {toolbar}
           <div className="mail-thread-list mail-thread-list--loading">
-            {toolbar}
             {Array.from({ length: 12 }, (_, index) => (
               <div className="mail-thread-list-skeleton" key={index} aria-hidden="true">
                 <span className="mail-thread-list-skeleton__avatar" />
@@ -308,9 +308,9 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     if (visibleThreads.length === 0) {
       return (
         <div className="mail-thread-list-wrapper">
+          {toolbar}
           <div className="mail-thread-list" ref={containerRef}>
             {pullIndicator}
-            {toolbar}
             <div className="mail-thread-list--empty">
               {isSearchMode
                 ? <SearchX size={40} strokeWidth={1} style={{ opacity: 0.25 }} />
@@ -329,9 +329,9 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
 
     return (
       <div className="mail-thread-list-wrapper">
+        {toolbar}
         <div className="mail-thread-list" ref={containerRef}>
           {pullIndicator}
-          {toolbar}
           {selectedThreadIds.size > 0 && (
             <div className="mail-mobile-selection-header">
               <strong>{selectedThreadIds.size} sélectionnée{selectedThreadIds.size > 1 ? "s" : ""}</strong>

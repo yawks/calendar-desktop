@@ -26,6 +26,18 @@ import { useOfflineMailSettings } from '../../../shared/store/OfflineMailStore';
 import { removeOfflineInboxMessages } from '../utils/offlineMailCache';
 import { clearConnectionIssue, isConnectionFailure, reportConnectionIssue } from '../../../shared/store/ConnectionIssueStore';
 
+const threadIdentity = (thread: MailThread) => `${thread.accountId ?? ''}:${thread.conversation_id}`;
+
+function deduplicateThreads(threads: MailThread[]): MailThread[] {
+  const seen = new Set<string>();
+  return threads.filter(thread => {
+    const identity = threadIdentity(thread);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
 export function useMailPageLogic() {
   const { t } = useTranslation();
   const { accounts: ewsAccounts, getValidToken: getEwsToken } = useExchangeAuth();
@@ -169,7 +181,7 @@ export function useMailPageLogic() {
   // ce qui empêche tout refetch (focus fenêtre, interval 60s) de les faire réapparaître.
   const [pendingRemovalIds, setPendingRemovalIds] = useState<Set<string>>(new Set());
   const threads = useMemo(
-    () => stableThreads.filter(t => !pendingRemovalIds.has(t.conversation_id)),
+    () => deduplicateThreads(stableThreads).filter(t => !pendingRemovalIds.has(t.conversation_id)),
     [stableThreads, pendingRemovalIds],
   );
 
@@ -206,21 +218,28 @@ export function useMailPageLogic() {
   // Only reset when the user navigates to a different folder/account/search.
   useEffect(() => {
     if (threadOffset === 0) {
-      setStableThreads(rawThreads);
+      setStableThreads(deduplicateThreads(rawThreads));
       return;
     }
     if (rawThreads.length === 0) return;
     setStableThreads(previous => {
-      const known = new Set(previous.map(thread => `${thread.accountId ?? ''}:${thread.conversation_id}`));
-      const next = rawThreads.filter(thread => !known.has(`${thread.accountId ?? ''}:${thread.conversation_id}`));
-      return next.length ? [...previous, ...next] : previous;
+      const uniquePrevious = deduplicateThreads(previous);
+      const known = new Set(uniquePrevious.map(threadIdentity));
+      const next = rawThreads.filter(thread => {
+        const identity = threadIdentity(thread);
+        if (known.has(identity)) return false;
+        known.add(identity);
+        return true;
+      });
+      if (next.length) return [...uniquePrevious, ...next];
+      return uniquePrevious.length === previous.length ? previous : uniquePrevious;
     });
   }, [rawThreads, threadOffset]);
 
   useEffect(() => {
     // Initialise immediately with whatever the cache already has (may be [] if uncached).
     // Using the ref avoids a stale closure while keeping rawThreads out of the dep array.
-    setStableThreads(rawThreadsRef.current);
+    setStableThreads(deduplicateThreads(rawThreadsRef.current));
     setThreadOffset(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, selectedFolder, searchQuery]);

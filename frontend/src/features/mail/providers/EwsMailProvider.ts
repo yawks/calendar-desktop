@@ -223,9 +223,9 @@ export class EwsMailProvider implements MailProvider {
     return invoke('mail_move_to_folder', { accessToken, itemId, folderId });
   }
 
-  async snooze(itemId: string): Promise<string> {
+  async snooze(itemId: string, until?: string): Promise<string> {
     const accessToken = await this.token();
-    return invoke<string>('mail_snooze', { accessToken, itemId });
+    return invoke<string>('mail_snooze', { accessToken, itemId, until });
   }
 
   async getInboxUnread(): Promise<number> {

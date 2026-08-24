@@ -1,4 +1,7 @@
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 
 use crate::ews::{xml_all_ns, xml_attr, xml_content, xml_content_ns};
 use crate::mail_provider::{
@@ -7,6 +10,8 @@ use crate::mail_provider::{
 };
 
 const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
+const OUTLOOK_SERVICE_ENDPOINT: &str =
+    "https://outlook.office365.com/outlookservice/servicechannel.hxs";
 
 // ── EwsProvider ───────────────────────────────────────────────────────────────
 
@@ -300,6 +305,221 @@ async fn update_is_read(
     if xml.contains("ResponseClass=\"Error\"") || xml.contains("ResponseClass=\"Warning\"") {
         let label = if is_read { "mark-read" } else { "mark-unread" };
         return Err(ews_err(&xml, &format!("EWS {} error", label)));
+    }
+    Ok(())
+}
+
+async fn set_snooze_time(access_token: &str, item_id: &str, until: &str) -> Result<(), String> {
+    let until = chrono::DateTime::parse_from_rfc3339(until)
+        .map_err(|error| format!("Invalid snooze date: {error}"))?
+        .with_timezone(&chrono::Utc);
+    if until <= chrono::Utc::now() {
+        return Err("Snooze date must be in the future".to_string());
+    }
+    let until = until.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+    // UpdateItem is a write operation and Exchange Online requires the latest
+    // ChangeKey even when the caller only has the stable EWS item id.
+    let get_xml = send(
+        access_token,
+        &format!(
+            r#"<m:GetItem>
+  <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
+  <m:ItemIds><t:ItemId Id="{}"/></m:ItemIds>
+</m:GetItem>"#,
+            xml_escape(item_id)
+        ),
+    )
+    .await?;
+    if get_xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&get_xml, "EWS get snoozed item error"));
+    }
+    let (current_item_id, change_key) = parse_item_id(&get_xml)
+        .ok_or_else(|| "EWS GetItem returned no ChangeKey for snooze".to_string())?;
+
+    let soap_body = format!(
+        r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AutoResolve">
+  <m:ItemChanges>
+    <t:ItemChange>
+      <t:ItemId Id="{item_id}" ChangeKey="{change_key}"/>
+      <t:Updates>
+        <t:SetItemField>
+          <t:ExtendedFieldURI PropertyTag="0x0F07" PropertyType="SystemTime"/>
+          <t:Message>
+            <t:ExtendedProperty>
+              <t:ExtendedFieldURI PropertyTag="0x0F07" PropertyType="SystemTime"/>
+              <t:Value>{until}</t:Value>
+            </t:ExtendedProperty>
+          </t:Message>
+        </t:SetItemField>
+      </t:Updates>
+    </t:ItemChange>
+  </m:ItemChanges>
+</m:UpdateItem>"#,
+        item_id = xml_escape(&current_item_id),
+        change_key = xml_escape(&change_key),
+    );
+    let xml = send(access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") || xml.contains("ResponseClass=\"Warning\"") {
+        return Err(ews_err(&xml, "EWS set snooze date error"));
+    }
+    Ok(())
+}
+
+/// Convert an opaque EWS id to the MAPI EntryId expected by Outlook's private
+/// ScheduleMessage command. Outlook calls the hexadecimal representation an ImmId.
+fn token_mailbox(access_token: &str) -> Option<String> {
+    let payload = access_token.split('.').nth(1)?;
+    let decoded = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    ["preferred_username", "upn", "email"]
+        .iter()
+        .find_map(|claim| claims.get(claim)?.as_str().map(str::to_string))
+}
+
+async fn ews_id_to_imm_id(
+    access_token: &str,
+    item_id: &str,
+    mailbox: &str,
+) -> Result<String, String> {
+    let soap_body = format!(
+        r#"<m:ConvertId DestinationFormat="EntryId">
+  <m:SourceIds>
+    <t:AlternateId Format="EwsId" Id="{}" Mailbox="{}"/>
+  </m:SourceIds>
+</m:ConvertId>"#,
+        xml_escape(item_id),
+        xml_escape(mailbox)
+    );
+    let xml = send(access_token, &soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS ConvertId error"));
+    }
+    let alternate = xml
+        .find("<t:AlternateId ")
+        .or_else(|| xml.find("<AlternateId "))
+        .and_then(|start| xml[start..].find("/>").map(|end| &xml[start..start + end]))
+        .ok_or_else(|| "EWS ConvertId returned no EntryId".to_string())?;
+    let entry_id = xml_attr(alternate, "Id")
+        .ok_or_else(|| "EWS ConvertId returned an empty EntryId".to_string())?;
+    let bytes = BASE64
+        .decode(
+            entry_id
+                .chars()
+                .filter(|c| !c.is_ascii_whitespace())
+                .collect::<String>(),
+        )
+        .map_err(|error| format!("Invalid EntryId returned by EWS: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02X}")).collect())
+}
+
+fn wbxml_mbuint(mut value: usize, output: &mut Vec<u8>) {
+    let mut encoded = [0_u8; 10];
+    let mut index = encoded.len();
+    loop {
+        index -= 1;
+        encoded[index] = (value & 0x7f) as u8;
+        value >>= 7;
+        if value == 0 {
+            break;
+        }
+        encoded[index] |= 0x80;
+    }
+    output.extend_from_slice(&encoded[index..]);
+}
+
+fn outlook_schedule_wbxml(imm_id: &str, until: &str) -> Vec<u8> {
+    let names = [
+        "ScheduleMessage",
+        "ScheduleMessageItem",
+        "ImmId",
+        "ScheduledReturnTime",
+        "ApplyToConversation",
+        "Unschedule",
+    ];
+    let mut string_table = Vec::new();
+    let offsets = names
+        .iter()
+        .map(|name| {
+            let offset = string_table.len();
+            string_table.extend_from_slice(name.as_bytes());
+            string_table.push(0);
+            offset
+        })
+        .collect::<Vec<_>>();
+
+    // WBXML 1.3, unknown public id, UTF-8. LITERAL_C elements reference the
+    // string table, avoiding Microsoft's unpublished codepage numbers.
+    let mut body = vec![0x03, 0x01, 0x6a];
+    wbxml_mbuint(string_table.len(), &mut body);
+    body.extend_from_slice(&string_table);
+    let open = |offset: usize, output: &mut Vec<u8>| {
+        output.push(0x44); // LITERAL with content
+        wbxml_mbuint(offset, output);
+    };
+    let text_element = |offset: usize, value: &str, output: &mut Vec<u8>| {
+        open(offset, output);
+        output.push(0x03); // STR_I
+        output.extend_from_slice(value.as_bytes());
+        output.push(0);
+        output.push(0x01); // END
+    };
+    open(offsets[0], &mut body);
+    open(offsets[1], &mut body);
+    text_element(offsets[2], imm_id, &mut body);
+    text_element(offsets[3], until, &mut body);
+    text_element(offsets[4], "1", &mut body);
+    body.push(0x01);
+    text_element(offsets[5], "0", &mut body);
+    body.push(0x01);
+    body
+}
+
+fn outlook_frame(payload: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(payload.len() + 48);
+    frame.push(0x13);
+    frame.extend_from_slice(b"~StartOutlookFrame~");
+    frame.extend_from_slice(&(payload.len() as i32).to_le_bytes());
+    frame.extend_from_slice(&0_i32.to_le_bytes());
+    frame.extend_from_slice(&(payload.len() as i32).to_le_bytes());
+    frame.extend_from_slice(payload);
+    frame.push(0x11);
+    frame.extend_from_slice(b"~EndOutlookFrame~");
+    frame
+}
+
+/// Try Outlook's private native snooze operation. This is intentionally kept
+/// separate from the EWS fallback because the endpoint is undocumented.
+async fn outlook_schedule_message(
+    access_token: &str,
+    item_id: &str,
+    until: &str,
+) -> Result<(), String> {
+    let until = chrono::DateTime::parse_from_rfc3339(until)
+        .map_err(|error| format!("Invalid snooze date: {error}"))?
+        .with_timezone(&chrono::Utc)
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string();
+    let mailbox = token_mailbox(access_token)
+        .ok_or_else(|| "Outlook ScheduleMessage could not determine the mailbox".to_string())?;
+    let imm_id = ews_id_to_imm_id(access_token, item_id, &mailbox).await?;
+    let payload = outlook_schedule_wbxml(&imm_id, &until);
+    let response = reqwest::Client::new()
+        .post(OUTLOOK_SERVICE_ENDPOINT)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header("Accept", "application/http.wbxml")
+        .header("Content-Type", "application/http.wbxml")
+        .header("X-OSApi-Protocol", "HttpSockets:1.1")
+        .header("X-CommandId", "152")
+        .header("X-AnchorMailbox", &mailbox)
+        .header("User-Agent", "Courrier/1.0")
+        .body(outlook_frame(&payload))
+        .send()
+        .await
+        .map_err(|error| format!("Outlook ScheduleMessage request failed: {error}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("Outlook ScheduleMessage HTTP {status}"));
     }
     Ok(())
 }
@@ -2358,7 +2578,22 @@ pub async fn mail_move_to_folder(
         .await
 }
 
-pub async fn mail_snooze(access_token: String, item_id: String) -> Result<String, String> {
+pub async fn mail_snooze(
+    access_token: String,
+    item_id: String,
+    until: String,
+) -> Result<String, String> {
+    match outlook_schedule_message(&access_token, &item_id, &until).await {
+        Ok(()) => {
+            // Native Outlook scheduling performs the move itself and exposes
+            // the wake-up date in Outlook clients.
+            return Ok("snoozed".to_string());
+        }
+        Err(error) => {
+            eprintln!("[mail_snooze] Native Outlook scheduling unavailable: {error}");
+        }
+    }
+    set_snooze_time(&access_token, &item_id, &until).await?;
     EwsProvider::new(access_token).snooze(&item_id).await
 }
 
@@ -2843,4 +3078,44 @@ fn xml_unescape_body(raw: &str) -> String {
         .replace("&#xd;", "\r")
         .replace("&#x9;", "\t")
         .replace("&amp;", "&")
+}
+
+#[cfg(test)]
+mod outlook_schedule_tests {
+    use super::*;
+
+    #[test]
+    fn schedule_payload_contains_the_native_outlook_fields() {
+        let payload = outlook_schedule_wbxml("0009002E01234567", "2026-08-24T15:00:00.000Z");
+        for expected in [
+            "ScheduleMessage",
+            "ScheduleMessageItem",
+            "ImmId",
+            "ScheduledReturnTime",
+            "ApplyToConversation",
+            "Unschedule",
+            "0009002E01234567",
+            "2026-08-24T15:00:00.000Z",
+        ] {
+            assert!(
+                payload
+                    .windows(expected.len())
+                    .any(|part| part == expected.as_bytes()),
+                "missing {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn outlook_frame_has_expected_markers_and_lengths() {
+        let payload = [1_u8, 2, 3, 4];
+        let frame = outlook_frame(&payload);
+        assert!(frame.starts_with(b"\x13~StartOutlookFrame~"));
+        assert!(frame.ends_with(b"\x11~EndOutlookFrame~"));
+        let length_start = b"\x13~StartOutlookFrame~".len();
+        assert_eq!(
+            &frame[length_start..length_start + 12],
+            &[4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0]
+        );
+    }
 }
