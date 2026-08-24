@@ -83,7 +83,7 @@ export function useMailPageLogic() {
     ...account,
     provider: allProviders.get(account.id) ?? null,
   })), [allMailAccounts, allProviders]);
-  const synchronizeOfflineMail = useOfflineMailSync(backfillAccounts);
+  const { synchronize: synchronizeOfflineMail, isSynchronizing: offlineMailSynchronizing } = useOfflineMailSync(backfillAccounts);
   const contactBackfillStatus = useContactBackfill(backfillAccounts);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
@@ -95,6 +95,7 @@ export function useMailPageLogic() {
   const [selectedFolder, setSelectedFolder] = useState<Folder>('inbox');
   const [selectedFolderAccountId, setSelectedFolderAccountId] = useState<string | undefined>();
   const [selectedThread, setSelectedThread] = useState<MailThread | null>(null);
+  const preserveThreadOnAccountChangeRef = useRef(false);
   // Needed before queries so we can load identities for the composing account in all-mode
   const [composingAccountId, setComposingAccountId] = useState<string>(() => allMailAccounts[0]?.id ?? '');
 
@@ -225,6 +226,10 @@ export function useMailPageLogic() {
   }, [selectedAccountId, selectedFolder, searchQuery]);
 
   useEffect(() => {
+    if (preserveThreadOnAccountChangeRef.current) {
+      preserveThreadOnAccountChangeRef.current = false;
+      return;
+    }
     setSelectedThread(null);
     setReplyingTo(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -631,6 +636,17 @@ export function useMailPageLogic() {
     setSelectedFolder(folder);
   }, []);
 
+  // A notification already provides enough metadata to display a thread
+  // immediately. Adopt its Inbox context without clearing that thread; the
+  // regular Inbox query then fills its real index and neighbours in background.
+  const adoptNotificationInboxContext = useCallback((accountId: string) => {
+    if (selectedAccountId !== accountId) preserveThreadOnAccountChangeRef.current = true;
+    setSelectedFolderAccountId(undefined);
+    setSelectedFolder('inbox');
+    setSearchQuery(null);
+    setSelectedAccountId(accountId);
+  }, [selectedAccountId]);
+
   const openThread = useCallback((thread: MailThread) => {
     setSelectedThread(thread);
   }, []);
@@ -715,8 +731,10 @@ export function useMailPageLogic() {
 
   const selectNextThread = useCallback((threadId: string) => {
     const currentIndex = threads.findIndex(t => t.conversation_id === threadId);
-    if (currentIndex !== -1 && selectedThread?.conversation_id === threadId) {
-        const nextThread = threads[currentIndex + 1] ?? threads[currentIndex - 1] ?? null;
+    if (selectedThread?.conversation_id === threadId) {
+        const nextThread = currentIndex === -1
+          ? threads[0] ?? null
+          : threads[currentIndex + 1] ?? threads[currentIndex - 1] ?? null;
         if (nextThread) {
             openThread(nextThread);
         } else {
@@ -1335,14 +1353,17 @@ export function useMailPageLogic() {
   }, [threadListWidth]);
 
   return {
-    t, preference, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
-    threads, threadsLoading: threadsInitialLoading && threadOffset === 0, threadsRefreshing: threadsFetching && stableThreads.length > 0 && threadOffset === 0, threadsLoadingMore, hasMoreThreads, threadTotalCount, selectedThread,
+    t, preference, allMailAccounts, selectedAccountId, isAllMode, selectedFolder, selectedFolderAccountId,
+    threads,
+    threadsLoading: threadsInitialLoading && threadOffset === 0,
+    threadsRefreshing: threadOffset === 0 && (threadsFetching || offlineMailSynchronizing),
+    threadsLoadingMore, hasMoreThreads, threadTotalCount, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
     contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts: allFoldersQuery.mergedCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
-    selectAccount, selectFolder, setComposing, setComposingAccountId,
+    selectAccount, selectFolder, adoptNotificationInboxContext, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, cycleTheme, loadThreads, reloadThreads, loadMoreThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleDeleteMessage, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,

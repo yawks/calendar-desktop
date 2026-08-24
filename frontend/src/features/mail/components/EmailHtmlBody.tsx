@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useFontSize } from '../../../shared/store/FontSizeStore';
@@ -35,7 +35,6 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   const isDark = resolved === 'dark';
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const [iframeHeight, setIframeHeight] = useState(200);
 
   const bgRaw = getComputedStyle(document.documentElement).getPropertyValue('--bg');
   const bgParsed = parseHexColor(bgRaw) ?? [28, 30, 32];
@@ -43,10 +42,6 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   const bgCss = `rgb(${bgR}, ${bgG}, ${bgB})`;
 
   useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
-
-  useEffect(() => {
-    setIframeHeight(200);
-  }, [html, bodyText, resolved, fontSize]);
 
   const kr = ((255 + bgR) / 255).toFixed(4);
   const kg = ((255 + bgG) / 255).toFixed(4);
@@ -93,17 +88,13 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   // queries instead of the iframe width. Apply the mobile constraints without
   // a media query there so fixed-width email templates cannot escape the frame.
   const responsiveWidthRules = `
-    .ew, .ew * {
+    .ew {
+      width: 100% !important;
       max-width: 100% !important;
       min-width: 0 !important;
     }
-    .ew table {
+    .ew > table {
       width: 100% !important;
-      table-layout: fixed;
-    }
-    .ew td, .ew th {
-      overflow-wrap: anywhere;
-      word-break: break-word;
     }
     .ew img, .ew video, .ew canvas, .ew svg {
       max-width: 100% !important;
@@ -127,21 +118,6 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
       root.style.setProperty('max-width', '100%', 'important');
       root.style.setProperty('min-width', '0', 'important');
       root.style.setProperty('overflow-x', 'hidden', 'important');
-      root.querySelectorAll<HTMLElement>('*').forEach(element => {
-        element.style.setProperty('max-width', '100%', 'important');
-        element.style.setProperty('min-width', '0', 'important');
-        if (element.matches('table')) {
-          element.style.setProperty('width', '100%', 'important');
-          element.style.setProperty('table-layout', 'fixed', 'important');
-        }
-        if (element.matches('td, th')) {
-          element.style.setProperty('overflow-wrap', 'anywhere', 'important');
-          element.style.setProperty('word-break', 'break-word', 'important');
-        }
-        if (element.matches('img, video, canvas, svg')) {
-          element.style.setProperty('height', 'auto', 'important');
-        }
-      });
 
       const fitToFrameWidth = () => {
         root.style.removeProperty('zoom');
@@ -199,19 +175,25 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
       });
     }
 
-    const resize = () => {
+    const resize = (reveal = false) => {
       const height = Math.max(
         doc.body.scrollHeight, doc.body.offsetHeight,
         doc.documentElement.scrollHeight, doc.documentElement.offsetHeight,
       );
-      if (height > 0) setIframeHeight(height + 4);
+      if (height <= 0) return;
+
+      // Apply the initial measurement directly to the element. Going through
+      // React here lets WebView paint the arbitrary fallback height for one
+      // frame, which makes the message visibly grow after it appears.
+      frame.style.height = `${height + 4}px`;
+      if (reveal) frame.style.visibility = 'visible';
     };
     resizeObserverRef.current?.disconnect();
-    const observer = new ResizeObserver(resize);
+    const observer = new ResizeObserver(() => resize());
     observer.observe(doc.body);
     observer.observe(doc.documentElement);
     resizeObserverRef.current = observer;
-    doc.addEventListener('load', resize, true);
+    doc.addEventListener('load', () => resize(), true);
     doc.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
       const href = anchor.href;
       if (!href || href.startsWith('javascript:')) {
@@ -231,7 +213,13 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
         if (event.key === 'Enter') openLink(event);
       }, true);
     });
-    resize();
+    if (platform.isNativeAndroid) {
+      // Android may finish its width-constraining layout on the next frame.
+      // Keep the frame hidden until that final layout has been measured.
+      requestAnimationFrame(() => resize(true));
+    } else {
+      resize(true);
+    }
   };
 
   const srcdoc = `<!DOCTYPE html>
@@ -280,13 +268,14 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
 
   return (
     <iframe
+      key={srcdoc}
       ref={iframeRef}
       srcDoc={srcdoc}
       sandbox="allow-same-origin allow-scripts"
       onLoad={handleFrameLoad}
       className="mail-email-iframe"
       title="email-body"
-      style={{ height: iframeHeight }}
+      style={{ height: 0, visibility: 'hidden' }}
     />
   );
 }

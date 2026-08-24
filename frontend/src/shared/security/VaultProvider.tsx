@@ -10,6 +10,7 @@ import { getTauriInvoke } from '../platform/tauriRuntime';
 const DB_KEY = 'courrier-encrypted-vault-v1';
 const ITERATIONS = 600_000;
 const LOCK_AFTER_MS = 30 * 60 * 1000;
+const BIOMETRIC_TIMEOUT_MS = 15_000;
 const LEGACY_KEYS = [
   'calendar-desktop-google-accounts',
   'calendar-desktop-exchange-accounts',
@@ -20,6 +21,18 @@ const LEGACY_KEYS = [
 ] as const;
 
 type VaultPayload = Record<string, unknown>;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Biometric authentication timed out')), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
 interface VaultContextValue {
   read<T>(key: string, fallback: T): T;
   write<T>(key: string, value: T): void;
@@ -201,7 +214,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     if (!stored) return;
     setBusy(true); setError('');
     try {
-      const key = await unlockWithBiometrics();
+      const key = await withTimeout(unlockWithBiometrics(), BIOMETRIC_TIMEOUT_MS);
       const nextPayload = await decryptVaultWithKey<VaultPayload>(stored, key);
       keyRef.current = key;
       payloadRef.current = nextPayload;

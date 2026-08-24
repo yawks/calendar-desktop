@@ -5,7 +5,6 @@ import { buildUnreadCounts, DISPLAY_TO_STATIC } from '../utils';
 import { useMemo, useCallback } from 'react';
 import { getOfflineConversation, getOfflineInboxThreads } from '../utils/offlineMailCache';
 import { isTemporaryMailServiceError } from '../../../shared/utils/networkError';
-import { useOfflineMailSettings } from '../../../shared/store/OfflineMailStore';
 
 export const MAIL_KEYS = {
   all: ['mail'] as const,
@@ -124,16 +123,11 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
 }
 
 export function useMailThreads(accountId: string, folder: Folder, provider: MailProvider | null, limit = 50, offset = 0) {
-  const { settings: offlineMail } = useOfflineMailSettings();
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: [...MAIL_KEYS.threads(accountId, folder), limit, offset],
     queryFn: async () => {
       if (!provider) throw new Error('No provider');
       let threads: MailThread[];
-      const cached = offlineMail.enabled && folder === 'inbox'
-        ? await getOfflineInboxThreads(accountId)
-        : null;
-      if (cached) return cached.slice(offset, offset + limit);
       try {
         threads = await provider.listThreads(folder, limit, offset);
       } catch (error) {
@@ -157,32 +151,22 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
 }
 
 export function useAllAccountThreads(folder: Folder, accounts: { id: string; provider: MailProvider | null; label: string; color?: string }[], limit = 50, offset = 0, enabled = true) {
-  const { settings: offlineMail } = useOfflineMailSettings();
   const results = useQueries({
     queries: accounts.map((acc) => ({
       queryKey: [...MAIL_KEYS.threads(acc.id, folder), limit, offset],
       queryFn: async () => {
         if (!acc.provider) throw new Error('No provider');
         let threads: MailThread[];
-        const cached = offlineMail.enabled && folder === 'inbox'
-          ? await getOfflineInboxThreads(acc.id)
-          : null;
-        if (cached) {
-          threads = cached.slice(offset, offset + limit);
-        } else try {
+        try {
           threads = await acc.provider.listThreads(folder, limit, offset);
         } catch (error) {
           const fallback = folder === 'inbox' ? await getOfflineInboxThreads(acc.id) : null;
           if (!fallback) throw error;
           threads = fallback.slice(offset, offset + limit);
         }
-        return threads.map(t => ({
-          ...t,
-          unread_count: folder === 'sentitems' ? 0 : t.unread_count,
-          accountId: acc.id,
-          accountLabel: acc.label,
-          accountColor: acc.color
-        }));
+        // Keep the shared per-account cache provider-shaped. Unified-view
+        // presentation metadata is added below whenever the cache is read.
+        return threads;
       },
       enabled: enabled && !!acc.provider,
       refetchInterval: 60 * 1000,
@@ -199,10 +183,19 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
 
   const data = useMemo(() => {
     return results
-      .flatMap((r) => (r.data ? r.data : []))
+      .flatMap((result, index) => {
+        const account = accounts[index];
+        return (result.data ?? []).map(thread => ({
+          ...thread,
+          unread_count: folder === 'sentitems' ? 0 : thread.unread_count,
+          accountId: account.id,
+          accountLabel: account.label,
+          accountColor: account.color,
+        }));
+      })
       .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataTimestamps]);
+  }, [dataTimestamps, accounts, folder]);
 
   const errors = useMemo(() =>
     results.flatMap((r, index) => r.error ? [{ accountId: accounts[index].id, error: r.error as Error }] : []),

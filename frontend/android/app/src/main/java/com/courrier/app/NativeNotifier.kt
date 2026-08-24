@@ -1,7 +1,6 @@
 package com.courrier.app
 
 import android.app.NotificationChannel
-import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -31,13 +30,19 @@ class NativeNotifier(private val context: Context) {
             Log.i(TAG, "Notification skipped: disabled by user")
             return
         }
-        Log.i(TAG, "Posting ${messages.size} notification(s) for account=${account.id}")
-        val group = "courrier.account." + account.id
+        migrateLegacyNotifications(account.id)
         val active = notificationMap(account.id)
+        val conversations = messages.groupBy(NewMessage::conversationId).mapValues { it.value.last() }
+        val changed = conversations.filter { (conversationId, message) -> active[conversationId] != message.id }
+        if (changed.isEmpty()) {
+            Log.i(TAG, "Notification update skipped: no new message for account=${account.id}")
+            return
+        }
+        Log.i(TAG, "Posting ${changed.size} conversation notification(s) for account=${account.id}")
         val details = notificationDetails(account.id)
-        val grouped = (active.keys + messages.map { it.id }).distinct().size > 1
-        messages.forEach { message ->
-            val contentIntent = mailIntent(account.id, message.conversationId, null, message.id.hashCode())
+        changed.forEach { (conversationId, message) ->
+            val notificationId = notificationId(account.id, conversationId)
+            val contentIntent = mailIntent(account.id, conversationId, null, notificationId)
             val sender = message.sender.ifBlank { account.email }
             val text = message.snippet.ifBlank { message.subject.ifBlank { context.getString(R.string.notification_new_mail) } }
             val builder = NotificationCompat.Builder(context, CHANNEL)
@@ -46,124 +51,59 @@ class NativeNotifier(private val context: Context) {
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setContentIntent(contentIntent)
-                .setDeleteIntent(dismissIntent(account.id, message.id, message.id.hashCode() * 10 + 4))
+                .setDeleteIntent(dismissIntent(account.id, conversationId, notificationId * 10 + 4))
                 .setAutoCancel(true)
-                .setGroup(group)
+                .setOnlyAlertOnce(true)
                 .setSortKey(message.id)
-                .addAction(0, context.getString(R.string.notification_action_reply), mailIntent(account.id, message.conversationId, "reply", message.id.hashCode() * 10 + 1))
-                .addAction(0, context.getString(R.string.notification_action_delete), actionIntent(account.id, message.id, message.conversationId, "delete", message.id.hashCode() * 10 + 2))
-                .addAction(0, context.getString(R.string.notification_action_archive), actionIntent(account.id, message.id, message.conversationId, "archive", message.id.hashCode() * 10 + 3))
-            if (grouped) builder.setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
-            manager.notify(message.id.hashCode(), builder.build())
-            active[message.id] = message.conversationId
-            details.put(message.id, JSONObject()
+                .addAction(0, context.getString(R.string.notification_action_reply), mailIntent(account.id, conversationId, "reply", notificationId * 10 + 1))
+                .addAction(0, context.getString(R.string.notification_action_delete), actionIntent(account.id, message.id, conversationId, "delete", notificationId * 10 + 2))
+                .addAction(0, context.getString(R.string.notification_action_archive), actionIntent(account.id, message.id, conversationId, "archive", notificationId * 10 + 3))
+            manager.notify(notificationId, builder.build())
+            active[conversationId] = message.id
+            details.put(conversationId, JSONObject()
                 .put("sender", sender)
+                .put("subject", message.subject)
                 .put("snippet", text))
         }
         saveNotificationMap(account.id, active)
         saveNotificationDetails(account.id, details)
-        preferences.edit().putString("notificationEmail:${account.id}", account.email).apply()
-        updateSummary(account.id, account.email, active.size)
     }
 
-    fun reconcile(account: SyncAccount, currentMessageIds: Set<String>) {
+    fun reconcile(account: SyncAccount, currentMessages: List<NewMessage>) {
+        migrateLegacyNotifications(account.id)
         val active = notificationMap(account.id)
         val details = notificationDetails(account.id)
-        val posted = (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).activeNotifications
-        val postedIds = posted.map { it.id }.toSet()
-        // Migrate notifications created before sender/snippet persistence by
-        // recovering their public rendering data directly from Android.
-        posted.forEach { status ->
-            val messageId = active.keys.firstOrNull { it.hashCode() == status.id } ?: return@forEach
-            if (!details.has(messageId)) details.put(messageId, JSONObject()
-                .put("sender", status.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty())
-                .put("snippet", status.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()))
-        }
-        val removed = active.keys.filter { messageId ->
-            messageId !in currentMessageIds || messageId.hashCode() !in postedIds
-        }
-        removed.forEach { messageId ->
-            manager.cancel(messageId.hashCode())
-            active.remove(messageId)
-            details.remove(messageId)
+        // The delete intent already removes user-dismissed cards from our map.
+        // Do not infer dismissal from activeNotifications: Android may briefly
+        // omit a freshly posted card, which caused cancel/repost/vibration loops.
+        val unreadConversations = currentMessages.map(NewMessage::conversationId).toSet()
+        val removed = active.keys.filterNot(unreadConversations::contains)
+        removed.forEach { conversationId ->
+            manager.cancel(notificationId(account.id, conversationId))
+            active.remove(conversationId)
+            details.remove(conversationId)
         }
         if (removed.isNotEmpty()) {
             Log.i(TAG, "Cancelled ${removed.size} stale notification(s) for account=${account.id}")
             saveNotificationMap(account.id, active)
+            saveNotificationDetails(account.id, details)
         }
-        saveNotificationDetails(account.id, details)
-        // Re-post retained children so notifications created by an older app
-        // version receive the current grouping and ACTION_VIEW pending intents.
-        val grouped = active.size > 1
-        active.forEach { (messageId, conversationId) ->
-            val item = details.optJSONObject(messageId) ?: JSONObject()
-            val sender = item.optString("sender").ifBlank { account.email }
-            val text = item.optString("snippet").ifBlank { context.getString(R.string.notification_new_mail) }
-            val builder = NotificationCompat.Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_courrier_notification)
-                .setContentTitle(sender)
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setContentIntent(mailIntent(account.id, conversationId, null, messageId.hashCode()))
-                .setDeleteIntent(dismissIntent(account.id, messageId, messageId.hashCode() * 10 + 4))
-                .setAutoCancel(true)
-                .setGroup("courrier.account." + account.id)
-                .setSortKey(messageId)
-                .addAction(0, context.getString(R.string.notification_action_reply), mailIntent(account.id, conversationId, "reply", messageId.hashCode() * 10 + 1))
-                .addAction(0, context.getString(R.string.notification_action_delete), actionIntent(account.id, messageId, conversationId, "delete", messageId.hashCode() * 10 + 2))
-                .addAction(0, context.getString(R.string.notification_action_archive), actionIntent(account.id, messageId, conversationId, "archive", messageId.hashCode() * 10 + 3))
-            if (grouped) builder.setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY).setOnlyAlertOnce(true)
-            manager.notify(messageId.hashCode(), builder.build())
-        }
-        // Re-apply the one-vs-many presentation even when the unread set did not
-        // change (for example after upgrading from an older notification layout).
-        updateSummary(account.id, account.email, active.size)
-    }
-
-    private fun updateSummary(accountId: String, email: String, count: Int) {
-        val summaryId = ("summary:" + accountId).hashCode()
-        // A group summary for one child replaces the useful sender/snippet card
-        // with "1 new email" on some Android variants. Keep the child standalone.
-        if (count <= 1) {
-            manager.cancel(summaryId)
-            return
-        }
-        val style = NotificationCompat.InboxStyle()
-            .setBigContentTitle(context.resources.getQuantityString(R.plurals.notification_new_mail_count, count, count))
-        val details = notificationDetails(accountId)
-        details.keys().asSequence().take(6).forEach { messageId ->
-            val item = details.optJSONObject(messageId) ?: return@forEach
-            style.addLine("${item.optString("sender")} — ${item.optString("snippet")}")
-        }
-        manager.notify(
-            summaryId,
-            NotificationCompat.Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_courrier_notification)
-                .setContentTitle(context.resources.getQuantityString(R.plurals.notification_new_mail_count, count, count))
-                .setContentText(email)
-                .setStyle(style)
-                .setGroup("courrier.account." + accountId)
-                .setGroupSummary(true)
-                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
-                .setOnlyAlertOnce(true)
-                .build(),
-        )
     }
 
     private fun notificationMap(accountId: String): MutableMap<String, String> {
-        val json = JSONObject(preferences.getString("notificationMap:$accountId", "{}") ?: "{}")
+        val json = JSONObject(preferences.getString("notificationConversations:$accountId", "{}") ?: "{}")
         return json.keys().asSequence().associateWith { json.optString(it) }.toMutableMap()
     }
 
     private fun saveNotificationMap(accountId: String, active: Map<String, String>) {
-        preferences.edit().putString("notificationMap:$accountId", JSONObject(active).toString()).apply()
+        preferences.edit().putString("notificationConversations:$accountId", JSONObject(active).toString()).apply()
     }
 
     private fun notificationDetails(accountId: String) =
-        JSONObject(preferences.getString("notificationDetails:$accountId", "{}") ?: "{}")
+        JSONObject(preferences.getString("notificationConversationDetails:$accountId", "{}") ?: "{}")
 
     private fun saveNotificationDetails(accountId: String, details: JSONObject) {
-        preferences.edit().putString("notificationDetails:$accountId", details.toString()).apply()
+        preferences.edit().putString("notificationConversationDetails:$accountId", details.toString()).apply()
     }
 
     private fun mailIntent(accountId: String, conversationId: String, action: String?, requestCode: Int): PendingIntent {
@@ -189,46 +129,49 @@ class NativeNotifier(private val context: Context) {
         return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun dismissIntent(accountId: String, messageId: String, requestCode: Int): PendingIntent {
+    private fun dismissIntent(accountId: String, conversationId: String, requestCode: Int): PendingIntent {
         val intent = Intent(context, NotificationActionReceiver::class.java)
             .putExtra(NotificationActionWorker.ACCOUNT_ID, accountId)
-            .putExtra(NotificationActionWorker.MESSAGE_ID, messageId)
+            .putExtra(NotificationActionWorker.CONVERSATION_ID, conversationId)
             .putExtra(NotificationActionWorker.ACTION, NotificationActionWorker.DISMISS)
         return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
     fun cancelAccount(id: String) {
-        notificationMap(id).keys.forEach { manager.cancel(it.hashCode()) }
+        migrateLegacyNotifications(id)
+        notificationMap(id).keys.forEach { manager.cancel(notificationId(id, it)) }
         manager.cancel(("summary:" + id).hashCode())
-        preferences.edit().remove("notificationMap:$id").remove("notificationDetails:$id").remove("notificationEmail:$id").apply()
+        preferences.edit().remove("notificationConversations:$id").remove("notificationConversationDetails:$id").apply()
     }
 
     fun cancelConversation(accountId: String, conversationId: String) {
         val active = notificationMap(accountId)
         val details = notificationDetails(accountId)
-        active.filterValues { it == conversationId }.keys.toList().forEach { messageId ->
-            manager.cancel(messageId.hashCode())
-            active.remove(messageId)
-            details.remove(messageId)
-        }
+        manager.cancel(notificationId(accountId, conversationId))
+        active.remove(conversationId)
+        details.remove(conversationId)
         saveNotificationMap(accountId, active)
         saveNotificationDetails(accountId, details)
-        updateSummary(accountId, preferences.getString("notificationEmail:$accountId", accountId) ?: accountId, active.size)
     }
 
-    fun cancelMessage(accountId: String, messageId: String) {
-        val active = notificationMap(accountId)
-        val details = notificationDetails(accountId)
-        manager.cancel(messageId.hashCode())
-        active.remove(messageId)
-        details.remove(messageId)
-        saveNotificationMap(accountId, active)
-        saveNotificationDetails(accountId, details)
-        updateSummary(accountId, preferences.getString("notificationEmail:$accountId", accountId) ?: accountId, active.size)
+    fun threadMetadata(accountId: String, conversationId: String): JSONObject? {
+        val detail = notificationDetails(accountId).optJSONObject(conversationId) ?: return null
+        return JSONObject().put("subject", detail.optString("subject"))
+            .put("sender", detail.optString("sender")).put("snippet", detail.optString("snippet"))
+    }
+
+    private fun migrateLegacyNotifications(accountId: String) {
+        val legacyKey = "notificationMap:$accountId"
+        val legacy = JSONObject(preferences.getString(legacyKey, "{}") ?: "{}")
+        if (legacy.length() == 0 && !preferences.contains("notificationDetails:$accountId")) return
+        legacy.keys().asSequence().forEach { manager.cancel(it.hashCode()) }
+        manager.cancel(("summary:" + accountId).hashCode())
+        preferences.edit().remove(legacyKey).remove("notificationDetails:$accountId").remove("notificationEmail:$accountId").commit()
     }
 
     companion object {
         const val CHANNEL = "courrier_new_mail"
         private const val TAG = "CourrierSync"
+        internal fun notificationId(accountId: String, conversationId: String) = "$accountId:$conversationId".hashCode()
     }
 }

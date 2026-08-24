@@ -14,6 +14,17 @@ class SyncStatusStore(context: Context) {
         put("state", "success").put("lastSuccessAt", now).remove("lastErrorCode")
     }
 
+    fun succeeded(accountId: String, intervalMinutes: Int, now: Long = System.currentTimeMillis()) = update(accountId) {
+        put("state", "success").put("lastSuccessAt", now)
+            .put("nextApproximateAt", now + intervalMinutes.coerceAtLeast(15) * 60_000L).remove("lastErrorCode")
+    }
+
+    fun state(accountId: String, value: String, now: Long = System.currentTimeMillis()) = update(accountId) {
+        put("state", value).put("stateUpdatedAt", now)
+    }
+
+    fun event(accountId: String, now: Long = System.currentTimeMillis()) = update(accountId) { put("lastEventAt", now) }
+
     fun failed(accountId: String, code: String, retrying: Boolean, now: Long = System.currentTimeMillis()) = update(accountId) {
         put("state", if (retrying) "retrying" else "error")
             .put("lastFailureAt", now)

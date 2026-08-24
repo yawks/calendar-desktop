@@ -13,7 +13,15 @@ type NotificationOptionsWithRenotify = NotificationOptions & { renotify?: boolea
 export function useIncomingMailNotifications(accounts: NotificationAccount[], providers: Map<string, MailProvider>) {
   const { t } = useTranslation();
   const { settings, permission } = useMailNotificationsSettings();
-  const queryAccounts = useMemo(() => accounts.map(account => ({ id: account.id, label: account.name || account.email, provider: providers.get(account.id) ?? null })), [accounts, providers]);
+  // This query shares its cache with the unified inbox. Keep presentation
+  // metadata identical so notification polling cannot replace the account tag
+  // (for example "Zaion") with the account owner's display name.
+  const queryAccounts = useMemo(() => accounts.map(account => {
+    const atIndex = account.email.lastIndexOf('@');
+    const domain = atIndex >= 0 ? account.email.slice(atIndex + 1) : account.email;
+    const label = domain.charAt(0).toUpperCase() + domain.slice(1);
+    return { id: account.id, label, provider: providers.get(account.id) ?? null };
+  }), [accounts, providers]);
   const accountById = useMemo(() => new Map(accounts.map(account => [account.id, account])), [accounts]);
   const enabled = !platform.isNativeAndroid && settings.enabled && permission === 'granted';
   const inbox = useAllAccountThreads('inbox', queryAccounts, 50, 0, enabled);

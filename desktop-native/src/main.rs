@@ -36,6 +36,16 @@ fn clear_vault_session_key(state: tauri::State<'_, DesktopVaultState>) -> Result
 }
 
 #[tauri::command]
+fn set_badge_count(app: tauri::AppHandle, count: u32) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main application window not found".to_string())?;
+    window
+        .set_badge_count((count > 0).then_some(i64::from(count)))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 async fn mail_command(command: String, args: Value) -> Result<Value, String> {
     app_lib::command::dispatch(&command, args)
         .await
@@ -100,6 +110,7 @@ fn main() {
             set_vault_session_key,
             get_vault_session_key,
             clear_vault_session_key,
+            set_badge_count,
             open_app_window
         ])
         .run(tauri::generate_context!())

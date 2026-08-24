@@ -830,6 +830,7 @@ impl MailProvider for JmapProvider {
             EmailProperty::To,
             EmailProperty::Cc,
             EmailProperty::ReceivedAt,
+            EmailProperty::Preview,
             EmailProperty::HasAttachment,
             EmailProperty::Keywords,
         ]);
@@ -959,7 +960,7 @@ impl MailProvider for JmapProvider {
                     MailThread {
                         conversation_id: thread_id.clone(),
                         topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
-                        snippet: String::new(),
+                        snippet: email.preview().unwrap_or_default().to_string(),
                         last_delivery_time: email
                             .received_at()
                             .map(timestamp_to_rfc3339)
@@ -1092,6 +1093,7 @@ impl MailProvider for JmapProvider {
                     EmailProperty::To,
                     EmailProperty::Cc,
                     EmailProperty::ReceivedAt,
+                    EmailProperty::Preview,
                     EmailProperty::HasAttachment,
                     EmailProperty::Keywords,
                     EmailProperty::MessageId,
@@ -1752,7 +1754,7 @@ impl MailProvider for JmapProvider {
                     MailThread {
                         conversation_id: thread_id.clone(),
                         topic: email.subject().map(|s| s.to_string()).unwrap_or_default(),
-                        snippet: String::new(),
+                        snippet: email.preview().unwrap_or_default().to_string(),
                         last_delivery_time: email
                             .received_at()
                             .map(timestamp_to_rfc3339)

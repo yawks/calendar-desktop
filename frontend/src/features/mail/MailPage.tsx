@@ -9,6 +9,7 @@ import {
   Layers,
   Mail,
   Menu,
+  Pencil,
   RefreshCw,
   Settings,
   X,
@@ -42,14 +43,14 @@ export default function MailApp() {
   const location = useLocation();
   const navigate = useNavigate();
   const {
-    t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
+    t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder, selectedFolderAccountId,
     threads, threadsLoading, threadsRefreshing, threadsLoadingMore, threadTotalCount, selectedThread,
     messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
     contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
-    selectAccount, selectFolder, setComposing, setComposingAccountId,
+    selectAccount, selectFolder, adoptNotificationInboxContext, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleDeleteMessage, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
@@ -77,6 +78,7 @@ export default function MailApp() {
   const displayedConnectionIssue = connectionIssues.find(issue => issue.message === error) ?? connectionIssues[0];
   const mobileActionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledNotificationActionRef = useRef<string | null>(null);
+  const notificationThread = (location.state as { notificationThread?: { subject?: string; sender?: string; snippet?: string } } | null)?.notificationThread;
 
   // A notification can target a conversation which is not in the currently
   // loaded inbox page. In that case the deep link first opens a minimal thread
@@ -84,10 +86,12 @@ export default function MailApp() {
   // the detail header does not stay without subject or sender.
   useEffect(() => {
     if (!selectedThread || messagesLoading || messages.length === 0) return;
-    if (selectedThread.topic && (selectedThread.from_name || selectedThread.from_email)) return;
     const lastMessage = messages.filter(message => !message.is_draft).slice(-1)[0] ?? messages[messages.length - 1];
+    const unreadCount = messages.filter(message => !message.is_read).length;
     setSelectedThread(current => {
       if (!current || current.conversation_id !== selectedThread.conversation_id) return current;
+      const needsIdentityEnrichment = !current.topic || (!current.from_name && !current.from_email);
+      if (!needsIdentityEnrichment && current.unread_count === unreadCount) return current;
       return {
         ...current,
         topic: current.topic || lastMessage.subject,
@@ -95,7 +99,7 @@ export default function MailApp() {
         from_email: current.from_email || lastMessage.from_email,
         last_delivery_time: current.last_delivery_time || lastMessage.date_time_received,
         message_count: messages.length,
-        unread_count: messages.filter(message => !message.is_read).length,
+        unread_count: unreadCount,
         has_attachments: messages.some(message => message.has_attachments),
       };
     });
@@ -267,6 +271,25 @@ export default function MailApp() {
     }
   };
 
+  const startNewMessage = () => {
+    const sourceAccountId = selectedFolderAccountId
+      ?? (!isAllMode ? selectedAccountId : undefined);
+    const sourceIdentities = sourceAccountId
+      ? accountIdentities.filter(identity => identity.accountId === sourceAccountId)
+      : accountIdentities;
+    const primaryIdentity = sourceIdentities.find(identity => !identity.mayDelete) ?? sourceIdentities[0];
+    pushMobileScreen('composer');
+    setComposing(true);
+    setSelectedThread(null);
+    setComposingAccountId(sourceAccountId ?? allMailAccounts[0]?.id ?? '');
+    setSelectedIdentityId(primaryIdentity?.id ?? '');
+    if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
+  };
+
+  const composerIdentities = selectedFolderAccountId
+    ? accountIdentities.filter(identity => identity.accountId === selectedFolderAccountId)
+    : accountIdentities;
+
   // Pre-select the identity matching the recipients of a message being replied to.
   // Called synchronously in the reply handlers (same batch as setReplyingTo) so that
   // MailComposer mounts with the correct identity and injects the right signature.
@@ -294,20 +317,6 @@ export default function MailApp() {
 
     const actionKey = accountId + ':' + conversationId + ':' + action;
     if (handledNotificationActionRef.current === actionKey) return;
-    if (selectedAccountId !== accountId) {
-      console.info('[notification-link] selecting account');
-      selectAccount(accountId);
-      return;
-    }
-    // Native new-mail notifications always target the inbox. When the same
-    // account is already selected but another folder is open, its thread is not
-    // present in `threads` and the deep link would otherwise do nothing.
-    if (selectedFolder !== 'inbox') {
-      console.info('[notification-link] selecting inbox');
-      selectFolder('inbox');
-      return;
-    }
-
     const listedThread = threads.find(item =>
       item.conversation_id === conversationId && (item.accountId ?? accountId) === accountId
     );
@@ -319,18 +328,19 @@ export default function MailApp() {
       // shell lets useMailConversation load it directly from the provider.
       const thread = listedThread ?? {
         conversation_id: conversationId,
-        topic: '',
-        snippet: '',
+        topic: notificationThread?.subject ?? '',
+        snippet: notificationThread?.snippet ?? '',
         last_delivery_time: '',
         message_count: 1,
         unread_count: 1,
-        from_name: null,
+        from_name: notificationThread?.sender ?? null,
         from_email: null,
         has_attachments: false,
         accountId,
       };
       pushMobileScreen('detail');
       openThread(thread);
+      adoptNotificationInboxContext(accountId);
       return;
     }
 
@@ -366,23 +376,45 @@ export default function MailApp() {
     navigate('/', { replace: true });
   }, [
     allFolders,
+    adoptNotificationInboxContext,
     handleMove,
     location.search,
     messages,
     messagesLoading,
     navigate,
+    notificationThread,
     openThread,
-    selectedAccountId,
-    selectedFolder,
     selectedThread?.conversation_id,
-    selectAccount,
-    selectFolder,
     setReplyMode,
     setReplyingTo,
     threads,
   ]);
 
-  const displayedThreads = searchQuery ? searchResults : threads;
+  const providerListedThreads = searchQuery ? searchResults : threads;
+  // Conversation aggregates returned by EWS can lag behind item-level IsRead
+  // values. Once the detail is loaded, use those values for the selected row.
+  const selectedUnreadCount = selectedThread && !messagesLoading && messages.length > 0
+    ? messages.filter(message => !message.is_read).length
+    : undefined;
+  const listedThreads = selectedUnreadCount === undefined
+    ? providerListedThreads
+    : providerListedThreads.map(thread =>
+        thread.conversation_id === selectedThread?.conversation_id
+          && (thread.accountId ?? selectedThread.accountId) === selectedThread.accountId
+          && thread.unread_count !== selectedUnreadCount
+          ? { ...thread, unread_count: selectedUnreadCount }
+          : thread
+      );
+  const selectedThreadInFolder = selectedThread
+    ? listedThreads.find(thread => thread.conversation_id === selectedThread.conversation_id)
+    : undefined;
+  useEffect(() => {
+    if (!selectedThreadInFolder || selectedThread === selectedThreadInFolder) return;
+    setSelectedThread(selectedThreadInFolder);
+  }, [selectedThread, selectedThreadInFolder, setSelectedThread]);
+  const displayedThreads = selectedThread && !listedThreads.some(thread => thread.conversation_id === selectedThread.conversation_id)
+    ? [selectedThread, ...listedThreads]
+    : listedThreads;
   const selectedThreadIndex = selectedThread
     ? displayedThreads.findIndex(thread => thread.conversation_id === selectedThread.conversation_id)
     : -1;
@@ -400,7 +432,7 @@ export default function MailApp() {
       ?? allFolders.find(folder => folder.folder_id === selectedFolder)?.display_name
       ?? selectedFolder;
   })();
-  const selectedFolderTotal = searchQuery ? displayedThreads.length : threadTotalCount;
+  const selectedFolderTotal = searchQuery ? displayedThreads.length : Math.max(displayedThreads.length, threadTotalCount ?? 0);
 
   return (
     <div className={`mail-app${selectedThread ? ' mail-app--detail-open' : ''}`}>
@@ -425,7 +457,12 @@ export default function MailApp() {
         <button className="btn-icon" onClick={() => setStatsOpen(true)} title={t('mail.stats.title', 'Statistiques mail')}>
           <ChartNoAxesCombined size={20} />
         </button>
-        <Link to="/config" className="btn-config btn-config--icon-only">
+        <Link
+          to="/config"
+          className="btn-icon"
+          title={t('header.configCalendars', 'Settings')}
+          aria-label={t('header.configCalendars', 'Settings')}
+        >
           <Settings size={17} />
         </Link>
       </header>
@@ -552,13 +589,7 @@ export default function MailApp() {
                     selectFolder(folder, accountId);
                     if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
                   }}
-                  onCompose={() => {
-                    pushMobileScreen('composer');
-                    setComposing(true);
-                    setSelectedThread(null);
-                    setComposingAccountId(isAllMode ? (allMailAccounts[0]?.id ?? '') : selectedAccountId);
-                    if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
-                  }}
+                  onCompose={startNewMessage}
                   folderUnreadCounts={folderUnreadCounts}
                   dynamicFolders={sidebarDynamicFolders}
                   supportsScheduledSend={isAllMode
@@ -631,6 +662,17 @@ export default function MailApp() {
               provider={provider}
               resolveProvider={(thread) => resolveProvider(thread.accountId)}
             />
+            {selectedThreadIds.size === 0 && (
+              <button
+                type="button"
+                className="mail-android-compose-fab"
+                aria-label={t('mail.newMessage', 'Nouveau message')}
+                title={t('mail.newMessage', 'Nouveau message')}
+                onClick={startNewMessage}
+              >
+                <Pencil size={24} aria-hidden="true" />
+              </button>
+            )}
           </div>
           {selectedThreadIds.size > 0 && (
             <MultiSelectionPanel
@@ -677,7 +719,7 @@ export default function MailApp() {
               </button>
               <div className="mail-mobile-detail-nav__position">
                 <strong>{selectedFolderLabel}</strong>
-                {selectedThreadIndex >= 0 && (
+                {selectedThreadInFolder && selectedThreadIndex >= 0 && (
                   <span> · {selectedThreadIndex + 1} / {selectedFolderTotal}</span>
                 )}
               </div>
@@ -685,7 +727,7 @@ export default function MailApp() {
                 <button
                   type="button"
                   aria-label={t('mail.previousMessage')}
-                  disabled={selectedThreadIndex <= 0}
+                  disabled={!selectedThreadInFolder || selectedThreadIndex <= 0}
                   onClick={() => selectedThreadIndex > 0 && handleSelectThread(displayedThreads[selectedThreadIndex - 1])}
                 >
                   <ChevronUp size={27} />
@@ -693,7 +735,7 @@ export default function MailApp() {
                 <button
                   type="button"
                   aria-label={t('mail.nextMessage')}
-                  disabled={selectedThreadIndex < 0 || selectedThreadIndex >= displayedThreads.length - 1}
+                  disabled={!selectedThreadInFolder || selectedThreadIndex < 0 || selectedThreadIndex >= displayedThreads.length - 1}
                   onClick={() => selectedThreadIndex >= 0 && selectedThreadIndex < displayedThreads.length - 1 && handleSelectThread(displayedThreads[selectedThreadIndex + 1])}
                 >
                   <ChevronDown size={27} />
@@ -753,7 +795,7 @@ export default function MailApp() {
                 fromAccounts={isAllMode ? allMailAccounts as any : []}
                 fromAccountId={composingAccountId}
                 onFromAccountChange={setComposingAccountId}
-                identities={accountIdentities}
+                identities={composerIdentities}
                 selectedIdentityId={selectedIdentityId}
                 onIdentityChange={handleIdentityChange}
               />

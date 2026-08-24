@@ -4,6 +4,9 @@
     <string name="biometric_enable_title">Enable biometric unlock</string>
     <string name="biometric_unlock_title">Unlock Courrier</string>
 <string name="notification_channel_mail">New emails</string>
+    <string name="notification_channel_sync">Synchronization</string>
+    <string name="sync_service_title">Courrier synchronization</string>
+    <plurals name="sync_service_accounts"><item quantity="one">Courrier is watching %d account</item><item quantity="other">Courrier is watching %d accounts</item></plurals>
     <string name="notification_new_mail">New email</string>
     <string name="notification_action_reply">Reply</string>
     <string name="notification_action_delete">Delete</string>

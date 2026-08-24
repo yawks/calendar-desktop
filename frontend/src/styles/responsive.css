@@ -300,6 +300,12 @@
   .native-android .config-source-list .config-group-title { padding-left: 38px; }
   .native-settings-card { padding: 16px; }
   .native-settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .native-settings-accounts label { align-items: stretch; flex-direction: column; }
+  .native-settings-accounts label > span { width: 100%; }
+  .native-settings-accounts label > select { width: 100%; max-width: none; min-height: 40px; }
+  .native-settings-diagnostic { align-items: stretch; flex-direction: column; gap: 8px; padding: 8px 0 10px; }
+  .native-settings-diagnostic__meta { padding-inline: 4px; }
+  .native-settings-test-button { width: 100%; min-height: 42px; }
   .native-settings-actions .btn-primary { width: 100%; }
 
   .preferences-section { max-width: 100% !important; min-width: 0; overflow: hidden; }
@@ -411,9 +417,21 @@
   .mail-app .header-spacer { display: none; }
   .mail-app .mail-header-push { display: block; flex: 1 1 auto; min-width: 0; }
   .mail-app .mail-header-gap { display: none; }
-  .mail-app .header .btn-icon,
-  .mail-app .btn-config--icon-only { flex: 0 0 40px; width: 40px; min-width: 40px; padding: 0; }
-  .mail-app .btn-config--icon-only { margin-left: 6px; }
+  .mail-app .header .btn-icon { flex: 0 0 40px; width: 40px; min-width: 40px; padding: 0; }
+  .native-android .mail-delete-toast {
+    bottom: calc(68px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    width: max-content;
+    max-width: calc(100vw - 24px);
+    gap: 12px;
+    white-space: normal;
+  }
+  .native-android .mail-delete-toast > span {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-wrap: break-word;
+  }
+  .native-android .mail-delete-toast__undo { flex: 0 0 auto; }
   .mail-body { position: relative; min-width: 0; margin: 0; border-radius: 0; border-inline: 0; border-bottom: 0; }
   .mail-account-tabs { display: none; }
   .mail-body > div:has(> .mail-sidebar) {
@@ -601,6 +619,23 @@
   /* Android's larger native font metrics can make two-line previews taller
      than the row's minimum height. Do not let the scroll column shrink them. */
   .native-android .mail-thread-item { flex-shrink: 0; }
+  .native-android .mail-android-compose-fab {
+    position: absolute;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    z-index: 15;
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--primary) 9%, var(--bg));
+    color: var(--primary);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 14%);
+  }
+  .native-android .mail-android-compose-fab:active { transform: scale(.96); }
   .mail-message-block .mail-actions-menu {
     position: absolute;
     right: 0;

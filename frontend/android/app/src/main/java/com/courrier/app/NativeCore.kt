@@ -6,6 +6,7 @@ object NativeCore {
     init { System.loadLibrary("app_lib") }
 
     private external fun detect(requestJson: String): String
+    private external fun awaitEvent(requestJson: String): String
     external fun command(command: String, argumentsJson: String): String
 
     // JNI string conversion/runtime setup is shared by all workers. WorkManager
@@ -26,6 +27,12 @@ object NativeCore {
             NewMessage(item.getString("id"), item.getString("conversationId"), item.optString("sender"), item.optString("subject"), item.optString("snippet"))
         }
         return DetectionResult(messages, body.getString("cursor"), body.optJSONObject("credentialUpdate"))
+    }
+
+    // This is a long-lived blocking call. It must not hold the detect() monitor,
+    // otherwise a streaming Exchange/IMAP account would block every other sync.
+    fun awaitEvent(account: SyncAccount) {
+        awaitEvent(JSONObject().put("provider", account.provider).put("credentials", account.credentials).toString())
     }
 }
 

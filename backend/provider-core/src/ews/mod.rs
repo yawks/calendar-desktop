@@ -1,4 +1,5 @@
 use chrono::Local;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 
@@ -230,6 +231,88 @@ pub(crate) async fn send_ews_request(
     }
 
     Ok(body)
+}
+
+/// Wait until Exchange reports a mail change through an EWS streaming
+/// subscription. The caller reconciles the mailbox after this returns.
+pub async fn ews_wait_for_change(
+    access_token: String,
+    anchor_mailbox: Option<String>,
+) -> Result<(), String> {
+    let subscribe = r#"<m:Subscribe>
+  <m:StreamingSubscriptionRequest SubscribeToAllFolders="false">
+    <t:FolderIds><t:DistinguishedFolderId Id="inbox"/></t:FolderIds>
+    <t:EventTypes>
+      <t:EventType>NewMailEvent</t:EventType>
+      <t:EventType>CreatedEvent</t:EventType>
+      <t:EventType>ModifiedEvent</t:EventType>
+      <t:EventType>MovedEvent</t:EventType>
+      <t:EventType>DeletedEvent</t:EventType>
+    </t:EventTypes>
+  </m:StreamingSubscriptionRequest>
+</m:Subscribe>"#;
+    let response = send_ews_request(&access_token, subscribe, anchor_mailbox.as_deref()).await?;
+    if response.contains("ResponseClass=\"Error\"") {
+        return Err(xml_content_ns(&response, "m:ResponseCode")
+            .unwrap_or_else(|| "ews_subscribe_failed".to_string()));
+    }
+    let subscription_id = xml_content_ns(&response, "m:SubscriptionId")
+        .ok_or_else(|| "ews_subscription_id_missing".to_string())?;
+    let request_body = format!(
+        r#"<m:GetStreamingEvents>
+  <m:SubscriptionIds><t:SubscriptionId>{}</t:SubscriptionId></m:SubscriptionIds>
+  <m:ConnectionTimeout>30</m:ConnectionTimeout>
+</m:GetStreamingEvents>"#,
+        xml_escape(&subscription_id)
+    );
+    let envelope = soap_envelope(&request_body);
+    let client = reqwest::Client::new();
+    let mut request = client
+        .post(EWS_ENDPOINT)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "text/xml; charset=utf-8");
+    if let Some(mailbox) = anchor_mailbox.as_deref() {
+        request = request.header("X-AnchorMailbox", mailbox);
+    }
+    let response = request.body(envelope).send().await.map_err(request_error)?;
+    let status = response.status();
+    if status.as_u16() == 401 {
+        return Err("ews_unauthorized".to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("EWS HTTP {}", status));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    while let Some(chunk) = stream.next().await {
+        buffer.push_str(&String::from_utf8_lossy(&chunk.map_err(request_error)?));
+        if contains_mail_change_event(&buffer) {
+            return Ok(());
+        }
+        if buffer.contains("ResponseClass=\"Error\"") {
+            return Err(xml_content_ns(&buffer, "m:ResponseCode")
+                .unwrap_or_else(|| "ews_stream_failed".to_string()));
+        }
+        // Status events can keep a connection alive for 30 minutes. Bound the
+        // retained XML while preserving enough tail for a split event tag.
+        if buffer.len() > 65_536 {
+            buffer.drain(..buffer.len() - 4_096);
+        }
+    }
+    Err("ews_stream_closed".to_string())
+}
+
+fn contains_mail_change_event(xml: &str) -> bool {
+    [
+        "NewMailEvent",
+        "CreatedEvent",
+        "ModifiedEvent",
+        "MovedEvent",
+        "DeletedEvent",
+    ]
+    .iter()
+    .any(|event| xml.contains(&format!("<t:{}", event)) || xml.contains(&format!("<{}", event)))
 }
 
 /// Escape XML special characters in a text value.
@@ -563,4 +646,31 @@ fn xml_decode(s: &str) -> String {
         .replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&apos;", "'")
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::contains_mail_change_event;
+
+    #[test]
+    fn mail_events_trigger_reconciliation() {
+        for event in [
+            "NewMailEvent",
+            "CreatedEvent",
+            "ModifiedEvent",
+            "MovedEvent",
+            "DeletedEvent",
+        ] {
+            assert!(contains_mail_change_event(&format!(
+                "<t:{event}><t:ItemId/></t:{event}>"
+            )));
+        }
+    }
+
+    #[test]
+    fn status_events_do_not_trigger_reconciliation() {
+        assert!(!contains_mail_change_event(
+            "<t:StatusEvent><t:Watermark>x</t:Watermark></t:StatusEvent>"
+        ));
+    }
 }

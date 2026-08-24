@@ -11,7 +11,16 @@ class MainActivity : BridgeActivity() {
         registerPlugin(CourrierNativePlugin::class.java)
         super.onCreate(savedInstanceState)
         val accountIds = SyncVault(applicationContext).accountIds()
-        accountIds.forEach { SyncScheduler.enable(applicationContext, it) }
+        val vault = SyncVault(applicationContext)
+        accountIds.forEach {
+            when (vault.get(it)?.effectiveSyncMode()) {
+                "periodic" -> SyncScheduler.enable(applicationContext, it)
+                "continuous" -> SyncScheduler.enable(applicationContext, it, 60)
+                else -> SyncScheduler.cancelWork(applicationContext, it)
+            }
+            if (vault.get(it)?.effectiveSyncMode() == "manual") SyncScheduler.runNow(applicationContext, it)
+        }
+        ContinuousSyncService.reconcile(applicationContext)
         val preferences = getSharedPreferences("native_sync_preferences", MODE_PRIVATE)
         if (preferences.getInt("notificationMigrationVersion", 0) < 3) {
             preferences.edit().putInt("notificationMigrationVersion", 3).apply()

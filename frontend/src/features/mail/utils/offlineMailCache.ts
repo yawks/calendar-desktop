@@ -64,10 +64,13 @@ function updateThreadFromMessages(thread: MailThread, messages: MailMessage[]): 
     new Date(b.date_time_received).getTime() - new Date(a.date_time_received).getTime()
   )[0];
   if (!latest) return thread;
+  const preview = previewFromMessage(latest);
   return {
     ...thread,
     topic: latest.subject || thread.topic,
-    snippet: previewFromMessage(latest),
+    // Metadata-only offline synchronization deliberately omits bodies. Keep a
+    // preview already supplied by the list endpoint instead of erasing it.
+    snippet: preview || thread.snippet,
     last_delivery_time: latest.date_time_received,
     message_count: messages.length,
     unread_count: messages.filter(message => !message.is_read).length,

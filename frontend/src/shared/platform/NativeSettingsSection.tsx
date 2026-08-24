@@ -2,32 +2,33 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bell, CheckCircle2, LoaderCircle, RefreshCw, Save, Server, ShieldCheck } from 'lucide-react';
 import { platform } from '.';
-import type { NativeSyncAccount, NativeSyncStatus, NotificationPrivacy } from '.';
+import type { NativeSyncAccount, NativeSyncMode, NativeSyncStatus, NotificationPrivacy } from '.';
 import { useImapAuth } from '../store/ImapAuthStore';
 import { useGoogleAuth } from '../store/GoogleAuthStore';
 import { useExchangeAuth } from '../store/ExchangeAuthStore';
 import { useJmapAuth } from '../store/JmapAuthStore';
 
 const KEY = 'courrier-native-settings-v1';
-type Settings = { syncIntervalMinutes: number; privacy: NotificationPrivacy; enabled: string[] };
+type Settings = { syncIntervalMinutes: number; privacy: NotificationPrivacy; enabled: string[]; modes: Record<string, NativeSyncMode>; credentialRevisions: Record<string, number> };
 const load = (): Settings => {
   try {
-    const saved = { syncIntervalMinutes: 15, privacy: 'generic', enabled: [], ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as Settings;
-    return { ...saved, syncIntervalMinutes: Math.max(15, saved.syncIntervalMinutes) };
+    const saved = { syncIntervalMinutes: 15, privacy: 'generic', enabled: [], modes: {}, credentialRevisions: {}, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as Settings;
+    return { ...saved, modes: { ...Object.fromEntries(saved.enabled.map(id => [id, 'periodic'])), ...saved.modes }, syncIntervalMinutes: Math.max(15, saved.syncIntervalMinutes) };
   }
-  catch { return { syncIntervalMinutes: 15, privacy: 'generic', enabled: [] }; }
+  catch { return { syncIntervalMinutes: 15, privacy: 'generic', enabled: [], modes: {}, credentialRevisions: {} }; }
 };
 
 export function NativeSettingsSection() {
   const { t } = useTranslation();
-  const { accounts: googleAccounts } = useGoogleAuth();
-  const { accounts: exchangeAccounts } = useExchangeAuth();
+  const { accounts: googleAccounts, addAccount: saveGoogleAccount } = useGoogleAuth();
+  const { accounts: exchangeAccounts, addAccount: saveExchangeAccount } = useExchangeAuth();
   const { accounts: imapAccounts } = useImapAuth();
   const { accounts: jmapAccounts } = useJmapAuth();
   const [settings, setSettings] = useState(load);
   const [syncStatuses, setSyncStatuses] = useState<Record<string, NativeSyncStatus>>({});
   const [togglingAccounts, setTogglingAccounts] = useState<Set<string>>(new Set());
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [backgroundWarning, setBackgroundWarning] = useState<string | null>(null);
   const saveLocally = (next: Settings) => { setSettings(next); localStorage.setItem(KEY, JSON.stringify(next)); };
   const update = (next: Settings) => { saveLocally(next); setSaveState('idle'); };
   const accounts: NativeSyncAccount[] = [
@@ -54,6 +55,14 @@ export function NativeSettingsSection() {
   };
   useEffect(() => {
     if (!platform.isNativeAndroid) return;
+    void platform.credentialUpdates?.().then(updates => { if (updates.length) saveLocally({ ...settings, credentialRevisions: { ...settings.credentialRevisions, ...Object.fromEntries(updates.map(update => [update.accountId, update.credentialRevision])) } }); updates.forEach(update => {
+      const credentials = update.credentials as { accessToken?: string; refreshToken?: string; expiresAt?: number };
+      const google = googleAccounts.find(account => account.id === update.accountId);
+      if (google && credentials.accessToken) saveGoogleAccount({ ...google, accessToken: credentials.accessToken, refreshToken: credentials.refreshToken ?? google.refreshToken, expiresAt: credentials.expiresAt ?? google.expiresAt });
+      const exchange = exchangeAccounts.find(account => account.id === update.accountId);
+      if (exchange && credentials.accessToken) saveExchangeAccount({ ...exchange, accessToken: credentials.accessToken, refreshToken: credentials.refreshToken ?? exchange.refreshToken, expiresAt: credentials.expiresAt ?? exchange.expiresAt });
+    }); });
+    void platform.backgroundRestrictions?.().then(value => setBackgroundWarning(value.batteryOptimized || value.manufacturer.toLowerCase() === 'samsung' ? value.manufacturer : null));
     void refreshStatuses();
     const timer = window.setInterval(() => void refreshStatuses(), 5000);
     return () => window.clearInterval(timer);
@@ -67,21 +76,37 @@ export function NativeSettingsSection() {
       saveLocally({ ...settings, enabled: settings.enabled.filter(accountId => present.has(accountId)) });
     });
   }, [settings.enabled.join(','), accounts.map(account => account.accountId).join(',')]);
+  useEffect(() => {
+    if (!platform.isNativeAndroid) return;
+    const unsupported = accounts.filter(account =>
+      !['jmap', 'imap', 'exchange'].includes(account.provider) && settings.modes[account.accountId] === 'continuous'
+    );
+    if (unsupported.length === 0) return;
+    const modes = { ...settings.modes };
+    unsupported.forEach(account => { modes[account.accountId] = 'periodic'; });
+    saveLocally({ ...settings, modes });
+    void Promise.all(unsupported.map(account => platform.configureSync({
+      ...account,
+      syncIntervalMinutes: settings.syncIntervalMinutes,
+      syncMode: 'periodic',
+      credentialRevision: settings.credentialRevisions[account.accountId] ?? 0,
+    })));
+  }, [accounts.map(account => `${account.accountId}:${account.provider}`).join(','), JSON.stringify(settings.modes)]);
   if (!platform.isNativeAndroid) return null;
-  const toggle = async (accountId: string, enabled: boolean) => {
+  const setMode = async (accountId: string, mode: NativeSyncMode) => {
     const account = accounts.find(item => item.accountId === accountId);
     if (!account) return;
+    if (mode === 'continuous' && !['jmap', 'imap', 'exchange'].includes(account.provider)) return;
     if (togglingAccounts.has(accountId)) return;
     const previous = settings;
-    const next = enabled
-      ? { ...settings, enabled: [...new Set([...settings.enabled, accountId])] }
-      : { ...settings, enabled: settings.enabled.filter(id => id !== accountId) };
+    const enabled = mode !== 'disabled';
+    const next = { ...settings, modes: { ...settings.modes, [accountId]: mode }, enabled: enabled ? [...new Set([...settings.enabled, accountId])] : settings.enabled.filter(id => id !== accountId) };
     saveLocally(next);
     setTogglingAccounts(current => new Set(current).add(accountId));
     try {
       if (enabled) {
         if (!await platform.requestNotificationPermission()) throw new Error('notification_permission_denied');
-        await platform.configureSync({ ...account, syncIntervalMinutes: settings.syncIntervalMinutes });
+        await platform.configureSync({ ...account, syncIntervalMinutes: settings.syncIntervalMinutes, syncMode: mode, credentialRevision: settings.credentialRevisions[accountId] ?? 0 });
       } else {
         await platform.disableSync(accountId);
       }
@@ -99,7 +124,7 @@ export function NativeSettingsSection() {
       await platform.setNotificationPrivacy(settings.privacy);
       await Promise.all(settings.enabled.map(accountId => {
         const account = accounts.find(item => item.accountId === accountId);
-        return account ? platform.configureSync({ ...account, syncIntervalMinutes: settings.syncIntervalMinutes }) : Promise.resolve();
+        return account ? platform.configureSync({ ...account, syncIntervalMinutes: settings.syncIntervalMinutes, syncMode: settings.modes[accountId] ?? 'periodic', credentialRevision: settings.credentialRevisions[accountId] ?? 0 }) : Promise.resolve();
       }));
       localStorage.setItem(KEY, JSON.stringify(settings));
       setSaveState('saved');
@@ -117,6 +142,7 @@ export function NativeSettingsSection() {
     if (status.state === 'running') return t('settings.androidSync.running');
     if (status.state === 'retrying') return t('settings.androidSync.retrying', { code: status.lastErrorCode });
     if (status.state === 'error') return t('settings.androidSync.failed', { code: status.lastErrorCode });
+    if (['connecting', 'listening', 'syncing', 'waiting-retry', 'periodic-fallback', 'provider-unsupported'].includes(status.state)) return status.state;
     return t('settings.androidSync.lastSuccess', { date: new Date(status.lastSuccessAt ?? 0).toLocaleString() });
   };
   return <section className="native-settings-card" aria-labelledby="android-sync-title">
@@ -151,20 +177,27 @@ export function NativeSettingsSection() {
     </div>
     {accounts.length > 0 && <fieldset className="native-settings-accounts">
       <legend>{t('settings.androidSync.accounts')}</legend>
-      {accounts.map(account => <div key={account.accountId}>
+      {accounts.map(account => <div className="native-settings-account" key={account.accountId}>
         <label>
-          <input type="checkbox" checked={settings.enabled.includes(account.accountId)} disabled={togglingAccounts.has(account.accountId)} onChange={event => void toggle(account.accountId, event.target.checked)} />
           <span><strong>{account.email}</strong><small>{account.provider.toUpperCase()}</small></span>
+          <select value={settings.modes[account.accountId] ?? 'disabled'} disabled={togglingAccounts.has(account.accountId)} onChange={event => void setMode(account.accountId, event.target.value as NativeSyncMode)}>
+            <option value="disabled">{t('settings.androidSync.modeDisabled')}</option><option value="continuous" disabled={!['jmap', 'imap', 'exchange'].includes(account.provider)}>{t('settings.androidSync.modeContinuous')}</option><option value="periodic">{t('settings.androidSync.modePeriodic')}</option><option value="manual">{t('settings.androidSync.modeManual')}</option>
+          </select>
         </label>
-        {settings.enabled.includes(account.accountId) && <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 8px 26px', fontSize: 12, color: 'var(--text-muted)' }}>
-          <span>{statusLabel(syncStatuses[account.accountId])}</span>
-          <button type="button" className="btn-secondary" style={{ padding: '3px 7px' }} onClick={() => void testSync(account.accountId)} disabled={syncStatuses[account.accountId]?.state === 'running'}>
-            <RefreshCw size={12} /> {t('settings.androidSync.testNow')}
+        {settings.enabled.includes(account.accountId) && <div className="native-settings-diagnostic">
+          <div className="native-settings-diagnostic__meta">
+            <span>{statusLabel(syncStatuses[account.accountId])}</span>
+            {syncStatuses[account.accountId]?.nextApproximateAt && <span>{new Date(syncStatuses[account.accountId].nextApproximateAt!).toLocaleString()}</span>}
+            {syncStatuses[account.accountId]?.lastEventAt && <span>{new Date(syncStatuses[account.accountId].lastEventAt!).toLocaleString()}</span>}
+          </div>
+          <button type="button" className="native-settings-test-button" onClick={() => void testSync(account.accountId)} disabled={syncStatuses[account.accountId]?.state === 'running'}>
+            <RefreshCw size={15} aria-hidden="true" /> <span>{t('settings.androidSync.testNow')}</span>
           </button>
         </div>}
       </div>)}
     </fieldset>}
     <p className="native-settings-security"><ShieldCheck size={16} />{t('settings.androidSync.securityHint')}</p>
+    {backgroundWarning && <p className="native-settings-security" role="status">{t('settings.androidSync.batteryWarning', { manufacturer: backgroundWarning })} <button type="button" className="btn-secondary" onClick={() => void platform.openBatterySettings?.()}>{t('settings.androidSync.batterySettings')}</button></p>}
     <div className="native-settings-actions">
       <button className="btn-primary" type="button" disabled={saveState === 'saving'} onClick={() => void persistNativeSettings()}>
         {saveState === 'saving' ? <LoaderCircle className="native-settings-spinner" size={16} /> : <Save size={16} />}

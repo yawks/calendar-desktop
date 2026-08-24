@@ -675,8 +675,10 @@ impl MailProvider for EwsProvider {
       <t:FieldURI FieldURI="conversation:ConversationTopic"/>
       <t:FieldURI FieldURI="conversation:LastDeliveryTime"/>
       <t:FieldURI FieldURI="conversation:GlobalMessageCount"/>
+      <t:FieldURI FieldURI="conversation:UnreadCount"/>
       <t:FieldURI FieldURI="conversation:GlobalUnreadCount"/>
       <t:FieldURI FieldURI="conversation:GlobalHasAttachments"/>
+      <t:FieldURI FieldURI="conversation:Preview"/>
       <t:FieldURI FieldURI="conversation:UniqueUnreadSenders"/>
       <t:FieldURI FieldURI="conversation:GlobalUniqueSenders"/>
       <t:FieldURI FieldURI="conversation:GlobalUniqueRecipients"/>
@@ -712,7 +714,11 @@ impl MailProvider for EwsProvider {
             let message_count = xml_content_ns(&conv_xml, "t:GlobalMessageCount")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(1u32);
-            let unread_count = xml_content_ns(&conv_xml, "t:GlobalUnreadCount")
+            // FindConversation is scoped to ParentFolderId. Prefer the folder's
+            // unread count: GlobalUnreadCount can include an old unread copy in
+            // another folder and incorrectly highlight this inbox row.
+            let unread_count = xml_content_ns(&conv_xml, "t:UnreadCount")
+                .or_else(|| xml_content_ns(&conv_xml, "t:GlobalUnreadCount"))
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0u32);
             let has_attachments = xml_content_ns(&conv_xml, "t:GlobalHasAttachments")
@@ -793,7 +799,7 @@ impl MailProvider for EwsProvider {
             threads.push(MailThread {
                 conversation_id,
                 topic,
-                snippet: String::new(),
+                snippet: xml_content_ns(&conv_xml, "t:Preview").unwrap_or_default(),
                 last_delivery_time,
                 message_count,
                 unread_count,

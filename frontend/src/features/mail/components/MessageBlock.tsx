@@ -12,6 +12,7 @@ export interface MessageBlockProps {
   readonly message: MailMessage;
   readonly conversationId: string;
   readonly defaultExpanded?: boolean;
+  readonly scrollIntoViewOnMount?: boolean;
   readonly currentUserEmail?: string;
   readonly mailProviderType?: 'gmail' | 'ews';
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
@@ -55,7 +56,7 @@ async function decodeInlineImages(html: string): Promise<void> {
 }
 
 export function MessageBlock({
-  message, conversationId, defaultExpanded = false, currentUserEmail, mailProviderType, provider,
+  message, conversationId, defaultExpanded = false, scrollIntoViewOnMount = false, currentUserEmail, mailProviderType, provider,
   onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
   isInScheduledFolder = false, onScheduledSendCanceled,
@@ -68,6 +69,28 @@ export function MessageBlock({
   const blockRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);
 
+  useEffect(() => {
+    if (!scrollIntoViewOnMount) return;
+
+    const frame = requestAnimationFrame(() => {
+      const element = blockRef.current;
+      if (!element) return;
+
+      const scrollParent = findScrollParent(element);
+      const elementTop = element.getBoundingClientRect().top;
+      const visibleBottom = scrollParent?.getBoundingClientRect().bottom ?? window.innerHeight;
+
+      // Leave a thread opened near the top untouched. When older collapsed
+      // messages push the first unread header out of view, reveal it below the
+      // sticky toolbar; scroll-margin-top keeps a glimpse of the older stack.
+      if (elementTop >= visibleBottom - 24) {
+        element.scrollIntoView({ block: 'start' });
+      }
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [scrollIntoViewOnMount]);
+
   const contentQuery = useQuery({
     queryKey: ['mail', provider?.accountId, 'message-content', conversationId, message.item_id],
     queryFn: async () => {
@@ -77,10 +100,10 @@ export function MessageBlock({
     },
     enabled: isExpanded && message.body_loaded === false && !!provider?.getMessageContent,
     staleTime: Infinity,
-    // Keep cached content for immediate paint, but validate it whenever the
-    // message block is mounted again so a partial provider response cannot
-    // poison the cache permanently.
-    refetchOnMount: 'always',
+    // A body is immutable for the lifetime of a message id. Reopening a
+    // conversation must reuse it instead of downloading its body and inline
+    // resources again. The explicit reload button remains available.
+    refetchOnMount: false,
     retry: false,
   });
   const displayedMessage = contentQuery.data ? { ...message, ...contentQuery.data, body_loaded: true } : message;
@@ -141,7 +164,7 @@ export function MessageBlock({
   ) ?? [];
 
   return (
-    <div ref={blockRef} className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}`}>
+    <div ref={blockRef} className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}${scrollIntoViewOnMount ? ' mail-message-block--initial-unread' : ''}`}>
       <MessageBlockHeader
         message={message}
         expanded={isExpanded}

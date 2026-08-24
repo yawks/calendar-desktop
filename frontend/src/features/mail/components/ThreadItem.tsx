@@ -126,13 +126,14 @@ export interface ThreadItemProps {
   readonly hasDraft?: boolean;
   readonly sourceColor?: string;
   readonly provider?: MailProvider | null;
+  readonly animateArrival?: boolean;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
   readonly onToggleCheck: (t: MailThread, shiftKey: boolean) => void;
 }
 
-export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, isInScheduledFolder = false, hasDraft, sourceColor, provider, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
+export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, isInScheduledFolder = false, hasDraft, sourceColor, provider, animateArrival = false, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const { preference } = useTheme();
   const isDark = preference === 'dark';
@@ -226,7 +227,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   return (
     <div
       ref={itemRef}
-      className={`mail-thread-item ${isSelected ? "selected" : ""} ${isUnread ? "unread" : ""} ${isChecked ? "checked" : ""}`}
+      className={`mail-thread-item ${isSelected ? "selected" : ""} ${isUnread ? "unread" : ""} ${isChecked ? "checked" : ""} ${animateArrival ? "mail-thread-item--arriving" : ""}`}
       onClick={() => {
         if (avatarLongPressHandledRef.current) {
           avatarLongPressHandledRef.current = false;

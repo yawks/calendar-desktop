@@ -15,12 +15,16 @@ import org.json.JSONObject
 class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.getStringExtra(NotificationActionWorker.ACTION) == NotificationActionWorker.DISMISS) {
-            NativeNotifier(context).cancelMessage(
+            NativeNotifier(context).cancelConversation(
                 intent.getStringExtra(NotificationActionWorker.ACCOUNT_ID) ?: return,
-                intent.getStringExtra(NotificationActionWorker.MESSAGE_ID) ?: return,
+                intent.getStringExtra(NotificationActionWorker.CONVERSATION_ID) ?: return,
             )
             return
         }
+        NativeNotifier(context).cancelConversation(
+            intent.getStringExtra(NotificationActionWorker.ACCOUNT_ID) ?: return,
+            intent.getStringExtra(NotificationActionWorker.CONVERSATION_ID) ?: return,
+        )
         val data = Data.Builder()
         listOf(NotificationActionWorker.ACCOUNT_ID, NotificationActionWorker.MESSAGE_ID, NotificationActionWorker.CONVERSATION_ID, NotificationActionWorker.ACTION)
             .forEach { data.putString(it, intent.getStringExtra(it)) }
@@ -37,7 +41,6 @@ class NotificationActionWorker(context: Context, params: WorkerParameters) : Cor
         val account = SyncVault(applicationContext).get(accountId) ?: return Result.failure()
         return try {
             execute(account, messageId, conversationId, action)
-            NativeNotifier(applicationContext).cancelMessage(accountId, messageId)
             val label = if (action == "archive") R.string.notification_archived else R.string.notification_deleted
             Toast.makeText(applicationContext, applicationContext.getString(R.string.notification_action_done, applicationContext.getString(label)), Toast.LENGTH_LONG).show()
             Result.success()

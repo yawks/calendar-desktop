@@ -276,10 +276,22 @@
 .native-settings-accounts { display: grid; gap: 7px; margin: 18px 0 0; padding: 0; border: 0; }
 .native-settings-accounts legend { margin-bottom: 7px; color: var(--text-muted); font-size: calc(11px * var(--font-scale, 1)); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .native-settings-accounts label { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); cursor: pointer; }
+.native-settings-account { min-width: 0; }
 .native-settings-accounts input { width: 18px; height: 18px; accent-color: var(--primary); }
 .native-settings-accounts label > span { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: space-between; gap: 8px; }
 .native-settings-accounts strong { overflow: hidden; font-size: calc(13px * var(--font-scale, 1)); text-overflow: ellipsis; white-space: nowrap; }
 .native-settings-accounts small { color: var(--text-muted); font-size: 10px; }
+.native-settings-accounts label > select { min-width: 0; max-width: 148px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.native-settings-diagnostic { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 4px 9px 12px; }
+.native-settings-diagnostic__meta { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; gap: 3px 8px; color: var(--text-muted); font-size: calc(11px * var(--font-scale, 1)); line-height: 1.35; }
+.native-settings-diagnostic__meta span { min-width: 0; overflow-wrap: anywhere; }
+.native-settings-diagnostic__meta span + span::before { margin-right: 8px; content: "·"; }
+.native-settings-test-button { display: inline-flex; min-height: 34px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--primary) 8%, var(--bg)); color: var(--primary); font: inherit; font-size: calc(11px * var(--font-scale, 1)); font-weight: 650; white-space: nowrap; cursor: pointer; transition: background .15s ease, border-color .15s ease, transform .15s ease; }
+.native-settings-test-button:hover:not(:disabled) { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, var(--bg)); }
+.native-settings-test-button:active:not(:disabled) { transform: translateY(1px); }
+.native-settings-test-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent); outline-offset: 2px; }
+.native-settings-test-button:disabled { opacity: .55; cursor: progress; }
+.native-settings-test-button:disabled svg { animation: native-settings-spin .8s linear infinite; }
 .native-settings-security { display: flex; align-items: flex-start; gap: 7px; margin: 16px 0; color: var(--text-muted); font-size: calc(11px * var(--font-scale, 1)); line-height: 1.45; }
 .native-settings-security svg { flex: 0 0 auto; color: var(--primary); }
 .native-settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }

@@ -191,6 +191,25 @@ async fn get_imap_session(config: &ImapConfig) -> Result<async_imap::Session<Ima
     Ok(session)
 }
 
+/// Waits for one unsolicited INBOX change. A fresh session is deliberately used:
+/// callers run a full differential sync afterwards and rebuild IDLE after every
+/// disconnect so no event is treated as a durable cursor.
+pub async fn imap_wait_for_change(config: ImapConfig) -> Result<(), String> {
+    use async_imap::extensions::idle::IdleResponse;
+    use std::time::Duration;
+    let mut session = get_imap_session(&config).await?;
+    session.select("INBOX").await.map_err(|error| format!("IMAP select error: {error}"))?;
+    let capabilities = session.capabilities().await.map_err(|error| format!("IMAP capability error: {error}"))?;
+    if !capabilities.has_str("IDLE") { return Err("imap_idle_unsupported".into()); }
+    let mut idle = session.idle();
+    idle.init().await.map_err(|error| format!("IMAP IDLE error: {error}"))?;
+    let (wait, _) = idle.wait_with_timeout(Duration::from_secs(29 * 60));
+    match wait.await.map_err(|error| format!("IMAP IDLE wait error: {error}"))? {
+        IdleResponse::NewData(_) | IdleResponse::Timeout => Ok(()),
+        IdleResponse::ManualInterrupt => Err("imap_idle_interrupted".into()),
+    }
+}
+
 fn decode_maybe_encoded(s: &str) -> String {
     let fake_header = format!("Subject: {}", s);
     if let Ok((header, _)) = mailparse::parse_header(fake_header.as_bytes()) {

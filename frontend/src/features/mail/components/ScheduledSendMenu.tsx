@@ -1,5 +1,5 @@
 import { CalendarClock, ChevronDown, Clock3 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { MailProviderCapabilities } from '../providers/MailProvider';
 
@@ -16,6 +16,7 @@ const toLocalInputValue = (date: Date) => {
 
 export function ScheduledSendMenu({ capability, disabled, onSchedule }: ScheduledSendMenuProps) {
   const { t, i18n } = useTranslation();
+  const timeInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState(false);
   const [customValue, setCustomValue] = useState(() => {
@@ -55,6 +56,10 @@ export function ScheduledSendMenu({ capability, disabled, onSchedule }: Schedule
   const maxDate = capability.maxDelaySeconds
     ? toLocalInputValue(new Date(Date.now() + capability.maxDelaySeconds * 1000))
     : undefined;
+  const [customDate = '', customTime = ''] = customValue.split('T');
+  const minValue = toLocalInputValue(new Date(Date.now() + 60_000));
+  const [minDate = '', minTime = ''] = minValue.split('T');
+  const [maxDateValue, maxTime = ''] = maxDate?.split('T') ?? [];
   const customTimestamp = customValue ? new Date(customValue).getTime() : Number.NaN;
   const customValid = Number.isFinite(customTimestamp)
     && customTimestamp > Date.now()
@@ -90,11 +95,31 @@ export function ScheduledSendMenu({ capability, disabled, onSchedule }: Schedule
             <div className="mail-snooze-custom">
               <div className="mail-snooze-custom__fields">
                 <input
-                  type="datetime-local"
-                  value={customValue}
-                  min={toLocalInputValue(new Date(Date.now() + 60_000))}
-                  max={maxDate}
-                  onChange={event => setCustomValue(event.target.value)}
+                  type="date"
+                  value={customDate}
+                  min={minDate}
+                  max={maxDateValue}
+                  aria-label={t('mail.sendDate', 'Date d’envoi')}
+                  onChange={event => {
+                    setCustomValue(`${event.target.value}T${customTime}`);
+                    event.currentTarget.blur();
+                    timeInputRef.current?.focus();
+                    try {
+                      timeInputRef.current?.showPicker();
+                    } catch {
+                      // Some Android WebViews only allow their picker to open
+                      // from a direct tap; keeping focus on the field is enough.
+                    }
+                  }}
+                />
+                <input
+                  ref={timeInputRef}
+                  type="time"
+                  value={customTime}
+                  min={customDate === minDate ? minTime : undefined}
+                  max={maxDateValue && customDate === maxDateValue ? maxTime : undefined}
+                  aria-label={t('mail.sendTime', 'Heure d’envoi')}
+                  onChange={event => setCustomValue(`${customDate}T${event.target.value}`)}
                 />
               </div>
               <div className="mail-snooze-custom__actions">

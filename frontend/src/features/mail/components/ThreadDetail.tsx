@@ -127,7 +127,27 @@ export function ThreadDetail({
     return () => cancelAnimationFrame(raf);
   }, [replyingTo]);
 
-  const [middleExpanded, setMiddleExpanded] = useState(false);
+  const [middleExpandedConversationId, setMiddleExpandedConversationId] = useState<string | null>(null);
+  const middleExpanded = middleExpandedConversationId === thread.conversation_id;
+  const initialMessageRef = useRef<{
+    conversationId: string;
+    messageId?: string;
+    unreadMessageId?: string;
+    ready: boolean;
+  }>({ conversationId: thread.conversation_id, ready: false });
+
+  if (initialMessageRef.current.conversationId !== thread.conversation_id) {
+    initialMessageRef.current = { conversationId: thread.conversation_id, ready: false };
+  }
+  if (!messagesLoading && messages.length > 0 && !initialMessageRef.current.ready) {
+    const firstUnreadMessage = messages.find(message => !message.is_read);
+    initialMessageRef.current = {
+      conversationId: thread.conversation_id,
+      messageId: firstUnreadMessage?.item_id ?? messages.at(-1)?.item_id,
+      unreadMessageId: firstUnreadMessage?.item_id,
+      ready: true,
+    };
+  }
 
   const { laterToday, tomorrowMorning, tomorrowAfternoon, nextWeek } = computeSnoozeOptions();
   const laterTodayLabel = laterToday.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -150,7 +170,8 @@ export function ThreadDetail({
   };
   const isSnoozed = !snoozeBannerDismissed && (isInSnoozedFolder || (!!snoozeUntil && new Date(snoozeUntil) > new Date()));
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
-  const initiallyExpandedId = messages.find(message => !message.is_read)?.item_id ?? lastMsg?.item_id;
+  const initiallyExpandedId = initialMessageRef.current.messageId;
+  const initialUnreadId = initialMessageRef.current.unreadMessageId;
 
 
   return (
@@ -361,12 +382,13 @@ export function ThreadDetail({
           <>
             <CollapsedMessagesBar
               messages={messages.slice(0, messages.length - 1)}
-              onExpand={() => setMiddleExpanded(true)}
+              onExpand={() => setMiddleExpandedConversationId(thread.conversation_id)}
             />
             <MessageBlock
               message={messages[messages.length - 1]}
               conversationId={thread.conversation_id}
-            defaultExpanded={messages[messages.length - 1].item_id === initiallyExpandedId}
+              defaultExpanded={messages[messages.length - 1].item_id === initiallyExpandedId}
+              scrollIntoViewOnMount={messages[messages.length - 1].item_id === initialUnreadId}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
               provider={provider}
@@ -391,6 +413,7 @@ export function ThreadDetail({
             message={msg}
             conversationId={thread.conversation_id}
             defaultExpanded={msg.item_id === initiallyExpandedId}
+            scrollIntoViewOnMount={msg.item_id === initialUnreadId}
             currentUserEmail={currentUserEmail}
             mailProviderType={mailProviderType}
             provider={provider}

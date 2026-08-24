@@ -39,7 +39,9 @@ Each account uses unique periodic WorkManager work with Android's 15-minute mini
 
 Each message has its own stable notification ID and account group key, plus a group summary. Expanding the Android group reveals child notifications. Taps use `courrier://mail/account/<id>/conversation/<id>`; the React router receives account and conversation query parameters.
 
-A future real-time implementation belongs behind `NewMailDetector` and a separately enabled foreground service. No foreground service is declared or started now.
+Continuous reception is implemented by one `ContinuousSyncService` for every enabled account. JMAP uses the session-advertised EventSource URL and IMAP uses TLS `IDLE`; both run the shared `SyncEngine`, rebuild their connection after network loss and perform a complete snapshot after reconnecting. Gmail API and Exchange currently use the one-hour periodic safety check when no direct compatible stream is available.
+
+The service declares Android's `specialUse` foreground-service type because its purpose is a user-visible, persistent, direct connection to a user-configured mail provider and it cannot be represented by a bounded `dataSync` transfer. This declaration and its manifest subtype must be included in the Play Console foreground-service review. If publication policy rejects that justification, continuous mode must remain disabled in the store build; the periodic mode does not depend on it.
 
 ## Configuration OAuth Google
 

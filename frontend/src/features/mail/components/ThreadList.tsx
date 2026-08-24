@@ -72,10 +72,32 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     const { t } = useTranslation();
     const [filter, setFilter] = useState<'all' | 'unread'>('all');
     const lastCheckedIdRef = useRef<string | null>(null);
+    const threadVersionsRef = useRef<Map<string, string> | null>(null);
+    const arrivalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [arrivingIds, setArrivingIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
       if (selectedThreadIds.size === 0) lastCheckedIdRef.current = null;
     }, [selectedThreadIds.size]);
+    useEffect(() => {
+      threadVersionsRef.current = null;
+      setArrivingIds(new Set());
+    }, [scrollResetKey]);
+    useEffect(() => () => {
+      if (arrivalTimerRef.current) clearTimeout(arrivalTimerRef.current);
+    }, []);
+    useEffect(() => {
+      if (loading) return;
+      const next = new Map(threads.map(thread => [thread.conversation_id, thread.last_delivery_time]));
+      const previous = threadVersionsRef.current;
+      threadVersionsRef.current = next;
+      if (!previous) return;
+      const arriving = new Set([...next].filter(([id, version]) => previous.get(id) !== version).map(([id]) => id));
+      if (arriving.size === 0) return;
+      setArrivingIds(arriving);
+      if (arrivalTimerRef.current) clearTimeout(arrivalTimerRef.current);
+      arrivalTimerRef.current = setTimeout(() => setArrivingIds(new Set()), 900);
+    }, [loading, threads]);
     const [filterOpen, setFilterOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const loadMoreRequestedRef = useRef(false);
@@ -159,7 +181,11 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       };
     }, [onRefresh, refreshing]);
 
-    const pullIndicator = (pullDistance > 0 || refreshing) && (
+    // Android already animates the refresh action in the app header. Keep the
+    // pull affordance while the finger is down, then reclaim its vertical space
+    // as soon as the refresh starts.
+    const showPersistentRefreshIndicator = refreshing && Capacitor.getPlatform() !== 'android';
+    const pullIndicator = ((pullDistance > 0 && !refreshing) || showPersistentRefreshIndicator) && (
       <div
         className={'mail-pull-to-refresh' + (refreshing ? ' mail-pull-to-refresh--refreshing' : '')}
         style={{ height: refreshing ? 42 : pullDistance }}
@@ -327,6 +353,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
               sourceColor={sourceColor}
               provider={resolveProvider?.(thread) ?? provider}
+              animateArrival={arrivingIds.has(thread.conversation_id)}
               onSelect={clickedThread => {
                 if (selectedThreadIds.size > 0 && globalThis.matchMedia?.("(max-width: 700px)").matches) {
                   onToggleSelect(clickedThread);
