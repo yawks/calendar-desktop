@@ -27,7 +27,11 @@ function sanitizeEmailHtml(html: string): string {
   return parsed.body.innerHTML;
 }
 
-export function EmailHtmlBody({ html, bodyText }: { readonly html: string; readonly bodyText?: string }) {
+export function EmailHtmlBody({ html, bodyText, onReady }: {
+  readonly html: string;
+  readonly bodyText?: string;
+  readonly onReady?: () => void;
+}) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
   const { fontSize } = useFontSize();
@@ -186,7 +190,10 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
       // React here lets WebView paint the arbitrary fallback height for one
       // frame, which makes the message visibly grow after it appears.
       frame.style.height = `${height + 4}px`;
-      if (reveal) frame.style.visibility = 'visible';
+      if (reveal) {
+        frame.style.visibility = 'visible';
+        onReady?.();
+      }
     };
     resizeObserverRef.current?.disconnect();
     const observer = new ResizeObserver(() => resize());

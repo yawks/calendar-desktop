@@ -64,6 +64,7 @@ export function MessageBlock({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [bodyReady, setBodyReady] = useState(false);
   const [cancelingScheduled, setCancelingScheduled] = useState(false);
   const [scheduledCanceled, setScheduledCanceled] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
@@ -225,11 +226,7 @@ export function MessageBlock({
               invitationText={displayedMessage.body_text}
             />
           )}
-          {bodyLoading ? (
-            <div className="mail-message-body-skeleton" aria-busy="true">
-              <span /><span /><span /><span />
-            </div>
-          ) : contentQuery.isError ? (
+          {contentQuery.isError ? (
             <div className="mail-message-body-error">
               <div>{contentQuery.error instanceof Error ? contentQuery.error.message : String(contentQuery.error)}</div>
               <button type="button" className="mail-message-body-retry" onClick={() => contentQuery.refetch()}>
@@ -238,7 +235,20 @@ export function MessageBlock({
             </div>
           ) : (
             <>
-              <EmailHtmlBody html={displayedMessage.body_html || ''} bodyText={displayedMessage.body_text} />
+              <div className={`mail-email-body-stage${bodyReady ? '' : ' mail-email-body-stage--loading'}`}>
+                {!bodyReady && (
+                  <div className="mail-message-body-skeleton" aria-busy="true">
+                    <span /><span /><span /><span /><span /><span /><span /><span />
+                  </div>
+                )}
+                {!bodyLoading && (
+                  <EmailHtmlBody
+                    html={displayedMessage.body_html || ''}
+                    bodyText={displayedMessage.body_text}
+                    onReady={() => setBodyReady(true)}
+                  />
+                )}
+              </div>
               {message.body_loaded === false && contentQuery.data && (
                 <button
                   type="button"

@@ -2057,15 +2057,18 @@ pub async fn jmap_get_message_content(
     state: &Arc<JmapClientState>,
     mut config: JmapConfig,
     message_id: String,
-    conversation_id: Option<String>,
+    _conversation_id: Option<String>,
 ) -> Result<MailMessage, String> {
     config.load_message_bodies = true;
     config.single_message_id = Some(message_id.clone());
+    // The caller already has the exact Email id. Passing the conversation id
+    // made get_thread perform a redundant Thread/get before Email/get, adding a
+    // full network round trip to every lazily loaded JMAP body.
     JmapProvider {
         config,
         state: Arc::clone(&state),
     }
-    .get_thread(conversation_id.as_deref().unwrap_or(""), None, None, None)
+    .get_thread("", None, None, None)
     .await?
     .into_iter()
     .find(|message| message.item_id == message_id)
