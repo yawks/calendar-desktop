@@ -30,7 +30,7 @@ export interface NativeSyncStatus {
   watchdogStale?: boolean;
 }
 export interface NativeCredentialUpdate { accountId: string; credentialRevision: number; credentialsUpdatedAt: number; credentials: Record<string, unknown> }
-export interface NativeNotificationThread { subject?: string; sender?: string; snippet?: string }
+export interface NativeNotificationThread { subject?: string; sender?: string; snippet?: string; receivedAt?: string }
 
 export interface NativePlatform {
   readonly isNativeAndroid: boolean;
@@ -45,6 +45,8 @@ export interface NativePlatform {
   setNotificationsEnabled(enabled: boolean): Promise<void>;
   cancelConversationNotifications(accountId: string, conversationId: string): Promise<void>;
   consumeNotificationUrl(): Promise<string | null>;
+  revealNotificationView?(): Promise<void>;
+  diagnosticEvent?(event: string): Promise<void>;
   setBadge(count: number): Promise<void>;
   biometricStatus(): Promise<{ available: boolean; enabled: boolean }>;
   enableBiometricUnlock(vaultKey: string): Promise<void>;

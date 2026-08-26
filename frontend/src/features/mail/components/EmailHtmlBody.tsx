@@ -27,10 +27,11 @@ function sanitizeEmailHtml(html: string): string {
   return parsed.body.innerHTML;
 }
 
-export function EmailHtmlBody({ html, bodyText, onReady }: {
+export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = false }: {
   readonly html: string;
   readonly bodyText?: string;
   readonly onReady?: () => void;
+  readonly expandFirstQuote?: boolean;
 }) {
   const { t } = useTranslation();
   const { resolved } = useTheme();
@@ -115,7 +116,7 @@ export function EmailHtmlBody({ html, bodyText, onReady }: {
     if (!frame || !doc?.body || !doc.documentElement) return;
 
     const root = doc.querySelector<HTMLElement>('.ew') ?? doc.body;
-    processEmailQuotes(root, { label: prevMsgLabel, quoteMarker, attributionTemplate });
+    processEmailQuotes(root, { label: prevMsgLabel, quoteMarker, attributionTemplate, expandFirstQuote });
 
     if (platform.isNativeAndroid) {
       root.style.setProperty('width', '100%', 'important');

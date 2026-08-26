@@ -42,9 +42,13 @@ class NativeNotifier(private val context: Context) {
         val details = notificationDetails(account.id)
         changed.forEach { (conversationId, message) ->
             val notificationId = notificationId(account.id, conversationId)
-            val contentIntent = mailIntent(account.id, conversationId, null, notificationId)
             val sender = message.sender.ifBlank { account.email }
-            val text = message.snippet.ifBlank { message.subject.ifBlank { context.getString(R.string.notification_new_mail) } }
+            val text = notificationBody(message.subject, message.snippet)
+                .ifBlank { context.getString(R.string.notification_new_mail) }
+            val preview = sanitizeNotificationPreview(message.snippet)
+                .ifBlank { sanitizeNotificationText(message.subject) }
+                .ifBlank { context.getString(R.string.notification_new_mail) }
+            val contentIntent = mailIntent(account, message, sender, preview, null, notificationId)
             val builder = NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_courrier_notification)
                 .setContentTitle(sender)
@@ -55,7 +59,7 @@ class NativeNotifier(private val context: Context) {
                 .setAutoCancel(true)
                 .setOnlyAlertOnce(true)
                 .setSortKey(message.id)
-                .addAction(0, context.getString(R.string.notification_action_reply), mailIntent(account.id, conversationId, "reply", notificationId * 10 + 1))
+                .addAction(0, context.getString(R.string.notification_action_reply), mailIntent(account, message, sender, preview, "reply", notificationId * 10 + 1))
                 .addAction(0, context.getString(R.string.notification_action_delete), actionIntent(account.id, message.id, conversationId, "delete", notificationId * 10 + 2))
                 .addAction(0, context.getString(R.string.notification_action_archive), actionIntent(account.id, message.id, conversationId, "archive", notificationId * 10 + 3))
             manager.notify(notificationId, builder.build())
@@ -63,7 +67,8 @@ class NativeNotifier(private val context: Context) {
             details.put(conversationId, JSONObject()
                 .put("sender", sender)
                 .put("subject", message.subject)
-                .put("snippet", text))
+                .put("snippet", preview)
+                .put("receivedAt", message.receivedAt))
         }
         saveNotificationMap(account.id, active)
         saveNotificationDetails(account.id, details)
@@ -106,15 +111,26 @@ class NativeNotifier(private val context: Context) {
         preferences.edit().putString("notificationConversationDetails:$accountId", details.toString()).apply()
     }
 
-    private fun mailIntent(accountId: String, conversationId: String, action: String?, requestCode: Int): PendingIntent {
+    private fun mailIntent(account: SyncAccount, message: NewMessage, sender: String, snippet: String, action: String?, requestCode: Int): PendingIntent {
         val uri = Uri.Builder()
             .scheme("courrier")
             .authority("mail")
             .appendPath("account")
-            .appendPath(accountId)
+            .appendPath(account.id)
             .appendPath("conversation")
-            .appendPath(conversationId)
-            .apply { if (action != null) appendQueryParameter("action", action) }
+            .appendPath(message.conversationId)
+            .appendQueryParameter("subject", message.subject)
+            .appendQueryParameter("sender", sender)
+            .appendQueryParameter("snippet", snippet)
+            .appendQueryParameter("receivedAt", message.receivedAt)
+            .apply {
+                // Gmail detection returns the provider's real message id. The
+                // aggregate detectors use a synthetic conversation+date id for
+                // deduplication; sending that as an EWS/JMAP/IMAP item id causes
+                // ErrorInvalidIdMalformed and a pointless retry on every click.
+                if (account.provider == "gmail") appendQueryParameter("message", message.id)
+                if (action != null) appendQueryParameter("action", action)
+            }
             .build()
         val intent = Intent(context, MainActivity::class.java)
             .setAction(Intent.ACTION_VIEW)
@@ -158,6 +174,7 @@ class NativeNotifier(private val context: Context) {
         val detail = notificationDetails(accountId).optJSONObject(conversationId) ?: return null
         return JSONObject().put("subject", detail.optString("subject"))
             .put("sender", detail.optString("sender")).put("snippet", detail.optString("snippet"))
+            .put("receivedAt", detail.optString("receivedAt"))
     }
 
     private fun migrateLegacyNotifications(accountId: String) {
@@ -172,6 +189,59 @@ class NativeNotifier(private val context: Context) {
     companion object {
         const val CHANNEL = "courrier_new_mail"
         private const val TAG = "CourrierSync"
+        private val HTML_ENTITY = Regex("&(?:#(?:[xX][0-9a-fA-F]+|[0-9]+)|amp|lt|gt|quot|apos|nbsp);", RegexOption.IGNORE_CASE)
+        private val WHITESPACE = Regex("\\s+")
+
+        internal fun sanitizeNotificationText(value: String): String {
+            return decodeNotificationText(value).replace(WHITESPACE, " ").trim()
+        }
+
+        internal fun sanitizeNotificationPreview(value: String): String {
+            return decodeNotificationText(value)
+                .replace(Regex("[\\t\\x0B\\f\\r ]+"), " ")
+                .replace(Regex(" *\\n *"), "\n")
+                .replace(Regex("\\n{3,}"), "\n\n")
+                .trim()
+        }
+
+        internal fun notificationBody(subject: String, snippet: String): String {
+            val cleanSubject = sanitizeNotificationText(subject)
+            val cleanSnippet = sanitizeNotificationPreview(snippet)
+            return listOf(cleanSubject, cleanSnippet).filter(String::isNotBlank).joinToString("\n")
+        }
+
+        private fun decodeNotificationText(value: String): String {
+            var decoded = value
+            // A few providers return snippets whose entities are encoded twice.
+            repeat(2) {
+                val next = HTML_ENTITY.replace(decoded) { match -> decodeHtmlEntity(match.value) }
+                if (next != decoded) decoded = next
+            }
+            return decoded
+        }
+
+        private fun decodeHtmlEntity(entity: String): String {
+            val body = entity.substring(1, entity.length - 1)
+            val codePoint = when {
+                body.startsWith("#x", ignoreCase = true) -> body.substring(2).toIntOrNull(16)
+                body.startsWith('#') -> body.substring(1).toIntOrNull()
+                else -> when (body.lowercase()) {
+                    "amp" -> return "&"
+                    "lt" -> return "<"
+                    "gt" -> return ">"
+                    "quot" -> return "\""
+                    "apos" -> return "'"
+                    "nbsp" -> return " "
+                    else -> null
+                }
+            }
+            return if (codePoint != null && Character.isValidCodePoint(codePoint)) {
+                String(Character.toChars(codePoint))
+            } else {
+                entity
+            }
+        }
+
         internal fun notificationId(accountId: String, conversationId: String) = "$accountId:$conversationId".hashCode()
     }
 }

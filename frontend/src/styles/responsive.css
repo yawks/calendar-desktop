@@ -569,7 +569,26 @@
   .mail-thread-detail__toolbar .folder-picker__list { max-height: min(44dvh, 340px); }
   .mail-thread-detail__toolbar .mail-detail-toolbar__desktop-only,
   .mail-thread-detail__toolbar .mail-detail-toolbar__forward-action { display: none; }
-  .mail-thread-detail__header { padding: 12px 14px 10px; border-bottom: 0; }
+  .mail-detail-panel:has(.mail-thread-detail__header-back) .mail-mobile-detail-nav__back { visibility: hidden; }
+  .mail-thread-detail__header {
+    align-items: flex-start;
+    gap: 4px;
+    padding: 12px 14px 10px 6px;
+    border-bottom: 0;
+  }
+  .mail-thread-detail__header-back {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin: -5px 0 0;
+    padding: 0;
+    flex: 0 0 44px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text);
+  }
   .mail-thread-detail__subject {
     margin: 0;
     font-size: calc(19px * var(--font-scale, 1));
@@ -615,7 +634,7 @@
   .mail-message-block__body { padding: 12px 14px 20px; }
   .mail-message-block__body .mail-email-iframe { min-height: 60px; }
   .mail-thread-item__snippet { width: 100%; min-width: 0; }
-  .mail-thread-item__snippet-text { width: 100%; padding-right: 0 !important; }
+  .mail-thread-item__snippet-text { width: 100%; }
   /* Android's larger native font metrics can make two-line previews taller
      than the row's minimum height. Do not let the scroll column shrink them. */
   .native-android .mail-thread-item { flex-shrink: 0; }
@@ -653,4 +672,55 @@
   .vault-brand--top { padding-top: max(16px, env(safe-area-inset-top)); }
   .vault-brand__logo { width: 44px; height: 44px; border-radius: 11px; }
   .vault-form input, .vault-form button { min-height: 46px; }
+}
+.notification-opening {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+}
+.notification-opening__nav {
+  display: grid !important;
+  flex: 0 0 auto;
+}
+.notification-opening__content { flex: 1; min-height: 0; overflow: hidden; }
+.notification-opening__message { background: var(--bg); }
+.notification-opening__message .mail-message-block__header { cursor: default; }
+.notification-opening__message button { pointer-events: none; }
+.notification-opening__body p {
+  margin: 0 0 18px;
+  color: var(--text);
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.notification-opening__body { min-height: 300px; }
+.notification-opening__body .mail-message-body-skeleton {
+  min-height: 0;
+  align-content: start;
+  gap: 9px;
+}
+.notification-opening__toolbar { pointer-events: none; }
+.notification-opening__toolbar > * { flex: 1 1 0; min-width: 0; }
+.notification-opening__line,
+.notification-opening__avatar,
+.notification-opening__date {
+  display: block;
+  border-radius: 8px;
+  background: linear-gradient(100deg, var(--bg-hover) 20%, var(--border) 38%, var(--bg-hover) 56%);
+  background-size: 220% 100%;
+  animation: notification-opening-shimmer 1.25s ease-in-out infinite;
+  will-change: background-position;
+}
+.notification-opening__line { width: 100%; height: 14px; }
+.notification-opening__line--sender { width: 44%; height: 13px; }
+.notification-opening__avatar { flex: 0 0 40px; height: 40px; border-radius: 50%; }
+.notification-opening__date { width: 42px; height: 10px; }
+
+@keyframes notification-opening-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -120% 0; }
 }

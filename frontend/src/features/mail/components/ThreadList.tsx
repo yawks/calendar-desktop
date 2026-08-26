@@ -13,6 +13,8 @@ export interface ThreadListProps {
   readonly loading: boolean;
   readonly loadingMore: boolean;
   readonly totalCount?: number;
+  /** Complete unread-message count reported by the selected folder. */
+  readonly unreadCount?: number;
   readonly scrollResetKey?: string;
   readonly hasMore?: boolean;
   readonly onLoadMore?: () => void;
@@ -44,6 +46,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       loading,
       loadingMore,
       totalCount,
+      unreadCount,
       scrollResetKey,
       hasMore = false,
       onLoadMore,
@@ -225,6 +228,26 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     const visibleThreads = (!isSearchMode && filter === 'unread')
       ? threads.filter(t => t.unread_count > 0)
       : threads;
+
+    // The unread filter is applied client-side, while `threads` is paginated.
+    // Keep fetching pages until their unread-message totals account for the
+    // folder count (or the provider tells us there are no more pages). This
+    // prevents an older unread conversation from being hidden merely because
+    // it is not part of the first 50 loaded conversations.
+    const loadedUnreadCount = threads.reduce((total, thread) => total + thread.unread_count, 0);
+    useEffect(() => {
+      if (
+        isSearchMode
+        || filter !== 'unread'
+        || unreadCount === undefined
+        || loadedUnreadCount >= unreadCount
+        || !hasMore
+        || loading
+        || loadingMore
+        || !onLoadMore
+      ) return;
+      onLoadMore();
+    }, [filter, hasMore, isSearchMode, loadedUnreadCount, loading, loadingMore, onLoadMore, unreadCount]);
 
     const toolbar = (
       <div className="mail-thread-toolbar">

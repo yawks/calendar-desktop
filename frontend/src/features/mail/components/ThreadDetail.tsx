@@ -9,7 +9,8 @@ import {
   MoreHorizontal,
   RefreshCw,
   ShieldAlert,
-  Trash2
+  Trash2,
+  ChevronLeft,
 } from 'lucide-react';
 import { ComposerRestoreData, MailAttachment, MailIdentity, MailMessage, MailThread } from '../types';
 import { MailComposer, MailComposerHandle } from './MailComposer';
@@ -68,6 +69,9 @@ export interface ThreadDetailProps {
   readonly composerRef?: React.RefObject<MailComposerHandle>;
   readonly sourceLabel?: string;
   readonly sourceColor?: string;
+  readonly initiallyExpandedMessageId?: string;
+  readonly onInitialMessageReady?: () => void;
+  readonly onBack?: () => void;
 }
 
 const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -104,7 +108,7 @@ export function ThreadDetail({
   onDeleteThread, onToggleThreadRead,
   supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, isInScheduledFolder, onScheduledSendCanceled, onUnsnooze,
   moveFolders, onMove, moveSources, moveSourceAccountId, onTransfer, isInSpamFolder, onMarkAsSpam, composerRef,
-  sourceLabel, sourceColor,
+  sourceLabel, sourceColor, initiallyExpandedMessageId, onInitialMessageReady, onBack,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -134,20 +138,33 @@ export function ThreadDetail({
   const middleExpanded = middleExpandedConversationId === thread.conversation_id;
   const initialMessageRef = useRef<{
     conversationId: string;
+    targetMessageId?: string;
     messageId?: string;
     unreadMessageId?: string;
     ready: boolean;
-  }>({ conversationId: thread.conversation_id, ready: false });
+  }>({ conversationId: thread.conversation_id, targetMessageId: initiallyExpandedMessageId, ready: false });
 
-  if (initialMessageRef.current.conversationId !== thread.conversation_id) {
-    initialMessageRef.current = { conversationId: thread.conversation_id, ready: false };
-  }
-  if (!messagesLoading && messages.length > 0 && !initialMessageRef.current.ready) {
-    const firstUnreadMessage = messages.find(message => !message.is_read);
+  if (initialMessageRef.current.conversationId !== thread.conversation_id
+    || initialMessageRef.current.targetMessageId !== initiallyExpandedMessageId) {
     initialMessageRef.current = {
       conversationId: thread.conversation_id,
-      messageId: firstUnreadMessage?.item_id ?? messages.at(-1)?.item_id,
-      unreadMessageId: firstUnreadMessage?.item_id,
+      targetMessageId: initiallyExpandedMessageId,
+      ready: false,
+    };
+  }
+  if (!messagesLoading && messages.length > 0 && !initialMessageRef.current.ready) {
+    const targetedMessage = initiallyExpandedMessageId
+      ? messages.find(message => message.item_id === initiallyExpandedMessageId)
+      : undefined;
+    // Notification aggregate providers cannot expose a stable item id without
+    // another network call. Their notification always represents the newest
+    // unread item in the conversation, so use the last unread envelope.
+    const latestUnreadMessage = messages.slice().reverse().find(message => !message.is_read);
+    initialMessageRef.current = {
+      conversationId: thread.conversation_id,
+      targetMessageId: initiallyExpandedMessageId,
+      messageId: targetedMessage?.item_id ?? latestUnreadMessage?.item_id ?? messages.at(-1)?.item_id,
+      unreadMessageId: targetedMessage?.item_id ?? latestUnreadMessage?.item_id,
       ready: true,
     };
   }
@@ -352,16 +369,21 @@ export function ThreadDetail({
       </div>
 
       <div className="mail-thread-detail__header">
-        <h2 className="mail-thread-detail__subject">{decodeHtmlEntities(thread.topic) || t('mail.noSubject', "(Pas d'objet)")}</h2>
-        {sourceLabel && (
-          <span
-            className="mail-thread-detail__source"
-            style={{ '--source-color': sourceColor ?? 'var(--primary)' } as React.CSSProperties}
-          >
-            <span className="mail-thread-detail__source-dot" style={{ background: sourceColor }} />
-            {sourceLabel}
-          </span>
-        )}
+        <button type="button" className="mail-thread-detail__header-back" aria-label={t('mail.backToList')} onClick={onBack}>
+          <ChevronLeft size={30} />
+        </button>
+        <div className="mail-thread-detail__header-content">
+          <h2 className="mail-thread-detail__subject">{decodeHtmlEntities(thread.topic) || t('mail.noSubject', "(Pas d'objet)")}</h2>
+          {sourceLabel && (
+            <span
+              className="mail-thread-detail__source"
+              style={{ '--source-color': sourceColor ?? 'var(--primary)' } as React.CSSProperties}
+            >
+              <span className="mail-thread-detail__source-dot" style={{ background: sourceColor }} />
+              {sourceLabel}
+            </span>
+          )}
+        </div>
       </div>
 
       {isSnoozed && (
@@ -410,6 +432,7 @@ export function ThreadDetail({
               loadingAttachmentId={loadingAttachmentId}
               isInScheduledFolder={isInScheduledFolder}
               onScheduledSendCanceled={onScheduledSendCanceled}
+              onBodyReady={onInitialMessageReady}
             />
           </>
         )}
@@ -435,6 +458,7 @@ export function ThreadDetail({
             loadingAttachmentId={loadingAttachmentId}
             isInScheduledFolder={isInScheduledFolder}
             onScheduledSendCanceled={onScheduledSendCanceled}
+            onBodyReady={onInitialMessageReady}
           />
         ))}
 

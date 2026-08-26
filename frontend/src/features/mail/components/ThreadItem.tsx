@@ -9,6 +9,7 @@ import { ContactAvatar } from './ContactAvatar';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useTranslation } from 'react-i18next';
+import { useNotificationOpening } from '../../../shared/platform/notificationOpening';
 
 // Loading every visible row at once is especially expensive in the unified
 // view (JMAP needs Thread/get + Email/get). Limit work independently per
@@ -136,6 +137,7 @@ export interface ThreadItemProps {
 export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, isInScheduledFolder = false, hasDraft, sourceColor, provider, animateArrival = false, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const { preference } = useTheme();
+  const notificationOpening = useNotificationOpening();
   const isDark = preference === 'dark';
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -178,7 +180,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
       provider!.providerType === 'jmap' ? 1 : 3,
       () => provider!.getThreadSnippet!(thread.conversation_id),
     ),
-    enabled: snippetNearViewport && !thread.snippet && !!provider?.getThreadSnippet,
+    enabled: !notificationOpening && snippetNearViewport && !thread.snippet && !!provider?.getThreadSnippet,
     staleTime: Infinity,
     gcTime: Infinity,
     retry: 2,
@@ -326,7 +328,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
           )}
           {snippet ? (
             <span className="mail-thread-item__snippet-text">{formatMailPreview(snippet)}</span>
-          ) : provider?.getThreadSnippet && snippetQuery.isPending ? (
+          ) : provider?.getThreadSnippet && snippetQuery.isFetching ? (
             <span className="mail-thread-item__snippet-skeleton" aria-hidden="true" />
           ) : null}
         </div>

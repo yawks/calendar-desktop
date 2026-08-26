@@ -9,6 +9,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
@@ -24,9 +25,36 @@ class ContinuousSyncService : Service() {
     private val jobs = mutableMapOf<String, Job>()
     private val client = OkHttpClient.Builder().readTimeout(0, TimeUnit.MILLISECONDS).build()
     private lateinit var connectivity: ConnectivityManager
+    @Volatile private var activeNetwork: Network? = null
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) { reconcileAccounts() }
-        override fun onLost(network: Network) { jobs.values.forEach(Job::cancel); jobs.clear() }
+        override fun onAvailable(network: Network) {
+            activeNetwork = network
+            Log.i("CourrierSync", "Network available; scheduling catch-up and reconnecting listeners")
+            val vault = SyncVault(applicationContext)
+            vault.accountIds().filter { vault.get(it)?.effectiveSyncMode() == "continuous" }.forEach { id ->
+                // WorkManager survives the service and process. It guarantees a
+                // catch-up even if Android stops this foreground service again
+                // while connectivity is settling after a long offline period.
+                SyncScheduler.runRecovery(applicationContext, id)
+            }
+            synchronized(jobs) {
+                jobs.values.forEach(Job::cancel)
+                jobs.clear()
+            }
+            reconcileAccounts()
+        }
+        override fun onLost(network: Network) {
+            // A handover can announce the replacement network before reporting
+            // the old one as lost. Never cancel listeners already attached to
+            // that replacement.
+            if (activeNetwork != network) return
+            activeNetwork = null
+            Log.i("CourrierSync", "Network lost; pausing continuous listeners")
+            synchronized(jobs) {
+                jobs.values.forEach(Job::cancel)
+                jobs.clear()
+            }
+        }
     }
 
     override fun onCreate() {
@@ -46,8 +74,10 @@ class ContinuousSyncService : Service() {
         val continuous = vault.accountIds().filter { vault.get(it)?.effectiveSyncMode() == "continuous" }.toSet()
         if (continuous.isEmpty()) { stopSelf(); return@launch }
         startForeground(NOTIFICATION_ID, foregroundNotification(continuous.size))
-        jobs.keys.filterNot(continuous::contains).forEach { jobs.remove(it)?.cancel() }
-        continuous.forEach { id -> if (jobs[id]?.isActive != true) jobs[id] = launch { supervise(id) } }
+        synchronized(jobs) {
+            jobs.keys.filterNot(continuous::contains).forEach { jobs.remove(it)?.cancel() }
+            continuous.forEach { id -> if (jobs[id]?.isActive != true) jobs[id] = launch { supervise(id) } }
+        }
     }
 
     private suspend fun supervise(id: String) {

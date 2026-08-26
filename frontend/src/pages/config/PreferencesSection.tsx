@@ -254,13 +254,13 @@ export function PreferencesSection() {
         <div style={{ display: 'flex', gap: 12 }}>
           <label style={{ flex: 1, fontSize: 12 }}>
             {t('settings.offlineMail.threadLimit')}
-            <select disabled={!offlineMail.enabled} value={offlineMail.maxThreads} onChange={event => updateOfflineMail({ maxThreads: Number(event.target.value) })} style={{ display: 'block', width: '100%', marginTop: 5, padding: 7 }}>
+            <select className="config-preference-select" disabled={!offlineMail.enabled} value={offlineMail.maxThreads} onChange={event => updateOfflineMail({ maxThreads: Number(event.target.value) })}>
               {[50, 100, 250, 500].map(value => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
           <label style={{ flex: 1, fontSize: 12 }}>
             {t('settings.offlineMail.ageLimit')}
-            <select disabled={!offlineMail.enabled} value={offlineMail.maxAgeDays} onChange={event => updateOfflineMail({ maxAgeDays: Number(event.target.value) })} style={{ display: 'block', width: '100%', marginTop: 5, padding: 7 }}>
+            <select className="config-preference-select" disabled={!offlineMail.enabled} value={offlineMail.maxAgeDays} onChange={event => updateOfflineMail({ maxAgeDays: Number(event.target.value) })}>
               {[7, 30, 90, 180].map(value => <option key={value} value={value}>{t('settings.offlineMail.days', { count: value })}</option>)}
             </select>
           </label>

@@ -2,7 +2,7 @@ package com.courrier.app
 
 import org.json.JSONObject
 
-data class NewMessage(val id: String, val conversationId: String, val sender: String, val subject: String, val snippet: String)
+data class NewMessage(val id: String, val conversationId: String, val sender: String, val subject: String, val snippet: String, val receivedAt: String)
 data class DetectionResult(val messages: List<NewMessage>, val cursor: String, val credentialUpdate: JSONObject?)
 interface NewMailDetector { fun detect(account: SyncAccount, cursor: String?): DetectionResult }
 data class SyncAccount(

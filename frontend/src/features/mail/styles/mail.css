@@ -895,8 +895,11 @@
 .mail-source-dialog__error { color: var(--danger); padding: 20px; }
 
 .mail-thread-detail__header {
+  display: flex; align-items: flex-start;
   padding: 14px 20px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
+.mail-thread-detail__header-content { min-width: 0; flex: 1; }
+.mail-thread-detail__header-back { display: none; }
 .mail-thread-detail__subject {
   font-size: calc(18px * var(--font-scale, 1)); font-weight: 500; color: var(--text);
 }
@@ -2915,14 +2918,9 @@
   padding-block: 9px;
 }
 
-/* Large type needs more vertical room in mail rows. Keep the account badge
-   clear of the two-line preview and avoid clipping compact message headers. */
+/* Large type needs more vertical room in mail rows and compact message headers. */
 [data-font-size="intermediate"] .mail-thread-item {
   min-height: 100px;
-}
-
-[data-font-size="intermediate"] .mail-thread-item__snippet-text {
-  padding-right: 96px;
 }
 
 [data-font-size="intermediate"] .mail-message-block__header--compact {
@@ -2943,10 +2941,6 @@
 [data-font-size="large"] .mail-thread-item {
   min-height: 108px;
   padding-block: 12px;
-}
-
-[data-font-size="large"] .mail-thread-item__snippet-text {
-  padding-right: 104px;
 }
 
 [data-font-size="large"] .mail-message-block__header--compact {
@@ -3040,6 +3034,7 @@
   background: color-mix(in srgb, var(--primary) 13%, var(--bg-hover));
 }
 
+.mail-message-block,
 .mail-message-block--initial-unread {
   scroll-margin-top: 86px;
 }

@@ -2,6 +2,8 @@ export interface QuoteParserOptions {
   label: string;
   quoteMarker?: string | null;
   attributionTemplate?: string;
+  /** Keep the first detected quoted message visible (useful for invitation previews). */
+  expandFirstQuote?: boolean;
 }
 
 /**
@@ -11,7 +13,8 @@ export interface QuoteParserOptions {
  * be injected verbatim into an iframe <script> tag.
  */
 export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void {
-  const { label, quoteMarker, attributionTemplate } = opts;
+  const { label, quoteMarker, attributionTemplate, expandFirstQuote = false } = opts;
+  let firstQuoteExpanded = false;
 
   const COLORS = ['hsl(210,70%,55%)', 'hsl(145,55%,45%)', 'hsl(35,80%,50%)', 'hsl(300,45%,55%)'];
   const BG_RGBS: [number, number, number][] = [[100, 160, 220], [60, 180, 100], [220, 150, 50], [180, 80, 200]];
@@ -249,7 +252,9 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
     btn.style.color = color;
     btn.title = label;
     btn.setAttribute('aria-label', label);
-    btn.setAttribute('aria-expanded', 'false');
+    const initiallyExpanded = expandFirstQuote && !firstQuoteExpanded;
+    if (initiallyExpanded) firstQuoteExpanded = true;
+    btn.setAttribute('aria-expanded', String(initiallyExpanded));
     const dots = document.createElement('span');
     dots.className = 'qt-dots';
     dots.setAttribute('aria-hidden', 'true');
@@ -257,7 +262,7 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
     btn.appendChild(dots);
     const inner = document.createElement('div');
     inner.className = 'qt-inner';
-    inner.style.display = 'none';
+    inner.style.display = initiallyExpanded ? '' : 'none';
     const attributionEl = document.createElement('div');
     attributionEl.className = 'qt-attribution';
     attributionEl.textContent = attribution || label;
@@ -394,13 +399,19 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
         // empty level and discard the attribution line.
         const isContainedGmailAttribution = child.hasAttribute('data-qt-contained-attribution');
         if (isContainedGmailAttribution) child.removeAttribute('data-qt-contained-attribution');
+        // Teams meeting invitations use long underscore-only divs as visual
+        // separators and explicitly hide them from accessibility APIs. They
+        // are decoration, not quoted-message boundaries.
+        const isAriaHiddenDecoration = child.getAttribute('aria-hidden') === 'true';
         const isLeafLike = child.children.length === 0 || text.length < 300 || isOutlookHeader;
         const isDiv = !isContainedGmailAttribution && isLeafLike && (
           isExplicitMailDivider ||
           isOutlookHr ||
           isOutlookHeader ||
-          (marker != null && (text === marker || text.startsWith(marker))) ||
-          isDividerText(childText)
+          (!isAriaHiddenDecoration && (
+            (marker != null && (text === marker || text.startsWith(marker))) ||
+            isDividerText(childText)
+          ))
         );
         if (isDiv) {
           if (isOutlookHr || isExplicitMailDivider) {

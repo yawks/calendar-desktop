@@ -1115,7 +1115,7 @@ impl MailProvider for EwsProvider {
             }
         };
 
-        type Row = (String, String, String, bool, bool, Option<String>);
+        type Row = (String, String, String, bool, bool, Option<String>, String);
 
         fn search_xml_to_rows(xml: &str) -> Vec<Row> {
             let mut rows = Vec::new();
@@ -1140,7 +1140,10 @@ impl MailProvider for EwsProvider {
                     .as_deref()
                     .and_then(|f| xml_content_ns(f, "t:Name"))
                     .filter(|s| !s.is_empty());
-                rows.push((conv_id, topic, date, is_read, has_attach, from_name));
+                let snippet = xml_content_ns(&msg_xml, "t:Preview").unwrap_or_default();
+                rows.push((
+                    conv_id, topic, date, is_read, has_attach, from_name, snippet,
+                ));
             }
             rows
         }
@@ -1155,6 +1158,7 @@ impl MailProvider for EwsProvider {
                         r#"<m:FindItem Traversal="Shallow">
   <m:ItemShape>
     <t:BaseShape>AllProperties</t:BaseShape>
+    <t:AdditionalProperties><t:FieldURI FieldURI="item:Preview"/></t:AdditionalProperties>
   </m:ItemShape>
   <m:ParentFolderIds>
     {folder_id_xml}
@@ -1185,7 +1189,7 @@ impl MailProvider for EwsProvider {
         let mut order: Vec<String> = Vec::new();
         let mut by_conv: HashMap<String, MailThread> = HashMap::new();
 
-        for (conv_id, topic, date, is_read, has_attach, from_name) in all_rows {
+        for (conv_id, topic, date, is_read, has_attach, from_name, snippet) in all_rows {
             if let Some(t) = by_conv.get_mut(&conv_id) {
                 t.message_count += 1;
                 if !is_read {
@@ -1194,6 +1198,11 @@ impl MailProvider for EwsProvider {
                 if has_attach {
                     t.has_attachments = true;
                 }
+                // Rows are sorted newest first. Keep the first non-empty
+                // preview, which represents the latest matching message.
+                if t.snippet.is_empty() && !snippet.is_empty() {
+                    t.snippet = snippet;
+                }
             } else {
                 order.push(conv_id.clone());
                 by_conv.insert(
@@ -1201,7 +1210,7 @@ impl MailProvider for EwsProvider {
                     MailThread {
                         conversation_id: conv_id,
                         topic,
-                        snippet: String::new(),
+                        snippet,
                         last_delivery_time: date,
                         message_count: 1,
                         unread_count: if is_read { 0 } else { 1 },
@@ -2830,14 +2839,23 @@ async fn inject_inline_images(
         return body_html;
     }
 
-    let mut fetch_results: Vec<(InlineImage, Result<String, String>)> = Vec::new();
-    for img in inline_images {
-        let data = fetch_ews_attachment_base64(access_token, &img.attachment_id).await;
-        if let Err(ref e) = data {
-            eprintln!("[mail] fetch failed: {}", e);
-        }
-        fetch_results.push((img, data));
-    }
+    // Inline resources are independent. Fetching them serially made HTML mail
+    // with several logos/images accumulate one full network round trip per
+    // attachment before the body could be shown. Keep concurrency bounded so
+    // Exchange is not flooded while removing that avoidable latency chain.
+    use futures::{stream, StreamExt};
+    let fetch_results: Vec<(InlineImage, Result<String, String>)> = stream::iter(
+        inline_images.into_iter().map(|img| async move {
+            let data = fetch_ews_attachment_base64(access_token, &img.attachment_id).await;
+            if let Err(ref error) = data {
+                eprintln!("[mail] fetch failed: {}", error);
+            }
+            (img, data)
+        }),
+    )
+    .buffer_unordered(4)
+    .collect()
+    .await;
 
     let mut html = body_html;
     let mut unmatched: Vec<(String, String)> = Vec::new();

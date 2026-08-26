@@ -16,8 +16,9 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { MailMessage, MailThread } from './types';
+import type { NativeNotificationThread } from '../../shared/platform/types';
 import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import AppViewMenu from '../../shared/components/AppViewMenu';
 import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
@@ -37,11 +38,14 @@ import { useMailPageLogic } from './hooks/useMailPageLogic';
 
 import { useIncomingMailNotifications } from './hooks/useIncomingMailNotifications';
 import { recordUserInitiatedUnread } from './utils/userInitiatedUnread';
+import { mergeSelectedThread } from './utils/selectedThread';
 import { platform } from '../../shared/platform';
 import { useConnectionIssues } from '../../shared/store/ConnectionIssueStore';
+import { useQueryClient } from '@tanstack/react-query';
 export default function MailApp() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder, selectedFolderAccountId,
     threads, threadsLoading, threadsRefreshing, threadsLoadingMore, threadTotalCount, selectedThread,
@@ -73,6 +77,10 @@ export default function MailApp() {
   const newMessageComposerRef = useRef<NewMessageComposerHandle>(null);
   const [canceledScheduledDraft, setCanceledScheduledDraft] = useState<MailMessage | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<MailMessage | null>(null);
+  const finishNotificationOpening = useCallback(() => {
+    void platform.diagnosticEvent?.('notification-body-ready');
+    globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened'));
+  }, []);
   const moveSources = useMemo(() => allMailAccounts.map(account => ({
     accountId: account.id,
     label: account.name || account.email,
@@ -147,7 +155,59 @@ export default function MailApp() {
   const displayedConnectionIssue = connectionIssues.find(issue => issue.message === error) ?? connectionIssues[0];
   const mobileActionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledNotificationActionRef = useRef<string | null>(null);
-  const notificationThread = (location.state as { notificationThread?: { subject?: string; sender?: string; snippet?: string } } | null)?.notificationThread;
+  const deletedConversationIdsRef = useRef(new Set<string>());
+  const undoableDeletedConversationIdRef = useRef<string | null>(null);
+  const [notificationContext, setNotificationContext] = useState<{
+    accountId: string;
+    conversationId: string;
+    messageId?: string;
+    thread: NativeNotificationThread;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    const receiveNotificationThread = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        accountId: string;
+        conversationId: string;
+        notificationThread: NativeNotificationThread;
+      }>).detail;
+      if (!detail) return;
+      const params = new URLSearchParams(globalThis.location.search);
+      const isCurrentTarget = params.get('account') === detail.accountId
+        && params.get('conversation') === detail.conversationId;
+      const isSelectedTarget = selectedThread?.accountId === detail.accountId
+        && selectedThread.conversation_id === detail.conversationId;
+      if (isCurrentTarget || isSelectedTarget) {
+        setNotificationContext(current => ({
+          accountId: detail.accountId,
+          conversationId: detail.conversationId,
+          messageId: current?.accountId === detail.accountId && current.conversationId === detail.conversationId
+            ? current.messageId
+            : undefined,
+          thread: detail.notificationThread,
+        }));
+      }
+    };
+    globalThis.addEventListener('courrier:notification-thread', receiveNotificationThread);
+    return () => globalThis.removeEventListener('courrier:notification-thread', receiveNotificationThread);
+  }, [selectedThread?.accountId, selectedThread?.conversation_id]);
+
+  useEffect(() => {
+    if (!notificationContext || !selectedThread
+      || notificationContext.accountId !== selectedThread.accountId
+      || notificationContext.conversationId !== selectedThread.conversation_id) return;
+    const notificationThread = notificationContext.thread;
+    setSelectedThread(current => {
+      if (!current || current.conversation_id !== selectedThread.conversation_id) return current;
+      if (current.topic && (current.from_name || current.from_email) && current.snippet) return current;
+      return {
+        ...current,
+        topic: current.topic || notificationThread.subject || '',
+        snippet: current.snippet || notificationThread.snippet || '',
+        from_name: current.from_name || notificationThread.sender || null,
+      };
+    });
+  }, [notificationContext, selectedThread, setSelectedThread]);
 
   // A notification can target a conversation which is not in the currently
   // loaded inbox page. In that case the deep link first opens a minimal thread
@@ -280,9 +340,25 @@ export default function MailApp() {
     globalThis.history.pushState({ ...globalThis.history.state, mailScreen: screen }, '');
   };
 
+  const closeMobileDetail = useCallback(() => {
+    if (globalThis.history.state?.mailScreen) globalThis.history.back();
+    else {
+      setSelectedThread(null);
+      setComposing(false);
+      setSelectedThreadIds(new Set());
+      setReplyingTo(null);
+    }
+  }, [setComposing, setReplyingTo, setSelectedThread, setSelectedThreadIds]);
+
   useEffect(() => {
     const handleBrowserBack = () => {
       if (!globalThis.matchMedia('(max-width: 700px)').matches) return;
+      const conversationId = new URL(globalThis.location.href).searchParams.get('conversation');
+      if (conversationId && deletedConversationIdsRef.current.has(conversationId)) {
+        // A notification URL can remain one entry behind the current detail.
+        // Never let that stale entry reselect a conversation just deleted.
+        navigate('/', { replace: true });
+      }
       setSelectedThread(null);
       setComposing(false);
       setSelectedThreadIds(new Set());
@@ -290,7 +366,7 @@ export default function MailApp() {
     };
     globalThis.addEventListener('popstate', handleBrowserBack);
     return () => globalThis.removeEventListener('popstate', handleBrowserBack);
-  }, [setComposing, setReplyingTo, setSelectedThread, setSelectedThreadIds]);
+  }, [navigate, setComposing, setReplyingTo, setSelectedThread, setSelectedThreadIds]);
 
   const handleSelectThread = (thread: MailThread) => {
     if (newMessageComposerRef.current) {
@@ -372,10 +448,11 @@ export default function MailApp() {
     if (match) handleIdentityChange(match.id);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const params = new URLSearchParams(location.search);
     const accountId = params.get('account');
     const conversationId = params.get('conversation');
+    const messageId = params.get('message') ?? undefined;
     const rawAction = params.get('action') ?? 'open';
     const action = ['open', 'reply', 'delete', 'archive'].includes(rawAction) ? rawAction : 'open';
     if (!accountId || !conversationId) {
@@ -389,6 +466,39 @@ export default function MailApp() {
     const listedThread = threads.find(item =>
       item.conversation_id === conversationId && (item.accountId ?? accountId) === accountId
     );
+    const notificationThreadFromUrl = {
+      subject: params.get('subject') ?? undefined,
+      sender: params.get('sender') ?? undefined,
+      snippet: params.get('snippet') ?? undefined,
+    };
+    const hasNotificationThreadFromUrl = Object.values(notificationThreadFromUrl).some(Boolean);
+    if (hasNotificationThreadFromUrl || messageId) {
+      setNotificationContext({
+        accountId,
+        conversationId,
+        messageId,
+        thread: notificationThreadFromUrl,
+      });
+    }
+    // Start downloading the exact notified message body immediately, in
+    // parallel with the lightweight conversation-header request. Previously
+    // MessageBlock only started this command after the headers had returned and
+    // the target block had mounted, serializing two network round trips.
+    const notificationProvider = resolveProvider(accountId);
+    if (messageId && notificationProvider?.getMessageContent) {
+      void queryClient.prefetchQuery({
+        queryKey: ['mail', notificationProvider.accountId, 'message-content', conversationId, messageId],
+        queryFn: () => notificationProvider.getMessageContent!(messageId, conversationId),
+        staleTime: Infinity,
+        gcTime: 24 * 60 * 60 * 1000,
+      });
+    }
+    const notificationThread = hasNotificationThreadFromUrl
+      ? notificationThreadFromUrl
+      : notificationContext?.accountId === accountId
+      && notificationContext.conversationId === conversationId
+      ? notificationContext.thread
+      : null;
 
     if (selectedThread?.conversation_id !== conversationId || (selectedThread.accountId ?? accountId) !== accountId) {
       console.info('[notification-link] selecting conversation', listedThread ? 'listed' : 'direct');
@@ -451,8 +561,10 @@ export default function MailApp() {
     messages,
     messagesLoading,
     navigate,
-    notificationThread,
+    notificationContext,
     openThread,
+    queryClient,
+    resolveProvider,
     selectedThread?.conversation_id,
     setReplyMode,
     setReplyingTo,
@@ -479,7 +591,9 @@ export default function MailApp() {
     : undefined;
   useEffect(() => {
     if (!selectedThreadInFolder || selectedThread === selectedThreadInFolder) return;
-    setSelectedThread(selectedThreadInFolder);
+    setSelectedThread(current => current
+      ? mergeSelectedThread(current, selectedThreadInFolder)
+      : selectedThreadInFolder);
   }, [selectedThread, selectedThreadInFolder, setSelectedThread]);
   const displayedThreads = selectedThread && !listedThreads.some(thread => thread.conversation_id === selectedThread.conversation_id)
     ? [selectedThread, ...listedThreads]
@@ -696,6 +810,7 @@ export default function MailApp() {
               loading={searchQuery ? searchLoading : threadsLoading}
               loadingMore={searchQuery ? false : threadsLoadingMore}
               totalCount={searchQuery ? undefined : threadTotalCount}
+              unreadCount={searchQuery ? undefined : folderUnreadCounts[selectedFolder]}
               scrollResetKey={`${selectedAccountId}:${selectedFolder}:${searchQuery ? 'search' : 'threads'}`}
               hasMore={!searchQuery && hasMoreThreads}
               onLoadMore={searchQuery ? undefined : loadMoreThreads}
@@ -782,10 +897,7 @@ export default function MailApp() {
                 type="button"
                 className="mail-mobile-detail-nav__back"
                 aria-label={t('mail.backToList')}
-                onClick={() => {
-                  if (globalThis.history.state?.mailScreen) globalThis.history.back();
-                  else { setSelectedThread(null); setComposing(false); setSelectedThreadIds(new Set()); }
-                }}
+                onClick={closeMobileDetail}
               >
                 <ChevronLeft size={30} />
               </button>
@@ -879,7 +991,10 @@ export default function MailApp() {
                 <Inbox size={48} strokeWidth={1} style={{ opacity: 0.2 }} />
                 <p style={{ opacity: 0.4 }}>{t('mail.selectThread', 'Select a conversation')}</p>
               </div>
-            ) : selectedFolder === 'drafts' && !messagesLoading && messages.length > 0 ? (() => {
+            ) : selectedFolder === 'drafts'
+              && !selectedThread.conversation_id.startsWith('__optimistic_thread__')
+              && !messagesLoading
+              && messages.length > 0 ? (() => {
               const listedDraft = messages[messages.length - 1];
               const draft = canceledScheduledDraft?.item_id === listedDraft.item_id
                 ? { ...listedDraft, ...canceledScheduledDraft }
@@ -939,6 +1054,19 @@ export default function MailApp() {
             })() : (
               <ThreadDetail
                 thread={selectedThread}
+                onBack={closeMobileDetail}
+                initiallyExpandedMessageId={
+                  notificationContext
+                    && notificationContext.accountId === selectedThread.accountId
+                    && notificationContext.conversationId === selectedThread.conversation_id
+                    ? notificationContext.messageId
+                    : undefined
+                }
+                onInitialMessageReady={notificationContext
+                  && notificationContext.accountId === selectedThread.accountId
+                  && notificationContext.conversationId === selectedThread.conversation_id
+                  ? finishNotificationOpening
+                  : undefined}
                 sourceLabel={isAllMode ? (() => {
                   const email = allMailAccounts.find(account => account.id === selectedThread.accountId)?.email;
                   if (!email) return undefined;
@@ -984,7 +1112,15 @@ export default function MailApp() {
                 onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) =>
                   handleSaveDraft(selectedThread.accountId, to, cc, bcc, subject, bodyHtml, selectedThread.conversation_id)
                 }
-                onDeleteThread={() => handleDeleteThread(selectedThread)}
+                onDeleteThread={() => {
+                  deletedConversationIdsRef.current.add(selectedThread.conversation_id);
+                  undoableDeletedConversationIdRef.current = selectedThread.conversation_id;
+                  const params = new URLSearchParams(globalThis.location.search);
+                  if (params.get('conversation') === selectedThread.conversation_id) {
+                    navigate('/', { replace: true });
+                  }
+                  handleDeleteThread(selectedThread);
+                }}
                 onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
                 identities={accountIdentities}
                 selectedIdentityId={selectedIdentityId}
@@ -1052,7 +1188,12 @@ export default function MailApp() {
       {deleteToast && createPortal(
         <div className="mail-delete-toast">
           <span>{deleteToast.label}</span>
-          <button className="mail-delete-toast__undo" onClick={cancelDeletion}>
+          <button className="mail-delete-toast__undo" onClick={() => {
+            const conversationId = undoableDeletedConversationIdRef.current;
+            if (conversationId) deletedConversationIdsRef.current.delete(conversationId);
+            undoableDeletedConversationIdRef.current = null;
+            cancelDeletion();
+          }}>
             {t('mail.undo', 'Annuler')}
           </button>
         </div>,

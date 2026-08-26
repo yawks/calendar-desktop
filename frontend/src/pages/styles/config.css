@@ -81,6 +81,36 @@
   border-bottom: 1px solid var(--border);
 }
 
+.config-preference-select {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background-color: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.config-preference-select:focus-visible {
+  border-color: var(--primary);
+  outline: 2px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  outline-offset: 1px;
+}
+
+.config-preference-select:disabled {
+  background-color: var(--bg-hover);
+  color: var(--text-muted);
+  opacity: 1;
+  -webkit-text-fill-color: var(--text-muted);
+}
+
+.config-preference-select option {
+  background-color: var(--bg);
+  color: var(--text);
+}
+
 /* ── Sources list ───────────────────────────────── */
 .config-source-list {
   display: flex;

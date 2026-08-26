@@ -47,6 +47,19 @@ object SyncScheduler {
         )
     }
 
+    fun runRecovery(context: Context, id: String) {
+        val request = OneTimeWorkRequestBuilder<MailSyncWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .setInputData(workDataOf("accountId" to id))
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "${workName(id)}-network-recovery",
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
+    }
+
     fun runNotificationDiagnostic(context: Context, id: String) {
         val request = OneTimeWorkRequestBuilder<MailSyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -72,6 +85,7 @@ object SyncScheduler {
         val manager = WorkManager.getInstance(context)
         manager.cancelUniqueWork(workName(id))
         manager.cancelUniqueWork("${workName(id)}-manual")
+        manager.cancelUniqueWork("${workName(id)}-network-recovery")
         manager.cancelUniqueWork("${workName(id)}-notification-diagnostic")
         manager.cancelUniqueWork(legacyWorkName(id, 0))
         manager.cancelUniqueWork(legacyWorkName(id, 1))

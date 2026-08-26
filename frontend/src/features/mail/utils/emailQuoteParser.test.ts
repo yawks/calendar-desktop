@@ -44,6 +44,35 @@ describe('findQuoteMarker', () => {
 // ─── processEmailQuotes — blockquote wrapping ─────────────────────────────────
 
 describe('processEmailQuotes — blockquote', () => {
+  it('does not fold a Teams invitation at its aria-hidden underscore separator', () => {
+    const el = parse(`
+      <br>
+      <div aria-hidden="true">________________________________________________________________</div>
+      <div><strong>Réunion Microsoft Teams</strong></div>
+      <div>Rejoindre : <a href="https://teams.example.test">Lien de réunion</a></div>
+      <div aria-hidden="true">________________________________________________________________</div>
+    `, '________________________________________________________________');
+
+    expect(qtCount(el)).toBe(0);
+    expect(el.textContent).toContain('Réunion Microsoft Teams');
+    expect(el.textContent).toContain('Lien de réunion');
+  });
+
+  it('can expand only the first quoted message initially', () => {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <blockquote><p>${'First quoted message '.repeat(6)}</p></blockquote>
+      <blockquote><p>${'Second quoted message '.repeat(6)}</p></blockquote>
+    `;
+    processEmailQuotes(div, { ...OPTS, expandFirstQuote: true });
+
+    const toggles = Array.from(div.querySelectorAll<HTMLButtonElement>('.qt-toggle'));
+    const bodies = Array.from(div.querySelectorAll<HTMLElement>('.qt-inner'));
+    expect(toggles.map(toggle => toggle.getAttribute('aria-expanded'))).toEqual(['true', 'false']);
+    expect(bodies[0].style.display).toBe('');
+    expect(bodies[1].style.display).toBe('none');
+  });
+
   it('treats mail-quoted BEM children as content, not nested quote levels', () => {
     const el = parse(`
       <p>Current reply</p>

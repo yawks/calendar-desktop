@@ -15,11 +15,29 @@ import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import org.json.JSONObject
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 @CapacitorPlugin(name="CourrierNative",permissions=[Permission(alias="notifications",strings=[Manifest.permission.POST_NOTIFICATIONS])])
 class CourrierNativePlugin:Plugin(){
  private var pendingNotificationUrl:String?=null
+ private val commandExecutor:ExecutorService=Executors.newFixedThreadPool(4)
+ private val interactiveCommandExecutor:ExecutorService=Executors.newFixedThreadPool(2)
+
+ override fun handleOnDestroy(){
+  commandExecutor.shutdownNow()
+  interactiveCommandExecutor.shutdownNow()
+  super.handleOnDestroy()
+ }
+
+ private fun isInteractiveMailCommand(command:String)=command in setOf(
+  "mail_get_thread","mail_get_thread_headers","mail_get_message_content","mail_get_thread_snippet",
+  "jmap_get_thread","jmap_get_message_content","jmap_get_thread_snippet",
+  "imap_get_thread","imap_get_message_content","gmail_get_thread","gmail_get_message_content",
+ )
  override fun handleOnNewIntent(intent:Intent){super.handleOnNewIntent(intent);intent.dataString?.takeIf{it.startsWith("courrier://mail/")}?.let{pendingNotificationUrl=it;Log.i("CourrierDeepLink","Notification intent retained (warm launch)")}}
  @PluginMethod fun consumeNotificationUrl(call:PluginCall){val url=pendingNotificationUrl?:activity.intent?.dataString?.takeIf{it.startsWith("courrier://mail/")};pendingNotificationUrl=null;activity.intent?.data=null;Log.i("CourrierDeepLink","Notification intent consumed present=${url!=null}");call.resolve(JSObject().put("url",url))}
+ @PluginMethod fun revealNotificationView(call:PluginCall){(activity as? MainActivity)?.revealNotificationView();call.resolve()}
+ @PluginMethod fun diagnosticEvent(call:PluginCall){Log.i("CourrierUi","event=${call.getString("event")?:"unknown"}");call.resolve()}
  @PluginMethod fun notificationThread(call:PluginCall){val accountId=call.getString("accountId")?:return call.reject("accountId required");val conversationId=call.getString("conversationId")?:return call.reject("conversationId required");val value=NativeNotifier(context).threadMetadata(accountId,conversationId);call.resolve(JSObject().put("thread",value?.let{JSObject(it.toString())}))}
  @PluginMethod fun configureSync(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");val provider=call.getString("provider")?:"";val requestedMode=call.getString("syncMode")?.takeIf(SyncAccount.SYNC_MODES::contains)?:"periodic";val mode=if(requestedMode=="continuous"&&!SyncAccount.supportsContinuous(provider))"periodic" else requestedMode;SyncVault(context).putFromPrimary(SyncAccount(id=id,provider=provider,email=call.getString("email")?:"",displayName=call.getString("displayName"),credentials=JSONObject(call.getObject("credentials")?.toString()?:"{}"),syncIntervalMinutes=(call.getInt("syncIntervalMinutes")?:15).coerceIn(15,60),credentialRevision=call.getLong("credentialRevision")?:0,updatedAt=call.getLong("credentialsUpdatedAt")?:System.currentTimeMillis(),syncMode=mode));when(mode){"periodic"->{SyncScheduler.enable(context,id);SyncScheduler.runNow(context,id)};"continuous"->{SyncScheduler.enable(context,id,60);SyncScheduler.runNow(context,id)};else->SyncScheduler.cancelWork(context,id)};ContinuousSyncService.reconcile(context);call.resolve()}
  @PluginMethod fun mailCommand(call:PluginCall){
@@ -29,7 +47,20 @@ class CourrierNativePlugin:Plugin(){
     ExchangeAuthClient.execute(command,JSONObject(args.toString())){result->result.fold(onSuccess={value->call.resolve(JSObject().put("value",value))},onFailure={error->call.reject(error.message?:"Exchange authorization failed",error as? Exception?:Exception(error))})}
     return
    }
-   val value=NativeCore.command(command,args.toString());call.resolve(JSObject().put("value",JSONObject("{\"value\":$value}").get("value")))
+   val argumentsJson=args.toString()
+   val executor=if(isInteractiveMailCommand(command))interactiveCommandExecutor else commandExecutor
+   executor.execute{
+    val startedAt=android.os.SystemClock.elapsedRealtime()
+    Log.i("CourrierCommand","start command=$command interactive=${isInteractiveMailCommand(command)}")
+    try{
+     val value=NativeCore.command(command,argumentsJson)
+     Log.i("CourrierCommand","complete command=$command durationMs=${android.os.SystemClock.elapsedRealtime()-startedAt}")
+     call.resolve(JSObject().put("value",JSONObject("{\"value\":$value}").get("value")))
+    }catch(error:Exception){
+     Log.e("CourrierCommand","failed command=$command durationMs=${android.os.SystemClock.elapsedRealtime()-startedAt}",error)
+     call.reject(error.message,error)
+    }
+   }
   }catch(error:Exception){call.reject(error.message,error)}
  }
  @PluginMethod fun exchangeAuth(call:PluginCall){

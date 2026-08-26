@@ -733,6 +733,7 @@ export function ICSInvitationCard({
             <EmailHtmlBody
               html={previewDescriptionHtml}
               bodyText={icsData.description || invitationText}
+              expandFirstQuote
             />
           </div>
         )}

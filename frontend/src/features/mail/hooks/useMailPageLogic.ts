@@ -40,6 +40,7 @@ function deduplicateThreads(threads: MailThread[]): MailThread[] {
 
 export function useMailPageLogic() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const { accounts: ewsAccounts, getValidToken: getEwsToken } = useExchangeAuth();
   const { accounts: googleAccounts, getValidToken: getGoogleToken } = useGoogleAuth();
   const { accounts: imapAccounts } = useImapAuth();
@@ -254,9 +255,10 @@ export function useMailPageLogic() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId]);
 
+  const isOptimisticThread = selectedThread?.conversation_id.startsWith('__optimistic_thread__') ?? false;
   const conversationQuery = useMailConversation(
     selectedThread?.accountId ?? selectedAccountId,
-    selectedThread?.conversation_id ?? null,
+    isOptimisticThread ? null : (selectedThread?.conversation_id ?? null),
     allProviders.get(selectedThread?.accountId ?? selectedAccountId) ?? provider,
     selectedFolder,
     selectedFolder === 'drafts',
@@ -331,6 +333,32 @@ export function useMailPageLogic() {
     return {};
   }, [isAllMode, allFoldersQuery.mergedCounts, folderQuery.data]);
 
+  const previousFolderUnreadCountsRef = useRef(new Map<string, number>());
+  useEffect(() => {
+    const countKey = `${selectedAccountId}:${selectedFolder}`;
+    const currentUnreadCount = folderUnreadCounts[selectedFolder];
+    if (currentUnreadCount === undefined) return;
+
+    const previousUnreadCount = previousFolderUnreadCountsRef.current.get(countKey);
+    previousFolderUnreadCountsRef.current.set(countKey, currentUnreadCount);
+    if (previousUnreadCount === undefined || currentUnreadCount <= previousUnreadCount) return;
+
+    // Folder metadata can finish polling before the paginated thread query.
+    // A rising unread count means new inbox content is available, so force the
+    // first page fresh instead of leaving the UI parked on an older page/cache.
+    setThreadOffset(0);
+    const accountIds = isAllMode
+      ? unifiedFolderAccounts.map(account => account.id)
+      : [selectedAccountId];
+    for (const accountId of accountIds) {
+      void queryClient.invalidateQueries({
+        queryKey: [...MAIL_KEYS.threads(accountId, selectedFolder), THREAD_PAGE_SIZE, 0],
+        exact: true,
+        refetchType: 'all',
+      });
+    }
+  }, [folderUnreadCounts, isAllMode, queryClient, selectedAccountId, selectedFolder, unifiedFolderAccounts]);
+
   const sidebarDynamicFolders = useMemo(() => {
     if (isAllMode) return allModeDynamicFolders;
     const info = allAccountInfo.find(a => a.id === selectedAccountId);
@@ -365,7 +393,6 @@ export function useMailPageLogic() {
 
   // --- MUTATIONS ---
   const mutations = useMailMutations();
-  const queryClient = useQueryClient();
 
   const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
   const [replyMode, setReplyMode] = useState<'reply' | 'replyAll' | 'forward'>('reply');
@@ -1086,7 +1113,10 @@ export function useMailPageLogic() {
     if (!p) return;
 
     const accountId = fromAccountId ?? selectedThread?.accountId ?? selectedAccountId;
-    const conversationId = restoreData.isNewMessage ? undefined : selectedThread?.conversation_id;
+    const selectedConversationId = selectedThread?.conversation_id;
+    const conversationId = restoreData.isNewMessage || selectedConversationId?.startsWith('__optimistic_thread__')
+      ? undefined
+      : selectedConversationId;
     const draftConversationId = draftItemId ? (selectedThread?.conversation_id ?? null) : null;
 
     const account = allMailAccounts.find(a => a.id === accountId);
@@ -1114,11 +1144,32 @@ export function useMailPageLogic() {
       attachments: optimisticAttachments,
     };
 
-    if (conversationId) {
+    const optimisticConversationId = restoreData.isNewMessage && !sendAt
+      ? `__optimistic_thread__${optimisticId}`
+      : conversationId;
+
+    if (optimisticConversationId) {
       setPendingOptimisticMsgs(prev => {
         const next = new Map(prev);
-        next.set(conversationId, [...(prev.get(conversationId) ?? []), optimisticMsg]);
+        next.set(optimisticConversationId, [...(prev.get(optimisticConversationId) ?? []), optimisticMsg]);
         return next;
+      });
+    }
+
+    if (restoreData.isNewMessage && optimisticConversationId) {
+      setSelectedThread({
+        conversation_id: optimisticConversationId,
+        topic: subject,
+        snippet: body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
+        last_delivery_time: optimisticMsg.date_time_received,
+        message_count: 1,
+        unread_count: 0,
+        from_name: optimisticMsg.from_name,
+        from_email: optimisticMsg.from_email,
+        has_attachments: optimisticMsg.has_attachments,
+        to_recipients: optimisticMsg.to_recipients,
+        cc_recipients: optimisticMsg.cc_recipients,
+        accountId,
       });
     }
 
@@ -1132,12 +1183,12 @@ export function useMailPageLogic() {
       : 0;
 
     const removeOptimistic = () => {
-      if (!conversationId) return;
+      if (!optimisticConversationId) return;
       setPendingOptimisticMsgs(prev => {
         const next = new Map(prev);
-        const remaining = (prev.get(conversationId) ?? []).filter(m => m.item_id !== optimisticId);
-        if (remaining.length === 0) next.delete(conversationId);
-        else next.set(conversationId, remaining);
+        const remaining = (prev.get(optimisticConversationId) ?? []).filter(m => m.item_id !== optimisticId);
+        if (remaining.length === 0) next.delete(optimisticConversationId);
+        else next.set(optimisticConversationId, remaining);
         return next;
       });
     };
@@ -1224,7 +1275,7 @@ export function useMailPageLogic() {
               return next;
             });
           }
-          setSelectedThread(null);
+          if (!optimisticConversationId) setSelectedThread(null);
         }
       } catch (e) {
         setError(String(e));

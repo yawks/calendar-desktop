@@ -322,11 +322,10 @@ export function useMailConversation(
       }
     },
     enabled: !!provider && !!conversationId,
-    staleTime: 60 * 1000,
-    // A conversation can have been populated from a transient provider
-    // response while switching accounts in the unified view. Keep cached data
-    // for instant paint, but always validate it when the user opens a thread.
-    refetchOnMount: 'always',
+    staleTime: 30 * 1000,
+    // Reuse a recently opened conversation immediately. Once stale, React
+    // Query still paints the cached data first and validates it in background.
+    refetchOnMount: true,
     retry: 2,
     retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });

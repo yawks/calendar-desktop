@@ -7,6 +7,8 @@ import { AttachmentList } from './AttachmentList';
 import { ICSInvitationCard } from './ICSInvitationCard';
 import { useTranslation } from 'react-i18next';
 import { CalendarClock } from 'lucide-react';
+import { platform } from '../../../shared/platform';
+import { useNotificationOpening } from '../../../shared/platform/notificationOpening';
 
 export interface MessageBlockProps {
   readonly message: MailMessage;
@@ -28,6 +30,7 @@ export interface MessageBlockProps {
   readonly loadingAttachmentId?: string | null;
   readonly isInScheduledFolder?: boolean;
   readonly onScheduledSendCanceled?: (message: MailMessage) => void;
+  readonly onBodyReady?: () => void;
 }
 
 function findScrollParent(el: HTMLElement): HTMLElement | null {
@@ -60,8 +63,10 @@ export function MessageBlock({
   onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
   isInScheduledFolder = false, onScheduledSendCanceled,
+  onBodyReady,
 }: MessageBlockProps) {
   const { t } = useTranslation();
+  const notificationOpening = useNotificationOpening();
   const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [bodyReady, setBodyReady] = useState(false);
@@ -69,6 +74,14 @@ export function MessageBlock({
   const [scheduledCanceled, setScheduledCanceled] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);
+
+  useEffect(() => {
+    if (bodyReady) onBodyReady?.();
+  }, [bodyReady, onBodyReady]);
+
+  useEffect(() => {
+    setIsExpanded(defaultExpanded);
+  }, [defaultExpanded, message.item_id]);
 
   useEffect(() => {
     if (!scrollIntoViewOnMount) return;
@@ -101,6 +114,7 @@ export function MessageBlock({
     },
     enabled: isExpanded && message.body_loaded === false && !!provider?.getMessageContent,
     staleTime: Infinity,
+    gcTime: 24 * 60 * 60 * 1000,
     // A body is immutable for the lifetime of a message id. Reopening a
     // conversation must reuse it instead of downloading its body and inline
     // resources again. The explicit reload button remains available.
@@ -109,6 +123,38 @@ export function MessageBlock({
   });
   const displayedMessage = contentQuery.data ? { ...message, ...contentQuery.data, body_loaded: true } : message;
   const bodyLoading = isExpanded && displayedMessage.body_loaded === false && !contentQuery.isError;
+  useEffect(() => {
+    if ((!onBodyReady && !notificationOpening) || !isExpanded || bodyLoading) return;
+    // Some Android WebView documents never produce a measurable height during
+    // the iframe's first load callback, so EmailHtmlBody cannot emit onReady
+    // even though the fetched body has already been mounted. Keep the precise
+    // callback as the fast path, with a short post-paint guarantee so the
+    // notification cover can never wait for its 60-second safety timeout.
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const timeout = setTimeout(() => {
+          if (onBodyReady) {
+            onBodyReady();
+            return;
+          }
+          // A direct notification thread may not yet carry accountId on its
+          // optimistic MailThread. In that case MailPage cannot attach its
+          // callback even though this is the expanded message whose body has
+          // just rendered. Complete the cover from the leaf that knows the
+          // content is ready instead of waiting for the safety timeout.
+          void platform.diagnosticEvent?.('notification-body-ready-direct');
+          globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened'));
+        }, 250);
+        secondFrame = -timeout;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame > 0) cancelAnimationFrame(secondFrame);
+      else if (secondFrame < 0) clearTimeout(-secondFrame);
+    };
+  }, [bodyLoading, isExpanded, notificationOpening, onBodyReady]);
   const scheduledQuery = useQuery({
     queryKey: ['mail-scheduled-send', provider?.accountId, message.item_id],
     queryFn: () => provider!.getScheduledSend!(message.item_id),
@@ -164,12 +210,33 @@ export function MessageBlock({
     att => att.content_type.includes('calendar') || att.name.toLowerCase().endsWith('.ics')
   ) ?? [];
 
+  const handleToggleExpand = () => {
+    if (isExpanded) {
+      setIsExpanded(false);
+      return;
+    }
+
+    setIsExpanded(true);
+    requestAnimationFrame(() => {
+      const element = blockRef.current;
+      if (!element) return;
+      const scrollParent = findScrollParent(element);
+      const visibleTop = scrollParent?.getBoundingClientRect().top ?? 0;
+
+      // A message opened lower in the reading pane should start just below the
+      // sticky toolbar. Leave blocks already positioned there untouched.
+      if (element.getBoundingClientRect().top > visibleTop + 86) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  };
+
   return (
     <div ref={blockRef} className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}${scrollIntoViewOnMount ? ' mail-message-block--initial-unread' : ''}`}>
       <MessageBlockHeader
         message={message}
         expanded={isExpanded}
-        onToggleExpand={() => setIsExpanded(!isExpanded)}
+        onToggleExpand={handleToggleExpand}
         onReply={() => void withContent(onReply)}
         onReplyAll={() => void withContent(onReplyAll)}
         onForward={() => void withContent(onForward)}

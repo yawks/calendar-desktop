@@ -88,12 +88,13 @@ export class EwsMailProvider implements MailProvider {
 
   async getThread(conversationId: string, includeTrash = false, isDraft = false, includeDrafts = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
-    // EWS can return the conversation and its bodies in one GetConversationItems
-    // response. Splitting this into headers followed by a lazy GetItem introduced
-    // a visible two-request waterfall on every opened conversation.
-    return invoke<MailMessage[]>('mail_get_thread', {
+    // Render the conversation from its lightweight envelopes first. MessageBlock
+    // fetches only the body that is actually expanded, and React Query keeps that
+    // body cached when the conversation is reopened.
+    const messages = await invoke<MailMessage[]>('mail_get_thread_headers', {
       accessToken, conversationId, includeTrash, isDraft, includeDrafts,
     });
+    return messages.map(message => ({ ...message, body_loaded: false }));
   }
 
   async getMessageContent(messageId: string) {
