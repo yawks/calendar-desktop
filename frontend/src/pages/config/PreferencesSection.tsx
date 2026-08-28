@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { useState } from 'react';
-import { Bell, Check, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, Sun, Type } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
+import { Bell, Check, CloudUpload, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, QrCode, Sun, Type } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
 import { LanguagePreference } from '../../i18n';
@@ -9,6 +10,7 @@ import { useLogoDevToken } from '../../shared/store/LogoDevTokenStore';
 import { useTheme, ThemePreference } from '../../shared/store/ThemeStore';
 import { useVault } from '../../shared/security/VaultProvider';
 import { useOfflineMailSettings } from '../../shared/store/OfflineMailStore';
+import { ConfigSyncConflictError } from '../../shared/api/configSyncApi';
 
 import { useMailNotificationsSettings } from '../../shared/store/MailNotificationStore';
 function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference; active: boolean; onClick: () => void; label: string }) {
@@ -73,11 +75,25 @@ export function PreferencesSection() {
   const { preference: themePref, setPreference: setThemePref } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
   const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
-  const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics } = useVault();
+  const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics, backupToNextcloud, configSyncSettings, configSyncStatus, configSyncInvitation, disableConfigSync, resolveConfigSyncConflict } = useVault();
   const { settings: offlineMail, updateSettings: updateOfflineMail } = useOfflineMailSettings();
   const [biometricBusy, setBiometricBusy] = useState(false);
   const { settings: mailNotifications, supported: notificationSupported, permission: notificationPermission, enable: enableNotifications, disable: disableNotifications } = useMailNotificationsSettings();
   const [biometricDiagnostic, setBiometricDiagnostic] = useState('');
+  const [syncServerUrl, setSyncServerUrl] = useState('');
+  const [syncUsername, setSyncUsername] = useState('');
+  const [syncPassword, setSyncPassword] = useState('');
+  const [syncRecoveryKey, setSyncRecoveryKey] = useState('');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  useEffect(() => {
+    if (!configSyncSettings) return;
+    setSyncServerUrl(configSyncSettings.serverUrl); setSyncUsername(configSyncSettings.username); setSyncPassword(configSyncSettings.password); setSyncRecoveryKey(configSyncSettings.recoveryKey ?? '');
+  }, [configSyncSettings]);
+  useEffect(() => {
+    if (!configSyncInvitation) { setQrDataUrl(''); return; }
+    void QRCode.toDataURL(configSyncInvitation, { width: 260, margin: 2, errorCorrectionLevel: 'M' }).then(setQrDataUrl);
+  }, [configSyncInvitation]);
   const [diagnosticCopied, setDiagnosticCopied] = useState(false);
   const buildCommitId = import.meta.env.VITE_APP_COMMIT_ID || t('settings.buildInfo.unknown');
   const buildDate = new Date(import.meta.env.VITE_APP_COMMIT_DATE || '');
@@ -238,7 +254,57 @@ export function PreferencesSection() {
         </div>
       </div>
 
-      {/* Logo.dev token */}
+      <section className="native-settings-card config-sync-card">
+        <header className="native-settings-card__header">
+          <div className="native-settings-card__icon" aria-hidden="true"><CloudUpload size={20} /></div>
+          <div>
+            <h3>{t('settings.configSync.sectionTitle')}</h3>
+            <p>{t('settings.configSync.hint')}</p>
+          </div>
+        </header>
+        <div className="native-settings-grid">
+          <label className="native-settings-field" htmlFor="config-sync-url">
+            <span>{t('vault.nextcloudUrl')}</span>
+            <input id="config-sync-url" type="url" autoComplete="url" placeholder="https://cloud.example.com" value={syncServerUrl} onChange={event => setSyncServerUrl(event.target.value)} />
+          </label>
+          <label className="native-settings-field" htmlFor="config-sync-user">
+            <span>{t('vault.nextcloudUsername')}</span>
+            <input id="config-sync-user" autoComplete="username" value={syncUsername} onChange={event => setSyncUsername(event.target.value)} />
+          </label>
+          <label className="native-settings-field" htmlFor="config-sync-password">
+            <span>{t('vault.nextcloudPassword')}</span>
+            <input id="config-sync-password" type="password" autoComplete="current-password" value={syncPassword} onChange={event => setSyncPassword(event.target.value)} />
+          </label>
+          <label className="native-settings-field" htmlFor="config-sync-recovery">
+            <span>{t('vault.recoveryKey')}</span>
+            <input className="config-sync-recovery-key" id="config-sync-recovery" autoComplete="off" placeholder={t('settings.configSync.generatedAutomatically')} value={syncRecoveryKey} onChange={event => setSyncRecoveryKey(event.target.value)} />
+          </label>
+        </div>
+        <div className="native-settings-actions config-sync-actions">
+          <button className="btn-primary" type="button" disabled={syncStatus === 'busy' || !syncServerUrl || !syncUsername || !syncPassword} onClick={() => {
+            setSyncStatus('busy');
+            void backupToNextcloud({ serverUrl: syncServerUrl, username: syncUsername, password: syncPassword, recoveryKey: syncRecoveryKey || undefined })
+              .then(() => setSyncStatus('done')).catch(error => { console.error('[ConfigSync] backup failed', error); setSyncStatus(error instanceof ConfigSyncConflictError ? 'idle' : 'error'); });
+          }}><CloudUpload size={16} /> {t(syncStatus === 'busy' ? 'settings.configSync.working' : 'settings.configSync.backup')}</button>
+          {syncStatus === 'done' && <span className="native-settings-status native-settings-status--success" role="status"><Check size={15} />{t('settings.configSync.done')}</span>}
+          {syncStatus === 'error' && <span className="native-settings-status native-settings-status--error" role="alert">{t('settings.configSync.error')}</span>}
+        </div>
+        {configSyncStatus === 'conflict' && <div className="config-sync-alert" role="alert">
+          <p>{t('settings.configSync.conflict')}</p>
+          <div className="native-settings-actions">
+            <button className="btn-primary" type="button" onClick={() => void resolveConfigSyncConflict('local')}>{t('settings.configSync.keepLocal')}</button>
+            <button className="btn-ghost" type="button" onClick={() => void resolveConfigSyncConflict('remote')}>{t('settings.configSync.keepRemote')}</button>
+          </div>
+        </div>}
+        {configSyncSettings && <div className="config-sync-sharing">
+          {qrDataUrl && <figure className="config-sync-qr"><div className="config-sync-qr__title"><QrCode size={18} />{t('settings.configSync.scanHint')}</div><img src={qrDataUrl} width={220} height={220} alt={t('settings.configSync.qrAlt')} /></figure>}
+          <div className="native-settings-actions">
+            <button className="btn-ghost" type="button" onClick={() => void navigator.clipboard.writeText(configSyncInvitation ?? '')}><Copy size={15} />{t('settings.configSync.copyInvitation')}</button>
+            <button className="btn-ghost" type="button" onClick={disableConfigSync}>{t('settings.configSync.disable')}</button>
+          </div>
+        </div>}
+      </section>
+
       <div style={{ marginBottom: 28 }}>
         <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Database size={16} />

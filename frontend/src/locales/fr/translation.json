@@ -19,6 +19,21 @@
     "invalidPassword": "Mot de passe incorrect ou coffre endommagé.",
     "creationFailed": "Impossible de créer le coffre local. Vérifiez que le stockage du navigateur est autorisé.",
     "biometricFailed": "Échec du déverrouillage biométrique. Utilisez votre mot de passe maître."
+    ,"restore": "Récupérer depuis Nextcloud"
+    ,"restoreDescription": "Le QR code déverrouille la sauvegarde Nextcloud. Choisissez ensuite un mot de passe local pour protéger Courrier sur cet appareil."
+    ,"restoreAction": "Récupérer la configuration"
+    ,"restoreInstead": "Récupérer depuis Nextcloud"
+    ,"createInstead": "Créer une nouvelle configuration"
+    ,"nextcloudUrl": "Adresse Nextcloud"
+    ,"nextcloudUsername": "Identifiant Nextcloud"
+    ,"nextcloudPassword": "Mot de passe d’application Nextcloud"
+    ,"recoveryKey": "Clé de récupération Courrier"
+    ,"invitation": "Invitation Courrier (facultatif)"
+    ,"scanQr": "Scanner le QR code"
+    ,"localPassword": "Créer le mot de passe de cet appareil"
+    ,"localPasswordConfirmation": "Confirmer le mot de passe de cet appareil"
+    ,"localPasswordNotice": "Ce nouveau mot de passe protège uniquement ce téléphone. Il peut être différent de celui du desktop et ne sera pas envoyé sur Nextcloud."
+    ,"restoreFailed": "Impossible de récupérer ou de déchiffrer la configuration. Vérifiez les accès Nextcloud et le mot de passe maître."
   },
   "invitation": {
     "title": "Invitation",
@@ -606,6 +621,22 @@
     "logoDev": {
       "sectionTitle": "Logos des contacts",
       "hint": "Token logo.dev pour afficher les logos d'entreprise dans les avatars des contacts."
+    },
+    "configSync": {
+      "sectionTitle": "Sauvegarde Nextcloud",
+      "hint": "Envoie le coffre déjà chiffré vers Nextcloud. Le mot de passe d’application n’est pas conservé.",
+      "backup": "Sauvegarder maintenant",
+      "working": "Sauvegarde…",
+      "done": "Configuration sauvegardée sur Nextcloud.",
+      "error": "Échec de la sauvegarde Nextcloud. Vérifiez l’adresse et les identifiants."
+      ,"generatedAutomatically": "Générée automatiquement pour une nouvelle sauvegarde"
+      ,"conflict": "La configuration locale et la configuration Nextcloud ont changé. Choisissez celle à conserver."
+      ,"keepLocal": "Conserver la version locale"
+      ,"keepRemote": "Utiliser la version Nextcloud"
+      ,"scanHint": "Scannez ce code depuis Courrier mobile pour récupérer l’adresse Nextcloud et la clé."
+      ,"qrAlt": "QR code de transfert de configuration Courrier"
+      ,"copyInvitation": "Copier l’invitation"
+      ,"disable": "Désactiver la synchronisation"
     },
     "vault": {
       "sectionTitle": "Coffre local",

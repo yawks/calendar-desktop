@@ -1,9 +1,12 @@
 /* ── Responsive mobile layout ── */
 .vault-screen {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg);
 }
 
@@ -99,7 +102,7 @@
 }
 
 .vault-screen { background: radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--primary) 15%, transparent), transparent 42%), var(--bg); }
-.vault-layout { display: grid; width: 100%; min-height: 100dvh; grid-template-rows: auto 1fr auto; align-items: start; }
+.vault-layout { display: grid; width: 100%; min-height: 100%; box-sizing: border-box; grid-template-rows: auto 1fr auto; align-items: start; padding: 0 16px max(24px, env(safe-area-inset-bottom)); }
 .vault-brand--top { grid-row: 1; padding-top: max(24px, env(safe-area-inset-top)); }
 .vault-panel { grid-row: 2; align-self: center; justify-self: center; }
 .vault-panel { display: grid; width: min(420px, 100%); gap: 16px; }
@@ -118,6 +121,8 @@
 .vault-form__error { margin: 2px 0 14px; color: var(--danger); font-size: calc(13px * var(--font-scale, 1)); line-height: 1.4; }
 .vault-form__actions { display: grid; gap: 10px; }
 .vault-form button { display: inline-flex; width: 100%; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 10px 14px; }
+.vault-form__alternate { margin-top: 10px; }
+.vault-fields .vault-fields__action { margin: -2px 0 16px; }
 .vault-form__notice { display: block; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
 .vault-settings-actions {
   display: flex;
@@ -300,6 +305,13 @@
   .native-android .config-source-list .config-group-title { padding-left: 38px; }
   .native-settings-card { padding: 16px; }
   .native-settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .config-sync-card { padding: 16px; }
+  .config-sync-actions,
+  .config-sync-alert .native-settings-actions,
+  .config-sync-sharing .native-settings-actions { align-items: stretch; flex-direction: column; }
+  .config-sync-actions .btn-primary,
+  .config-sync-alert button,
+  .config-sync-sharing button { width: 100%; }
   .native-settings-accounts label { align-items: stretch; flex-direction: column; }
   .native-settings-accounts label > span { width: 100%; }
   .native-settings-accounts label > select { width: 100%; max-width: none; min-height: 40px; }
@@ -669,9 +681,14 @@
   }
 
   .vault-form { padding: 22px 18px; box-shadow: none; }
-  .vault-brand--top { padding-top: max(16px, env(safe-area-inset-top)); }
+  .vault-screen { scroll-padding-block: 88px max(32px, env(safe-area-inset-bottom)); }
+  .vault-layout { display: block; min-height: 100%; padding: max(12px, env(safe-area-inset-top)) 14px max(32px, env(safe-area-inset-bottom)); }
+  .vault-panel { width: 100%; margin: 18px auto 0; }
+  .vault-brand--top { padding-top: 0; }
   .vault-brand__logo { width: 44px; height: 44px; border-radius: 11px; }
   .vault-form input, .vault-form button { min-height: 46px; }
+  .vault-form__alternate { margin-top: 12px; }
+  .vault-fields .vault-fields__action { margin-bottom: 18px; }
 }
 .notification-opening {
   position: fixed;

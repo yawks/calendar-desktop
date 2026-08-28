@@ -17,6 +17,9 @@ import com.getcapacitor.annotation.PermissionCallback
 import org.json.JSONObject
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 @CapacitorPlugin(name="CourrierNative",permissions=[Permission(alias="notifications",strings=[Manifest.permission.POST_NOTIFICATIONS])])
 class CourrierNativePlugin:Plugin(){
  private var pendingNotificationUrl:String?=null
@@ -74,6 +77,13 @@ class CourrierNativePlugin:Plugin(){
   val raw=call.getString("url")?:return call.reject("url required")
   try{val uri=android.net.Uri.parse(raw);if(uri.scheme!="http"&&uri.scheme!="https"&&uri.scheme!="mailto")return call.reject("unsupported URL");activity.startActivity(Intent(Intent.ACTION_VIEW,uri));call.resolve()}
   catch(error:Exception){call.reject(error.message,error)}
+ }
+ @PluginMethod fun scanConfigQr(call:PluginCall){
+  val options=GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).enableAutoZoom().build()
+  GmsBarcodeScanning.getClient(activity,options).startScan()
+   .addOnSuccessListener{barcode->val value=barcode.rawValue;if(value.isNullOrBlank())call.reject("QR code is empty")else call.resolve(JSObject().put("value",value))}
+   .addOnCanceledListener{call.reject("QR scan cancelled")}
+   .addOnFailureListener{error->call.reject(error.message?:"QR scan failed",error)}
  }
  @PluginMethod fun backgroundRestrictions(call:PluginCall){val power=context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager;call.resolve(JSObject().put("batteryOptimized",!power.isIgnoringBatteryOptimizations(context.packageName)).put("manufacturer",android.os.Build.MANUFACTURER))}
  @PluginMethod fun openBatterySettings(call:PluginCall){try{activity.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));call.resolve()}catch(error:Exception){activity.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:${context.packageName}")));call.resolve()}}

@@ -19,6 +19,21 @@
     "invalidPassword": "Incorrect password or damaged vault.",
     "creationFailed": "Unable to create the local vault. Check that browser storage is allowed.",
     "biometricFailed": "Biometric unlock failed. Use your master password."
+    ,"restore": "Restore from Nextcloud"
+    ,"restoreDescription": "The QR code unlocks the Nextcloud backup. Now choose a local password to protect Courrier on this device."
+    ,"restoreAction": "Restore configuration"
+    ,"restoreInstead": "Restore from Nextcloud"
+    ,"createInstead": "Create a new configuration"
+    ,"nextcloudUrl": "Nextcloud address"
+    ,"nextcloudUsername": "Nextcloud username"
+    ,"nextcloudPassword": "Nextcloud app password"
+    ,"recoveryKey": "Courrier recovery key"
+    ,"invitation": "Courrier invitation (optional)"
+    ,"scanQr": "Scan QR code"
+    ,"localPassword": "Create this device’s password"
+    ,"localPasswordConfirmation": "Confirm this device’s password"
+    ,"localPasswordNotice": "This new password only protects this device. It may differ from the desktop password and is never uploaded to Nextcloud."
+    ,"restoreFailed": "Unable to retrieve or decrypt the configuration. Check the Nextcloud credentials and master password."
   },
   "invitation": {
     "title": "Invitation",
@@ -606,6 +621,22 @@
     "logoDev": {
       "sectionTitle": "Contact logos",
       "hint": "logo.dev token to display company logos in contact avatars."
+    },
+    "configSync": {
+      "sectionTitle": "Nextcloud backup",
+      "hint": "Uploads the already encrypted vault to Nextcloud. The app password is not stored.",
+      "backup": "Back up now",
+      "working": "Backing up…",
+      "done": "Configuration backed up to Nextcloud.",
+      "error": "Nextcloud backup failed. Check the address and credentials."
+      ,"generatedAutomatically": "Generated automatically for a new backup"
+      ,"conflict": "The local and Nextcloud configurations have both changed. Choose which one to keep."
+      ,"keepLocal": "Keep local version"
+      ,"keepRemote": "Use Nextcloud version"
+      ,"scanHint": "Scan this code from Courrier mobile to retrieve the Nextcloud address and key."
+      ,"qrAlt": "Courrier configuration transfer QR code"
+      ,"copyInvitation": "Copy invitation"
+      ,"disable": "Disable synchronization"
     },
     "vault": {
       "sectionTitle": "Local vault",

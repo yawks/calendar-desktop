@@ -1,16 +1,20 @@
 import { get, set } from 'idb-keyval';
 import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, exportVaultKey, importVaultKey, vaultSalt } from './vaultCrypto';
+import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, exportVaultKey, generateVaultKey, importVaultKey, vaultSalt } from './vaultCrypto';
 import { biometricApiAvailable, biometricUnlockAvailable, disableBiometricUnlock, enableBiometricUnlock, hasBiometricUnlock, unlockWithBiometrics } from './biometricUnlock';
-import { Fingerprint, LockKeyhole } from 'lucide-react';
+import { CloudDownload, Fingerprint, LockKeyhole, QrCode } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { platform } from '../platform';
 import { getTauriInvoke } from '../platform/tauriRuntime';
+import { ConfigSyncConflictError, decodeConfigInvitation, encodeConfigInvitation, fetchRemoteVault, NextcloudConfigLocation, putRemoteVault, RemoteVaultDocument } from '../api/configSyncApi';
 const DB_KEY = 'courrier-encrypted-vault-v1';
 const ITERATIONS = 600_000;
 const LOCK_AFTER_MS = 30 * 60 * 1000;
 const BIOMETRIC_TIMEOUT_MS = 15_000;
+const CONFIG_SYNC_KEY = 'courrier:config-sync-v1';
+const DEVICE_ID_KEY = 'courrier:device-id';
+const AUTO_SYNC_DELAY_MS = 2_000;
 const LEGACY_KEYS = [
   'calendar-desktop-google-accounts',
   'calendar-desktop-exchange-accounts',
@@ -21,6 +25,35 @@ const LEGACY_KEYS = [
 ] as const;
 
 type VaultPayload = Record<string, unknown>;
+type ConfigSyncStatus = 'disabled' | 'idle' | 'syncing' | 'synced' | 'conflict' | 'error';
+interface ConfigSyncSettings extends NextcloudConfigLocation { enabled: boolean; etag?: string; revision: number; dirty?: boolean }
+
+function bytesToRecoveryKey(bytes: ArrayBuffer): string {
+  let binary = ''; new Uint8Array(bytes).forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function recoveryKeyToBytes(value: string): ArrayBuffer {
+  const normalized = value.trim().replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='));
+  return Uint8Array.from(binary, char => char.charCodeAt(0)).buffer;
+}
+
+function deviceId(): string {
+  let value = localStorage.getItem(DEVICE_ID_KEY);
+  if (!value) { value = crypto.randomUUID(); localStorage.setItem(DEVICE_ID_KEY, value); }
+  return value;
+}
+
+function portablePayload(payload: VaultPayload): VaultPayload {
+  const next = { ...payload };
+  delete next[CONFIG_SYNC_KEY];
+  return next;
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  try { return JSON.stringify(left) === JSON.stringify(right); } catch { return false; }
+}
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -41,6 +74,12 @@ interface VaultContextValue {
   biometricEnabled: boolean;
   enableBiometrics(): Promise<void>;
   disableBiometrics(): Promise<void>;
+  backupToNextcloud(location: NextcloudConfigLocation): Promise<void>;
+  configSyncSettings: ConfigSyncSettings | null;
+  configSyncStatus: ConfigSyncStatus;
+  configSyncInvitation: string | null;
+  disableConfigSync(): void;
+  resolveConfigSyncConflict(strategy: 'local' | 'remote'): Promise<void>;
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null);
@@ -55,21 +94,33 @@ function legacyPayload(): VaultPayload {
   return payload;
 }
 
-function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiometricUnlock }: Readonly<{
+function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiometricUnlock, onRestore }: Readonly<{
   exists: boolean;
   busy: boolean;
   error: string;
   biometricEnabled: boolean;
   onSubmit(password: string): Promise<void>;
   onBiometricUnlock(): Promise<void>;
+  onRestore(location: NextcloudConfigLocation, masterPassword: string): Promise<void>;
 }>) {
   const { t } = useTranslation();
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [restoreMode, setRestoreMode] = useState(false);
+  const [serverUrl, setServerUrl] = useState('');
+  const [username, setUsername] = useState('');
+  const [nextcloudPassword, setNextcloudPassword] = useState('');
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [invitation, setInvitation] = useState('');
+  const applyInvitation = (raw: string) => {
+    const decoded = decodeConfigInvitation(raw);
+    setServerUrl(decoded.serverUrl); setUsername(decoded.username); setRecoveryKey(decoded.recoveryKey); setRestoreMode(true);
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!exists && password !== confirmation) return;
-    void onSubmit(password);
+    if (restoreMode) void onRestore({ serverUrl, username, password: nextcloudPassword, recoveryKey }, password);
+    else void onSubmit(password);
   };
   const mismatch = !exists && confirmation.length > 0 && password !== confirmation;
   return <main className="vault-screen">
@@ -79,23 +130,43 @@ function VaultScreen({ exists, busy, error, biometricEnabled, onSubmit, onBiomet
         <span>{t('vault.appName')}</span>
       </div>
       <div className="vault-panel">
-      <form className="vault-form" onSubmit={submit}>
+      <form className="vault-form" onSubmit={submit} onFocusCapture={event => {
+        if (!platform.isNativeAndroid || !(event.target instanceof HTMLInputElement)) return;
+        const field = event.target;
+        window.setTimeout(() => field.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250);
+      }}>
       <header className="vault-form__header">
         <div className="vault-security-icon" aria-hidden="true"><LockKeyhole size={26} strokeWidth={2.25} /></div>
-        <h1>{t(exists ? 'vault.unlock' : 'vault.create')}</h1>
-        <p>{t(exists ? 'vault.unlockDescription' : 'vault.createDescription')}</p>
+        <h1>{t(exists ? 'vault.unlock' : restoreMode ? 'vault.restore' : 'vault.create')}</h1>
+        <p>{t(exists ? 'vault.unlockDescription' : restoreMode ? 'vault.restoreDescription' : 'vault.createDescription')}</p>
       </header>
       <div className="vault-fields">
-        <label htmlFor="vault-password">{t('vault.masterPassword')}</label>
+        {restoreMode && <>
+          <label htmlFor="vault-invitation">{t('vault.invitation')}</label>
+          <input id="vault-invitation" autoComplete="off" placeholder="courrier://config/import…" value={invitation} onChange={event => setInvitation(event.target.value)} onBlur={() => { if (invitation.trim()) { try { applyInvitation(invitation); } catch { /* manual fields remain available */ } } }} />
+          {platform.scanConfigQr && <button className="vault-fields__action" type="button" onClick={() => void platform.scanConfigQr?.().then(raw => { setInvitation(raw); applyInvitation(raw); })}><QrCode size={18} />{t('vault.scanQr')}</button>}
+          <label htmlFor="vault-nextcloud-url">{t('vault.nextcloudUrl')}</label>
+          <input id="vault-nextcloud-url" autoComplete="url" type="url" required placeholder="https://cloud.example.com" value={serverUrl} onChange={event => setServerUrl(event.target.value)} />
+          <label htmlFor="vault-nextcloud-user">{t('vault.nextcloudUsername')}</label>
+          <input id="vault-nextcloud-user" autoComplete="username" required value={username} onChange={event => setUsername(event.target.value)} />
+          <label htmlFor="vault-nextcloud-password">{t('vault.nextcloudPassword')}</label>
+          <input id="vault-nextcloud-password" autoComplete="current-password" type="password" required value={nextcloudPassword} onChange={event => setNextcloudPassword(event.target.value)} />
+          <label htmlFor="vault-recovery-key">{t('vault.recoveryKey')}</label>
+          <input id="vault-recovery-key" autoComplete="off" required value={recoveryKey} onChange={event => setRecoveryKey(event.target.value)} />
+        </>}
+        <label htmlFor="vault-password">{t(restoreMode ? 'vault.localPassword' : 'vault.masterPassword')}</label>
         <input id="vault-password" autoFocus={!biometricEnabled} autoComplete={exists ? 'current-password' : 'new-password'} type="password" minLength={12} required value={password} onChange={event => setPassword(event.target.value)} />
-        {!exists && <><label htmlFor="vault-confirmation">{t('vault.confirmation')}</label><input id="vault-confirmation" autoComplete="new-password" type="password" minLength={12} required value={confirmation} onChange={event => setConfirmation(event.target.value)} /></>}
+        {!exists && <><label htmlFor="vault-confirmation">{t(restoreMode ? 'vault.localPasswordConfirmation' : 'vault.confirmation')}</label><input id="vault-confirmation" autoComplete="new-password" type="password" minLength={12} required value={confirmation} onChange={event => setConfirmation(event.target.value)} /></>}
       </div>
       {(mismatch || error) && <p className="vault-form__error" role="alert">{mismatch ? t('vault.passwordMismatch') : t(error)}</p>}
       <div className="vault-form__actions">
-        <button type="submit" disabled={busy || mismatch}>{busy ? t('vault.working') : t(exists ? 'vault.unlock' : 'vault.create')}</button>
+        <button type="submit" disabled={busy || mismatch}>{busy ? t('vault.working') : t(exists ? 'vault.unlock' : restoreMode ? 'vault.restoreAction' : 'vault.create')}</button>
         {exists && biometricEnabled && <button type="button" disabled={busy} onClick={() => void onBiometricUnlock()}><Fingerprint size={18} aria-hidden="true" />{t('vault.unlockWithBiometrics')}</button>}
       </div>
-      {!exists && <small className="vault-form__notice">{t('vault.recoveryWarning')}</small>}
+      {!exists && <button className="vault-form__alternate" type="button" disabled={busy} onClick={() => setRestoreMode(value => !value)}>
+        <CloudDownload size={18} aria-hidden="true" />{t(restoreMode ? 'vault.createInstead' : 'vault.restoreInstead')}
+      </button>}
+      {!exists && <small className="vault-form__notice">{t(restoreMode ? 'vault.localPasswordNotice' : 'vault.recoveryWarning')}</small>}
     </form>
       </div>
     </div>
@@ -118,9 +189,14 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [desktopSessionChecked, setDesktopSessionChecked] = useState(() => !getTauriInvoke());
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(biometricApiAvailable());
+  const [configSyncSettings, setConfigSyncSettings] = useState<ConfigSyncSettings | null>(null);
+  const [configSyncStatus, setConfigSyncStatus] = useState<ConfigSyncStatus>('disabled');
+  const [syncCheckNonce, setSyncCheckNonce] = useState(0);
   const keyRef = useRef<CryptoKey | null>(null);
   const payloadRef = useRef<VaultPayload>({});
   const writeQueue = useRef(Promise.resolve());
+  const autoSyncTimer = useRef<number | null>(null);
+  const remoteCheckRef = useRef('');
   const lock = useCallback(() => {
     keyRef.current = null;
     payloadRef.current = {};
@@ -174,6 +250,14 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     }).catch(error => console.error('[Vault] persistence failed', error));
   }, [stored]);
 
+  useEffect(() => {
+    if (!payload) return;
+    const sync = payload[CONFIG_SYNC_KEY] as ConfigSyncSettings | undefined;
+    setConfigSyncSettings(sync?.enabled ? sync : null);
+    if (!sync?.enabled) setConfigSyncStatus('disabled');
+    else setConfigSyncStatus(current => current === 'disabled' ? 'idle' : current);
+  }, [payload]);
+
   const submit = useCallback(async (password: string) => {
     setBusy(true); setError('');
     if (!globalThis.isSecureContext || !globalThis.crypto?.subtle) {
@@ -226,6 +310,120 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     } finally { setBusy(false); }
   }, [stored, rememberDesktopSession]);
 
+  const restore = useCallback(async (location: NextcloudConfigLocation, password: string) => {
+    setBusy(true); setError('');
+    try {
+      const remote = await fetchRemoteVault(location);
+      if (!remote.document) throw new Error('Remote configuration not found');
+      if (!location.recoveryKey) throw new Error('Recovery key required');
+      const syncKey = await importVaultKey(recoveryKeyToBytes(location.recoveryKey));
+      const remotePayload = await decryptVaultWithKey<VaultPayload>(remote.document.vault, syncKey);
+      const sync: ConfigSyncSettings = { ...location, recoveryKey: location.recoveryKey.trim(), enabled: true, etag: remote.etag, revision: remote.document.revision, dirty: false };
+      const nextPayload = { ...remotePayload, [CONFIG_SYNC_KEY]: sync };
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const localKey = await deriveVaultKey(password, salt, ITERATIONS);
+      const localVault = await encryptVaultWithKey(nextPayload, localKey, salt, ITERATIONS);
+      await set(DB_KEY, localVault);
+      keyRef.current = localKey;
+      payloadRef.current = nextPayload;
+      setStored(localVault);
+      setPayload(nextPayload);
+      setConfigSyncSettings(sync);
+      setConfigSyncStatus('synced');
+      rememberDesktopSession(localKey);
+    } catch (cause) {
+      console.error('[Vault] Nextcloud restore failed', cause);
+      setError('vault.restoreFailed');
+    } finally { setBusy(false); }
+  }, [rememberDesktopSession]);
+
+  const pushConfiguration = useCallback(async (location: NextcloudConfigLocation, etag?: string, revision = 0, overwrite = false) => {
+    const vault = stored;
+    if (!keyRef.current || !vault) throw new Error('Vault is locked');
+    setConfigSyncStatus('syncing');
+    let recoveryKey = location.recoveryKey?.trim();
+    let syncKey: CryptoKey;
+    if (recoveryKey) syncKey = await importVaultKey(recoveryKeyToBytes(recoveryKey));
+    else { syncKey = await generateVaultKey(); recoveryKey = bytesToRecoveryKey(await exportVaultKey(syncKey)); }
+    const encrypted = await encryptVaultWithKey(portablePayload(payloadRef.current), syncKey, crypto.getRandomValues(new Uint8Array(16)), vault.kdf.iterations);
+    const document: RemoteVaultDocument = { format: 'courrier-config', version: 1, deviceId: deviceId(), revision: revision + 1, updatedAt: new Date().toISOString(), vault: encrypted };
+    try {
+      let expectedEtag = etag;
+      if (overwrite) expectedEtag = (await fetchRemoteVault(location)).etag;
+      await putRemoteVault(location, document, expectedEtag);
+      const confirmed = await fetchRemoteVault(location);
+      const sync: ConfigSyncSettings = { ...location, recoveryKey, enabled: true, etag: confirmed.etag, revision: document.revision, dirty: false };
+      const next = { ...payloadRef.current, [CONFIG_SYNC_KEY]: sync };
+      payloadRef.current = next; setPayload(next); setConfigSyncSettings(sync); persist(next);
+      setConfigSyncStatus('synced');
+    } catch (cause) {
+      setConfigSyncStatus(cause instanceof ConfigSyncConflictError ? 'conflict' : 'error');
+      throw cause;
+    }
+  }, [persist, stored]);
+
+  const backupToNextcloud = useCallback(async (location: NextcloudConfigLocation) => {
+    const remote = await fetchRemoteVault(location);
+    const current = configSyncSettings;
+    if (remote.exists && (!current || current.serverUrl !== location.serverUrl || current.username !== location.username)) {
+      const pendingKey = location.recoveryKey ?? bytesToRecoveryKey(await exportVaultKey(await generateVaultKey()));
+      const pending: ConfigSyncSettings = { ...location, recoveryKey: pendingKey, enabled: true, etag: remote.etag, revision: remote.document?.revision ?? 0, dirty: true };
+      const next = { ...payloadRef.current, [CONFIG_SYNC_KEY]: pending };
+      payloadRef.current = next; setPayload(next); setConfigSyncSettings(pending); persist(next);
+      setConfigSyncStatus('conflict');
+      throw new ConfigSyncConflictError();
+    }
+    await pushConfiguration(location, current?.etag ?? remote.etag, current?.revision ?? remote.document?.revision ?? 0);
+  }, [configSyncSettings, pushConfiguration]);
+
+  const disableConfigSync = useCallback(() => {
+    const next = { ...payloadRef.current }; delete next[CONFIG_SYNC_KEY];
+    payloadRef.current = next; setPayload(next); setConfigSyncSettings(null); setConfigSyncStatus('disabled'); persist(next);
+  }, [persist]);
+
+  const resolveConfigSyncConflict = useCallback(async (strategy: 'local' | 'remote') => {
+    const sync = configSyncSettings;
+    if (!sync) throw new Error('Config sync is disabled');
+    if (strategy === 'local') { await pushConfiguration(sync, sync.etag, sync.revision, true); return; }
+    const remote = await fetchRemoteVault(sync);
+    if (!remote.document || !sync.recoveryKey) throw new Error('Remote configuration unavailable');
+    const remotePayload = await decryptVaultWithKey<VaultPayload>(remote.document.vault, await importVaultKey(recoveryKeyToBytes(sync.recoveryKey)));
+    const nextSync: ConfigSyncSettings = { ...sync, etag: remote.etag, revision: remote.document.revision, dirty: false };
+    const next = { ...remotePayload, [CONFIG_SYNC_KEY]: nextSync };
+    payloadRef.current = next; setPayload(next); setConfigSyncSettings(nextSync); persist(next); setConfigSyncStatus('synced');
+    await writeQueue.current; window.location.reload();
+  }, [configSyncSettings, persist, pushConfiguration]);
+
+  useEffect(() => {
+    const sync = configSyncSettings;
+    if (!payload || !sync?.enabled || !sync.recoveryKey) return;
+    const checkId = `${sync.serverUrl}|${sync.username}|${sync.etag ?? ''}|${sync.revision}|${sync.dirty === true}`;
+    if (remoteCheckRef.current === checkId) return;
+    remoteCheckRef.current = checkId;
+    void fetchRemoteVault(sync).then(async remote => {
+      if (!remote.document) { if (sync.dirty) await pushConfiguration(sync, undefined, sync.revision); return; }
+      const remoteChanged = remote.etag !== sync.etag || remote.document.revision > sync.revision;
+      if (remoteChanged && sync.dirty && remote.document.deviceId === deviceId()) {
+        await pushConfiguration(sync, remote.etag, remote.document.revision);
+        return;
+      }
+      if (remoteChanged && sync.dirty) { setConfigSyncStatus('conflict'); return; }
+      if (remoteChanged) {
+        const remotePayload = await decryptVaultWithKey<VaultPayload>(remote.document.vault, await importVaultKey(recoveryKeyToBytes(sync.recoveryKey!)));
+        const nextSync: ConfigSyncSettings = { ...sync, etag: remote.etag, revision: remote.document.revision, dirty: false };
+        const next = { ...remotePayload, [CONFIG_SYNC_KEY]: nextSync };
+        payloadRef.current = next; setPayload(next); setConfigSyncSettings(nextSync); persist(next); setConfigSyncStatus('synced');
+        await writeQueue.current; window.location.reload();
+      } else if (sync.dirty) await pushConfiguration(sync, sync.etag, sync.revision);
+      else setConfigSyncStatus('synced');
+    }).catch(error => { console.error('[ConfigSync] startup check failed', error); setConfigSyncStatus('error'); });
+  }, [configSyncSettings, payload, persist, pushConfiguration, syncCheckNonce]);
+  useEffect(() => {
+    if (!configSyncSettings?.enabled) return;
+    const timer = window.setInterval(() => { remoteCheckRef.current = ''; setSyncCheckNonce(value => value + 1); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [configSyncSettings?.enabled]);
+
   const enableBiometrics = useCallback(async () => {
     const key = keyRef.current;
     if (!key) throw new Error('Vault is locked');
@@ -262,21 +460,44 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, [payload]);
 
   const write = useCallback(<T,>(key: string, value: T) => {
-    const next = { ...payloadRef.current, [key]: value };
+    if (valuesEqual(payloadRef.current[key], value)) return;
+    let next = { ...payloadRef.current, [key]: value };
+    let activeSync = configSyncSettings;
+    if (activeSync?.enabled && key !== CONFIG_SYNC_KEY) {
+      activeSync = { ...activeSync, dirty: true };
+      next = { ...next, [CONFIG_SYNC_KEY]: activeSync };
+      setConfigSyncSettings(activeSync);
+    }
     payloadRef.current = next;
     setPayload(next);
     persist(next);
-  }, [persist]);
+    if (activeSync?.enabled && key !== CONFIG_SYNC_KEY && configSyncStatus !== 'conflict') {
+      if (autoSyncTimer.current !== null) window.clearTimeout(autoSyncTimer.current);
+      autoSyncTimer.current = window.setTimeout(() => {
+        void pushConfiguration(activeSync!, activeSync!.etag, activeSync!.revision)
+          .catch(error => console.error('[ConfigSync] automatic sync failed', error));
+      }, AUTO_SYNC_DELAY_MS);
+    }
+  }, [configSyncSettings, configSyncStatus, persist, pushConfiguration]);
+  useEffect(() => () => { if (autoSyncTimer.current !== null) window.clearTimeout(autoSyncTimer.current); }, []);
+
+  const configSyncInvitation = useMemo(() => configSyncSettings ? encodeConfigInvitation(configSyncSettings) : null, [configSyncSettings]);
   const contextValue = useMemo(() => ({
     read, write, lock,
     biometricAvailable,
     biometricEnabled,
     enableBiometrics,
     disableBiometrics,
-  }), [read, write, lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics]);
+    backupToNextcloud,
+    configSyncSettings,
+    configSyncStatus,
+    configSyncInvitation,
+    disableConfigSync,
+    resolveConfigSyncConflict,
+  }), [read, write, lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics, backupToNextcloud, configSyncSettings, configSyncStatus, configSyncInvitation, disableConfigSync, resolveConfigSyncConflict]);
 
   if (stored === undefined || !desktopSessionChecked) return <VaultLoading />;
-  if (!payload) return <VaultScreen exists={stored !== null} busy={busy} error={error} biometricEnabled={biometricEnabled} onSubmit={submit} onBiometricUnlock={biometricUnlock} />;
+  if (!payload) return <VaultScreen exists={stored !== null} busy={busy} error={error} biometricEnabled={biometricEnabled} onSubmit={submit} onBiometricUnlock={biometricUnlock} onRestore={restore} />;
   return <VaultContext.Provider value={contextValue}>{children}</VaultContext.Provider>;
 }
 

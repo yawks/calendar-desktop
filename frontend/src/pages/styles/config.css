@@ -331,3 +331,31 @@
 .native-settings-status--error { color: var(--danger); }
 .native-settings-spinner { animation: native-settings-spin .8s linear infinite; }
 @keyframes native-settings-spin { to { transform: rotate(360deg); } }
+
+/* Nextcloud configuration sync follows the same settings-card vocabulary. */
+.config-sync-card { box-sizing: border-box; }
+.config-sync-recovery-key { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important; }
+.config-sync-actions { margin-top: 18px; }
+.config-sync-actions .btn-primary,
+.config-sync-sharing .btn-ghost,
+.config-sync-alert .btn-primary,
+.config-sync-alert .btn-ghost {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.config-sync-alert {
+  margin-top: 16px;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 6%, var(--bg));
+}
+.config-sync-alert p { margin: 0 0 11px; color: var(--danger); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; }
+.config-sync-sharing { display: grid; gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+.config-sync-qr { display: grid; justify-items: center; gap: 12px; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg); }
+.config-sync-qr__title { display: flex; align-items: flex-start; gap: 7px; color: var(--text-muted); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; text-align: left; }
+.config-sync-qr__title svg { flex: 0 0 auto; color: var(--primary); }
+.config-sync-qr img { display: block; width: min(220px, 100%); height: auto; border-radius: 6px; }

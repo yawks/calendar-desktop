@@ -470,6 +470,15 @@ struct HttpPut {
     password: String,
     ics_content: String,
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigWebDavPut {
+    url: String,
+    username: String,
+    password: String,
+    content: String,
+    if_match: Option<String>,
+}
 
 fn jmap_state() -> &'static Arc<crate::jmap::JmapClientState> {
     static STATE: OnceLock<Arc<crate::jmap::JmapClientState>> = OnceLock::new();
@@ -605,6 +614,14 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
         "calendar_caldav_delete" => {
             let a: HttpAuth = args(value)?;
             native_http("DELETE", a.url, Some(a.username), Some(a.password), None).await
+        }
+        "config_webdav_fetch" => {
+            let a: HttpAuth = args(value)?;
+            config_webdav_fetch(a).await
+        }
+        "config_webdav_put" => {
+            let a: ConfigWebDavPut = args(value)?;
+            config_webdav_put(a).await
         }
         "imap_list_folders" => {
             let a: ImapBase = args(value)?;
@@ -1036,6 +1053,51 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
     }
 }
 
+fn checked_config_url(raw: &str) -> Result<reqwest::Url, CommandError> {
+    let url = reqwest::Url::parse(raw).map_err(|error| CommandError { code: "invalid_provider_url", detail: error.to_string() })?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return Err(CommandError { code: "invalid_provider_url", detail: "Nextcloud configuration sync requires an HTTPS URL".into() });
+    }
+    Ok(url)
+}
+
+async fn config_webdav_fetch(args: HttpAuth) -> CommandResult {
+    let response = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build()
+        .map_err(|error| CommandError { code: "provider_request_failed", detail: error.to_string() })?
+        .get(checked_config_url(&args.url)?).basic_auth(args.username, Some(args.password)).send().await
+        .map_err(|error| CommandError { code: "provider_request_failed", detail: error.to_string() })?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(serde_json::json!({ "exists": false }));
+    }
+    if !status.is_success() {
+        return Err(CommandError { code: "provider_request_failed", detail: format!("provider_http_{}", status.as_u16()) });
+    }
+    let etag = response.headers().get(reqwest::header::ETAG).and_then(|value| value.to_str().ok()).map(str::to_owned);
+    let content = response.text().await.map_err(|error| CommandError { code: "provider_request_failed", detail: error.to_string() })?;
+    Ok(serde_json::json!({ "exists": true, "content": content, "etag": etag }))
+}
+
+async fn config_webdav_put(args: ConfigWebDavPut) -> CommandResult {
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build()
+        .map_err(|error| CommandError { code: "provider_request_failed", detail: error.to_string() })?;
+    let mut request = client.put(checked_config_url(&args.url)?).basic_auth(args.username, Some(args.password))
+        .header(reqwest::header::CONTENT_TYPE, "application/json; charset=utf-8").body(args.content);
+    request = match args.if_match.as_deref() {
+        Some(etag) => request.header(reqwest::header::IF_MATCH, etag),
+        None => request.header(reqwest::header::IF_NONE_MATCH, "*"),
+    };
+    let response = request.send().await.map_err(|error| CommandError { code: "provider_request_failed", detail: error.to_string() })?;
+    if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+        return Ok(serde_json::json!({ "ok": false, "conflict": true }));
+    }
+    if !response.status().is_success() {
+        return Err(CommandError { code: "provider_request_failed", detail: format!("provider_http_{}", response.status().as_u16()) });
+    }
+    let etag = response.headers().get(reqwest::header::ETAG).and_then(|value| value.to_str().ok()).map(str::to_owned);
+    Ok(serde_json::json!({ "ok": true, "etag": etag }))
+}
+
 async fn google_refresh(request: GoogleRefresh) -> CommandResult {
     let client_id = request
         .client_id
@@ -1233,7 +1295,14 @@ async fn native_http(
     }
     if let Some(body) = body {
         request = request
-            .header("content-type", "text/calendar; charset=utf-8")
+            .header(
+                "content-type",
+                if method == "PUT" && raw_url.ends_with(".enc") {
+                    "application/octet-stream"
+                } else {
+                    "text/calendar; charset=utf-8"
+                },
+            )
             .body(body);
     }
     let response = request.send().await.map_err(|error| CommandError {

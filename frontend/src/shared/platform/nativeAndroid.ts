@@ -28,6 +28,7 @@ interface CourrierNativePlugin {
   openBatterySettings(): Promise<void>;
   credentialUpdates(): Promise<{ updates: NativeCredentialUpdate[] }>;
   notificationThread(options: { accountId: string; conversationId: string }): Promise<{ thread?: NativeNotificationThread }>;
+  scanConfigQr(): Promise<{ value: string }>;
 }
 
 const plugin = registerPlugin<CourrierNativePlugin>('CourrierNative');
@@ -60,4 +61,5 @@ export const nativeAndroidPlatform: NativePlatform = {
   openBatterySettings: () => plugin.openBatterySettings(),
   credentialUpdates: async () => (await plugin.credentialUpdates()).updates,
   notificationThread: async (accountId, conversationId) => (await plugin.notificationThread({ accountId, conversationId })).thread ?? null,
+  scanConfigQr: async () => (await plugin.scanConfigQr()).value,
 };

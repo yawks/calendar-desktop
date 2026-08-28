@@ -85,6 +85,10 @@ export async function importVaultKey(raw: ArrayBuffer): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
 }
 
+export async function generateVaultKey(): Promise<CryptoKey> {
+  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+}
+
 export function vaultSalt(vault: EncryptedVault): Uint8Array {
   return fromBase64(vault.kdf.salt);
 }

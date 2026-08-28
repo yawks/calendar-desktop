@@ -63,6 +63,7 @@ async fn main() {
         .route("/caldav/fetch", post(calendar_http::fetch_authenticated))
         .route("/caldav/status", post(calendar_http::status))
         .route("/caldav/resource", put(calendar_http::put).delete(calendar_http::delete))
+        .route("/config", post(calendar_http::config_fetch).put(calendar_http::config_put))
         .with_state(calendar_state);
     let api = Router::new().route("/health", get(health))
         .nest("/calendar", calendar_api)

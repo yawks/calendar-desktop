@@ -7,6 +7,9 @@ pub async fn dispatch(
     Path(command): Path<String>,
     Json(value): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if matches!(command.as_str(), "config_webdav_fetch" | "config_webdav_put") {
+        return Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "unknown mail command" }))));
+    }
     app_lib::command::dispatch(&command, value)
         .await
         .map(Json)

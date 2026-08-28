@@ -60,4 +60,5 @@ export interface NativePlatform {
   openBatterySettings?(): Promise<void>;
   credentialUpdates?(): Promise<NativeCredentialUpdate[]>;
   notificationThread?(accountId: string, conversationId: string): Promise<NativeNotificationThread | null>;
+  scanConfigQr?(): Promise<string>;
 }
