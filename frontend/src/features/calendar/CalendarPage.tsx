@@ -425,6 +425,10 @@ export default function CalendarPage() {
         />
       )}
 
+      {!selectedEvent && showRecurringModal && (
+        <RecurringChoiceModal onChoice={handleRecurringModalChoice} />
+      )}
+
       {createModalState && writableCalendars.length > 0 && (
         <CreateEventModal
           initialStart={createModalState.start}

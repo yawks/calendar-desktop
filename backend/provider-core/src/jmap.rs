@@ -279,6 +279,18 @@ mod mime_tests {
         let urls = attachment_download_urls("https://mail.example.com/download/blob");
         assert_eq!(urls, ["https://mail.example.com/download/blob"]);
     }
+
+    #[test]
+    fn prefers_canonical_fastmail_host_for_inline_resources() {
+        let url = preferred_inline_download_url(
+            "https://phl-www.fastmailusercontent.com/jmap/download/u1/blob/logo?type=image/png",
+        );
+
+        assert_eq!(
+            url,
+            "https://www.fastmailusercontent.com/jmap/download/u1/blob/logo?type=image/png"
+        );
+    }
 }
 
 fn raw_message_source_to_string(source: &[u8]) -> String {
@@ -321,6 +333,16 @@ fn attachment_download_urls(advertised_url: &str) -> Vec<String> {
         urls.push(canonical_url.into());
     }
     urls
+}
+
+fn preferred_inline_download_url(advertised_url: &str) -> String {
+    // Inline resources are on the critical path for displaying a message.
+    // Prefer Fastmail's canonical content host immediately instead of waiting
+    // for a region-specific hostname to fail before trying the fallback.
+    attachment_download_urls(advertised_url)
+        .into_iter()
+        .last()
+        .unwrap_or_else(|| advertised_url.to_string())
 }
 
 async fn download_attachment_bytes(
@@ -1208,7 +1230,7 @@ impl MailProvider for JmapProvider {
                     Some(InlinePart {
                         needle_dq,
                         needle_sq,
-                        url,
+                        url: preferred_inline_download_url(&url),
                         content_type: ct.to_string(),
                     })
                 })

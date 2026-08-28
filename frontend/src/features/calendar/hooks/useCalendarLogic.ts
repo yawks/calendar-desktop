@@ -639,15 +639,13 @@ export function useCalendarLogic() {
       };
 
       void (async () => {
-        let sourceEvent = originalEvent;
+        let recurringScope: 'this' | 'future' | undefined;
         if (isEventRecurring(originalEvent)) {
           const scope = await askRecurringScope();
           if (scope === null) return;
-          if (scope === 'all' && originalEvent.seriesId) {
-            sourceEvent = { ...originalEvent, sourceId: originalEvent.seriesId };
-          }
+          recurringScope = scope === 'all' ? 'future' : 'this';
         }
-        await handleSaveEvent(payload, sourceEvent);
+        await handleSaveEvent(payload, originalEvent, recurringScope);
       })();
     },
     [events, isEventEditable, isEventRecurring, askRecurringScope, handleSaveEvent]

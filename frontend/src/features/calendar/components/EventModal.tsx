@@ -87,6 +87,15 @@ function RsvpRow({ current, onRsvp }: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // onRsvp updates the event optimistically as soon as the recurring scope has
+  // been chosen. Do not keep showing the network spinner once that optimistic
+  // status has reached the modal; the request can continue in the background.
+  useEffect(() => {
+    if (!loading || !selected || current !== selected) return;
+    setOpen(false);
+    setComment('');
+  }, [current, loading, selected]);
+
   const RSVP_OPTIONS: { status: RsvpStatus; label: string; icon: React.ReactNode }[] = [
     { status: 'ACCEPTED',  label: t('eventModal.rsvp.ACCEPTED'),  icon: <Check size={13} /> },
     { status: 'TENTATIVE', label: t('eventModal.rsvp.TENTATIVE'), icon: <HelpCircle size={13} /> },
@@ -104,6 +113,7 @@ function RsvpRow({ current, onRsvp }: {
       setOpen(false);
       setComment('');
     } catch (e) {
+      setOpen(true);
       setError(e instanceof Error ? e.message : t('eventModal.rsvp.updateError'));
     } finally {
       setLoading(false);

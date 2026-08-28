@@ -9,7 +9,7 @@ export default function RecurringChoiceModal({ onChoice }: Props) {
   console.log('[recurring] RecurringChoiceModal rendered');
 
   return (
-    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.45)', zIndex: 10, borderRadius: 'inherit' }}>
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.45)', zIndex: 10000 }}>
       <div className="modal" style={{ width: 320, maxWidth: '90%' }}>
         <div className="modal-header" style={{ background: 'var(--primary)' }}>
           <span className="modal-title">{t('recurringChoice.title')}</span>
