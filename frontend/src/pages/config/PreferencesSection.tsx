@@ -1,16 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { useEffect, useState } from 'react';
-import QRCode from 'qrcode';
-import { Bell, Check, CloudUpload, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Mail, Monitor, Moon, QrCode, Sun, Type } from 'lucide-react';
+import { useState } from 'react';
+import { Bell, Check, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Monitor, Moon, Sun, Type } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
 import { LanguagePreference } from '../../i18n';
 import { useLayout, AppLayout } from '../../shared/store/LayoutStore';
-import { useLogoDevToken } from '../../shared/store/LogoDevTokenStore';
 import { useTheme, ThemePreference } from '../../shared/store/ThemeStore';
 import { useVault } from '../../shared/security/VaultProvider';
 import { useOfflineMailSettings } from '../../shared/store/OfflineMailStore';
-import { ConfigSyncConflictError } from '../../shared/api/configSyncApi';
 
 import { useMailNotificationsSettings } from '../../shared/store/MailNotificationStore';
 function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference; active: boolean; onClick: () => void; label: string }) {
@@ -74,26 +71,11 @@ export function PreferencesSection() {
   const { layout, setLayout } = useLayout();
   const { preference: themePref, setPreference: setThemePref } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
-  const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
-  const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics, backupToNextcloud, configSyncSettings, configSyncStatus, configSyncInvitation, disableConfigSync, resolveConfigSyncConflict } = useVault();
+  const { lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics } = useVault();
   const { settings: offlineMail, updateSettings: updateOfflineMail } = useOfflineMailSettings();
   const [biometricBusy, setBiometricBusy] = useState(false);
   const { settings: mailNotifications, supported: notificationSupported, permission: notificationPermission, enable: enableNotifications, disable: disableNotifications } = useMailNotificationsSettings();
   const [biometricDiagnostic, setBiometricDiagnostic] = useState('');
-  const [syncServerUrl, setSyncServerUrl] = useState('');
-  const [syncUsername, setSyncUsername] = useState('');
-  const [syncPassword, setSyncPassword] = useState('');
-  const [syncRecoveryKey, setSyncRecoveryKey] = useState('');
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
-  const [qrDataUrl, setQrDataUrl] = useState('');
-  useEffect(() => {
-    if (!configSyncSettings) return;
-    setSyncServerUrl(configSyncSettings.serverUrl); setSyncUsername(configSyncSettings.username); setSyncPassword(configSyncSettings.password); setSyncRecoveryKey(configSyncSettings.recoveryKey ?? '');
-  }, [configSyncSettings]);
-  useEffect(() => {
-    if (!configSyncInvitation) { setQrDataUrl(''); return; }
-    void QRCode.toDataURL(configSyncInvitation, { width: 260, margin: 2, errorCorrectionLevel: 'M' }).then(setQrDataUrl);
-  }, [configSyncInvitation]);
   const [diagnosticCopied, setDiagnosticCopied] = useState(false);
   const buildCommitId = import.meta.env.VITE_APP_COMMIT_ID || t('settings.buildInfo.unknown');
   const buildDate = new Date(import.meta.env.VITE_APP_COMMIT_DATE || '');
@@ -187,11 +169,11 @@ export function PreferencesSection() {
     <div className="preferences-section" style={{ maxWidth: 480 }}>
 
       {/* Langue */}
-      <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Languages size={16} />
-          {t('settings.language.sectionTitle')}
-        </h3>
+      <section className="native-settings-card preferences-card">
+        <header className="native-settings-card__header preferences-card__header">
+          <div className="native-settings-card__icon" aria-hidden="true"><Languages size={20} /></div>
+          <div><h3>{t('settings.language.sectionTitle')}</h3></div>
+        </header>
         <div className="preferences-segment" style={segmentStyle}>
           {langOptions.map((opt, i) => (
             <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
@@ -200,14 +182,14 @@ export function PreferencesSection() {
             </button>
           ))}
         </div>
-      </div>
+      </section>
 
       {/* Thème */}
-      <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Sun size={16} />
-          {t('settings.theme.sectionTitle')}
-        </h3>
+      <section className="native-settings-card preferences-card">
+        <header className="native-settings-card__header preferences-card__header">
+          <div className="native-settings-card__icon" aria-hidden="true"><Sun size={20} /></div>
+          <div><h3>{t('settings.theme.sectionTitle')}</h3></div>
+        </header>
         <div className="preferences-segment" style={segmentStyle}>
           {themeOptions.map((opt, i) => (
             <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setThemePref(opt.value)} style={btnStyle(themePref === opt.value, i === 0)}>
@@ -216,14 +198,14 @@ export function PreferencesSection() {
             </button>
           ))}
         </div>
-      </div>
+      </section>
 
       {/* Layout */}
-      <div className="preferences-layout-section" style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <LayoutPanelTop size={16} />
-          {t('settings.layout.sectionTitle', 'Interface')}
-        </h3>
+      <section className="native-settings-card preferences-card preferences-layout-section">
+        <header className="native-settings-card__header">
+          <div className="native-settings-card__icon" aria-hidden="true"><LayoutPanelTop size={20} /></div>
+          <div><h3>{t('settings.layout.sectionTitle', 'Interface')}</h3><p>{t('settings.layout.hint', "Redémarrez l'application pour appliquer le mode Fenêtres séparées.")}</p></div>
+        </header>
         <div className="preferences-segment" style={segmentStyle}>
           {layoutOptions.map((opt, i) => (
             <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setLayout(opt.value)} style={btnStyle(layout === opt.value, i === 0)}>
@@ -232,142 +214,55 @@ export function PreferencesSection() {
             </button>
           ))}
         </div>
-        <p style={{ margin: '8px 0 0', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted, var(--text))', opacity: 0.6 }}>
-          {t('settings.layout.hint', "Redémarrez l'application pour appliquer le mode Fenêtres séparées.")}
-        </p>
-      </div>
+      </section>
 
       {/* Notifications */}
-      <div style={{ marginBottom: 28 }}><h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}><Bell size={16} />{t('settings.mailNotifications.sectionTitle')}</h3><label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}><input type="checkbox" checked={mailNotifications.enabled} disabled={!notificationSupported || notificationPermission === 'denied'} onChange={event => { if (event.target.checked) void enableNotifications(); else disableNotifications(); }} />{t('settings.mailNotifications.enabled')}</label><p style={{ margin: 0, fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>{notificationPermission === 'denied' ? t('settings.mailNotifications.blocked') : !notificationSupported ? t('settings.mailNotifications.unavailable') : t('settings.mailNotifications.hint')}</p></div>
+      <section className="native-settings-card preferences-card">
+        <header className="native-settings-card__header"><div className="native-settings-card__icon" aria-hidden="true"><Bell size={20} /></div><div><h3>{t('settings.mailNotifications.sectionTitle')}</h3><p>{notificationPermission === 'denied' ? t('settings.mailNotifications.blocked') : !notificationSupported ? t('settings.mailNotifications.unavailable') : t('settings.mailNotifications.hint')}</p></div></header>
+        <label className="preferences-toggle"><input type="checkbox" checked={mailNotifications.enabled} disabled={!notificationSupported || notificationPermission === 'denied'} onChange={event => { if (event.target.checked) void enableNotifications(); else disableNotifications(); }} /><span>{t('settings.mailNotifications.enabled')}</span></label>
+      </section>
 
       {/* Taille de la police */}
-      <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Type size={16} />
-          {t('settings.fontSize.sectionTitle', 'Taille de la police')}
-        </h3>
+      <section className="native-settings-card preferences-card">
+        <header className="native-settings-card__header preferences-card__header"><div className="native-settings-card__icon" aria-hidden="true"><Type size={20} /></div><div><h3>{t('settings.fontSize.sectionTitle', 'Taille de la police')}</h3></div></header>
         <div className="font-size-options" style={{ display: 'flex', gap: 12 }}>
           <FontSizeOption size="small" label={t('settings.fontSize.small', 'Petite')} active={fontSize === 'small'} onClick={() => setFontSize('small')} />
           <FontSizeOption size="medium" label={t('settings.fontSize.medium', 'Moyenne')} active={fontSize === 'medium'} onClick={() => setFontSize('medium')} />
           <FontSizeOption size="intermediate" label={t('settings.fontSize.intermediate', 'Intermédiaire')} active={fontSize === 'intermediate'} onClick={() => setFontSize('intermediate')} />
           <FontSizeOption size="large" label={t('settings.fontSize.large', 'Grande')} active={fontSize === 'large'} onClick={() => setFontSize('large')} />
         </div>
-      </div>
-
-      <section className="native-settings-card config-sync-card">
-        <header className="native-settings-card__header">
-          <div className="native-settings-card__icon" aria-hidden="true"><CloudUpload size={20} /></div>
-          <div>
-            <h3>{t('settings.configSync.sectionTitle')}</h3>
-            <p>{t('settings.configSync.hint')}</p>
-          </div>
-        </header>
-        <div className="native-settings-grid">
-          <label className="native-settings-field" htmlFor="config-sync-url">
-            <span>{t('vault.nextcloudUrl')}</span>
-            <input id="config-sync-url" type="url" autoComplete="url" placeholder="https://cloud.example.com" value={syncServerUrl} onChange={event => setSyncServerUrl(event.target.value)} />
-          </label>
-          <label className="native-settings-field" htmlFor="config-sync-user">
-            <span>{t('vault.nextcloudUsername')}</span>
-            <input id="config-sync-user" autoComplete="username" value={syncUsername} onChange={event => setSyncUsername(event.target.value)} />
-          </label>
-          <label className="native-settings-field" htmlFor="config-sync-password">
-            <span>{t('vault.nextcloudPassword')}</span>
-            <input id="config-sync-password" type="password" autoComplete="current-password" value={syncPassword} onChange={event => setSyncPassword(event.target.value)} />
-          </label>
-          <label className="native-settings-field" htmlFor="config-sync-recovery">
-            <span>{t('vault.recoveryKey')}</span>
-            <input className="config-sync-recovery-key" id="config-sync-recovery" autoComplete="off" placeholder={t('settings.configSync.generatedAutomatically')} value={syncRecoveryKey} onChange={event => setSyncRecoveryKey(event.target.value)} />
-          </label>
-        </div>
-        <div className="native-settings-actions config-sync-actions">
-          <button className="btn-primary" type="button" disabled={syncStatus === 'busy' || !syncServerUrl || !syncUsername || !syncPassword} onClick={() => {
-            setSyncStatus('busy');
-            void backupToNextcloud({ serverUrl: syncServerUrl, username: syncUsername, password: syncPassword, recoveryKey: syncRecoveryKey || undefined })
-              .then(() => setSyncStatus('done')).catch(error => { console.error('[ConfigSync] backup failed', error); setSyncStatus(error instanceof ConfigSyncConflictError ? 'idle' : 'error'); });
-          }}><CloudUpload size={16} /> {t(syncStatus === 'busy' ? 'settings.configSync.working' : 'settings.configSync.backup')}</button>
-          {syncStatus === 'done' && <span className="native-settings-status native-settings-status--success" role="status"><Check size={15} />{t('settings.configSync.done')}</span>}
-          {syncStatus === 'error' && <span className="native-settings-status native-settings-status--error" role="alert">{t('settings.configSync.error')}</span>}
-        </div>
-        {configSyncStatus === 'conflict' && <div className="config-sync-alert" role="alert">
-          <p>{t('settings.configSync.conflict')}</p>
-          <div className="native-settings-actions">
-            <button className="btn-primary" type="button" onClick={() => void resolveConfigSyncConflict('local')}>{t('settings.configSync.keepLocal')}</button>
-            <button className="btn-ghost" type="button" onClick={() => void resolveConfigSyncConflict('remote')}>{t('settings.configSync.keepRemote')}</button>
-          </div>
-        </div>}
-        {configSyncSettings && <div className="config-sync-sharing">
-          {qrDataUrl && <figure className="config-sync-qr"><div className="config-sync-qr__title"><QrCode size={18} />{t('settings.configSync.scanHint')}</div><img src={qrDataUrl} width={220} height={220} alt={t('settings.configSync.qrAlt')} /></figure>}
-          <div className="native-settings-actions">
-            <button className="btn-ghost" type="button" onClick={() => void navigator.clipboard.writeText(configSyncInvitation ?? '')}><Copy size={15} />{t('settings.configSync.copyInvitation')}</button>
-            <button className="btn-ghost" type="button" onClick={disableConfigSync}>{t('settings.configSync.disable')}</button>
-          </div>
-        </div>}
       </section>
 
-      <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Database size={16} />
-          {t('settings.offlineMail.sectionTitle')}
-        </h3>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
-          <input type="checkbox" checked={offlineMail.enabled} onChange={event => updateOfflineMail({ enabled: event.target.checked })} />
-          {t('settings.offlineMail.enabled')}
+      <section className="native-settings-card offline-mail-card" aria-labelledby="offline-mail-title">
+        <header className="native-settings-card__header">
+          <div className="native-settings-card__icon" aria-hidden="true"><Database size={20} /></div>
+          <div>
+            <h3 id="offline-mail-title">{t('settings.offlineMail.sectionTitle')}</h3>
+            <p>{t('settings.offlineMail.hint')}</p>
+          </div>
+        </header>
+        <label className="offline-mail-toggle" htmlFor="offline-mail-enabled">
+          <input id="offline-mail-enabled" type="checkbox" checked={offlineMail.enabled} onChange={event => updateOfflineMail({ enabled: event.target.checked })} />
+          <span>{t('settings.offlineMail.enabled')}</span>
         </label>
-        <p style={{ margin: '0 0 12px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
-          {t('settings.offlineMail.hint')}
-        </p>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <label style={{ flex: 1, fontSize: 12 }}>
-            {t('settings.offlineMail.threadLimit')}
-            <select className="config-preference-select" disabled={!offlineMail.enabled} value={offlineMail.maxThreads} onChange={event => updateOfflineMail({ maxThreads: Number(event.target.value) })}>
+        <div className="native-settings-grid">
+          <label className="native-settings-field" htmlFor="offline-mail-thread-limit">
+            <span>{t('settings.offlineMail.threadLimit')}</span>
+            <select id="offline-mail-thread-limit" disabled={!offlineMail.enabled} value={offlineMail.maxThreads} onChange={event => updateOfflineMail({ maxThreads: Number(event.target.value) })}>
               {[50, 100, 250, 500].map(value => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
-          <label style={{ flex: 1, fontSize: 12 }}>
-            {t('settings.offlineMail.ageLimit')}
-            <select className="config-preference-select" disabled={!offlineMail.enabled} value={offlineMail.maxAgeDays} onChange={event => updateOfflineMail({ maxAgeDays: Number(event.target.value) })}>
+          <label className="native-settings-field" htmlFor="offline-mail-age-limit">
+            <span>{t('settings.offlineMail.ageLimit')}</span>
+            <select id="offline-mail-age-limit" disabled={!offlineMail.enabled} value={offlineMail.maxAgeDays} onChange={event => updateOfflineMail({ maxAgeDays: Number(event.target.value) })}>
               {[7, 30, 90, 180].map(value => <option key={value} value={value}>{t('settings.offlineMail.days', { count: value })}</option>)}
             </select>
           </label>
         </div>
-      </div>
+      </section>
 
-      {/* Logo.dev token */}
-      <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Mail size={16} />
-          {t('settings.logoDev.sectionTitle', 'Logos des contacts')}
-        </h3>
-        <p style={{ margin: '0 0 10px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
-          {t('settings.logoDev.hint', "Token logo.dev pour afficher les logos d'entreprise dans les avatars.")}
-        </p>
-        <input
-          type="password"
-          value={logoDevToken}
-          onChange={e => setLogoDevToken(e.target.value)}
-          placeholder="pk_..."
-          style={{
-            width: '100%',
-            padding: '8px 10px',
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            background: 'var(--bg)',
-            color: 'var(--text)',
-            fontSize: 'calc(13px * var(--font-scale, 1))',
-            boxSizing: 'border-box',
-            outline: 'none',
-          }}
-        />
-      </div>
-
-      <div style={{ marginBottom: 28 }}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 'calc(15px * var(--font-scale, 1))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Lock size={16} /> {t('settings.vault.sectionTitle')}
-        </h3>
-        <p style={{ margin: '0 0 10px', fontSize: 'calc(12px * var(--font-scale, 1))', color: 'var(--text-muted)', opacity: 0.7 }}>
-          {t('settings.vault.hint')}
-        </p>
+      <section className="native-settings-card preferences-card">
+        <header className="native-settings-card__header"><div className="native-settings-card__icon" aria-hidden="true"><Lock size={20} /></div><div><h3>{t('settings.vault.sectionTitle')}</h3><p>{t('settings.vault.hint')}</p></div></header>
         {biometricAvailable ? <>
           <div className="vault-settings-actions">
             <button className={biometricEnabled ? 'btn-ghost' : 'btn-primary'} type="button" disabled={biometricBusy} onClick={() => void toggleBiometrics()}>
@@ -390,7 +285,7 @@ export function PreferencesSection() {
           <p style={{ fontSize: 12, opacity: .7 }}>{t('settings.vault.biometricUnavailable')}</p>
           <button className="btn-ghost" type="button" onClick={lock}><Lock size={16} /> {t('settings.vault.lockNow')}</button>
         </>}
-      </div>
+      </section>
 
       <footer className="preferences-build-info">
         <span>{t('settings.buildInfo.date')}: {formattedBuildDate}</span>

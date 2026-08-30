@@ -59,7 +59,7 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
   useEffect(() => {
     accountsRef.current = accounts;
     vault.write(STORAGE_KEY, accounts);
-  }, [accounts, vault]);
+  }, [accounts]);
 
   const addAccount = useCallback((account: Omit<GoogleAccount, 'id'>): GoogleAccount => {
     const full: GoogleAccount = { ...account, id: account.email };

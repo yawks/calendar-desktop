@@ -261,6 +261,7 @@
 .form-row input[type='password'],
 .form-row input[type='date'],
 .form-row input[type='datetime-local'],
+.form-row input[type='time'],
 .form-row select,
 .form-row textarea {
   padding: 10px 12px;
@@ -304,8 +305,59 @@
 .form-row input[type='password']:focus,
 .form-row input[type='date']:focus,
 .form-row input[type='datetime-local']:focus,
+.form-row input[type='time']:focus,
 .form-row select:focus,
 .form-row textarea:focus { border-color: var(--primary); }
+
+.event-datetime-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.event-datetime-field legend {
+  margin: 0 0 6px;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+}
+
+.event-datetime-field__controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 0.55fr);
+  gap: 10px;
+}
+
+.event-datetime-field__controls label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
+.event-datetime-field__controls input {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: calc(14px * var(--font-scale, 1));
+}
+
+.event-datetime-field__controls input:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
 
 .custom-select-trigger {
   font-size: calc(14px * var(--font-scale, 1));
@@ -708,22 +760,63 @@
 /* ── TUI Calendar – Google Calendar look ─────────────── */
 
 /* Rounded corners on timed events, sans bordure gauche épaisse */
-.toastui-calendar-time-event {
+.toastui-calendar-event-time {
   border-radius: 4px !important;
-  overflow: visible !important;
+  overflow: hidden !important;
 }
 
-/* Our template uses position:absolute inset:0 — let the content container be the reference */
+.calendar-event-content {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 400;
+  line-height: 1.28;
+}
+
+.calendar-event-content--time {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 2px 3px 0 4px;
+}
+
+.calendar-event-content__title,
+.calendar-event-content__time {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.calendar-event-content__title {
+  font-weight: 400;
+}
+
+.calendar-event-content__time {
+  opacity: 0.9;
+}
+
+.calendar-event-content__title--declined {
+  text-decoration: line-through;
+}
+
+.calendar-event-content--allday {
+  display: flex;
+  align-items: center;
+  padding-inline: 3px;
+}
+
 .toastui-calendar-event-time .toastui-calendar-event-time-content {
   padding: 0 !important;
-  overflow: visible !important;
-  position: relative !important;
+  overflow: hidden !important;
   height: 100% !important;
 }
 
-/* Rounded corners on all-day events */
-.toastui-calendar-allday-event,
-.toastui-calendar-allday-event-body {
+/* TUI renders all-day items as weekday events inside the all-day panel. */
+.toastui-calendar-allday-panel .toastui-calendar-weekday-event {
   border-radius: 3px !important;
   overflow: hidden;
 }
@@ -735,7 +828,7 @@
 }
 
 [data-theme="dark"] .toastui-calendar-day-name-container {
-  background: #171a1c !important;
+  background: #111315 !important;
 }
 
 /* Time column: light gray background */
@@ -744,7 +837,7 @@
 }
 
 [data-theme="dark"] .toastui-calendar-timegrid-time-column {
-  background: #171a1c !important;
+  background: #111315 !important;
 }
 
 /* Time labels: smaller, lighter */
@@ -769,6 +862,195 @@
 }
 [data-theme="dark"] .toastui-calendar-timegrid-now-indicator-line {
   border-top-color: #c8607a !important;
+}
+
+@media (max-width: 700px) {
+  .calendar-app .toastui-calendar-day-name-container {
+    min-height: 62px !important;
+  }
+
+  .calendar-app .toastui-calendar-week-view-day-names,
+  .calendar-app .toastui-calendar-day-name-item.toastui-calendar-week {
+    height: 62px !important;
+  }
+
+  .calendar-app .toastui-calendar-day-name-item.toastui-calendar-week {
+    display: flex !important;
+    min-width: 0 !important;
+    flex-direction: column-reverse;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 4px 1px !important;
+    line-height: 1 !important;
+  }
+
+  .calendar-app .toastui-calendar-day-name-item.toastui-calendar-week .toastui-calendar-day-name__name,
+  .calendar-app .toastui-calendar-day-name-item.toastui-calendar-week .toastui-calendar-day-name__date {
+    position: static !important;
+    display: block !important;
+    width: auto !important;
+    margin: 0 !important;
+    line-height: 1 !important;
+  }
+
+  .calendar-app .toastui-calendar-day-name-item.toastui-calendar-week .toastui-calendar-day-name__name {
+    font-size: calc(11px * var(--font-scale, 1)) !important;
+    font-weight: 600;
+    text-transform: lowercase;
+  }
+
+  .calendar-app .toastui-calendar-day-name-item.toastui-calendar-week .toastui-calendar-day-name__date {
+    font-size: calc(24px * var(--font-scale, 1)) !important;
+    font-weight: 400;
+  }
+
+  .calendar-app .toastui-calendar-timegrid-timezone {
+    width: 52px !important;
+  }
+
+  .calendar-app .toastui-calendar-timegrid-time-column .toastui-calendar-timegrid-time {
+    font-size: calc(11px * var(--font-scale, 1)) !important;
+  }
+
+  .calendar-app .toastui-calendar-event-time {
+    right: 2px !important;
+    border-radius: 5px !important;
+  }
+
+  .calendar-app .calendar-event-content {
+    font-size: calc(9px * var(--font-scale, 1));
+    font-weight: 400;
+    line-height: 1.15;
+  }
+
+  .calendar-app .calendar-event-content--time {
+    padding: 3px 3px 2px;
+  }
+
+  .calendar-app .calendar-event-content__title,
+  .calendar-app .calendar-event-content__time {
+    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+
+  .calendar-app .calendar-event-content__title {
+    display: -webkit-box;
+    font-weight: 400;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  .calendar-app .calendar-event-content__time {
+    margin-top: 1px;
+    font-size: calc(8px * var(--font-scale, 1));
+    -webkit-line-clamp: 1;
+  }
+
+  .calendar-app .calendar-event-content--allday .calendar-event-content__title {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .calendar-app .toastui-calendar-month .toastui-calendar-day-names,
+  .calendar-app .toastui-calendar-day-name-item.toastui-calendar-month {
+    height: 34px !important;
+  }
+
+  .calendar-app .toastui-calendar-month .toastui-calendar-day-names {
+    padding: 0 !important;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg) !important;
+  }
+
+  .calendar-app .toastui-calendar-day-name-item.toastui-calendar-month {
+    display: grid !important;
+    place-items: center;
+    padding: 0 1px !important;
+    color: var(--text-muted) !important;
+    font-size: calc(10px * var(--font-scale, 1)) !important;
+    font-weight: 600;
+    line-height: 34px !important;
+    text-transform: lowercase;
+  }
+
+  .calendar-app .toastui-calendar-month .toastui-calendar-month-daygrid {
+    height: calc(100% - 34px) !important;
+  }
+
+  .calendar-app .toastui-calendar-month-week-item {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .calendar-app .toastui-calendar-month .toastui-calendar-daygrid-cell {
+    min-width: 0;
+    padding: 3px 0 !important;
+    border-color: var(--border) !important;
+  }
+
+  .calendar-app .toastui-calendar-month .toastui-calendar-grid-cell-date {
+    width: 28px;
+    height: 25px;
+    color: var(--text);
+    font-size: calc(15px * var(--font-scale, 1));
+    line-height: 25px;
+  }
+
+  .calendar-app .toastui-calendar-month .toastui-calendar-weekday-event {
+    height: 18px !important;
+    margin: 1px 2px !important;
+    border-radius: 4px !important;
+    overflow: hidden;
+  }
+
+  .calendar-app .toastui-calendar-month .toastui-calendar-weekday-event-title {
+    height: 18px;
+    padding: 1px 3px;
+    font-size: calc(9px * var(--font-scale, 1));
+    font-weight: 400;
+    line-height: 16px;
+  }
+
+  .calendar-app .toastui-calendar-month .toastui-calendar-grid-cell-more-events {
+    height: 20px;
+    padding: 0 3px;
+    color: var(--text-muted);
+    font-size: calc(9px * var(--font-scale, 1));
+    line-height: 20px;
+  }
+
+  .calendar-app .calendar-container {
+    touch-action: pan-y;
+  }
+
+  .calendar-app .calendar-container--next .toastui-calendar-layout {
+    animation: calendar-period-enter-next 180ms ease-out;
+  }
+
+  .calendar-app .calendar-container--previous .toastui-calendar-layout {
+    animation: calendar-period-enter-previous 180ms ease-out;
+  }
+}
+
+@keyframes calendar-period-enter-next {
+  from { opacity: .45; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes calendar-period-enter-previous {
+  from { opacity: .45; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-app .calendar-container--next .toastui-calendar-layout,
+  .calendar-app .calendar-container--previous .toastui-calendar-layout {
+    animation: none;
+  }
 }
 
 @media (max-width: 700px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {

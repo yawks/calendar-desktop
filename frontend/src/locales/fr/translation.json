@@ -91,6 +91,7 @@
     "theme": "Thème : {{preference}}",
     "configCalendars": "Configurer les calendriers",
     "configureBtn": "Configurer",
+    "changeView": "Changer l’affichage",
     "views": {
       "day": "Jour",
       "workweek": "Sem. 5j",
@@ -207,6 +208,8 @@
     "allDay": "Toute la journée",
     "start": "Début",
     "end": "Fin",
+    "date": "Date",
+    "time": "Heure",
     "calendar": "Calendrier",
     "attendees": "Participants",
     "optional": "(optionnel)",
@@ -383,6 +386,10 @@
   },
   "mail": {
     "selection": { "clear": "Effacer la sélection" },
+    "selectAll": "Tout sélectionner",
+    "filterAll": "Tous",
+    "filterUnread": "Non lus",
+    "settings": "Paramètres",
     "backToList": "Retour aux messages",
     "previousMessage": "Message précédent",
     "nextMessage": "Message suivant",
@@ -546,6 +553,7 @@
       "preview": "Aperçu",
       "download": "Télécharger"
     },
+    "moreActions": "Plus d’actions",
     "stats": {
       "title": "Statistiques mail",
       "loading": "Chargement des données…",
@@ -637,6 +645,8 @@
       ,"qrAlt": "QR code de transfert de configuration Courrier"
       ,"copyInvitation": "Copier l’invitation"
       ,"disable": "Désactiver la synchronisation"
+      ,"uploadedSummary": "Sauvegarde envoyée (révision {{revision}}) : Google {{google}}, Exchange {{exchange}}, IMAP {{imap}}, JMAP {{jmap}}."
+      ,"downloadedSummary": "Sauvegarde reçue (révision {{revision}}) : Google {{google}}, Exchange {{exchange}}, IMAP {{imap}}, JMAP {{jmap}}."
     },
     "vault": {
       "sectionTitle": "Coffre local",

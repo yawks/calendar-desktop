@@ -105,16 +105,14 @@ export function SignaturesSection() {
   if (identities.length === 0) return null;
 
   return (
-    <div style={{ marginTop: 32, borderTop: '1px solid var(--border)', paddingTop: 28 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <PenLine size={16} />
-        <h2 style={{ margin: 0, fontSize: 'calc(16px * var(--font-scale, 1))', fontWeight: 600 }}>
-          {t('config.signatures.title', 'Signatures')}
-        </h2>
-      </div>
-      <p style={{ margin: '0 0 20px', fontSize: 'calc(13px * var(--font-scale, 1))', color: 'var(--text-muted)' }}>
-        {t('config.signatures.hint', 'Définissez une signature par alias. Elle sera insérée automatiquement lors de la rédaction.')}
-      </p>
+    <section className="native-settings-card signatures-card">
+      <header className="native-settings-card__header">
+        <div className="native-settings-card__icon" aria-hidden="true"><PenLine size={20} /></div>
+        <div>
+          <h3>{t('config.signatures.title', 'Signatures')}</h3>
+          <p>{t('config.signatures.hint', 'Définissez une signature par alias. Elle sera insérée automatiquement lors de la rédaction.')}</p>
+        </div>
+      </header>
 
       {/* Position globale */}
       <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -185,6 +183,6 @@ export function SignaturesSection() {
           />
         </div>
       </div>
-    </div>
+    </section>
   );
 }

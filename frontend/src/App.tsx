@@ -3,7 +3,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { OfflineMailProvider } from './shared/store/OfflineMailStore';
 import { MailNotificationProvider } from './shared/store/MailNotificationStore';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { queryClient, indexedDBPersister } from './shared/queryClient';
+import { queryClient, indexedDBPersister, shouldPersistQuery } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 import { FontSizeProvider } from './shared/store/FontSizeStore';
 import { SignatureProvider } from './shared/store/SignatureStore';
@@ -60,7 +60,13 @@ export default function App() {
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister: indexedDBPersister, buster: 'mail-provider-loading-v5' }}
+      persistOptions={{
+        persister: indexedDBPersister,
+        buster: 'mail-provider-loading-v6',
+        dehydrateOptions: {
+          shouldDehydrateQuery: query => shouldPersistQuery(query.queryKey),
+        },
+      }}
     >
       <ThemeProvider>
       <OfflineMailProvider>

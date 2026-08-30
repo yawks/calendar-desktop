@@ -19,6 +19,7 @@ import { PreferencesSection } from './config/PreferencesSection';
 import { NativeSettingsSection } from '../shared/platform/NativeSettingsSection';
 import { DesktopSyncTestSection } from './config/DesktopSyncTestSection';
 import { SignaturesSection } from './config/SignaturesSection';
+import { SourcesSyncSection } from './config/SourcesSyncSection';
 import { CalendarItem, GroupSection } from './config/ConfigShared';
 import { useConnectionIssues } from '../shared/store/ConnectionIssueStore';
 
@@ -271,6 +272,7 @@ export default function ConfigPage() {
 
                 {/* Signatures (sous-section intégrée) */}
                 <SignaturesSection />
+                <SourcesSyncSection />
               </>
             )}
 

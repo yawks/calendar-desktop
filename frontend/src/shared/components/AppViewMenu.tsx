@@ -13,6 +13,7 @@ export default function AppViewMenu({ current }: Props) {
   const { layout, setActiveTab } = useLayout();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const openedFromPointerRef = useRef(false);
 
   const label = current === 'mail'
     ? t('tabs.mail', 'Mail')
@@ -66,7 +67,18 @@ export default function AppViewMenu({ current }: Props) {
         className="header-logo app-view-menu__trigger"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen(value => !value)}
+        onPointerDown={(event) => {
+          if (!event.isPrimary) return;
+          openedFromPointerRef.current = true;
+          setOpen(value => !value);
+        }}
+        onClick={() => {
+          if (openedFromPointerRef.current) {
+            openedFromPointerRef.current = false;
+            return;
+          }
+          setOpen(value => !value);
+        }}
       >
         <span>{label}</span>
         <ChevronDown

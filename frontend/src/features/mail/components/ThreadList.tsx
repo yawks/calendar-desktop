@@ -17,7 +17,8 @@ export interface ThreadListProps {
   readonly unreadCount?: number;
   readonly scrollResetKey?: string;
   readonly hasMore?: boolean;
-  readonly onLoadMore?: () => void;
+  /** Returns false when the request cannot be started yet (for example during a refresh). */
+  readonly onLoadMore?: () => boolean | void;
   readonly onRefresh?: () => Promise<void> | void;
   readonly refreshing?: boolean;
   readonly selectedId: string | null;
@@ -35,6 +36,8 @@ export interface ThreadListProps {
   readonly onToggleSelect: (t: MailThread, range?: MailThread[]) => void;
   readonly onSelectAll: () => void;
   readonly onClearSelection: () => void;
+  readonly filter: 'all' | 'unread';
+  readonly onFilterChange: (filter: 'all' | 'unread') => void;
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly resolveProvider?: (thread: MailThread) => import('../providers/MailProvider').MailProvider | null;
 }
@@ -67,13 +70,14 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       onToggleSelect,
       onSelectAll,
       onClearSelection,
+      filter,
+      onFilterChange,
       provider,
       resolveProvider,
     },
     ref
   ) => {
     const { t } = useTranslation();
-    const [filter, setFilter] = useState<'all' | 'unread'>('all');
     const lastCheckedIdRef = useRef<string | null>(null);
     const threadVersionsRef = useRef<Map<string, string> | null>(null);
     const arrivalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,6 +107,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     }, [loading, threads]);
     const [filterOpen, setFilterOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
     const loadMoreRequestedRef = useRef(false);
     const touchStartYRef = useRef<number | null>(null);
     const pullDistanceRef = useRef(0);
@@ -112,6 +117,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
 
     useEffect(() => {
       if (containerRef.current) containerRef.current.scrollTop = 0;
+      loadMoreRequestedRef.current = false;
     }, [scrollResetKey]);
 
     useEffect(() => {
@@ -125,13 +131,37 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
         const { scrollTop, scrollHeight, clientHeight } = container;
         if (scrollHeight - scrollTop - clientHeight < 200) {
           loadMoreRequestedRef.current = true;
-          onLoadMore();
+          const accepted = onLoadMore();
+          // A background refresh can temporarily prevent pagination. Do not
+          // leave the scroll guard latched when no load-more request started.
+          if (accepted === false) loadMoreRequestedRef.current = false;
         }
       };
 
       container.addEventListener('scroll', handleScroll, { passive: true });
+      // Also re-evaluate when fetching/availability changes while the viewport
+      // is already at the bottom and therefore emits no new scroll event.
+      handleScroll();
       return () => container.removeEventListener('scroll', handleScroll);
     }, [onLoadMore, hasMore, loadingMore, threads.length]);
+
+    useEffect(() => {
+      const container = containerRef.current;
+      const sentinel = loadMoreSentinelRef.current;
+      if (!container || !sentinel || !onLoadMore || !hasMore) return;
+
+      const observer = new IntersectionObserver(entries => {
+        if (!entries.some(entry => entry.isIntersecting)
+          || loadingMore
+          || loadMoreRequestedRef.current) return;
+        loadMoreRequestedRef.current = true;
+        const accepted = onLoadMore();
+        if (accepted === false) loadMoreRequestedRef.current = false;
+      }, { root: container, rootMargin: '0px 0px 200px 0px' });
+
+      observer.observe(sentinel);
+      return () => observer.disconnect();
+    }, [hasMore, loadingMore, onLoadMore, scrollResetKey, threads.length]);
 
     useEffect(() => {
       const container = containerRef.current;
@@ -279,13 +309,13 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
                 <div className="mail-actions-menu">
                   <button
                     className={`mail-actions-menu__item${filter === 'all' ? ' mail-actions-menu__item--active' : ''}`}
-                    onClick={() => { setFilter('all'); setFilterOpen(false); }}
+                    onClick={() => { onFilterChange('all'); setFilterOpen(false); }}
                   >
                     {t('mail.filterAll', 'All mail')}
                   </button>
                   <button
                     className={`mail-actions-menu__item${filter === 'unread' ? ' mail-actions-menu__item--active' : ''}`}
-                    onClick={() => { setFilter('unread'); setFilterOpen(false); }}
+                    onClick={() => { onFilterChange('unread'); setFilterOpen(false); }}
                   >
                     {t('mail.filterUnread', 'Unread')}
                   </button>
@@ -412,6 +442,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               <RefreshCw size={18} className="spin" />
             </div>
           )}
+          {hasMore && <div ref={loadMoreSentinelRef} className="mail-thread-list__load-more-sentinel" aria-hidden="true" />}
         </div>
         {countChip}
       </div>

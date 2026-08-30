@@ -1,6 +1,7 @@
 import { ALL_ACCOUNTS_ID, buildUnreadCounts } from './utils';
 import {
   ChartNoAxesCombined,
+  CheckSquare,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
@@ -9,6 +10,7 @@ import {
   Layers,
   Mail,
   Menu,
+  MoreVertical,
   Pencil,
   RefreshCw,
   Settings,
@@ -397,6 +399,8 @@ export default function MailApp() {
   };
 
   const [statsOpen, setStatsOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [threadFilter, setThreadFilter] = useState<'all' | 'unread'>('all');
 
   // Identity selection state remains local to the component for UI control
   const [selectedIdentityId, setSelectedIdentityId] = useState('');
@@ -619,9 +623,9 @@ export default function MailApp() {
 
   return (
     <div className={`mail-app${selectedThread ? ' mail-app--detail-open' : ''}`}>
-      <header className="header">
+      <header className="header app-shell-header app-mobile-header">
         <button
-          className="btn-icon"
+          className="btn-icon app-mobile-header__sidebar"
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           title={sidebarCollapsed ? t('mail.showSidebar', 'Show sidebar') : t('mail.hideSidebar', 'Hide sidebar')}
         >
@@ -629,25 +633,62 @@ export default function MailApp() {
         </button>
         <AppViewMenu current="mail" />
 
-        <div className="header-spacer mail-header-push" />
+        <div className="header-spacer mail-header-push app-mobile-header__spacer" />
         <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} provider={provider} />
         <div className="header-spacer mail-header-gap" />
 
-        <button className="btn-icon" onClick={reloadThreads} disabled={threadsRefreshing}
+        <button className="btn-icon app-mobile-header__sync" onClick={reloadThreads} disabled={threadsRefreshing}
           title={t('header.refresh', 'Refresh')}>
           <RefreshCw size={18} className={threadsRefreshing ? 'spin' : ''} />
         </button>
-        <button className="btn-icon" onClick={() => setStatsOpen(true)} title={t('mail.stats.title', 'Statistiques mail')}>
+        <button className="btn-icon mail-header-desktop-action" onClick={() => setStatsOpen(true)} title={t('mail.stats.title', 'Statistiques mail')}>
           <ChartNoAxesCombined size={20} />
         </button>
         <Link
           to="/config"
-          className="btn-icon"
+          className="btn-icon mail-header-desktop-action"
           title={t('header.configCalendars', 'Settings')}
           aria-label={t('header.configCalendars', 'Settings')}
         >
           <Settings size={17} />
         </Link>
+        <div className="mail-mobile-more-menu app-mobile-header__more">
+          <button
+            type="button"
+            className="btn-icon"
+            aria-label={t('mail.moreActions')}
+            title={t('mail.moreActions')}
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen(open => !open)}
+          >
+            <MoreVertical size={21} />
+          </button>
+          {mobileMenuOpen && (
+            <>
+              <button type="button" aria-label={t('common.close')} className="mail-thread-toolbar__overlay" onClick={() => setMobileMenuOpen(false)} />
+              <div className="mail-actions-menu mail-mobile-more-menu__content">
+                <button type="button" className="mail-actions-menu__item" onClick={() => { setSelectedThreadIds(new Set(displayedThreads.map(thread => thread.conversation_id))); setMobileMenuOpen(false); }}>
+                  <CheckSquare size={16} aria-hidden="true" />
+                  {t('mail.selectAll')}
+                </button>
+                {!searchQuery && (
+                  <button type="button" className="mail-actions-menu__item" onClick={() => { setThreadFilter(filter => filter === 'unread' ? 'all' : 'unread'); setMobileMenuOpen(false); }}>
+                    <Inbox size={16} aria-hidden="true" />
+                    {threadFilter === 'unread' ? t('mail.filterAll') : t('mail.filterUnread')}
+                  </button>
+                )}
+                <button type="button" className="mail-actions-menu__item" onClick={() => { setStatsOpen(true); setMobileMenuOpen(false); }}>
+                  <ChartNoAxesCombined size={16} aria-hidden="true" />
+                  {t('mail.stats.title')}
+                </button>
+                <Link className="mail-actions-menu__item" to="/config" onClick={() => setMobileMenuOpen(false)}>
+                  <Settings size={16} aria-hidden="true" />
+                  {t('mail.settings')}
+                </Link>
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       {error && (
@@ -843,6 +884,8 @@ export default function MailApp() {
               }}
               onSelectAll={() => setSelectedThreadIds(new Set(threads.map(t => t.conversation_id)))}
               onClearSelection={() => setSelectedThreadIds(new Set())}
+              filter={threadFilter}
+              onFilterChange={setThreadFilter}
               provider={provider}
               resolveProvider={(thread) => resolveProvider(thread.accountId)}
             />

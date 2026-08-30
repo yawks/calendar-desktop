@@ -14,7 +14,7 @@ Ce fichier s’applique à tout le dépôt. Toute modification d’interface doi
 
 Avant d’ajouter du JSX, identifier l’un des contextes suivants et reprendre son pattern complet :
 
-1. **Section simple de préférences** : titre avec icône 16 px, aide courte, contrôle compact, espacement inférieur de 28 px.
+1. **Section simple de préférences** : utiliser elle aussi une `.native-settings-card`; l'onglet Préférences ne mélange pas des blocs nus et des cartes.
 2. **Carte de réglages structurée** : `.native-settings-card`, en-tête `.native-settings-card__header`, icône `.native-settings-card__icon`, grille `.native-settings-grid`, champs `.native-settings-field`, actions `.native-settings-actions`.
 3. **Formulaire modal** : `.config-form`, grille de formulaire existante et footer d’actions séparé par une bordure.
 4. **Écran plein sensible** : composants et classes propres à cet écran, comme `.vault-form`; ne pas en extraire un sélecteur contextualisé pour un autre écran.
@@ -52,6 +52,10 @@ Si aucun pattern ne convient, créer un composant et des classes sémantiques d�
 
 - Toute nouvelle grille ou carte doit être testée au minimum à 320 px, 480 px et 1024 px de largeur.
 - Sous 600 px, une grille de formulaire passe sur une colonne et les actions peuvent s’empiler ou occuper toute la largeur.
+- Dans les onglets de réglages, chaque groupe fonctionnel est une carte homogène : même bordure, fond, rayon, en-tête avec `.native-settings-card__icon`, titre et aide éventuelle. Ne pas laisser une section nue entre des cartes.
+- Sur mobile, compacter les cartes avant de supprimer de l'information : padding intérieur cible de 12 à 14 px, espacement entre cartes de 14 à 16 px, icône d'en-tête de 34 à 36 px et gap d'en-tête de 10 à 12 px. Conserver au moins 44 px pour toute cible tactile.
+- Éviter le cumul de marges entre conteneur et carte. Une seule règle doit porter l'espacement vertical entre deux cartes afin de ne pas créer de doubles espaces.
+- Les aperçus décoratifs peuvent être réduits en hauteur sur mobile, mais les libellés, aides, statuts et contrôles ne doivent pas être masqués.
 - Tenir compte des zones sûres mobiles (`env(safe-area-inset-*)`) uniquement au niveau du shell ou des écrans plein format, pas dans chaque carte.
 - Ne pas supposer qu’un desktop possède une caméra ni qu’un mobile possède un clavier physique. Toujours fournir une alternative manuelle au QR ou au scan.
 - Éviter les règles uniquement basées sur le survol : chaque action doit fonctionner au toucher et au clavier.

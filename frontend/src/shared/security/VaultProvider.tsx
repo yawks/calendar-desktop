@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval';
-import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, FormEvent, Fragment, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, exportVaultKey, generateVaultKey, importVaultKey, vaultSalt } from './vaultCrypto';
 import { biometricApiAvailable, biometricUnlockAvailable, disableBiometricUnlock, enableBiometricUnlock, hasBiometricUnlock, unlockWithBiometrics } from './biometricUnlock';
 import { CloudDownload, Fingerprint, LockKeyhole, QrCode } from 'lucide-react';
@@ -8,13 +8,13 @@ import { useTranslation } from 'react-i18next';
 import { platform } from '../platform';
 import { getTauriInvoke } from '../platform/tauriRuntime';
 import { ConfigSyncConflictError, decodeConfigInvitation, encodeConfigInvitation, fetchRemoteVault, NextcloudConfigLocation, putRemoteVault, RemoteVaultDocument } from '../api/configSyncApi';
+import { applyPortableConfig, isPortableConfigKey, pickPortableConfig, PortableConfigSummary, portableConfigSummary, portableValuesEqual } from './portableConfig';
 const DB_KEY = 'courrier-encrypted-vault-v1';
 const ITERATIONS = 600_000;
 const LOCK_AFTER_MS = 30 * 60 * 1000;
 const BIOMETRIC_TIMEOUT_MS = 15_000;
 const CONFIG_SYNC_KEY = 'courrier:config-sync-v1';
 const DEVICE_ID_KEY = 'courrier:device-id';
-const AUTO_SYNC_DELAY_MS = 2_000;
 const LEGACY_KEYS = [
   'calendar-desktop-google-accounts',
   'calendar-desktop-exchange-accounts',
@@ -27,6 +27,7 @@ const LEGACY_KEYS = [
 type VaultPayload = Record<string, unknown>;
 type ConfigSyncStatus = 'disabled' | 'idle' | 'syncing' | 'synced' | 'conflict' | 'error';
 interface ConfigSyncSettings extends NextcloudConfigLocation { enabled: boolean; etag?: string; revision: number; dirty?: boolean }
+interface ConfigSyncSummary { direction: 'uploaded' | 'downloaded'; revision: number; contents: PortableConfigSummary }
 
 function bytesToRecoveryKey(bytes: ArrayBuffer): string {
   let binary = ''; new Uint8Array(bytes).forEach(byte => { binary += String.fromCharCode(byte); });
@@ -44,15 +45,18 @@ function deviceId(): string {
   return value;
 }
 
-function portablePayload(payload: VaultPayload): VaultPayload {
-  const next = { ...payload };
-  delete next[CONFIG_SYNC_KEY];
-  return next;
-}
-
 function valuesEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   try { return JSON.stringify(left) === JSON.stringify(right); } catch { return false; }
+}
+
+function resetMailNavigationAfterConfigReplacement() {
+  const url = new URL(globalThis.location.href);
+  url.searchParams.delete('conversation');
+  url.searchParams.delete('accountId');
+  const state = { ...globalThis.history.state };
+  delete state.mailScreen;
+  globalThis.history.replaceState(state, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -78,6 +82,7 @@ interface VaultContextValue {
   configSyncSettings: ConfigSyncSettings | null;
   configSyncStatus: ConfigSyncStatus;
   configSyncInvitation: string | null;
+  configSyncSummary: ConfigSyncSummary | null;
   disableConfigSync(): void;
   resolveConfigSyncConflict(strategy: 'local' | 'remote'): Promise<void>;
 }
@@ -192,10 +197,11 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [configSyncSettings, setConfigSyncSettings] = useState<ConfigSyncSettings | null>(null);
   const [configSyncStatus, setConfigSyncStatus] = useState<ConfigSyncStatus>('disabled');
   const [syncCheckNonce, setSyncCheckNonce] = useState(0);
+  const [contentRevision, setContentRevision] = useState(0);
+  const [configSyncSummary, setConfigSyncSummary] = useState<ConfigSyncSummary | null>(null);
   const keyRef = useRef<CryptoKey | null>(null);
   const payloadRef = useRef<VaultPayload>({});
   const writeQueue = useRef(Promise.resolve());
-  const autoSyncTimer = useRef<number | null>(null);
   const remoteCheckRef = useRef('');
   const lock = useCallback(() => {
     keyRef.current = null;
@@ -247,6 +253,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     writeQueue.current = writeQueue.current.then(async () => {
       const encrypted = await encryptVaultWithKey(next, key, vaultSalt(vault), vault.kdf.iterations);
       await set(DB_KEY, encrypted);
+      setStored(encrypted);
     }).catch(error => console.error('[Vault] persistence failed', error));
   }, [stored]);
 
@@ -319,7 +326,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
       const syncKey = await importVaultKey(recoveryKeyToBytes(location.recoveryKey));
       const remotePayload = await decryptVaultWithKey<VaultPayload>(remote.document.vault, syncKey);
       const sync: ConfigSyncSettings = { ...location, recoveryKey: location.recoveryKey.trim(), enabled: true, etag: remote.etag, revision: remote.document.revision, dirty: false };
-      const nextPayload = { ...remotePayload, [CONFIG_SYNC_KEY]: sync };
+      const nextPayload = { ...pickPortableConfig(remotePayload), [CONFIG_SYNC_KEY]: sync };
       const salt = crypto.getRandomValues(new Uint8Array(16));
       const localKey = await deriveVaultKey(password, salt, ITERATIONS);
       const localVault = await encryptVaultWithKey(nextPayload, localKey, salt, ITERATIONS);
@@ -345,7 +352,9 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     let syncKey: CryptoKey;
     if (recoveryKey) syncKey = await importVaultKey(recoveryKeyToBytes(recoveryKey));
     else { syncKey = await generateVaultKey(); recoveryKey = bytesToRecoveryKey(await exportVaultKey(syncKey)); }
-    const encrypted = await encryptVaultWithKey(portablePayload(payloadRef.current), syncKey, crypto.getRandomValues(new Uint8Array(16)), vault.kdf.iterations);
+    const portable = pickPortableConfig(payloadRef.current);
+    const contents = portableConfigSummary(portable);
+    const encrypted = await encryptVaultWithKey(portable, syncKey, crypto.getRandomValues(new Uint8Array(16)), vault.kdf.iterations);
     const document: RemoteVaultDocument = { format: 'courrier-config', version: 1, deviceId: deviceId(), revision: revision + 1, updatedAt: new Date().toISOString(), vault: encrypted };
     try {
       let expectedEtag = etag;
@@ -355,6 +364,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
       const sync: ConfigSyncSettings = { ...location, recoveryKey, enabled: true, etag: confirmed.etag, revision: document.revision, dirty: false };
       const next = { ...payloadRef.current, [CONFIG_SYNC_KEY]: sync };
       payloadRef.current = next; setPayload(next); setConfigSyncSettings(sync); persist(next);
+      setConfigSyncSummary({ direction: 'uploaded', revision: document.revision, contents });
       setConfigSyncStatus('synced');
     } catch (cause) {
       setConfigSyncStatus(cause instanceof ConfigSyncConflictError ? 'conflict' : 'error');
@@ -388,10 +398,14 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     const remote = await fetchRemoteVault(sync);
     if (!remote.document || !sync.recoveryKey) throw new Error('Remote configuration unavailable');
     const remotePayload = await decryptVaultWithKey<VaultPayload>(remote.document.vault, await importVaultKey(recoveryKeyToBytes(sync.recoveryKey)));
+    setConfigSyncSummary({ direction: 'downloaded', revision: remote.document.revision, contents: portableConfigSummary(remotePayload) });
     const nextSync: ConfigSyncSettings = { ...sync, etag: remote.etag, revision: remote.document.revision, dirty: false };
-    const next = { ...remotePayload, [CONFIG_SYNC_KEY]: nextSync };
-    payloadRef.current = next; setPayload(next); setConfigSyncSettings(nextSync); persist(next); setConfigSyncStatus('synced');
-    await writeQueue.current; window.location.reload();
+    const next = { ...applyPortableConfig(payloadRef.current, remotePayload), [CONFIG_SYNC_KEY]: nextSync };
+    // Remount consumers in the same React update as the payload replacement.
+    // Otherwise their persistence effects can write stale local state back first.
+    resetMailNavigationAfterConfigReplacement();
+    payloadRef.current = next; setPayload(next); setConfigSyncSettings(nextSync); setContentRevision(revision => revision + 1); persist(next); setConfigSyncStatus('synced');
+    await writeQueue.current;
   }, [configSyncSettings, persist, pushConfiguration]);
 
   useEffect(() => {
@@ -401,21 +415,14 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     if (remoteCheckRef.current === checkId) return;
     remoteCheckRef.current = checkId;
     void fetchRemoteVault(sync).then(async remote => {
-      if (!remote.document) { if (sync.dirty) await pushConfiguration(sync, undefined, sync.revision); return; }
+      if (!remote.document) { setConfigSyncStatus(sync.dirty ? 'idle' : 'synced'); return; }
       const remoteChanged = remote.etag !== sync.etag || remote.document.revision > sync.revision;
-      if (remoteChanged && sync.dirty && remote.document.deviceId === deviceId()) {
-        await pushConfiguration(sync, remote.etag, remote.document.revision);
-        return;
-      }
-      if (remoteChanged && sync.dirty) { setConfigSyncStatus('conflict'); return; }
       if (remoteChanged) {
-        const remotePayload = await decryptVaultWithKey<VaultPayload>(remote.document.vault, await importVaultKey(recoveryKeyToBytes(sync.recoveryKey!)));
-        const nextSync: ConfigSyncSettings = { ...sync, etag: remote.etag, revision: remote.document.revision, dirty: false };
-        const next = { ...remotePayload, [CONFIG_SYNC_KEY]: nextSync };
-        payloadRef.current = next; setPayload(next); setConfigSyncSettings(nextSync); persist(next); setConfigSyncStatus('synced');
-        await writeQueue.current; window.location.reload();
-      } else if (sync.dirty) await pushConfiguration(sync, sync.etag, sync.revision);
-      else setConfigSyncStatus('synced');
+        // A remote version is never applied silently. Replacing sources can
+        // remove accounts, so the user must explicitly choose a side.
+        setConfigSyncStatus('conflict');
+        return;
+      } else setConfigSyncStatus(sync.dirty ? 'idle' : 'synced');
     }).catch(error => { console.error('[ConfigSync] startup check failed', error); setConfigSyncStatus('error'); });
   }, [configSyncSettings, payload, persist, pushConfiguration, syncCheckNonce]);
   useEffect(() => {
@@ -460,10 +467,19 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, [payload]);
 
   const write = useCallback(<T,>(key: string, value: T) => {
-    if (valuesEqual(payloadRef.current[key], value)) return;
+    const previous = payloadRef.current[key];
+    if (valuesEqual(previous, value)) return;
+    const portableChanged = isPortableConfigKey(key) && !portableValuesEqual(key, previous, value);
+    if (configSyncSettings?.enabled && portableChanged) {
+      console.warn(`[ConfigSyncDiagnostic] local portable change ${JSON.stringify({
+        key,
+        previousCount: Array.isArray(previous) ? previous.length : undefined,
+        nextCount: Array.isArray(value) ? value.length : undefined,
+      })}`);
+    }
     let next = { ...payloadRef.current, [key]: value };
     let activeSync = configSyncSettings;
-    if (activeSync?.enabled && key !== CONFIG_SYNC_KEY) {
+    if (activeSync?.enabled && portableChanged) {
       activeSync = { ...activeSync, dirty: true };
       next = { ...next, [CONFIG_SYNC_KEY]: activeSync };
       setConfigSyncSettings(activeSync);
@@ -471,15 +487,9 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     payloadRef.current = next;
     setPayload(next);
     persist(next);
-    if (activeSync?.enabled && key !== CONFIG_SYNC_KEY && configSyncStatus !== 'conflict') {
-      if (autoSyncTimer.current !== null) window.clearTimeout(autoSyncTimer.current);
-      autoSyncTimer.current = window.setTimeout(() => {
-        void pushConfiguration(activeSync!, activeSync!.etag, activeSync!.revision)
-          .catch(error => console.error('[ConfigSync] automatic sync failed', error));
-      }, AUTO_SYNC_DELAY_MS);
-    }
+    // Uploads are deliberately manual: background writes must never overwrite
+    // another device's configuration.
   }, [configSyncSettings, configSyncStatus, persist, pushConfiguration]);
-  useEffect(() => () => { if (autoSyncTimer.current !== null) window.clearTimeout(autoSyncTimer.current); }, []);
 
   const configSyncInvitation = useMemo(() => configSyncSettings ? encodeConfigInvitation(configSyncSettings) : null, [configSyncSettings]);
   const contextValue = useMemo(() => ({
@@ -492,13 +502,14 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     configSyncSettings,
     configSyncStatus,
     configSyncInvitation,
+    configSyncSummary,
     disableConfigSync,
     resolveConfigSyncConflict,
-  }), [read, write, lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics, backupToNextcloud, configSyncSettings, configSyncStatus, configSyncInvitation, disableConfigSync, resolveConfigSyncConflict]);
+  }), [read, write, lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics, backupToNextcloud, configSyncSettings, configSyncStatus, configSyncInvitation, configSyncSummary, disableConfigSync, resolveConfigSyncConflict]);
 
   if (stored === undefined || !desktopSessionChecked) return <VaultLoading />;
   if (!payload) return <VaultScreen exists={stored !== null} busy={busy} error={error} biometricEnabled={biometricEnabled} onSubmit={submit} onBiometricUnlock={biometricUnlock} onRestore={restore} />;
-  return <VaultContext.Provider value={contextValue}>{children}</VaultContext.Provider>;
+  return <VaultContext.Provider value={contextValue}><Fragment key={contentRevision}>{children}</Fragment></VaultContext.Provider>;
 }
 
 export function useVault() {

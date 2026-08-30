@@ -110,6 +110,16 @@ export function NativeDeepLinks() {
       setNotificationOpening(false);
       return;
     }
+    const refreshMail = () => {
+      // Capacitor's WebView does not reliably emit a window focus transition
+      // when the app resumes. In particular, after airplane mode React Query
+      // can otherwise keep rendering a persisted/offline empty Inbox even
+      // though the native worker has already synchronized new mail.
+      void queryClient.invalidateQueries({
+        queryKey: ['mail'],
+        refetchType: 'active',
+      });
+    };
     const consumeNativeTarget = (releaseIfEmpty = false) => void platform.consumeNotificationUrl().then(url => {
       if (url) void openDeepLink(url);
       else if (releaseIfEmpty) setNotificationOpening(false);
@@ -120,9 +130,14 @@ export function NativeDeepLinks() {
     });
     const listener = CapacitorApp.addListener('appUrlOpen', ({ url }) => openDeepLink(url));
     const stateListener = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) consumeNativeTarget();
+      if (isActive) {
+        refreshMail();
+        consumeNativeTarget();
+      }
       else activeNotificationUrlRef.current = null;
     });
+    // Also cover connectivity returning while Courrier is already visible.
+    globalThis.addEventListener('online', refreshMail);
     const notificationOpened = () => {
       void platform.diagnosticEvent?.('notification-skeleton-hidden');
       if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
@@ -142,6 +157,7 @@ export function NativeDeepLinks() {
       globalThis.removeEventListener('courrier:notification-opened', notificationOpened);
       if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
       if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
+      globalThis.removeEventListener('online', refreshMail);
       void listener.then(handle => handle.remove());
       void stateListener.then(handle => handle.remove());
     };

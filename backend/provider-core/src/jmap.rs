@@ -15,6 +15,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+const SINGLE_EMAIL_THREAD_PREFIX: &str = "__jmap_email__:";
+
+fn single_email_thread_id(email_id: &str) -> String {
+    format!("{SINGLE_EMAIL_THREAD_PREFIX}{email_id}")
+}
+
+fn single_email_id(thread_id: &str) -> Option<&str> {
+    thread_id.strip_prefix(SINGLE_EMAIL_THREAD_PREFIX)
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct JmapConfig {
     pub email: String,
@@ -681,7 +691,6 @@ impl MailProvider for JmapProvider {
     ) -> Result<Vec<MailThread>, String> {
         let client = get_client(&self.state, &self.config).await?;
         let count = max_count.unwrap_or(50);
-        let email_limit = count * 4;
 
         if folder == "scheduled" {
             let mut query_request = client.build();
@@ -820,16 +829,6 @@ impl MailProvider for JmapProvider {
         };
 
         let is_snoozed = folder == "snoozed";
-        let query_limit = if is_snoozed {
-            count as usize
-        } else {
-            email_limit as usize
-        };
-        let query_position = if is_snoozed {
-            self.config.list_offset
-        } else {
-            self.config.list_offset.saturating_mul(4)
-        };
 
         let mut request = client.build();
         {
@@ -837,11 +836,13 @@ impl MailProvider for JmapProvider {
                 .query_email()
                 .filter(EmailFilter::in_mailbox(&mailbox_id))
                 .sort([EmailComparator::received_at().descending()])
-                .position(query_position as i32)
-                .limit(query_limit);
-            if is_snoozed {
-                q.arguments().collapse_threads(true);
-            }
+                // The UI offset and folder total are conversation-based. Let
+                // JMAP paginate the same collapsed result set; multiplying the
+                // offset by an estimated messages-per-thread ratio can skip
+                // conversations and stop pagination prematurely.
+                .position(self.config.list_offset as i32)
+                .limit(count as usize);
+            q.arguments().collapse_threads(true);
         }
         let ref_ = request.last_result_reference("/ids");
         request.get_email().ids_ref(ref_).properties([
@@ -911,12 +912,16 @@ impl MailProvider for JmapProvider {
         let own_email = self.config.email.to_lowercase();
 
         for email in emails.list() {
-            let thread_id = email.thread_id().unwrap_or_default().to_string();
-            // threadId is mandatory in JMAP, but never expose a malformed row:
-            // an empty id cannot be used by either Thread/get or snippet loading.
-            if thread_id.is_empty() {
-                continue;
-            }
+            // Legacy messages can exceptionally be returned without a
+            // threadId. Keep them visible as a one-message conversation;
+            // dropping the row makes Email/query's authoritative total
+            // impossible to reach (for example 49 displayed out of 51).
+            let thread_id = email
+                .thread_id()
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+                .or_else(|| email.id().map(single_email_thread_id));
+            let Some(thread_id) = thread_id else { continue };
             let from_addr = email.from().and_then(|f| f.first());
             let from_email_str = from_addr.map(|a| a.email().to_string()).unwrap_or_default();
 
@@ -1052,7 +1057,9 @@ impl MailProvider for JmapProvider {
     ) -> Result<Vec<MailMessage>, String> {
         let client = get_client(&self.state, &self.config).await?;
 
-        let email_ids: Vec<String> = if conversation_id.is_empty() {
+        let email_ids: Vec<String> = if let Some(email_id) = single_email_id(conversation_id) {
+            vec![email_id.to_string()]
+        } else if conversation_id.is_empty() {
             let message_id = self
                 .config
                 .single_message_id
@@ -2013,22 +2020,26 @@ pub async fn jmap_get_thread_snippet(
     conversation_id: String,
 ) -> Result<String, String> {
     let client = get_client(&state, &config).await?;
-    // Thread/get is part of the standard JMAP mail model and gives us the
-    // ordered email ids. Some servers do not implement the non-standard
-    // Email/query `inThread` filter, which previously left the skeleton stuck.
-    let mut thread_request = client.build();
-    thread_request.get_thread().ids([conversation_id.as_str()]);
-    let mut thread_response = thread_request.send().await.map_err(|e| e.to_string())?;
-    let threads = thread_response
-        .method_response_by_pos(0)
-        .unwrap_get_thread()
-        .map_err(|e| e.to_string())?;
-    let newest_email_id = threads
-        .list()
-        .first()
-        .and_then(|thread| thread.email_ids().last())
-        .cloned()
-        .ok_or_else(|| "JMAP thread contains no email".to_string())?;
+    let newest_email_id = if let Some(email_id) = single_email_id(&conversation_id) {
+        email_id.to_string()
+    } else {
+        // Thread/get is part of the standard JMAP mail model and gives us the
+        // ordered email ids. Some servers do not implement the non-standard
+        // Email/query `inThread` filter, which previously left the skeleton stuck.
+        let mut thread_request = client.build();
+        thread_request.get_thread().ids([conversation_id.as_str()]);
+        let mut thread_response = thread_request.send().await.map_err(|e| e.to_string())?;
+        let threads = thread_response
+            .method_response_by_pos(0)
+            .unwrap_get_thread()
+            .map_err(|e| e.to_string())?;
+        threads
+            .list()
+            .first()
+            .and_then(|thread| thread.email_ids().last())
+            .cloned()
+            .ok_or_else(|| "JMAP thread contains no email".to_string())?
+    };
 
     let mut email_request = client.build();
     email_request
@@ -2259,20 +2270,34 @@ async fn jmap_thread_ids_to_email_ids(
     client: &Client,
     thread_ids: &[String],
 ) -> Result<Vec<String>, String> {
+    let mut email_ids: Vec<String> = thread_ids
+        .iter()
+        .filter_map(|thread_id| single_email_id(thread_id).map(str::to_string))
+        .collect();
+    let regular_thread_ids: Vec<&str> = thread_ids
+        .iter()
+        .filter(|thread_id| single_email_id(thread_id).is_none())
+        .map(String::as_str)
+        .collect();
+    if regular_thread_ids.is_empty() {
+        return Ok(email_ids);
+    }
     let mut thread_req = client.build();
     thread_req
         .get_thread()
-        .ids(thread_ids.iter().map(|s| s.as_str()));
+        .ids(regular_thread_ids);
     let mut thread_resp = thread_req.send().await.map_err(|e| e.to_string())?;
     let thread_get = thread_resp
         .method_response_by_pos(0)
         .unwrap_get_thread()
         .map_err(|e| e.to_string())?;
-    Ok(thread_get
-        .list()
-        .iter()
-        .flat_map(|t| t.email_ids().to_vec())
-        .collect())
+    email_ids.extend(
+        thread_get
+            .list()
+            .iter()
+            .flat_map(|thread| thread.email_ids().to_vec()),
+    );
+    Ok(email_ids)
 }
 
 pub async fn jmap_move_to_trash(

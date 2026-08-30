@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, CheckCircle2, LoaderCircle, RefreshCw, Save, Server, ShieldCheck } from 'lucide-react';
+import { BatteryCharging, Bell, CheckCircle2, LoaderCircle, RefreshCw, Save, Server, ShieldCheck } from 'lucide-react';
 import { platform } from '.';
 import type { NativeSyncAccount, NativeSyncMode, NativeSyncStatus, NotificationPrivacy } from '.';
 import { useImapAuth } from '../store/ImapAuthStore';
@@ -197,7 +197,13 @@ export function NativeSettingsSection() {
       </div>)}
     </fieldset>}
     <p className="native-settings-security"><ShieldCheck size={16} />{t('settings.androidSync.securityHint')}</p>
-    {backgroundWarning && <p className="native-settings-security" role="status">{t('settings.androidSync.batteryWarning', { manufacturer: backgroundWarning })} <button type="button" className="btn-secondary" onClick={() => void platform.openBatterySettings?.()}>{t('settings.androidSync.batterySettings')}</button></p>}
+    {backgroundWarning && <div className="native-settings-notice">
+      <p role="status">{t('settings.androidSync.batteryWarning', { manufacturer: backgroundWarning })}</p>
+      <button type="button" className="btn-ghost native-settings-notice__action" onClick={() => void platform.openBatterySettings?.()}>
+        <BatteryCharging size={16} aria-hidden="true" />
+        <span>{t('settings.androidSync.batterySettings')}</span>
+      </button>
+    </div>}
     <div className="native-settings-actions">
       <button className="btn-primary" type="button" disabled={saveState === 'saving'} onClick={() => void persistNativeSettings()}>
         {saveState === 'saving' ? <LoaderCircle className="native-settings-spinner" size={16} /> : <Save size={16} />}

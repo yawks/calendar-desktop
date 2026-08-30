@@ -91,6 +91,7 @@
     "theme": "Theme: {{preference}}",
     "configCalendars": "Configure",
     "configureBtn": "Calendars",
+    "changeView": "Change view",
     "views": {
       "day": "Day",
       "workweek": "5-day",
@@ -207,6 +208,8 @@
     "allDay": "All day",
     "start": "Start",
     "end": "End",
+    "date": "Date",
+    "time": "Time",
     "calendar": "Calendar",
     "attendees": "Attendees",
     "optional": "(optional)",
@@ -383,6 +386,10 @@
   },
   "mail": {
     "selection": { "clear": "Clear selection" },
+    "selectAll": "Select all",
+    "filterAll": "All",
+    "filterUnread": "Unread",
+    "settings": "Settings",
     "backToList": "Back to messages",
     "previousMessage": "Previous message",
     "nextMessage": "Next message",
@@ -546,6 +553,7 @@
       "preview": "Preview",
       "download": "Download"
     },
+    "moreActions": "More actions",
     "stats": {
       "title": "Mail statistics",
       "loading": "Loading data…",
@@ -637,6 +645,8 @@
       ,"qrAlt": "Courrier configuration transfer QR code"
       ,"copyInvitation": "Copy invitation"
       ,"disable": "Disable synchronization"
+      ,"uploadedSummary": "Backup uploaded (revision {{revision}}): Google {{google}}, Exchange {{exchange}}, IMAP {{imap}}, JMAP {{jmap}}."
+      ,"downloadedSummary": "Backup received (revision {{revision}}): Google {{google}}, Exchange {{exchange}}, IMAP {{imap}}, JMAP {{jmap}}."
     },
     "vault": {
       "sectionTitle": "Local vault",

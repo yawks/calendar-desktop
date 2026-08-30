@@ -200,9 +200,16 @@ export function useMailPageLogic() {
   }, [allThreadCountQueries, isAllMode, unifiedFolderAccounts]);
   const threadTotalCount = isAllMode ? allThreadTotalCount : threadCountQuery.data;
 
-  const hasMoreThreads = isAllMode
-    ? allThreadsQuery.hasMore
-    : rawThreads.length >= THREAD_PAGE_SIZE;
+  // A provider page can contain fewer than THREAD_PAGE_SIZE conversations
+  // without being the last page. JMAP, for example, fetches messages and then
+  // collapses messages belonging to the same thread (50 requested rows may
+  // become 39 conversations). Prefer the authoritative folder total whenever
+  // the provider exposes it; keep the page-size heuristic only as a fallback.
+  const hasMoreThreads = threadTotalCount !== undefined
+    ? stableThreads.length < threadTotalCount
+    : isAllMode
+      ? allThreadsQuery.hasMore
+      : rawThreads.length >= THREAD_PAGE_SIZE;
   const threadsLoadingMore = threadsFetching && threadOffset > 0;
   // A persisted empty array counts as "data" for React Query, so isLoading is
   // false even while the first real network request is running. Treat that
@@ -758,10 +765,18 @@ export function useMailPageLogic() {
     }
   }, [offlineMail.enabled, queryClient, selectedAccountId, selectedFolder, synchronizeOfflineMail]);
 
-  const loadMoreThreads = useCallback(async () => {
-    if (threadsFetching || !hasMoreThreads) return;
-    setThreadOffset(prev => prev + THREAD_PAGE_SIZE);
-  }, [threadsFetching, hasMoreThreads]);
+  const loadMoreThreads = useCallback(() => {
+    if (threadsFetching || !hasMoreThreads) return false;
+    // JMAP offsets address the collapsed Email/query result, whose page has
+    // THREAD_PAGE_SIZE positions even if Email/get resolves fewer objects.
+    // Other single-account providers paginate their returned rows directly.
+    const consumedRows = isAllMode || provider?.providerType === 'jmap'
+      ? THREAD_PAGE_SIZE
+      : rawThreads.length;
+    if (consumedRows === 0) return false;
+    setThreadOffset(prev => prev + consumedRows);
+    return true;
+  }, [threadsFetching, hasMoreThreads, isAllMode, provider?.providerType, rawThreads.length]);
 
   const markRead = useCallback((msgs: MailMessage[]) => {
     if (!selectedThread) return;

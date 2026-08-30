@@ -268,6 +268,7 @@
   width: 100%; flex: 1; min-height: 0;
   overflow-y: auto; display: flex; flex-direction: column;
 }
+.mail-thread-list__load-more-sentinel { height: 1px; flex: 0 0 1px; }
 .mail-pull-to-refresh {
   display: none;
 }
@@ -346,6 +347,7 @@
   position: fixed; inset: 0; z-index: 199;
   background: transparent; border: none; cursor: default;
 }
+.mail-mobile-more-menu { display: none; }
 .mail-actions-menu__item--active {
   color: var(--primary); font-weight: 600;
 }
@@ -2481,7 +2483,7 @@
   background: var(--bg-hover);
 }
 
-.mail-app .header {
+.app-shell-header {
   height: 64px;
   padding: 0 18px;
   gap: 10px;
@@ -2489,7 +2491,7 @@
   background: var(--bg-hover);
 }
 
-.mail-app .header-logo {
+.app-shell-header .header-logo {
   gap: 5px;
   min-width: 130px;
   margin-right: 0;
@@ -2498,13 +2500,27 @@
   font-weight: 700;
 }
 
-.mail-app .header > .btn-icon:first-child {
+.app-shell-header .app-view-menu__trigger {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: calc(18px * var(--font-scale, 1));
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.app-shell-header > .btn-icon,
+.app-shell-header .app-view-menu__trigger {
+  color: var(--text-muted);
+}
+
+.app-shell-header .app-view-menu__trigger span { color: var(--text); }
+
+.app-shell-header > .btn-icon:first-child {
   order: -1;
   width: 32px;
   height: 32px;
 }
 
-.mail-app .header-spacer {
+.app-shell-header .header-spacer {
   min-width: 24px;
 }
 
@@ -3045,8 +3061,19 @@
 }
 
 [data-theme="dark"] .mail-app,
-[data-theme="dark"] .mail-app .header {
+[data-theme="dark"] .app-shell-header {
   background: #17191c;
+}
+
+/* Keep the shared app selector visually stable when switching views. Mail
+   uses a denser dark palette scoped to .mail-app, so mirror its semantic text
+   value on the shared header instead of inheriting Calendar's muted text. */
+[data-theme="dark"] .app-shell-header {
+  --app-shell-text: #e5e8ec;
+}
+
+[data-theme="dark"] .app-shell-header .app-view-menu__trigger span {
+  color: var(--app-shell-text);
 }
 
 /* Mail uses denser surfaces than the calendar. Keep three distinct dark

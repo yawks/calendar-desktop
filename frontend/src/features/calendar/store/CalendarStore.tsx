@@ -47,7 +47,7 @@ export function CalendarProvider({ children }: { readonly children: ReactNode })
 
   useEffect(() => {
     vault.write(STORAGE_KEY, calendars);
-  }, [calendars, vault]);
+  }, [calendars]);
 
   const addCalendar = (cal: Omit<CalendarConfig, 'id'>) =>
     dispatch({ type: 'ADD', payload: { ...cal, id: crypto.randomUUID() } });

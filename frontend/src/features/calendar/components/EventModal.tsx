@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X, Pencil, Trash2, Clock, MapPin, CalendarDays, FileText,
@@ -256,7 +256,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   // Keep ref in sync with state so backdrop handler can read it without stale closure
   useEffect(() => { showTagDropdownRef.current = showTagDropdown; }, [showTagDropdown]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (event) {

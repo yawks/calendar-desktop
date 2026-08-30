@@ -46,6 +46,8 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const descriptionEditorRef = useRef<MailEditorHandle>(null);
+  const startTimeInputRef = useRef<HTMLInputElement>(null);
+  const endTimeInputRef = useRef<HTMLInputElement>(null);
   const isEditing = editEvent != null;
   const { tags, eventTags } = useTags();
 
@@ -76,6 +78,27 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const [error, setError] = useState('');
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const updateStart = (nextStart: string) => {
+    const oldStart = new Date(start);
+    const oldEnd = new Date(end);
+    setStart(nextStart);
+    if (!Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime())) {
+      const nextStartDate = new Date(nextStart);
+      if (!Number.isNaN(nextStartDate.getTime())) {
+        setEnd(toDatetimeLocal(new Date(nextStartDate.getTime() + oldEnd.getTime() - oldStart.getTime()).toISOString()));
+      }
+    }
+  };
+
+  const focusTimePicker = (input: HTMLInputElement | null) => {
+    input?.focus();
+    try {
+      input?.showPicker();
+    } catch {
+      // Some Android WebViews require a direct tap to open the native picker.
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -392,26 +415,66 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
             </>
           ) : (
             <>
-              <div className="form-row">
-                <label htmlFor="ev-start">{t('createEvent.start')}</label>
-                <input id="ev-start" type="datetime-local" value={start} onChange={(e) => {
-                  const newStartStr = e.target.value;
-                  const oldStart = new Date(start);
-                  const oldEnd = new Date(end);
-                  setStart(newStartStr);
-                  if (!Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime())) {
-                    const duration = oldEnd.getTime() - oldStart.getTime();
-                    const newStart = new Date(newStartStr);
-                    if (!Number.isNaN(newStart.getTime())) {
-                      setEnd(toDatetimeLocal(new Date(newStart.getTime() + duration).toISOString()));
-                    }
-                  }
-                }} required />
-              </div>
-              <div className="form-row">
-                <label htmlFor="ev-end">{t('createEvent.end')}</label>
-                <input id="ev-end" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required />
-              </div>
+              <fieldset className="event-datetime-field">
+                <legend>{t('createEvent.start')}</legend>
+                <div className="event-datetime-field__controls">
+                  <label htmlFor="ev-start-date-time">
+                    <span>{t('createEvent.date')}</span>
+                    <input
+                      id="ev-start-date-time"
+                      type="date"
+                      value={start.split('T')[0] ?? ''}
+                      onChange={(e) => {
+                        updateStart(`${e.target.value}T${start.split('T')[1] ?? ''}`);
+                        e.currentTarget.blur();
+                        focusTimePicker(startTimeInputRef.current);
+                      }}
+                      required
+                    />
+                  </label>
+                  <label htmlFor="ev-start-time">
+                    <span>{t('createEvent.time')}</span>
+                    <input
+                      ref={startTimeInputRef}
+                      id="ev-start-time"
+                      type="time"
+                      value={start.split('T')[1] ?? ''}
+                      onChange={(e) => updateStart(`${start.split('T')[0] ?? ''}T${e.target.value}`)}
+                      required
+                    />
+                  </label>
+                </div>
+              </fieldset>
+              <fieldset className="event-datetime-field">
+                <legend>{t('createEvent.end')}</legend>
+                <div className="event-datetime-field__controls">
+                  <label htmlFor="ev-end-date-time">
+                    <span>{t('createEvent.date')}</span>
+                    <input
+                      id="ev-end-date-time"
+                      type="date"
+                      value={end.split('T')[0] ?? ''}
+                      onChange={(e) => {
+                        setEnd(`${e.target.value}T${end.split('T')[1] ?? ''}`);
+                        e.currentTarget.blur();
+                        focusTimePicker(endTimeInputRef.current);
+                      }}
+                      required
+                    />
+                  </label>
+                  <label htmlFor="ev-end-time">
+                    <span>{t('createEvent.time')}</span>
+                    <input
+                      ref={endTimeInputRef}
+                      id="ev-end-time"
+                      type="time"
+                      value={end.split('T')[1] ?? ''}
+                      onChange={(e) => setEnd(`${end.split('T')[0] ?? ''}T${e.target.value}`)}
+                      required
+                    />
+                  </label>
+                </div>
+              </fieldset>
             </>
           )}
 

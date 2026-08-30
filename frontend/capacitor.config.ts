@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Courrier',
   webDir: 'dist',
   bundledWebRuntime: false,
+  loggingBehavior: 'none',
   android: {
     allowMixedContent: false,
     captureInput: true,

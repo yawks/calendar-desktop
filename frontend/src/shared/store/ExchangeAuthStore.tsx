@@ -59,7 +59,7 @@ export function ExchangeAuthProvider({ children }: { readonly children: ReactNod
   accountsRef.current = accounts;
   useEffect(() => {
     vault.write(STORAGE_KEY, accounts);
-  }, [accounts, vault]);
+  }, [accounts]);
 
   const addAccount = useCallback((account: ExchangeAccount) => {
     dispatch({ type: 'ADD', payload: account });

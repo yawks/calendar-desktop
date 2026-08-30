@@ -43,7 +43,7 @@ export function ImapAuthProvider({ children }: { readonly children: ReactNode })
 
   useEffect(() => {
     vault.write(STORAGE_KEY, accounts);
-  }, [accounts, vault]);
+  }, [accounts]);
 
   const addAccount = useCallback((account: ImapAccount) => {
     dispatch({ type: 'ADD', payload: account });

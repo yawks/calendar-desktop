@@ -1,7 +1,8 @@
 import '@toast-ui/calendar/dist/toastui-calendar.min.css';
 
 import { CalendarEvent } from '../../shared/types';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 
@@ -22,6 +23,8 @@ export default function CalendarPage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [calendarTransition, setCalendarTransition] = useState<'previous' | 'next' | null>(null);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const [visibleEventStatuses, setVisibleEventStatuses] = useState<Set<EventVisibilityStatus>>(
     () => new Set(['accepted', 'tentative', 'pending', 'declined', 'cancelled'])
   );
@@ -121,10 +124,6 @@ export default function CalendarPage() {
     return () => media.removeEventListener('change', update);
   }, []);
 
-  useEffect(() => {
-    if (isMobile && view !== 'week') handleViewChange('week');
-  }, [isMobile, view, handleViewChange]);
-
   const visibleEvents = useMemo(() => events.filter((event) => {
     let status: EventVisibilityStatus = 'accepted';
     if (event.isCancelled) status = 'cancelled';
@@ -133,6 +132,19 @@ export default function CalendarPage() {
     else if (event.isUnaccepted || event.selfRsvpStatus === 'NEEDS-ACTION' || event.selfRsvpStatus === 'DELEGATED') status = 'pending';
     return visibleEventStatuses.has(status);
   }), [events, visibleEventStatuses]);
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
+
+  const handleClickCalendarEvent = useCallback(({ event }: any) => {
+    const rawEvent = event.raw as CalendarEvent | undefined;
+    const selected = rawEvent?.id
+      ? rawEvent
+      : eventsRef.current.find((candidate) => candidate.id === event.id);
+    if (!selected) return;
+    // Toast UI emits through its own event bus. Flush this external update so
+    // Android WebView does not defer opening the dialog until the next tap.
+    flushSync(() => setSelectedEvent(selected));
+  }, [setSelectedEvent]);
 
   const handleToggleEventStatus = (status: EventVisibilityStatus) => {
     setVisibleEventStatuses((current) => {
@@ -158,6 +170,11 @@ export default function CalendarPage() {
       dragBackgroundColor: c.color,
       borderColor: c.color,
     })), [calendars]);
+
+  useEffect(() => {
+    if (searchQuery !== null) return;
+    calendarRef.current?.getInstance()?.setDate(currentDate);
+  }, [searchQuery]);
 
   type TuiEventStyle = { backgroundColor: string; color: string; borderColor: string; customStyle: Record<string, string>; state: string; title: string };
   const prevTuiStylesRef = useRef<Map<string, TuiEventStyle>>(new Map());
@@ -199,7 +216,7 @@ export default function CalendarPage() {
   }, [tuiEvents]);
 
   useEffect(() => {
-    if (isMobile || view === 'month' || searchQuery !== null) return;
+    if (view === 'month' || searchQuery !== null) return;
     const timer = setTimeout(() => {
       const scrollPanel = document.querySelector('.toastui-calendar-panel.toastui-calendar-time') as HTMLElement | null;
       if (!scrollPanel) return;
@@ -209,12 +226,13 @@ export default function CalendarPage() {
         new Date(ev.start) >= range.start &&
         new Date(ev.start) <= range.end
       );
-      if (timedEvents.length === 0) return;
-      const earliest = timedEvents.reduce((min, ev) =>
+      const earliest = timedEvents.length > 0 ? timedEvents.reduce((min, ev) =>
         new Date(ev.start) < new Date(min.start) ? ev : min
-      , timedEvents[0]);
-      const d = new Date(earliest.start);
-      const targetMinutes = Math.max(0, d.getHours() * 60 + d.getMinutes() - 60);
+      , timedEvents[0]) : null;
+      const d = earliest ? new Date(earliest.start) : null;
+      const targetMinutes = d
+        ? Math.max(0, d.getHours() * 60 + d.getMinutes() - 60)
+        : 8 * 60;
       scrollPanel.scrollTop = (targetMinutes / (24 * 60)) * scrollPanel.scrollHeight;
     }, 100);
     return () => clearTimeout(timer);
@@ -222,36 +240,55 @@ export default function CalendarPage() {
 
   const isWorkweek = view === 'workweek';
   const tuiView = isWorkweek ? 'week' : view;
-  const mobileHourRange = useMemo(() => {
-    if (!isMobile) return { hourStart: 0, hourEnd: 24 };
-    const range = getViewRange(currentDate, 'week');
-    const timedEvents = visibleEvents.filter((event) => {
-      if (event.isAllday) return false;
-      const start = new Date(event.start);
-      const end = new Date(event.end);
-      return start <= range.end && end >= range.start;
-    });
-    if (timedEvents.length === 0) return { hourStart: 8, hourEnd: 18 };
-    const firstStart = Math.min(...timedEvents.map((event) => new Date(event.start).getHours()));
-    const lastEnd = Math.max(...timedEvents.map((event) => {
-      const end = new Date(event.end);
-      return end.getHours() + (end.getMinutes() > 0 ? 1 : 0);
-    }));
-    const hourStart = Math.max(0, firstStart - 1);
-    const hourEnd = Math.min(24, lastEnd + 1);
-    return { hourStart, hourEnd: Math.max(hourEnd, hourStart + 2) };
-  }, [isMobile, visibleEvents, currentDate]);
   const writableCalendars = useMemo(() => calendars.filter(
     (c) => c.type === 'google' || c.type === 'nextcloud' || c.type === 'exchange'
   ), [calendars]);
 
+  const handleCalendarTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isMobile || event.touches.length !== 1) return;
+    swipeStartRef.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+  };
+
+  const navigateCalendar = (direction: 'previous' | 'next') => {
+    if (direction === 'next') handleNext();
+    else handlePrev();
+    setCalendarTransition(direction);
+  };
+
+  const handleCalendarTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!isMobile || !start || event.changedTouches.length !== 1) return;
+    const deltaX = event.changedTouches[0].clientX - start.x;
+    const deltaY = event.changedTouches[0].clientY - start.y;
+    if (Math.abs(deltaX) < 12 && Math.abs(deltaY) < 12) {
+      const touch = event.changedTouches[0];
+      const pointTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+      const pathTarget = event.nativeEvent.composedPath().find((node): node is Element => node instanceof Element);
+      const eventElement = pointTarget?.closest<HTMLElement>('[data-event-id][data-calendar-id]')
+        ?? pathTarget?.closest<HTMLElement>('[data-event-id][data-calendar-id]')
+        ?? (event.target as Element).closest<HTMLElement>('[data-event-id][data-calendar-id]');
+      if (eventElement) {
+        const eventId = eventElement.dataset.eventId;
+        const calendarId = eventElement.dataset.calendarId;
+        const selected = eventsRef.current.find((candidate) =>
+          candidate.id === eventId && candidate.calendarId === calendarId
+        ) ?? eventsRef.current.find((candidate) => candidate.id === eventId);
+        if (selected) flushSync(() => setSelectedEvent(selected));
+      }
+      return;
+    }
+    if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY) * 1.25) return;
+    navigateCalendar(deltaX < 0 ? 'next' : 'previous');
+  };
+
   return (
-    <div className={`app ${theme === 'dark' ? 'dark-theme' : ''}`}>
+    <div className={`app calendar-app ${theme === 'dark' ? 'dark-theme' : ''}`}>
       <AppHeader
         view={view}
         onViewChange={handleViewChange}
-        onPrev={handlePrev}
-        onNext={handleNext}
+        onPrev={() => navigateCalendar('previous')}
+        onNext={() => navigateCalendar('next')}
         onToday={handleToday}
         onRefresh={refresh}
         dateLabel={formatDateLabel(currentDate, view)}
@@ -319,7 +356,14 @@ export default function CalendarPage() {
           />
         )}
 
-        <div className="calendar-container">
+        <div
+          className={`calendar-container${calendarTransition ? ` calendar-container--${calendarTransition}` : ''}`}
+          onTouchStartCapture={handleCalendarTouchStart}
+          onTouchEndCapture={handleCalendarTouchEnd}
+          onAnimationEnd={(event) => {
+            if (event.animationName.startsWith('calendar-period-enter-')) setCalendarTransition(null);
+          }}
+        >
           {searchQuery === null ? <Calendar
             ref={calendarRef as any}
             height="100%"
@@ -327,10 +371,7 @@ export default function CalendarPage() {
             calendars={tuiCalendars}
             events={tuiEvents}
             theme={theme === 'dark' ? DARK_THEME : LIGHT_THEME}
-            onClickEvent={({ event }: any) => {
-              const ev = events.find((e: CalendarEvent) => e.id === event.id);
-              if (ev) setSelectedEvent(ev);
-            }}
+            onClickEvent={handleClickCalendarEvent}
             onSelectDateTime={({ start, end }: any) => {
                const toISO = (d: unknown) => {
                 if (d instanceof Date) return d.toISOString();
@@ -346,34 +387,24 @@ export default function CalendarPage() {
                 const end = formatTime(event.end);
                 const timeLabel = start && end ? `de ${start} à ${end}` : '';
                 const tagColor = event.raw?.tagColor;
-                const hatchColor = event.raw?.hatchColor;
                 const isDeclined = event.raw?.isDeclined || event.raw?.isCancelled;
-                const hatch = hatchColor
-                  ? `<div style="position:absolute;inset:0;background:repeating-linear-gradient(-45deg,${hatchColor} 0,${hatchColor} 4px,transparent 4px,transparent 8px);pointer-events:none;z-index:0;"></div>`
-                  : '';
                 const dot = tagColor
                   ? `<span style="position:absolute;bottom:3px;right:3px;width:7px;height:7px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);display:block;pointer-events:none;z-index:1;"></span>`
                   : '';
-                return `<div style="position:absolute;inset:0;padding:1px 0 0 3px;line-height:1.3;overflow:hidden">
-                  ${hatch}
-                  <div style="position:relative;z-index:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis${isDeclined ? ';text-decoration:line-through' : ''}">${event.title}</div>
-                  ${timeLabel ? `<div style="position:relative;z-index:1;opacity:0.85;white-space:nowrap">${timeLabel}</div>` : ''}
+                return `<div class="calendar-event-content calendar-event-content--time">
+                  <div class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${event.title}</div>
+                  ${timeLabel ? `<div class="calendar-event-content__time">${timeLabel}</div>` : ''}
                   ${dot}
                 </div>`;
               },
               allday: (event: any) => {
                 const tagColor = event.raw?.tagColor;
-                const hatchColor = event.raw?.hatchColor;
                 const isDeclined = event.raw?.isDeclined || event.raw?.isCancelled;
-                const hatch = hatchColor
-                  ? `<div style="position:absolute;inset:0;background:repeating-linear-gradient(-45deg,${hatchColor} 0,${hatchColor} 4px,transparent 4px,transparent 8px);pointer-events:none;"></div>`
-                  : '';
                 const dot = tagColor
                   ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);margin-left:4px;vertical-align:middle;flex-shrink:0;position:relative;z-index:1;"></span>`
                   : '';
-                return `<div style="position:relative;overflow:hidden;height:100%;">
-                  ${hatch}
-                  <span style="position:relative;z-index:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis${isDeclined ? ';text-decoration:line-through' : ''}">${event.title}</span>${dot}
+                return `<div class="calendar-event-content calendar-event-content--allday">
+                  <span class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${event.title}</span>${dot}
                 </div>`;
               },
             }}
@@ -382,10 +413,10 @@ export default function CalendarPage() {
               workweek: isWorkweek,
               taskView: false,
               eventView: ['allday', 'time'],
-              hourStart: mobileHourRange.hourStart,
-              hourEnd: mobileHourRange.hourEnd,
+              hourStart: 0,
+              hourEnd: 24,
             }}
-            month={{ startDayOfWeek: 1 }}
+            month={{ startDayOfWeek: 1, visibleEventCount: isMobile ? 4 : undefined }}
           /> : (
             <SearchResultsView
               query={searchQuery}

@@ -20,6 +20,32 @@ import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 import { isOfflineLikeError } from '../../../shared/utils/networkError';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+const CALENDAR_NAVIGATION_KEY = 'courrier-calendar-navigation-v1';
+const CALENDAR_VIEWS: ViewType[] = ['day', 'workweek', 'week', 'month'];
+
+function loadCalendarNavigation(): { view: ViewType; date: Date } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CALENDAR_NAVIGATION_KEY) ?? '{}') as { view?: string; periodStart?: string };
+    const date = saved.periodStart ? new Date(saved.periodStart) : new Date();
+    return {
+      view: CALENDAR_VIEWS.includes(saved.view as ViewType) ? saved.view as ViewType : 'week',
+      date: Number.isNaN(date.getTime()) ? new Date() : date,
+    };
+  } catch {
+    return { view: 'week', date: new Date() };
+  }
+}
+
+function periodStart(date: Date, view: ViewType): Date {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  if (view === 'month') start.setDate(1);
+  if (view === 'week' || view === 'workweek') {
+    const day = start.getDay();
+    start.setDate(start.getDate() + (day === 0 ? -6 : 1 - day));
+  }
+  return start;
+}
 
 export interface TUICalendarInstance {
   prev(): void;
@@ -37,8 +63,9 @@ export interface CalendarRef {
 export function useCalendarLogic() {
   const calendarRef = useRef<CalendarRef>(null);
   const queryClient = useQueryClient();
-  const [view, setView] = useState<ViewType>('week');
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const initialNavigation = useMemo(loadCalendarNavigation, []);
+  const [view, setView] = useState<ViewType>(initialNavigation.view);
+  const [currentDate, setCurrentDate] = useState(initialNavigation.date);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     localStorage.getItem('sidebar-collapsed') === 'true'
@@ -49,6 +76,13 @@ export function useCalendarLogic() {
   });
   const sidebarWidthRef = useRef(sidebarWidth);
   sidebarWidthRef.current = sidebarWidth;
+
+  useEffect(() => {
+    localStorage.setItem(CALENDAR_NAVIGATION_KEY, JSON.stringify({
+      view,
+      periodStart: periodStart(currentDate, view).toISOString(),
+    }));
+  }, [currentDate, view]);
 
   const handleCollapseToggle = useCallback(() => {
     setSidebarCollapsed((v) => {

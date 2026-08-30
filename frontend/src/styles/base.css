@@ -47,14 +47,14 @@
 [data-theme="dark"] .toastui-calendar-layout,
 [data-theme="dark"] .toastui-calendar-month,
 [data-theme="dark"] .toastui-calendar-week-view {
-  background: #1c1e20;
-  color: #a8b4cc;
+  background: #111315;
+  color: #bdc1c6;
 }
 
 [data-theme="dark"] .toastui-calendar-panel,
 [data-theme="dark"] .toastui-calendar-day-name__date,
 [data-theme="dark"] .toastui-calendar-day-name__name {
-  color: #a8b4cc;
+  color: #bdc1c6;
 }
 
 body {
@@ -227,4 +227,3 @@ body {
   margin-top: 6px;
   text-decoration: none;
 }
-
