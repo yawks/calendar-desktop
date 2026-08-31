@@ -439,11 +439,11 @@ export default function CalendarPage() {
               ? () => { void handleStartEdit(selectedEvent); }
               : undefined
           }
-          onDelete={(scope) => handleDeleteEvent(selectedEvent, scope).then(() => setSelectedEvent(null))}
+          onDelete={() => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null))}
           onCancelEvent={
             isEventEditable(selectedEvent) &&
             (selectedEvent.attendees?.length ?? 0) > 0
-              ? (scope) => handleCancelEvent(selectedEvent, scope).then(() => setSelectedEvent(null))
+              ? () => handleCancelEvent(selectedEvent).then(() => setSelectedEvent(null))
               : undefined
           }
           onRsvp={

@@ -7,14 +7,15 @@
  */
 // @ts-ignore – ical.js has no bundled types for v1.x
 import ICAL from 'ical.js';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CalendarCheck, ChevronDown, MapPin, Clock, Users, Check, Minus, X, Plus, Loader2 } from 'lucide-react';
 import { CalendarConfig, CalendarEvent, AttendeeStatus } from '../../../shared/types';
 import { MailAttachment } from '../types';
 import { useCalendars } from '../../calendar/store/CalendarStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
-import { useCalendarEvents } from '../../calendar/hooks/useCalendarQueries';
+import { CALENDAR_KEYS, useCalendarEvents } from '../../calendar/hooks/useCalendarQueries';
 import { useGoogleEvents, patchGoogleCachedRsvp } from '../../calendar/hooks/useGoogleEvents';
 import { useNextcloudEvents, patchNextcloudCachedRsvp } from '../../calendar/hooks/useNextcloudEvents';
 import { patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
@@ -25,6 +26,7 @@ import { EmailHtmlBody } from './EmailHtmlBody';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 import './ICSInvitationCard.css';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -302,14 +304,53 @@ function CalendarSelector({
   readonly onChange: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const selected = calendars.find(c => c.id === selectedId);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    const positionDropdown = () => {
+      const button = buttonRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      const viewportPadding = 8;
+      const gap = 4;
+      const availableBelow = window.innerHeight - rect.bottom - gap - viewportPadding;
+      const availableAbove = rect.top - gap - viewportPadding;
+      const openAbove = availableBelow < 180 && availableAbove > availableBelow;
+      const maxHeight = Math.max(96, Math.min(260, openAbove ? availableAbove : availableBelow));
+      const width = Math.max(200, rect.width);
+      const left = Math.min(rect.left, window.innerWidth - width - viewportPadding);
+
+      setDropdownStyle({
+        top: openAbove ? undefined : rect.bottom + gap,
+        bottom: openAbove ? window.innerHeight - rect.top + gap : undefined,
+        left: Math.max(viewportPadding, left),
+        width,
+        maxHeight,
+      });
+    };
+
+    positionDropdown();
+    window.addEventListener('resize', positionDropdown);
+    window.addEventListener('scroll', positionDropdown, true);
+    return () => {
+      window.removeEventListener('resize', positionDropdown);
+      window.removeEventListener('scroll', positionDropdown, true);
+    };
+  }, [open]);
 
   return (
     <div className="ics-cal-selector">
       <button
+        ref={buttonRef}
         className="ics-cal-selector__btn"
         onClick={() => setOpen(v => !v)}
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
       >
         {selected && (
           <span className="ics-cal-dot" style={{ background: selected.color }} />
@@ -319,7 +360,7 @@ function CalendarSelector({
         </span>
         <ChevronDown size={13} />
       </button>
-      {open && (
+      {open && createPortal(
         <>
           <button
             type="button"
@@ -328,13 +369,15 @@ function CalendarSelector({
             onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }}
             aria-label="Fermer"
           />
-          <div className="ics-cal-selector__dropdown">
+          <div className="ics-cal-selector__dropdown" role="listbox" style={dropdownStyle}>
             {calendars.map(cal => (
               <button
                 key={cal.id}
                 className={`ics-cal-selector__option${cal.id === selectedId ? ' ics-cal-selector__option--active' : ''}`}
                 onClick={() => { onChange(cal.id); setOpen(false); }}
                 type="button"
+                role="option"
+                aria-selected={cal.id === selectedId}
               >
                 <span className="ics-cal-dot" style={{ background: cal.color }} />
                 <span>{cal.name}</span>
@@ -344,7 +387,8 @@ function CalendarSelector({
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );
@@ -448,6 +492,7 @@ export function ICSInvitationCard({
 
   // ── Calendar + event data ─────────────────────────────────────────────────
   const { calendars: allCalendars } = useCalendars();
+  const queryClient = useQueryClient();
   const { getValidToken: getGoogleToken } = useGoogleAuth();
   const { getValidToken: getExchangeToken } = useExchangeAuth();
 
@@ -458,8 +503,8 @@ export function ICSInvitationCard({
   );
 
   // Load events from all providers and combine them
-  const { events: googleEvents } = useGoogleEvents(allCalendars);
-  const { events: ncEvents }     = useNextcloudEvents(allCalendars);
+  const { events: googleEvents, refresh: refreshGoogleEvents } = useGoogleEvents(allCalendars);
+  const { events: ncEvents, refresh: refreshNextcloudEvents } = useNextcloudEvents(allCalendars);
   const { events: ewsEvents }    = useCalendarEvents(allCalendars);
   const allEvents = useMemo(
     () => [...googleEvents, ...ncEvents, ...ewsEvents],
@@ -537,9 +582,10 @@ export function ICSInvitationCard({
 
   // Matched event for the selected calendar specifically
   const matchedInSelected = useMemo(() => {
-    if (!matchedEvent || !selectedCal) return null;
-    return matchedEvent.calendarId === selectedCal.id ? matchedEvent : null;
-  }, [matchedEvent, selectedCal]);
+    if (!icsData || !selectedCal) return null;
+    const selectedEvents = allEvents.filter(event => event.calendarId === selectedCal.id);
+    return matchEvent(icsData.title, icsData.start, icsData.end, selectedEvents);
+  }, [icsData, selectedCal, allEvents]);
 
   // RSVP override set by the user in this session; takes priority over localStorage.
   const [rsvpOverride, setRsvpOverride] = useState<AttendeeStatus | undefined>(undefined);
@@ -553,7 +599,9 @@ export function ICSInvitationCard({
   // over localStorage, which may contain an older response.
   const liveStatus = matchedInSelected?.selfRsvpStatus;
   const currentStatus = rsvpOverride
-    ?? (liveStatus && liveStatus !== 'NEEDS-ACTION' ? liveStatus : storedStatus ?? liveStatus);
+    ?? (liveStatus && liveStatus !== 'NEEDS-ACTION'
+      ? liveStatus
+      : matchedInSelected ? storedStatus ?? liveStatus : undefined);
   const previewDescriptionHtml = icsData?.descriptionHtml
     || (matchedInSelected?.description
       ? invitationDescriptionToHtml(matchedInSelected.description)
@@ -629,6 +677,13 @@ export function ICSInvitationCard({
         // Event not yet in calendar: create it with the given status
         await addToCalendar(selectedCal, icsData, getGoogleToken, getExchangeToken);
         saveStoredRsvp(icsData, status);
+        if (selectedCal.type === 'nextcloud') {
+          await refreshNextcloudEvents(selectedCal.id);
+        } else if (selectedCal.type === 'google') {
+          await refreshGoogleEvents(selectedCal.id);
+        } else if (selectedCal.type === 'exchange') {
+          await queryClient.invalidateQueries({ queryKey: CALENDAR_KEYS.events(selectedCal.id) });
+        }
         setActionSuccess(t('invitation.addedSuccess'));
       }
     } catch (e) {
@@ -637,7 +692,7 @@ export function ICSInvitationCard({
     } finally {
       setLoadingAction(null);
     }
-  }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride, t]);
+  }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride, t, refreshNextcloudEvents, refreshGoogleEvents, queryClient]);
 
   const handleAddToCalendar = useCallback(async () => {
     if (!selectedCal || !icsData) return;
@@ -646,13 +701,20 @@ export function ICSInvitationCard({
     setActionSuccess(null);
     try {
       await addToCalendar(selectedCal, icsData, getGoogleToken, getExchangeToken);
+      if (selectedCal.type === 'nextcloud') {
+        await refreshNextcloudEvents(selectedCal.id);
+      } else if (selectedCal.type === 'google') {
+        await refreshGoogleEvents(selectedCal.id);
+      } else if (selectedCal.type === 'exchange') {
+        await queryClient.invalidateQueries({ queryKey: CALENDAR_KEYS.events(selectedCal.id) });
+      }
       setActionSuccess(t('invitation.addedSuccess'));
     } catch (e) {
       setActionError(String(e));
     } finally {
       setLoadingAction(null);
     }
-  }, [selectedCal, icsData, getGoogleToken, getExchangeToken, t]);
+  }, [selectedCal, icsData, getGoogleToken, getExchangeToken, t, refreshNextcloudEvents, refreshGoogleEvents, queryClient]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
@@ -762,7 +824,12 @@ export function ICSInvitationCard({
             <CalendarSelector
               calendars={writableCalendars}
               selectedId={selectedCalId}
-              onChange={id => setUserSelectedCalId(id)}
+              onChange={id => {
+                setUserSelectedCalId(id);
+                setRsvpOverride(undefined);
+                setActionError(null);
+                setActionSuccess(null);
+              }}
             />
           </div>
         )}

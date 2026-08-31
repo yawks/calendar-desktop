@@ -67,8 +67,8 @@ interface Props {
   readonly calendar: CalendarConfig | null;
   readonly onClose: () => void;
   readonly onEdit?: () => void;
-  readonly onDelete?: (scope?: 'this' | 'all') => Promise<void>;
-  readonly onCancelEvent?: (scope?: 'this' | 'all') => Promise<void>;
+  readonly onDelete?: () => Promise<void>;
+  readonly onCancelEvent?: () => Promise<void>;
   readonly onRsvp?: (status: RsvpStatus, comment?: string) => Promise<void>;
   readonly isOrganizer?: boolean;
   readonly overlayChildren?: React.ReactNode;
@@ -325,11 +325,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
       })
     : [];
 
-  const deleteEvent = async (scope?: 'this' | 'all') => {
+  const deleteEvent = async () => {
     setDeleteLoading(true);
     onClose();
     try {
-      await onDelete!(scope);
+      await onDelete!();
     } catch (e: unknown) {
       if ((e as any)?.cancelled) setShowDeleteConfirm(false);
       else setDeleteError(e instanceof Error ? e.message : t('eventModal.deleteError'));
@@ -338,11 +338,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     }
   };
 
-  const cancelEvent = async (scope?: 'this' | 'all') => {
+  const cancelEvent = async () => {
     setDeleteLoading(true);
     onClose();
     try {
-      await onCancelEvent!(scope);
+      await onCancelEvent!();
     } catch (e: unknown) {
       setDeleteError(e instanceof Error ? e.message : t('eventModal.cancelError'));
     } finally {
@@ -427,7 +427,12 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             {onDelete && (
               <button
                 className="btn-icon modal-close"
-                onClick={() => { setShowDeleteConfirm(true); setDeleteError(null); setDeleteLoading(false); }}
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleteLoading(false);
+                  if (event.isRecurringInstance) void deleteEvent();
+                  else setShowDeleteConfirm(true);
+                }}
                 aria-label={t('eventModal.delete')}
               >
                 <Trash2 size={16} />
@@ -436,7 +441,13 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             {onCancelEvent && !event.isCancelled && (
               <button
                 className="btn-icon modal-close"
-                onClick={() => { setShowCancelConfirm(true); setShowDeleteConfirm(false); setDeleteError(null); setDeleteLoading(false); }}
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteError(null);
+                  setDeleteLoading(false);
+                  if (event.isRecurringInstance) void cancelEvent();
+                  else setShowCancelConfirm(true);
+                }}
                 aria-label={t('eventModal.cancelEvent')}
                 title={t('eventModal.cancelEvent')}
               >
@@ -450,22 +461,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
 
           {showDeleteConfirm && (
             <div className="modal-delete-bar">
-              <span>{event.isRecurringInstance ? t('eventModal.deleteRecurringConfirm') : t('eventModal.deleteConfirm')}</span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {event.isRecurringInstance ? (
-                  <>
-                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent('this')}>
-                      {t('eventModal.deleteThisOccurrence')}
-                    </button>
-                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent('all')}>
-                      {t('eventModal.deleteAllOccurrences')}
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent()}>
-                    {t('eventModal.deleteConfirmYes')}
-                  </button>
-                )}
+              <span>{t('eventModal.deleteConfirm')}</span>
+              <div className="modal-delete-bar__actions">
+                <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent()}>
+                  {t('eventModal.deleteConfirmYes')}
+                </button>
                 <button
                   type="button"
                   className="btn-delete-cancel"
@@ -480,22 +480,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
 
           {showCancelConfirm && (
             <div className="modal-delete-bar">
-              <span>{event.isRecurringInstance ? t('eventModal.cancelRecurringConfirm') : t('eventModal.cancelConfirm')}</span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {event.isRecurringInstance ? (
-                  <>
-                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent('this')}>
-                      {t('eventModal.cancelThisOccurrence')}
-                    </button>
-                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent('all')}>
-                      {t('eventModal.cancelAllOccurrences')}
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent()}>
-                    {t('eventModal.cancelEvent')}
-                  </button>
-                )}
+              <span>{t('eventModal.cancelConfirm')}</span>
+              <div className="modal-delete-bar__actions">
+                <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent()}>
+                  {t('eventModal.cancelEvent')}
+                </button>
                 <button type="button" className="btn-delete-cancel" onClick={() => setShowCancelConfirm(false)}>
                   {t('eventModal.deleteConfirmNo')}
                 </button>

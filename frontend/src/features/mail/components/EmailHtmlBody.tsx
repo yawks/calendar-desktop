@@ -116,7 +116,17 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
     if (!frame || !doc?.body || !doc.documentElement) return;
 
     const root = doc.querySelector<HTMLElement>('.ew') ?? doc.body;
-    processEmailQuotes(root, { label: prevMsgLabel, quoteMarker, attributionTemplate, expandFirstQuote });
+    // Quote recognition is an enhancement: malformed or unusually nested
+    // sender HTML must never prevent the iframe from being measured/revealed.
+    // Keep a pristine copy because the transformer mutates the DOM as it goes
+    // and may otherwise leave a partially folded, invisible message behind.
+    const originalHtml = root.innerHTML;
+    try {
+      processEmailQuotes(root, { label: prevMsgLabel, quoteMarker, attributionTemplate, expandFirstQuote });
+    } catch (error) {
+      root.innerHTML = originalHtml;
+      console.error('[EmailHtmlBody] Quote processing failed; displaying original message', error);
+    }
 
     if (platform.isNativeAndroid) {
       root.style.setProperty('width', '100%', 'important');
@@ -274,6 +284,47 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
 <body>${darkModeSvg}<div class="ew">${safeHtml}</div></body>
 </html>`;
 
+  useEffect(() => {
+    // WebKit/WebView can swallow an exception raised from an iframe load
+    // callback without forwarding it to the parent console. Never let that
+    // leave a successfully loaded message at its initial height of zero.
+    const fallback = window.setTimeout(() => {
+      const frame = iframeRef.current;
+      const doc = frame?.contentDocument;
+      if (!frame || !doc?.body || !doc.documentElement || frame.style.visibility === 'visible') return;
+
+      const root = doc.querySelector<HTMLElement>('.ew') ?? doc.body;
+      // The failed load handler may have stopped after partially folding or
+      // restyling the document. Restore the sanitized source before revealing
+      // it instead of exposing that intermediate DOM.
+      root.innerHTML = safeHtml;
+      if (!(root.textContent ?? '').trim() && bodyText?.trim()) {
+        const fallbackText = doc.createElement('pre');
+        fallbackText.style.whiteSpace = 'pre-wrap';
+        fallbackText.style.fontFamily = 'inherit';
+        fallbackText.textContent = bodyText;
+        root.replaceChildren(fallbackText);
+      }
+
+      const height = Math.max(
+        doc.body.scrollHeight,
+        doc.body.offsetHeight,
+        doc.documentElement.scrollHeight,
+        doc.documentElement.offsetHeight,
+      );
+      frame.style.height = `${Math.max(height, 24) + 4}px`;
+      frame.style.visibility = 'visible';
+      console.warn('[EmailHtmlBody] Restored and revealed message using the iframe load fallback', {
+        htmlLength: safeHtml.length,
+        textLength: (root.textContent ?? '').trim().length,
+        height,
+      });
+      onReady?.();
+    }, 500);
+
+    return () => window.clearTimeout(fallback);
+  }, [bodyText, onReady, safeHtml, srcdoc]);
+
   return (
     <iframe
       key={srcdoc}
@@ -283,7 +334,6 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
       onLoad={handleFrameLoad}
       className="mail-email-iframe"
       title="email-body"
-      style={{ height: 0, visibility: 'hidden' }}
     />
   );
 }

@@ -1180,6 +1180,12 @@
   color: #7a1a14;
 }
 
+.modal-delete-bar__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 [data-theme="dark"] .modal-delete-bar {
   background: rgba(234, 67, 53, 0.15);
   border-bottom-color: rgba(234, 67, 53, 0.3);
@@ -1215,6 +1221,54 @@
 
 .btn-delete-cancel:hover {
   background: var(--bg-hover);
+}
+
+.recurring-choice-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.recurring-choice-modal {
+  width: min(320px, 100%);
+}
+
+.recurring-choice-modal__header {
+  background: var(--primary);
+}
+
+.recurring-choice-modal__body {
+  padding: 16px 20px 20px;
+}
+
+.recurring-choice-modal__description {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.5;
+}
+
+.recurring-choice-modal__choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recurring-choice-modal__choices .btn-primary {
+  width: 100%;
+  min-height: 44px;
+}
+
+.recurring-choice-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 20px 16px;
+  border-top: 1px solid var(--border);
 }
 
 .modal-past {

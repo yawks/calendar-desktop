@@ -1,5 +1,7 @@
 use crate::mail_provider::*;
-use async_imap::imap_proto::types::{BodyContentCommon, BodyStructure, SectionPath};
+use async_imap::imap_proto::types::{
+    BodyContentCommon, BodyStructure, ContentEncoding, SectionPath,
+};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures::StreamExt;
 use lettre::transport::smtp::authentication::Credentials;
@@ -299,6 +301,45 @@ fn section_path_str(path: &[u32]) -> String {
         .join(".")
 }
 
+#[derive(Debug, PartialEq)]
+struct BodySection {
+    path: Vec<u32>,
+    is_html: bool,
+    charset: Option<String>,
+    transfer_encoding: &'static str,
+}
+
+fn transfer_encoding_name(encoding: &ContentEncoding<'_>) -> &'static str {
+    match encoding {
+        ContentEncoding::SevenBit => "7bit",
+        ContentEncoding::EightBit => "8bit",
+        ContentEncoding::Binary => "binary",
+        ContentEncoding::Base64 => "base64",
+        ContentEncoding::QuotedPrintable => "quoted-printable",
+        ContentEncoding::Other(_) => "8bit",
+    }
+}
+
+fn decode_body_section(data: &[u8], section: &BodySection) -> String {
+    let media_type = if section.is_html {
+        "text/html"
+    } else {
+        "text/plain"
+    };
+    let charset = section.charset.as_deref().unwrap_or("utf-8");
+    let header = format!(
+        "Content-Type: {media_type}; charset=\"{charset}\"\r\nContent-Transfer-Encoding: {}\r\n\r\n",
+        section.transfer_encoding
+    );
+    let mut mime_part = Vec::with_capacity(header.len() + data.len());
+    mime_part.extend_from_slice(header.as_bytes());
+    mime_part.extend_from_slice(data);
+
+    parse_mail(&mime_part)
+        .and_then(|part| part.get_body())
+        .unwrap_or_else(|_| String::from_utf8_lossy(data).into_owned())
+}
+
 fn get_filename_from_bs(common: &BodyContentCommon<'_>, subtype: &str) -> String {
     common
         .ty
@@ -317,9 +358,9 @@ fn get_filename_from_bs(common: &BodyContentCommon<'_>, subtype: &str) -> String
         .unwrap_or_else(|| format!("attachment.{}", subtype))
 }
 
-fn find_body_section(bs: &BodyStructure, parent_path: &[u32]) -> Option<(Vec<u32>, bool)> {
+fn find_body_section(bs: &BodyStructure, parent_path: &[u32]) -> Option<BodySection> {
     match bs {
-        BodyStructure::Text { common, .. } => {
+        BodyStructure::Text { common, other, .. } => {
             let subtype = common.ty.subtype.to_lowercase();
             let section = if parent_path.is_empty() {
                 vec![1]
@@ -327,9 +368,29 @@ fn find_body_section(bs: &BodyStructure, parent_path: &[u32]) -> Option<(Vec<u32
                 parent_path.to_vec()
             };
             if subtype == "html" {
-                Some((section, true))
+                Some(BodySection {
+                    path: section,
+                    is_html: true,
+                    charset: common.ty.params.as_ref().and_then(|params| {
+                        params
+                            .iter()
+                            .find(|(key, _)| key.eq_ignore_ascii_case("charset"))
+                            .map(|(_, value)| value.to_string())
+                    }),
+                    transfer_encoding: transfer_encoding_name(&other.transfer_encoding),
+                })
             } else if subtype == "plain" {
-                Some((section, false))
+                Some(BodySection {
+                    path: section,
+                    is_html: false,
+                    charset: common.ty.params.as_ref().and_then(|params| {
+                        params
+                            .iter()
+                            .find(|(key, _)| key.eq_ignore_ascii_case("charset"))
+                            .map(|(_, value)| value.to_string())
+                    }),
+                    transfer_encoding: transfer_encoding_name(&other.transfer_encoding),
+                })
             } else {
                 None
             }
@@ -352,14 +413,16 @@ fn find_body_section(bs: &BodyStructure, parent_path: &[u32]) -> Option<(Vec<u32
                 parent_path
             };
             if subtype == "alternative" {
-                let mut html_result: Option<(Vec<u32>, bool)> = None;
-                let mut plain_result: Option<(Vec<u32>, bool)> = None;
+                let mut html_result: Option<BodySection> = None;
+                let mut plain_result: Option<BodySection> = None;
                 for (i, body) in bodies.iter().enumerate() {
                     let child: Vec<u32> = base.iter().chain(&[i as u32 + 1]).copied().collect();
                     match find_body_section(body, &child) {
-                        Some((sp, true)) if html_result.is_none() => html_result = Some((sp, true)),
-                        Some((sp, false)) if plain_result.is_none() => {
-                            plain_result = Some((sp, false))
+                        Some(section) if section.is_html && html_result.is_none() => {
+                            html_result = Some(section)
+                        }
+                        Some(section) if !section.is_html && plain_result.is_none() => {
+                            plain_result = Some(section)
                         }
                         _ => {}
                     }
@@ -874,8 +937,7 @@ impl MailProvider for ImapProvider {
             date: String,
             is_read: bool,
             attachments: Vec<MailAttachment>,
-            body_section: Vec<u32>,
-            body_is_html: bool,
+            body_section: BodySection,
         }
 
         let mut pending: Vec<Pending> = Vec::new();
@@ -951,14 +1013,26 @@ impl MailProvider for ImapProvider {
             let is_read = fetch.flags().any(|f| f == async_imap::types::Flag::Seen);
             let seq_num = fetch.message;
 
-            let (body_section, body_is_html, attachments) = if let Some(bs) = fetch.bodystructure()
-            {
-                let (section, is_html) = find_body_section(bs, &[]).unwrap_or((vec![1], false));
+            let (body_section, attachments) = if let Some(bs) = fetch.bodystructure() {
+                let section = find_body_section(bs, &[]).unwrap_or(BodySection {
+                    path: vec![1],
+                    is_html: false,
+                    charset: Some("utf-8".to_string()),
+                    transfer_encoding: "8bit",
+                });
                 let mut atts = Vec::new();
                 collect_attachments_from_bs(bs, &[], folder, &seq_num.to_string(), &mut atts);
-                (section, is_html, atts)
+                (section, atts)
             } else {
-                (vec![1], false, Vec::new())
+                (
+                    BodySection {
+                        path: vec![1],
+                        is_html: false,
+                        charset: Some("utf-8".to_string()),
+                        transfer_encoding: "8bit",
+                    },
+                    Vec::new(),
+                )
             };
 
             pending.push(Pending {
@@ -972,14 +1046,13 @@ impl MailProvider for ImapProvider {
                 is_read,
                 attachments,
                 body_section,
-                body_is_html,
             });
         }
 
         let mut messages = Vec::new();
         for p in pending {
             let body_html = if self.load_bodies {
-                let section_str = section_path_str(&p.body_section);
+                let section_str = section_path_str(&p.body_section.path);
                 let fetch_cmd = format!("BODY.PEEK[{}]", section_str);
                 let body_stream = session
                     .fetch(&p.seq_num.to_string(), &fetch_cmd)
@@ -987,10 +1060,12 @@ impl MailProvider for ImapProvider {
                     .map_err(|e| format!("IMAP body fetch error: {}", e))?;
                 let body_results: Vec<_> = body_stream.collect().await;
                 body_results.into_iter().next().and_then(|r| r.ok()).and_then(|bf| {
-                    let sp = SectionPath::Part(p.body_section.clone(), None);
+                    let sp = SectionPath::Part(p.body_section.path.clone(), None);
                     bf.section(&sp).map(|data| {
-                        let text = String::from_utf8_lossy(data).to_string();
-                        if p.body_is_html { text } else {
+                        let text = decode_body_section(data, &p.body_section);
+                        if p.body_section.is_html {
+                            text
+                        } else {
                             let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
                             format!("<pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>", escaped)
                         }
@@ -1574,4 +1649,40 @@ pub async fn imap_get_attachment_data(
     ImapProvider::new(config)
         .get_attachment_data(&attachment_id, Some(&message_id), Some(&folder))
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_body_section, BodySection};
+
+    #[test]
+    fn decodes_quoted_printable_html_body_section() {
+        let section = BodySection {
+            path: vec![1, 2],
+            is_html: true,
+            charset: Some("UTF-8".to_string()),
+            transfer_encoding: "quoted-printable",
+        };
+        let encoded = b"<div dir=3D\"ltr\">J=C3=A9r=C3=B4me</div>";
+
+        assert_eq!(
+            decode_body_section(encoded, &section),
+            "<div dir=\"ltr\">Jérôme</div>"
+        );
+    }
+
+    #[test]
+    fn decodes_base64_html_body_section() {
+        let section = BodySection {
+            path: vec![1],
+            is_html: true,
+            charset: Some("utf-8".to_string()),
+            transfer_encoding: "base64",
+        };
+
+        assert_eq!(
+            decode_body_section(b"PHA+SGVsbG88L3A+", &section),
+            "<p>Hello</p>"
+        );
+    }
 }
