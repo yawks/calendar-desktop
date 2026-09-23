@@ -66,7 +66,11 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
     const headerLabels = labels.filter(label =>
       /^(?:de|from|envoyé|sent|à|to|objet|subject):$/.test(label),
     );
-    if (headerLabels.length >= 3) return true;
+    // Labels found deep inside a complete Outlook message do not make its
+    // outer WordSection/container an address header. A genuine header starts
+    // with From/De; otherwise wrapSiblingsFrom may delete the whole message.
+    const startsWithSender = /^(?:de|from)\s*:/i.test(fullText);
+    if (startsWithSender && headerLabels.length >= 3) return true;
 
     // EWS may strip the <b> elements and data-marker attributes from forwarded
     // HTML. Fall back to the visible sequence of header labels.
@@ -77,7 +81,7 @@ export function processEmailQuotes(ew: Element, opts: QuoteParserOptions): void 
       text.includes('à:') || text.includes('to:'),
       text.includes('objet:') || text.includes('subject:'),
     ];
-    return groups.filter(Boolean).length >= 3;
+    return groups[0] && groups.filter(Boolean).length >= 3;
   }
 
   function nextMeaningfulElement(el: Element): Element | null {

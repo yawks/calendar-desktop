@@ -18,7 +18,6 @@ export interface MessageBlockProps {
   readonly currentUserEmail?: string;
   readonly mailProviderType?: 'gmail' | 'ews';
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
-  readonly onMarkRead?: (msg: MailMessage) => void;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
@@ -60,7 +59,7 @@ async function decodeInlineImages(html: string): Promise<void> {
 
 export function MessageBlock({
   message, conversationId, defaultExpanded = false, scrollIntoViewOnMount = false, currentUserEmail, mailProviderType, provider,
-  onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
+  onReply, onReplyAll, onForward, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
   isInScheduledFolder = false, onScheduledSendCanceled,
   onBodyReady,
@@ -73,7 +72,6 @@ export function MessageBlock({
   const [cancelingScheduled, setCancelingScheduled] = useState(false);
   const [scheduledCanceled, setScheduledCanceled] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
-  const markedRef = useRef(false);
 
   useEffect(() => {
     if (bodyReady) onBodyReady?.();
@@ -184,26 +182,6 @@ export function MessageBlock({
     const result = await contentQuery.refetch();
     if (result.data) action({ ...message, ...result.data, body_loaded: true });
   };
-
-  useEffect(() => {
-    if (message.is_read || markedRef.current || !isExpanded || !onMarkRead) return;
-    const el = blockRef.current;
-    if (!el) return;
-    const root = findScrollParent(el);
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          observer.disconnect();
-          markedRef.current = true;
-          onMarkRead(message);
-        }
-      },
-      { root, threshold: 0 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExpanded, message.is_read, message.item_id]);
 
   const hasAttachments = displayedMessage.attachments && displayedMessage.attachments.length > 0;
   const icsAttachments = displayedMessage.attachments?.filter(

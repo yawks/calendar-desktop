@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { ComposerRestoreData, MailAttachment, MailIdentity, MailMessage, MailThread } from '../types';
 import { MailComposer, MailComposerHandle } from './MailComposer';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { CollapsedMessagesBar } from './CollapsedMessagesBar';
 import { ComposerAttachment } from '../providers/MailProvider';
@@ -121,9 +121,14 @@ export function ThreadDetail({
   useEffect(() => { setSnoozeBannerDismissed(false); }, [thread.conversation_id]);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
 
-  const handleMarkSingleRead = useCallback((msg: MailMessage) => {
-    onMarkRead([msg]);
-  }, [onMarkRead]);
+  const markedConversationRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (messagesLoading || markedConversationRef.current === thread.conversation_id) return;
+    const unread = messages.filter(message => !message.is_read);
+    if (!unread.length) return;
+    markedConversationRef.current = thread.conversation_id;
+    onMarkRead(unread);
+  }, [messages, messagesLoading, onMarkRead, thread.conversation_id]);
 
   useEffect(() => {
     if (!replyingTo) return;
@@ -420,7 +425,6 @@ export function ThreadDetail({
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
               provider={provider}
-              onMarkRead={handleMarkSingleRead}
               onReply={onReply}
               onReplyAll={onReplyAll}
               onForward={onForward}
@@ -446,7 +450,6 @@ export function ThreadDetail({
             currentUserEmail={currentUserEmail}
             mailProviderType={mailProviderType}
             provider={provider}
-            onMarkRead={handleMarkSingleRead}
             onReply={onReply}
             onReplyAll={onReplyAll}
             onForward={onForward}

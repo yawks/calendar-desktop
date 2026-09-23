@@ -1620,6 +1620,8 @@ pub async fn imap_send(
     subject: String,
     body_html: String,
     attachments: Option<Vec<ComposerAttachment>>,
+    in_reply_to: Option<String>,
+    references: Option<String>,
 ) -> Result<(), String> {
     ImapProvider::new(config)
         .send_mail(SendMailParams {
@@ -1633,8 +1635,8 @@ pub async fn imap_send(
             reply_to_change_key: None,
             is_forward: None,
             identity_id: None,
-            in_reply_to: None,
-            references: None,
+            in_reply_to,
+            references,
             send_at: None,
         })
         .await

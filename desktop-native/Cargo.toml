@@ -20,3 +20,7 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [patch.crates-io]
 jmap-client = { path = "../backend/provider-core/vendor/jmap-client" }
+
+[profile.dev]
+debug = 1
+incremental = false

@@ -32,7 +32,8 @@ webpki-roots = "0.26"
 jmap-client = { path = "vendor/jmap-client" }
 
 [profile.dev]
-incremental = true
+debug = 1
+incremental = false
 
 [profile.release]
 codegen-units = 1

@@ -91,6 +91,8 @@ struct ImapSend {
     subject: String,
     body_html: String,
     attachments: Option<Vec<crate::mail_provider::ComposerAttachment>>,
+    in_reply_to: Option<String>,
+    references: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -688,6 +690,8 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                     a.subject,
                     a.body_html,
                     a.attachments,
+                    a.in_reply_to,
+                    a.references,
                 )
                 .await,
             )

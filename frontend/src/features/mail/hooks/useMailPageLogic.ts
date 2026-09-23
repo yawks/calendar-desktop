@@ -1191,7 +1191,7 @@ export function useMailPageLogic() {
     const isDraftFolder = selectedFolder === 'drafts';
     const isTrashFolder = selectedFolder === 'deleteditems';
     const messagesKey = conversationId
-      ? ([...MAIL_KEYS.thread(accountId, conversationId), isDraftFolder, isTrashFolder] as const)
+      ? ([...MAIL_KEYS.thread(accountId, conversationId), selectedFolder, isDraftFolder, isTrashFolder] as const)
       : null;
     const realCountBefore = messagesKey
       ? (queryClient.getQueryData<MailMessage[]>(messagesKey)?.length ?? 0)
@@ -1231,7 +1231,7 @@ export function useMailPageLogic() {
       if (attempt < 5) setTimeout(() => doPoll(attempt + 1), 4000);
     };
 
-    // Build RFC 5322 threading headers (computed once, before the 5s timer)
+    // Build RFC 5322 threading headers before the undo-send timer.
     let inReplyTo: string | undefined;
     let references: string | undefined;
     const replyingToMsg = restoreData.replyingToMsg;
@@ -1298,7 +1298,7 @@ export function useMailPageLogic() {
         draftRollback?.();
       }
       setActionToast(null);
-    }, 5000);
+    }, 10_000);
 
     const cancel = () => {
       cancelled = true;

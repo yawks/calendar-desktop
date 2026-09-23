@@ -135,6 +135,8 @@ export class ImapMailProvider implements MailProvider {
       subject: params.subject,
       bodyHtml: params.bodyHtml,
       attachments: params.attachments,
+      inReplyTo: params.inReplyTo,
+      references: params.references,
     });
   }
 

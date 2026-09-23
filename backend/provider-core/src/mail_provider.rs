@@ -145,9 +145,9 @@ pub struct SendMailParams {
     pub is_forward: Option<bool>,
     /// Sending identity (JMAP only).
     pub identity_id: Option<String>,
-    /// RFC 5322 In-Reply-To value (JMAP only).
+    /// RFC 5322 In-Reply-To value used for threading.
     pub in_reply_to: Option<String>,
-    /// RFC 5322 References chain (JMAP only).
+    /// RFC 5322 References chain used for threading.
     pub references: Option<String>,
     /// Server-side delivery date (RFC 3339), or immediate when omitted.
     pub send_at: Option<String>,
