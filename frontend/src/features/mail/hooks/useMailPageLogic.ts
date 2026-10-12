@@ -838,15 +838,29 @@ export function useMailPageLogic() {
           next.delete(thread.conversation_id);
           return next;
         });
+        const callbacks = {
+          onSuccess: () => {
+            // Paginated rows remain in stableThreads even after removal from the query cache.
+            setStableThreads(prev => prev.filter(item =>
+              item.conversation_id !== thread.conversation_id
+              || (item.accountId ?? accountId) !== accountId,
+            ));
+          },
+          onError: (error: Error) => {
+            rollback();
+            setError(getErrorMessage(error));
+          },
+          onSettled: clearPendingRemoval,
+        };
         if (isInTrash) {
           mutations.deletePermanently(
             { accountId, provider: p, conversationId: thread.conversation_id },
-            { onSettled: clearPendingRemoval },
+            callbacks,
           );
         } else {
           mutations.moveToTrash(
             { accountId, provider: p, conversationId: thread.conversation_id, folderId: selectedFolder, threadUnreadCount: 0, isDraft },
-            { onSettled: clearPendingRemoval },
+            callbacks,
           );
         }
         setDeleteToast(null);

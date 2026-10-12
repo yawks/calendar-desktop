@@ -109,6 +109,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
     const loadMoreRequestedRef = useRef(false);
+    const loadedThreadCountRef = useRef(threads.length);
     const touchStartYRef = useRef<number | null>(null);
     const pullDistanceRef = useRef(0);
     const [pullDistance, setPullDistance] = useState(0);
@@ -118,6 +119,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     useEffect(() => {
       if (containerRef.current) containerRef.current.scrollTop = 0;
       loadMoreRequestedRef.current = false;
+      loadedThreadCountRef.current = threads.length;
     }, [scrollResetKey]);
 
     useEffect(() => {
@@ -125,11 +127,14 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       if (!container || !onLoadMore) return;
 
       if (!loadingMore) loadMoreRequestedRef.current = false;
+      // Keep the loaded list filled when deletions or moves remove rows,
+      // even when the user is still above the scroll pagination threshold.
+      loadedThreadCountRef.current = Math.max(loadedThreadCountRef.current, threads.length);
 
       const handleScroll = () => {
         if (!hasMore || loadingMore || loadMoreRequestedRef.current) return;
         const { scrollTop, scrollHeight, clientHeight } = container;
-        if (scrollHeight - scrollTop - clientHeight < 200) {
+        if (threads.length < loadedThreadCountRef.current || scrollHeight - scrollTop - clientHeight < 200) {
           loadMoreRequestedRef.current = true;
           const accepted = onLoadMore();
           // A background refresh can temporarily prevent pagination. Do not

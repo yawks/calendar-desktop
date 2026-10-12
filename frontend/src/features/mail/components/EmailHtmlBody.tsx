@@ -134,16 +134,6 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
       root.style.setProperty('min-width', '0', 'important');
       root.style.setProperty('overflow-x', 'hidden', 'important');
 
-      const fitToFrameWidth = () => {
-        root.style.removeProperty('zoom');
-        const availableWidth = doc.documentElement.clientWidth;
-        const contentWidth = root.scrollWidth;
-        if (availableWidth > 0 && contentWidth > availableWidth + 1) {
-          root.style.setProperty('zoom', String(availableWidth / contentWidth), 'important');
-        }
-      };
-      fitToFrameWidth();
-
       const reportLayout = () => {
         const elements = Array.from(root.querySelectorAll<HTMLElement>('*'));
         const widest = elements.reduce<HTMLElement | null>((current, element) => {
@@ -165,7 +155,6 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
       };
       reportLayout();
       requestAnimationFrame(() => {
-        fitToFrameWidth();
         reportLayout();
       });
     }
@@ -190,11 +179,25 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
       });
     }
 
+    const fitToFrameWidth = () => {
+      root.style.removeProperty('zoom');
+      root.style.removeProperty('width');
+      root.style.removeProperty('max-width');
+      const availableWidth = doc.documentElement.clientWidth;
+      const contentWidth = root.scrollWidth;
+      if (availableWidth > 0 && contentWidth > availableWidth + 1) {
+        root.style.setProperty('width', `${contentWidth}px`, 'important');
+        root.style.setProperty('max-width', 'none', 'important');
+        root.style.setProperty('zoom', String(availableWidth / contentWidth), 'important');
+      }
+    };
+
     const resize = (reveal = false) => {
-      const height = Math.max(
-        doc.body.scrollHeight, doc.body.offsetHeight,
-        doc.documentElement.scrollHeight, doc.documentElement.offsetHeight,
-      );
+      // Fixed-width sender templates must fit before their overflow is hidden.
+      fitToFrameWidth();
+      // Document heights include the iframe viewport and would feed its
+      // previous height back into the observer on every measurement.
+      const height = Math.ceil(root.getBoundingClientRect().height);
       if (height <= 0) return;
 
       // Apply the initial measurement directly to the element. Going through
@@ -208,8 +211,8 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
     };
     resizeObserverRef.current?.disconnect();
     const observer = new ResizeObserver(() => resize());
-    observer.observe(doc.body);
-    observer.observe(doc.documentElement);
+    observer.observe(frame);
+    observer.observe(root);
     resizeObserverRef.current = observer;
     doc.addEventListener('load', () => resize(), true);
     doc.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
@@ -306,12 +309,7 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
         root.replaceChildren(fallbackText);
       }
 
-      const height = Math.max(
-        doc.body.scrollHeight,
-        doc.body.offsetHeight,
-        doc.documentElement.scrollHeight,
-        doc.documentElement.offsetHeight,
-      );
+      const height = Math.ceil(root.getBoundingClientRect().height);
       frame.style.height = `${Math.max(height, 24) + 4}px`;
       frame.style.visibility = 'visible';
       console.warn('[EmailHtmlBody] Restored and revealed message using the iframe load fallback', {

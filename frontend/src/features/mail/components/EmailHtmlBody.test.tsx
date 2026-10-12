@@ -42,6 +42,47 @@ describe('EmailHtmlBody regression: forwarded Gmail/Outlook message', () => {
     expect(root.textContent).toContain('Pour le coup je ne suis pas intéressé');
   });
 
+  it('fits a fixed-width email and recalculates after images load', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const component = createRoot(host);
+    await act(async () => component.render(<EmailHtmlBody html="<table width='1400'><tr><td>Wide email</td></tr></table>" />));
+    const frame = host.querySelector('iframe')!;
+    const doc = frame.contentDocument!;
+    doc.body.innerHTML = '<div class="ew">Wide email</div>';
+    const content = doc.querySelector<HTMLElement>('.ew')!;
+    const setProperty = vi.spyOn(content.style, 'setProperty');
+    const removeProperty = vi.spyOn(content.style, 'removeProperty');
+    let contentHeight = 400;
+    vi.spyOn(content, 'getBoundingClientRect').mockImplementation(() => ({ height: contentHeight } as DOMRect));
+    Object.defineProperty(doc.documentElement, 'scrollHeight', { get: () => Number.parseFloat(frame.style.height) || 0 });
+    let availableWidth = 480;
+    Object.defineProperty(doc.documentElement, 'clientWidth', { get: () => availableWidth });
+    Object.defineProperty(content, 'scrollWidth', { get: () => 1400 });
+
+    await act(async () => frame.dispatchEvent(new Event('load')));
+    expect(setProperty).toHaveBeenLastCalledWith('zoom', String(480 / 1400), 'important');
+    expect(frame.style.visibility).toBe('visible');
+
+    for (const width of [320, 1024, 1600]) {
+      availableWidth = width;
+      doc.dispatchEvent(new Event('load'));
+      if (width < 1400) {
+        expect(setProperty).toHaveBeenLastCalledWith('zoom', String(width / 1400), 'important');
+      } else {
+        expect(removeProperty).toHaveBeenCalledWith('zoom');
+      }
+    }
+    for (let measurement = 0; measurement < 10; measurement++) {
+      doc.dispatchEvent(new Event('load'));
+      expect(frame.style.height).toBe('404px');
+    }
+    contentHeight = 200;
+    doc.dispatchEvent(new Event('load'));
+    expect(frame.style.height).toBe('204px');
+    await act(async () => component.unmount());
+  });
+
   it('does not reset an imperatively measured iframe on a React rerender', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
