@@ -2945,7 +2945,13 @@ fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
     let is_all_day = xml_content_ns(msg_xml, "t:IsAllDayEvent")
         .map(|v| v == "true")
         .unwrap_or(false);
-    let location = xml_content_ns(msg_xml, "t:Location");
+    let location = xml_content_ns(msg_xml, "t:Location").and_then(|value| {
+        if value.contains('<') {
+            xml_content_ns(&value, "t:DisplayName")
+        } else {
+            Some(value)
+        }
+    });
 
     let uid = {
         let id_elem = msg_xml
@@ -3101,6 +3107,22 @@ fn xml_unescape_body(raw: &str) -> String {
 #[cfg(test)]
 mod outlook_schedule_tests {
     use super::*;
+
+    #[test]
+    fn meeting_ics_omits_empty_structured_location() {
+        let xml = r#"<t:MeetingRequest>
+            <t:ItemId Id="event-id"/>
+            <t:Subject>Meeting</t:Subject>
+            <t:Start>2026-09-23T14:30:00Z</t:Start>
+            <t:End>2026-09-23T15:00:00Z</t:End>
+            <t:Location><t:DisplayName/><t:LocationSource>None</t:LocationSource></t:Location>
+        </t:MeetingRequest>"#;
+
+        let ics = build_meeting_ics(xml, "t:MeetingRequest").unwrap();
+
+        assert!(!ics.contains("LOCATION:"));
+        assert!(!ics.contains("<t:"));
+    }
 
     #[test]
     fn schedule_payload_contains_the_native_outlook_fields() {

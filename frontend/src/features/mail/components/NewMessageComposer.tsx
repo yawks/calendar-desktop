@@ -57,7 +57,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
   const editorRef    = useRef<MailEditorHandle>(null);
 
   // Capture initial identity + signature at mount (useMemo has empty deps)
-  const initialIdentityId = selectedIdentityId ?? identities?.[0]?.id ?? fromAccountId ?? '';
+  const initialIdentityId = selectedIdentityId || identities?.[0]?.id || fromAccountId || '';
   const initialSignatureRef = useRef(initialIdentityId ? getSignature(initialIdentityId) : '');
   const initialPositionRef  = useRef(signaturePosition);
 
@@ -70,7 +70,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
   // Swap signature when the selected identity changes mid-composition
   const prevIdentityIdRef = useRef(initialIdentityId);
   useEffect(() => {
-    const newId = selectedIdentityId ?? identities?.[0]?.id ?? fromAccountId ?? '';
+    const newId = selectedIdentityId || identities?.[0]?.id || fromAccountId || '';
     if (newId === prevIdentityIdRef.current) return;
     prevIdentityIdRef.current = newId;
     editorRef.current?.replaceSignatureBlock(getSignature(newId), signaturePosition);

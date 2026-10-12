@@ -16,7 +16,7 @@ import { Folder, MailMessage, MailThread, MailAttachment, ComposerRestoreData, M
 import { ALL_ACCOUNTS_ID, DISPLAY_TO_STATIC, THEME_CYCLE, buildUnreadCounts, getErrorMessage } from '../utils';
 import { RecipientEntry } from '../components/RecipientInput';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useMailIdentities, useAllAccountIdentities } from './useMailQueries';
+import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useAllAccountIdentities } from './useMailQueries';
 import { useMailMutations } from './useMailMutations';
 import { cleanupContactIndex, recordContactObservations, searchContactIndex, type ContactObservation } from '../utils/contactIndex';
 import { useContactBackfill } from './useContactBackfill';
@@ -307,27 +307,17 @@ export function useMailPageLogic() {
   const searchResults = isAllMode ? searchAllQuery.data : searchSingleQuery.data;
   const searchLoading = isAllMode ? searchAllQuery.isLoading : searchSingleQuery.isLoading;
 
-  // Single-account mode: query the selected account's identities
-  const singleIdentityProvider = isAllMode ? null : (allProviders.get(selectedAccountId) ?? null);
-  const singleIdentitiesQuery = useMailIdentities(selectedAccountId, singleIdentityProvider);
-
-  // All-accounts mode: query all providers in parallel (with synthetic fallback for EWS/IMAP)
-  const allModeIdentities = useAllAccountIdentities(allAccountInfo);
+  // Use the same identities as signature settings, including EWS/IMAP email identities.
+  const allAccountIdentities = useAllAccountIdentities(allAccountInfo);
 
   const composerProvider = allProviders.get(
     selectedThread?.accountId ?? composingAccountId ?? selectedAccountId
   ) ?? provider;
 
-  const accountIdentities = useMemo(() => {
-    if (isAllMode) return allModeIdentities;
-    const accInfo = allAccountInfo.find(a => a.id === selectedAccountId);
-    return singleIdentitiesQuery.data.map(i => ({
-      ...i,
-      accountId: selectedAccountId,
-      accountColor: accInfo?.color,
-      accountLabel: accInfo?.label,
-    }));
-  }, [isAllMode, allModeIdentities, singleIdentitiesQuery.data, selectedAccountId, allAccountInfo]);
+  const accountIdentities = useMemo(() => isAllMode
+    ? allAccountIdentities
+    : allAccountIdentities.filter(identity => identity.accountId === selectedAccountId),
+  [isAllMode, allAccountIdentities, selectedAccountId]);
 
   const EMPTY_FOLDERS = useMemo(() => [] as import('../types').MailFolder[], []);
   const allFolders = isAllMode ? EMPTY_FOLDERS : (folderQuery.data ?? EMPTY_FOLDERS);

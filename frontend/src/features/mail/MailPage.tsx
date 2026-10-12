@@ -637,6 +637,16 @@ export default function MailApp() {
         <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} provider={provider} />
         <div className="header-spacer mail-header-gap" />
 
+        {sidebarCollapsed && (
+          <button
+            className="btn-icon mail-header-desktop-action"
+            onClick={startNewMessage}
+            title={t('mail.newMessage', 'Nouveau message')}
+            aria-label={t('mail.newMessage', 'Nouveau message')}
+          >
+            <Pencil size={20} />
+          </button>
+        )}
         <button className="btn-icon app-mobile-header__sync" onClick={reloadThreads} disabled={threadsRefreshing}
           title={t('header.refresh', 'Refresh')}>
           <RefreshCw size={18} className={threadsRefreshing ? 'spin' : ''} />
