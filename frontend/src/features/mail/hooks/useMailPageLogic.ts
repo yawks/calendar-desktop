@@ -1,3 +1,4 @@
+import { getOfficeFormat, officeAttachmentBytes, OFFICE_PREVIEW_MAX_BYTES } from '../utils/officeAttachment';
 import { useCallback, useEffect, useMemo, useRef, useState, MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { fileService } from '../../../shared/services/fileService';
@@ -504,6 +505,7 @@ export function useMailPageLogic() {
   });
   const [attachmentPreview, setAttachmentPreview] = useState<{
     attachment: MailAttachment; loading: boolean; data: string | null;
+    loadOffice?: () => Promise<ArrayBuffer>; download?: () => Promise<void>;
   } | null>(null);
   const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
   const [composerRestoreData, setComposerRestoreData] = useState<ComposerRestoreData | null>(null);
@@ -1067,6 +1069,20 @@ export function useMailPageLogic() {
   const previewAttachment = useCallback(async (att: MailAttachment) => {
     const p = resolveProvider(selectedThread?.accountId);
     if (!p) return;
+    if (getOfficeFormat(att.name, att.content_type)) {
+      setAttachmentPreview({ attachment: att, loading: false, data: null,
+        loadOffice: async () => {
+          if (att.size > OFFICE_PREVIEW_MAX_BYTES) throw new Error('office-size-limit');
+          // Provider APIs expose no cancellation; the viewer ignores obsolete results.
+          return officeAttachmentBytes(att.local_data ?? await p.getAttachmentData(att));
+        },
+        download: async () => {
+          const data = att.local_data ?? await p.getAttachmentData(att);
+          fileService.downloadBase64(att.name, data, att.content_type);
+        },
+      });
+      return;
+    }
     const canPreviewInApp = att.content_type.startsWith('image/') || att.content_type.includes('pdf');
     if (att.local_data && canPreviewInApp) {
       setAttachmentPreview({ attachment: att, loading: false, data: att.local_data });
@@ -1081,10 +1097,10 @@ export function useMailPageLogic() {
     setAttachmentPreview({ attachment: att, loading: true, data: null });
     try {
       const data = await p.getAttachmentData(att);
-      setAttachmentPreview({ attachment: att, loading: false, data });
+      setAttachmentPreview(current => current?.attachment === att ? { attachment: att, loading: false, data } : current);
     } catch (e) {
       setError(String(e));
-      setAttachmentPreview(null);
+      setAttachmentPreview(current => current?.attachment === att ? null : current);
     }
   }, [resolveProvider, selectedThread]);
 

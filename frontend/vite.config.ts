@@ -9,6 +9,7 @@ const appCommitDate = process.env.VITE_APP_COMMIT_DATE || gitValue(['log', '-1',
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: { exclude: ["@silurus/ooxml"] },
   clearScreen: false,
   define: { 'import.meta.env.VITE_APP_COMMIT_ID': JSON.stringify(appCommitId), 'import.meta.env.VITE_APP_COMMIT_DATE': JSON.stringify(appCommitDate) },
   server: {

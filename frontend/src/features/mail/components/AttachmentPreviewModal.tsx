@@ -1,6 +1,9 @@
+import { useTranslation } from 'react-i18next';
+import { OfficeAttachmentPreview } from './OfficeAttachmentPreview';
+import { getOfficeFormat } from '../utils/officeAttachment';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MailAttachment } from '../types';
-import { X, RefreshCw } from 'lucide-react';
+import { X, RefreshCw, Download } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { FileTypeIcon } from '../utils';
 import { platform } from '../../../shared/platform';
@@ -11,6 +14,8 @@ export interface AttachmentPreviewModalProps {
   readonly loading: boolean;
   readonly data: string | null;
   readonly onClose: () => void;
+  readonly loadOffice?: () => Promise<ArrayBuffer>;
+  readonly onDownload?: () => Promise<void>;
 }
 
 function AndroidPdfPreview({ bytes }: { readonly bytes: Uint8Array }) {
@@ -72,7 +77,19 @@ function AndroidPdfPreview({ bytes }: { readonly bytes: Uint8Array }) {
   );
 }
 
-export function AttachmentPreviewModal({ attachment, loading, data, onClose }: AttachmentPreviewModalProps) {
+export function AttachmentPreviewModal({ attachment, loading, data, onClose, loadOffice, onDownload }: AttachmentPreviewModalProps) {
+  const { t } = useTranslation();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const downloadGenerationRef = useRef(0);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState(false);
+  useEffect(() => {
+    downloadGenerationRef.current += 1;
+    setDownloading(false);
+    setDownloadError(false);
+    return () => { downloadGenerationRef.current += 1; };
+  }, [attachment, onDownload]);
+  const officeFormat = getOfficeFormat(attachment.name, attachment.content_type);
   const isImage = attachment.content_type.startsWith('image/');
   const isPdf = attachment.content_type.includes('pdf') || attachment.name.toLowerCase().endsWith('.pdf');
   // Chromium does not reliably allow a PDF data URL to be loaded in a child
@@ -98,6 +115,12 @@ export function AttachmentPreviewModal({ attachment, loading, data, onClose }: A
   }, [previewUrl]);
 
   useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    return () => previous?.focus();
+  }, []);
+
+  useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -110,15 +133,32 @@ export function AttachmentPreviewModal({ attachment, loading, data, onClose }: A
         type="button"
         className="mail-preview-overlay"
         onClick={onClose}
-        aria-label="Fermer l'aperçu"
+        aria-label={t('mail.office.close')}
       />
-      <dialog open className="mail-preview-modal">
+      <dialog open aria-modal="true" aria-label={attachment.name} className="mail-preview-modal" onKeyDown={event => {
+        if (event.key !== 'Tab') return;
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"], a[href], input, select'));
+        const first = buttons[0]; const last = buttons[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }}>
         <div className="mail-preview-modal__header">
           <FileTypeIcon name={attachment.name} size={16} />
           <span className="mail-preview-modal__title">{attachment.name}</span>
-          <button type="button" className="btn-icon" onClick={onClose}><X size={16} /></button>
+          {onDownload && <button type="button" className="btn-ghost mail-office-download" disabled={downloading} aria-busy={downloading} onClick={() => {
+            const generation = downloadGenerationRef.current;
+            setDownloading(true); setDownloadError(false);
+            void onDownload().catch(() => {
+              if (downloadGenerationRef.current === generation) setDownloadError(true);
+            }).finally(() => {
+              if (downloadGenerationRef.current === generation) setDownloading(false);
+            });
+          }}>{downloading ? <RefreshCw size={16} className="spin" /> : <Download size={16} />}{t('mail.attachment.download')}</button>}
+          <button ref={closeRef} type="button" className="btn-icon" aria-label={t('mail.office.close')} title={t('mail.office.close')} onClick={onClose}><X size={16} /></button>
         </div>
+        {downloadError && <p className="mail-office-download-error" role="alert">{t('mail.office.downloadError')}</p>}
         <div className="mail-preview-modal__body">
+          {officeFormat && loadOffice && <OfficeAttachmentPreview format={officeFormat} load={loadOffice} />}
           {loading && (
             <div className="mail-preview-modal__loading">
               <RefreshCw size={32} className="spin" style={{ opacity: 0.4 }} />

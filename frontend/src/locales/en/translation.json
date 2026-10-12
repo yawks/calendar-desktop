@@ -379,6 +379,20 @@
     "invalidToken": "Invalid token. Reconnect your Google account."
   },
   "mail": {
+    "office": {
+      "close": "Close preview",
+      "previous": "Previous page",
+      "next": "Next page",
+      "pages": "Page {{current}} of {{total}}",
+      "zoomOut": "Zoom out",
+      "zoomIn": "Zoom in",
+      "formulas": "Formulas show the results saved in the file, without recalculation.",
+      "loading": "Loading preview…",
+      "ready": "Preview loaded",
+      "error": "Unable to preview this file. You can download the original.",
+      "tooLarge": "Preview is limited to 20 MiB. You can download the original.",
+      "downloadError": "Download failed. Please try again."
+    },
     "selection": { "clear": "Clear selection" },
     "selectAll": "Select all",
     "filterAll": "All",

@@ -379,6 +379,20 @@
     "invalidToken": "Token invalide. Reconnectez votre compte Google."
   },
   "mail": {
+    "office": {
+      "close": "Fermer l’aperçu",
+      "previous": "Page précédente",
+      "next": "Page suivante",
+      "pages": "Page {{current}} sur {{total}}",
+      "zoomOut": "Réduire",
+      "zoomIn": "Agrandir",
+      "formulas": "Les formules affichent les résultats enregistrés dans le fichier, sans recalcul.",
+      "loading": "Chargement de l’aperçu…",
+      "ready": "Aperçu chargé",
+      "error": "Impossible d’afficher ce fichier. Vous pouvez télécharger l’original.",
+      "tooLarge": "L’aperçu est limité à 20 Mio. Vous pouvez télécharger l’original.",
+      "downloadError": "Le téléchargement a échoué. Réessayez."
+    },
     "selection": { "clear": "Effacer la sélection" },
     "selectAll": "Tout sélectionner",
     "filterAll": "Tous",

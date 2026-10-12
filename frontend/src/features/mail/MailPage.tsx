@@ -1278,6 +1278,9 @@ export default function MailApp() {
 
       {attachmentPreview && (
         <AttachmentPreviewModal
+          key={attachmentPreview.attachment.attachment_id}
+          loadOffice={attachmentPreview.loadOffice}
+          onDownload={attachmentPreview.download}
           attachment={attachmentPreview.attachment}
           loading={attachmentPreview.loading}
           data={attachmentPreview.data}
