@@ -351,22 +351,23 @@
   .config-source-list { border-radius: 9px; }
   .config-source-list-header { display: none; }
   .config-source-list .config-group-header {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      "provider provider actions"
-      "account services actions";
+      "provider actions"
+      "account account"
+      "services services";
     gap: 3px 8px;
     min-height: 64px;
     padding: 9px 12px;
   }
   .config-source-list .config-group-provider { grid-area: provider; }
   .config-source-list .config-group-title { grid-area: account; padding-left: 40px; color: var(--text-muted); white-space: normal; overflow-wrap: anywhere; }
-  .config-source-list .config-group-capabilities { grid-area: services; }
+  .config-source-list .config-group-capabilities { grid-area: services; padding-left: 40px; }
   .config-source-list .config-group-actions { grid-area: actions; }
   .config-source-list .config-group-body { display: none; padding: 2px 12px 10px 52px; }
   .config-source-list .config-group--expanded .config-group-body { display: block; }
-  .config-source-list .config-group-details-btn { display: flex; width: 36px; height: 36px; }
-  .config-source-list .config-group-edit-btn { width: 40px; height: 40px; }
+  .config-source-list .config-group-details-btn { display: flex; width: 44px; height: 44px; }
+  .config-source-list .config-group-edit-btn { width: 44px; height: 44px; }
   .config-source-list .cal-item-meta { white-space: nowrap; }
 
   /* As for mail-thread-item, Android WebView can stretch/shrink repeated flex
@@ -376,27 +377,22 @@
     min-height: 0;
     flex: 0 0 auto;
   }
-  .native-android .config-source-list .config-group:not(.config-group--expanded) {
-    height: 58px;
-    min-height: 58px;
-    max-height: 58px;
-    overflow: hidden;
-  }
   .native-android .config-source-list .config-group-header {
     box-sizing: border-box;
-    height: 58px;
+    height: auto;
     min-height: 58px;
-    max-height: 58px;
     flex: 0 0 auto;
     padding-block: 7px;
-    overflow: hidden;
   }
-  .native-android .config-source-list .config-group--expanded .config-group-header {
-    height: auto;
-    max-height: none;
+  .native-android .config-source-list .config-group--expanded .config-group-body {
+    box-sizing: border-box;
+    max-height: min(220px, 30dvh);
+    overflow-y: auto;
+    overflow-wrap: anywhere;
   }
   .native-android .config-source-list .config-group-provider-icon { width: 28px; height: 28px; flex-basis: 28px; }
   .native-android .config-source-list .config-group-title { padding-left: 38px; }
+  .native-android .config-source-list .config-group-capabilities { padding-left: 38px; }
   .native-settings-card { padding: 16px; }
   .native-settings-grid { grid-template-columns: minmax(0, 1fr); }
   .config-sync-card { padding: 16px; }

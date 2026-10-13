@@ -4,6 +4,7 @@ import { Folder, MailSearchQuery, MailThread, MailMessage, MailFolder, MailIdent
 import { buildUnreadCounts, DISPLAY_TO_STATIC } from '../utils';
 import { useMemo, useCallback } from 'react';
 import { getOfflineConversation, getOfflineInboxThreads } from '../utils/offlineMailCache';
+import { platform } from '../../../shared/platform';
 import { isTemporaryMailServiceError } from '../../../shared/utils/networkError';
 
 export const MAIL_KEYS = {
@@ -29,6 +30,8 @@ export function useMailFolders(accountId: string, provider: MailProvider | null)
     },
     enabled: !!provider,
     staleTime: 30 * 1000,
+    // Notification actions update the server outside React's persisted cache.
+    refetchOnMount: platform.isNativeAndroid ? 'always' : true,
     refetchInterval: 60 * 1000,
     retry: retryTemporaryMailFailure,
     retryDelay: temporaryMailRetryDelay,
@@ -60,6 +63,8 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
       },
       enabled: !!acc.provider,
       staleTime: 30 * 1000,
+      // Notification actions update the server outside React's persisted cache.
+      refetchOnMount: platform.isNativeAndroid ? 'always' : true,
       refetchInterval: 60 * 1000,
       retry: retryTemporaryMailFailure,
       retryDelay: temporaryMailRetryDelay,
@@ -139,6 +144,7 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
       return threads;
     },
     enabled: !!provider,
+    refetchOnMount: platform.isNativeAndroid ? 'always' : true,
     refetchInterval: 60 * 1000,
     retry: retryTemporaryMailFailure,
     retryDelay: temporaryMailRetryDelay,
@@ -169,6 +175,7 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
         return threads;
       },
       enabled: enabled && !!acc.provider,
+      refetchOnMount: platform.isNativeAndroid ? 'always' : true,
       refetchInterval: 60 * 1000,
       retry: retryTemporaryMailFailure,
       retryDelay: temporaryMailRetryDelay,
