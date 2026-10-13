@@ -19,6 +19,7 @@ import { RecipientEntry } from '../components/RecipientInput';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useAllAccountIdentities } from './useMailQueries';
 import { useMailMutations } from './useMailMutations';
+import { useMailThreadReadSync } from './useMailThreadReadSync';
 import { cleanupContactIndex, recordContactObservations, searchContactIndex, type ContactObservation } from '../utils/contactIndex';
 import { useContactBackfill } from './useContactBackfill';
 import { useOfflineMailSync } from './useOfflineMailSync';
@@ -223,6 +224,8 @@ export function useMailPageLogic() {
   const rawThreadsRef = useRef(rawThreads);
   rawThreadsRef.current = rawThreads;
 
+  useMailThreadReadSync(setStableThreads, selectedAccountId, selectedFolder, isAllMode);
+
   // Accumulate threads without ever clearing during a load-more fetch.
   // Only reset when the user navigates to a different folder/account/search.
   useEffect(() => {
@@ -287,6 +290,7 @@ export function useMailPageLogic() {
   }, [conversationQuery.data, selectedThread?.conversation_id, pendingOptimisticMsgs]);
 
   const messagesLoading = conversationQuery.isLoading;
+  const messagesFetching = conversationQuery.isFetching;
 
   useEffect(() => {
     if (!conversationQuery.error) return;
@@ -1522,7 +1526,7 @@ export function useMailPageLogic() {
     threadsLoading: threadsInitialLoading && threadOffset === 0,
     threadsRefreshing: threadOffset === 0 && (threadsFetching || offlineMailSynchronizing),
     threadsLoadingMore, hasMoreThreads, threadTotalCount, selectedThread,
-    messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
+    messages, messagesLoading, messagesFetching, replyingTo, replyMode, composing, composingAccountId,
     contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,

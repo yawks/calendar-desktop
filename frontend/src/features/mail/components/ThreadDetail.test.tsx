@@ -19,12 +19,14 @@ it('retries automatic marking on reopening after another read conversation, whil
     messagesLoading: false, replyingTo: null, contacts: [], moveFolders: [],
     supportsSnooze: false, onMarkRead,
   } as unknown as ThreadDetailProps;
-  const render = async (conversationId: string, read: boolean, accountId = 'account') => {
+  const render = async (conversationId: string, read: boolean, accountId = 'account', messagesFetching = false) => {
     const thread = { conversation_id: conversationId, accountId, topic: 'Mail', unread_count: read ? 0 : 1 } as MailThread;
     const message = { item_id: conversationId, is_read: read, subject: 'Mail', date_time_received: '', attachments: [] } as unknown as MailMessage;
-    await act(async () => root.render(<ThreadDetail {...props} thread={thread} messages={[message]} />));
+    await act(async () => root.render(<ThreadDetail {...props} thread={thread} messages={[message]} messagesFetching={messagesFetching} />));
   };
   try {
+    await render('first', false, 'account', true);
+    expect(onMarkRead).not.toHaveBeenCalled();
     await render('first', false);
     expect(onMarkRead).toHaveBeenCalledTimes(1);
     await render('first', true);

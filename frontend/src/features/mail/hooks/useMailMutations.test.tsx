@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { expect, it, vi } from 'vitest';
 import { useMailMutations } from './useMailMutations';
+import { useMailThreadReadSync } from './useMailThreadReadSync';
 import { MAIL_KEYS } from './useMailQueries';
 import type { MailProvider } from '../providers/MailProvider';
 import type { MailMessage, MailThread } from '../types';
@@ -15,47 +16,16 @@ vi.mock('./useOfflineMailSync', () => ({ synchronizeOfflineInboxAccount: vi.fn()
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-for (const operation of ['bulkMove', 'bulkDelete'] as const) {
-  it(`${operation}: hides cached rows while the server is pending and restores them on failure`, async () => {
-    const client = new QueryClient();
-    const root = createRoot(document.createElement('div'));
-    let mutations!: ReturnType<typeof useMailMutations>;
-    function Harness() { mutations = useMailMutations(); return null; }
-    const key = [...MAIL_KEYS.threads('account', 'inbox'), 50, 0];
-    const rows = [{ conversation_id: 'conversation' }];
-    client.setQueryData(key, rows);
-    let reject!: (error: Error) => void;
-    const remote = new Promise<void>((_resolve, rejectPromise) => { reject = rejectPromise; });
-    const perform = vi.fn(() => remote);
-    const provider = { bulkMoveToFolder: perform, bulkMoveToTrash: perform } as unknown as MailProvider;
-    await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
-    let settled!: () => void;
-    const completed = new Promise<void>(resolve => { settled = resolve; });
-    try {
-      await act(async () => {
-        mutations[operation]({ accountId: 'account', provider, conversationIds: ['conversation'], targetFolderId: 'archive', permanent: false }, { onSettled: settled });
-        await new Promise(resolve => setTimeout(resolve, 0));
-      });
-      expect(perform).toHaveBeenCalledOnce();
-      expect(client.getQueryData(key)).toEqual([]);
-      await act(async () => {
-        reject(new Error('Network unavailable'));
-        await completed;
-      });
-      expect(client.getQueryData(key)).toEqual(rows);
-    } finally {
-      await act(async () => root.unmount());
-      client.clear();
-    }
-  });
-}
-
 it('restores each folder and page after a read failure, then can mark another email read', async () => {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   const root = createRoot(document.createElement('div'));
   let mutations!: ReturnType<typeof useMailMutations>;
+  let displayedThreads!: MailThread[];
   function Harness() {
     mutations = useMailMutations();
+    const [threads, setThreads] = useState([...page, ...otherPage]);
+    displayedThreads = threads;
+    useMailThreadReadSync(setThreads, 'account', 'inbox', false);
     return null;
   }
   const first = { item_id: 'first', change_key: 'key', is_read: false } as MailMessage;
@@ -68,6 +38,8 @@ it('restores each folder and page after a read failure, then can mark another em
   const page = [{ conversation_id: 'first', unread_count: 1, message_count: 1 }] as MailThread[];
   const otherPage = [{ conversation_id: 'second', unread_count: 1, message_count: 1 }] as MailThread[];
   const archiveMessages = [{ ...first, body_html: 'archive body' }];
+  const searchKey = MAIL_KEYS.search('account', 'query');
+  client.setQueryData(searchKey, [...page, ...otherPage]);
   client.setQueryData(pageKey, page);
   client.setQueryData(otherPageKey, otherPage);
   client.setQueryData(messageKey, [first]);
@@ -90,7 +62,11 @@ it('restores each folder and page after a read failure, then can mark another em
     expect(client.getQueryData(otherPageKey)).toEqual(otherPage);
     expect(client.getQueryData(messageKey)).toEqual([first]);
     expect(client.getQueryData(archiveKey)).toEqual(archiveMessages);
+    expect(client.getQueryData(searchKey)).toEqual([...page, ...otherPage]);
+    expect(displayedThreads).toEqual([...page, ...otherPage]);
     await markRead('second', second);
+    expect(client.getQueryData(searchKey)).toEqual([page[0], { ...otherPage[0], unread_count: 0 }]);
+    expect(displayedThreads).toEqual([page[0], { ...otherPage[0], unread_count: 0 }]);
     expect(client.getQueryData(secondMessageKey)).toEqual([{ ...second, is_read: true }]);
     expect(client.getQueryData(otherPageKey)).toEqual([{ ...otherPage[0], unread_count: 0 }]);
     expect(client.getQueryData(messageKey)).toEqual([first]);

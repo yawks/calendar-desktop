@@ -71,15 +71,18 @@ export function useMailMutations() {
 
       const threadsKey = ['mail', accountId, 'threads'];
       const allThreadsKey = ['mail', 'all', 'threads'];
+      const searchKey = ['mail', accountId, 'search'];
       const messagesKey = MAIL_KEYS.thread(accountId, conversationId);
       const foldersKey = MAIL_KEYS.folders(accountId);
 
       await queryClient.cancelQueries({ queryKey: threadsKey });
       await queryClient.cancelQueries({ queryKey: allThreadsKey });
 
+      await queryClient.cancelQueries({ queryKey: searchKey });
       await queryClient.cancelQueries({ queryKey: messagesKey });
       const previousThreads = queryClient.getQueriesData<MailThread[]>({ queryKey: threadsKey });
       const previousAllThreads = queryClient.getQueriesData<MailThread[]>({ queryKey: allThreadsKey });
+      const previousSearch = queryClient.getQueriesData<MailThread[]>({ queryKey: searchKey });
       const previousMessages = queryClient.getQueriesData<MailMessage[]>({ queryKey: messagesKey });
       const previousFolders = queryClient.getQueryData(foldersKey);
 
@@ -109,6 +112,7 @@ export function useMailMutations() {
 
       queryClient.setQueriesData<MailThread[]>({ queryKey: threadsKey }, updateThreads);
       queryClient.setQueriesData<MailThread[]>({ queryKey: allThreadsKey }, updateThreads);
+      queryClient.setQueriesData<MailThread[]>({ queryKey: searchKey }, updateThreads);
 
       queryClient.setQueriesData<MailMessage[]>({ queryKey: messagesKey }, (old) => {
         if (!Array.isArray(old)) return old;
@@ -137,12 +141,12 @@ export function useMailMutations() {
         });
       }
 
-      return { previousThreads, previousAllThreads, previousMessages, previousFolders };
+      return { previousThreads, previousAllThreads, previousSearch, previousMessages, previousFolders };
     },
     onError: (_err, variables, context) => {
       const { accountId } = variables;
       if (context) {
-        for (const [key, data] of [...context.previousThreads, ...context.previousAllThreads, ...context.previousMessages]) {
+        for (const [key, data] of [...context.previousThreads, ...context.previousAllThreads, ...context.previousSearch, ...context.previousMessages]) {
           queryClient.setQueryData(key, data);
         }
         if (context.previousFolders !== undefined) {

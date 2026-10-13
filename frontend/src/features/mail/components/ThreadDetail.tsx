@@ -27,6 +27,7 @@ export interface ThreadDetailProps {
   readonly thread: MailThread;
   readonly messages: MailMessage[];
   readonly messagesLoading?: boolean;
+  readonly messagesFetching?: boolean;
   readonly replyingTo: MailMessage | null;
   readonly contacts: { email: string; name?: string }[];
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
@@ -99,7 +100,7 @@ function computeSnoozeOptions() {
 }
 
 export function ThreadDetail({
-  thread, messages, messagesLoading, replyingTo, contacts, provider, currentUserEmail, mailProviderType,
+  thread, messages, messagesLoading, messagesFetching, replyingTo, contacts, provider, currentUserEmail, mailProviderType,
   identities, selectedIdentityId, onIdentityChange,
   onMarkRead, onTrash,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
@@ -126,12 +127,12 @@ export function ThreadDetail({
     markedConversationRef.current = null;
   }, [thread.accountId, thread.conversation_id]);
   useEffect(() => {
-    if (messagesLoading || markedConversationRef.current === thread.conversation_id) return;
+    if (messagesLoading || messagesFetching || markedConversationRef.current === thread.conversation_id) return;
     const unread = messages.filter(message => !message.is_read);
     if (!unread.length) return;
     markedConversationRef.current = thread.conversation_id;
     onMarkRead(unread);
-  }, [messages, messagesLoading, onMarkRead, thread.accountId, thread.conversation_id]);
+  }, [messages, messagesLoading, messagesFetching, onMarkRead, thread.accountId, thread.conversation_id]);
 
   useEffect(() => {
     if (!replyingTo) return;

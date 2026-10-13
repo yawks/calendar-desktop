@@ -221,6 +221,37 @@ fn parse_root_item_id(xml: &str) -> Option<(String, String)> {
     Some((id, ck))
 }
 
+fn build_response_draft(params: &SendMailParams, id: &str, forward: bool) -> String {
+    let kind = if forward {
+        "ForwardItem"
+    } else {
+        "ReplyAllToItem"
+    };
+    let (to, cc, bcc) = build_recipients_blocks(&params.to, &params.cc, &params.bcc);
+    let change_key = params
+        .reply_to_change_key
+        .as_deref()
+        .map(|key| format!(" ChangeKey=\"{}\"", xml_escape(key)))
+        .unwrap_or_default();
+    // Save the response object so Exchange preserves the conversation before attachments are added.
+    format!(
+        r#"<m:CreateItem MessageDisposition="SaveOnly">
+  <m:SavedItemFolderId><t:DistinguishedFolderId Id="drafts"/></m:SavedItemFolderId>
+  <m:Items>
+    <t:{kind}>
+      <t:Subject>{subject}</t:Subject>
+      <t:ToRecipients>{to}</t:ToRecipients>{cc}{bcc}
+      <t:ReferenceItemId Id="{id}"{change_key}/>
+      <t:NewBodyContent BodyType="HTML">{body}</t:NewBodyContent>
+    </t:{kind}>
+  </m:Items>
+</m:CreateItem>"#,
+        subject = xml_escape(&params.subject),
+        id = xml_escape(id),
+        body = xml_escape(&params.body_html),
+    )
+}
+
 /// Build the recipient XML blocks used in CreateItem.
 fn build_recipients_blocks(
     to: &[String],
@@ -1592,9 +1623,9 @@ impl MailProvider for EwsProvider {
         Ok(())
     }
 
-    async fn send_mail(&self, params: SendMailParams) -> Result<(), String> {
+    async fn send_mail(&self, mut params: SendMailParams) -> Result<(), String> {
         let access_token = &self.access_token;
-        let atts = params.attachments.unwrap_or_default();
+        let atts = params.attachments.take().unwrap_or_default();
         let forward = params.is_forward.unwrap_or(false);
         let is_scheduled = params.send_at.is_some();
         let deferred_property = if let Some(send_at) = params.send_at.as_deref() {
@@ -1706,7 +1737,9 @@ impl MailProvider for EwsProvider {
 
         // With attachments: 3-step flow (SaveOnly → CreateAttachment → SendItem)
         // For scheduled sends, save to outbox; for immediate sends, save to drafts.
-        let create_body = {
+        let create_body = if let Some(id) = params.reply_to_item_id.as_deref() {
+            build_response_draft(&params, id, forward)
+        } else {
             let (to_block, cc_block, bcc_block) =
                 build_recipients_blocks(&params.to, &params.cc, &params.bcc);
             let folder = if is_scheduled { "outbox" } else { "drafts" };
@@ -3177,6 +3210,42 @@ fn xml_unescape_body(raw: &str) -> String {
 
 #[cfg(test)]
 mod outlook_schedule_tests {
+    #[test]
+    fn response_draft_preserves_reference_and_selected_recipients() {
+        let mut params = super::SendMailParams {
+            to: vec!["recipient@example.com".into()],
+            cc: vec![],
+            bcc: vec![],
+            subject: "RE: RDV de restitution du POC".into(),
+            body_html: "<p>Reply</p>".into(),
+            reply_to_item_id: Some("original&item".into()),
+            reply_to_change_key: Some("key&1".into()),
+            attachments: None,
+            is_forward: None,
+            identity_id: None,
+            in_reply_to: None,
+            references: None,
+            send_at: None,
+        };
+        for forward in [false, true] {
+            let xml = super::build_response_draft(&params, "original&item", forward);
+            assert!(xml.contains("MessageDisposition=\"SaveOnly\""));
+            assert!(xml.contains(if forward {
+                "<t:ForwardItem>"
+            } else {
+                "<t:ReplyAllToItem>"
+            }));
+            assert!(xml
+                .contains("<t:ReferenceItemId Id=\"original&amp;item\" ChangeKey=\"key&amp;1\"/>"));
+            assert!(xml.contains("recipient@example.com"));
+            assert!(xml.contains("&lt;p&gt;Reply&lt;/p&gt;"));
+            assert!(!xml.contains("<t:Message>"));
+        }
+        params.reply_to_change_key = None;
+        let xml = super::build_response_draft(&params, "original&item", false);
+        assert!(xml.contains("<t:ReferenceItemId Id=\"original&amp;item\"/>"));
+    }
+
     use super::*;
 
     #[test]

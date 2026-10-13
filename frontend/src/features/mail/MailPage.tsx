@@ -51,7 +51,7 @@ export default function MailApp() {
   const {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder, selectedFolderAccountId,
     threads, threadsLoading, threadsRefreshing, threadsLoadingMore, threadTotalCount, selectedThread,
-    messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
+    messages, messagesLoading, messagesFetching, replyingTo, replyMode, composing, composingAccountId,
     contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
@@ -152,7 +152,6 @@ export default function MailApp() {
       setTimeout(() => setActionToast(null), 8000);
     });
   };
-  const [messageDeleting, setMessageDeleting] = useState(false);
   const connectionIssues = useConnectionIssues();
   const displayedConnectionIssue = connectionIssues.find(issue => issue.message === error) ?? connectionIssues[0];
   const mobileActionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1131,6 +1130,7 @@ export default function MailApp() {
                   : undefined}
                 messages={messages.filter(m => !m.is_draft)}
                 messagesLoading={messagesLoading}
+                messagesFetching={messagesFetching}
                 replyingTo={replyingTo}
                 contacts={contacts}
                 provider={resolveProvider(selectedThread.accountId)}
@@ -1222,14 +1222,12 @@ export default function MailApp() {
             {messageToDelete && createPortal(
               <DeleteMessageConfirmation
                 permanent={selectedFolder === 'deleteditems'}
-                deleting={messageDeleting}
-                onCancel={() => { if (!messageDeleting) setMessageToDelete(null); }}
+                deleting={false}
+                onCancel={() => setMessageToDelete(null)}
                 onConfirm={() => {
-                  setMessageDeleting(true);
-                  void handleDeleteMessage(messageToDelete)
-                    .then(() => setMessageToDelete(null))
-                    .catch(() => undefined)
-                    .finally(() => setMessageDeleting(false));
+                  const message = messageToDelete;
+                  setMessageToDelete(null);
+                  void handleDeleteMessage(message).catch(() => undefined);
                 }}
               />,
               document.body,
