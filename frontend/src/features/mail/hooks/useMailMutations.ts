@@ -30,9 +30,25 @@ function makeThreadFilter(conversationId: string) {
 export function useMailMutations() {
   const queryClient = useQueryClient();
   const { settings: offlineMail } = useOfflineMailSettings();
-  const removeCachedConversations = (accountId: string, conversationIds: string[]) =>
-    offlineMail.enabled ? removeOfflineInboxConversations(accountId, conversationIds) : Promise.resolve();
+  const clearConversationQueries = async (accountId: string, conversationIds: string[]) => {
+    for (const conversationId of conversationIds) {
+      // Exchange changes item IDs on move: neither headers nor bodies can be reused.
+      for (const queryKey of [MAIL_KEYS.thread(accountId, conversationId), ['mail', accountId, 'message-content', conversationId]]) {
+        await queryClient.cancelQueries({ queryKey });
+        queryClient.removeQueries({ queryKey });
+      }
+    }
+  };
+  const removeCachedConversations = async (accountId: string, conversationIds: string[]) => {
+    await clearConversationQueries(accountId, conversationIds);
+    const removed = new Set(conversationIds);
+    queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'search'] }, old =>
+      old?.filter(thread => !removed.has(thread.conversation_id)),
+    );
+    if (offlineMail.enabled) await removeOfflineInboxConversations(accountId, conversationIds);
+  };
   const syncMovedToInbox = async (accountId: string, provider: MailProvider, conversationIds: string[]) => {
+    await clearConversationQueries(accountId, conversationIds);
     if (!offlineMail.enabled) return;
     await clearOfflineInboxRemovals(accountId, conversationIds);
     await synchronizeOfflineInboxAccount(accountId, provider, offlineMail, queryClient);
@@ -61,9 +77,10 @@ export function useMailMutations() {
       await queryClient.cancelQueries({ queryKey: threadsKey });
       await queryClient.cancelQueries({ queryKey: allThreadsKey });
 
-      const previousThreads = queryClient.getQueryData(threadsKey);
-      const previousAllThreads = queryClient.getQueryData(allThreadsKey);
-      const previousMessages = queryClient.getQueryData(messagesKey);
+      await queryClient.cancelQueries({ queryKey: messagesKey });
+      const previousThreads = queryClient.getQueriesData<MailThread[]>({ queryKey: threadsKey });
+      const previousAllThreads = queryClient.getQueriesData<MailThread[]>({ queryKey: allThreadsKey });
+      const previousMessages = queryClient.getQueriesData<MailMessage[]>({ queryKey: messagesKey });
       const previousFolders = queryClient.getQueryData(foldersKey);
 
       // Number of unread messages transitioning to read
@@ -122,12 +139,12 @@ export function useMailMutations() {
 
       return { previousThreads, previousAllThreads, previousMessages, previousFolders };
     },
-    onError: (_err, variables, context: any) => {
-      const { accountId, conversationId } = variables;
+    onError: (_err, variables, context) => {
+      const { accountId } = variables;
       if (context) {
-        queryClient.setQueryData(['mail', accountId, 'threads'], context.previousThreads);
-        queryClient.setQueryData(['mail', 'all', 'threads'], context.previousAllThreads);
-        queryClient.setQueriesData({ queryKey: MAIL_KEYS.thread(accountId, conversationId) }, () => context.previousMessages);
+        for (const [key, data] of [...context.previousThreads, ...context.previousAllThreads, ...context.previousMessages]) {
+          queryClient.setQueryData(key, data);
+        }
         if (context.previousFolders !== undefined) {
           queryClient.setQueryData(MAIL_KEYS.folders(accountId), context.previousFolders);
         }
@@ -260,8 +277,8 @@ export function useMailMutations() {
     const allThreadsKey = ['mail', 'all', 'threads'];
     await queryClient.cancelQueries({ queryKey: threadsKey });
     await queryClient.cancelQueries({ queryKey: allThreadsKey });
-    const previousThreads = queryClient.getQueryData(threadsKey);
-    const previousAllThreads = queryClient.getQueryData(allThreadsKey);
+    const previousThreads = queryClient.getQueriesData({ queryKey: threadsKey });
+    const previousAllThreads = queryClient.getQueriesData({ queryKey: allThreadsKey });
     const idSet = new Set(conversationIds);
     const filter = (old: any) => {
       if (!Array.isArray(old)) return old;
@@ -282,10 +299,11 @@ export function useMailMutations() {
       }
     },
     onMutate: ({ accountId, conversationIds }) => bulkOnMutate(accountId, conversationIds),
-    onError: (_err, variables, context: any) => {
+    onError: (_err, _variables, context: any) => {
       if (context) {
-        queryClient.setQueryData(['mail', variables.accountId, 'threads'], context.previousThreads);
-        queryClient.setQueryData(['mail', 'all', 'threads'], context.previousAllThreads);
+        for (const [key, data] of [...context.previousThreads, ...context.previousAllThreads]) {
+          queryClient.setQueryData(key, data);
+        }
       }
     },
     onSuccess: (_data, variables) => removeCachedConversations(
@@ -303,10 +321,11 @@ export function useMailMutations() {
       await provider.bulkMoveToFolder(conversationIds, targetFolderId);
     },
     onMutate: ({ accountId, conversationIds }) => bulkOnMutate(accountId, conversationIds),
-    onError: (_err, variables, context: any) => {
+    onError: (_err, _variables, context: any) => {
       if (context) {
-        queryClient.setQueryData(['mail', variables.accountId, 'threads'], context.previousThreads);
-        queryClient.setQueryData(['mail', 'all', 'threads'], context.previousAllThreads);
+        for (const [key, data] of [...context.previousThreads, ...context.previousAllThreads]) {
+          queryClient.setQueryData(key, data);
+        }
       }
     },
     onSuccess: (_data, variables) => variables.targetFolderId === 'inbox'

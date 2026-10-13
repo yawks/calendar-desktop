@@ -123,12 +123,15 @@ export function ThreadDetail({
 
   const markedConversationRef = useRef<string | null>(null);
   useEffect(() => {
+    markedConversationRef.current = null;
+  }, [thread.accountId, thread.conversation_id]);
+  useEffect(() => {
     if (messagesLoading || markedConversationRef.current === thread.conversation_id) return;
     const unread = messages.filter(message => !message.is_read);
     if (!unread.length) return;
     markedConversationRef.current = thread.conversation_id;
     onMarkRead(unread);
-  }, [messages, messagesLoading, onMarkRead, thread.conversation_id]);
+  }, [messages, messagesLoading, onMarkRead, thread.accountId, thread.conversation_id]);
 
   useEffect(() => {
     if (!replyingTo) return;

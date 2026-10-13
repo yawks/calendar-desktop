@@ -115,6 +115,25 @@ fn ews_err(xml: &str, fallback: &str) -> String {
     }
 }
 
+fn check_permanent_delete_response(xml: &str) -> Result<(), String> {
+    if !xml.contains("ResponseClass=\"Error\"") {
+        return Ok(());
+    }
+    let responses = xml_all_ns(xml, "m:DeleteItemResponseMessage");
+    if responses.is_empty() {
+        return Err(ews_err(xml, "EWS permanently-delete error"));
+    }
+    for response in responses {
+        if response.contains("ResponseClass=\"Error\"")
+            && xml_content_ns(&response, "m:ResponseCode").as_deref() != Some("ErrorItemNotFound")
+        {
+            return Err(ews_err(&response, "EWS permanently-delete error"));
+        }
+    }
+    // An already absent item satisfies HardDelete; do not roll back successful deletions.
+    Ok(())
+}
+
 /// Returns the real EWS FolderId for a distinguished folder (e.g. "junkemail").
 async fn get_distinguished_folder_id(access_token: &str, distinguished_id: &str) -> Option<String> {
     let soap_body = format!(
@@ -141,6 +160,16 @@ async fn get_distinguished_folder_id(access_token: &str, distinguished_id: &str)
 /// Return the EWS `FolderId Id="..."` XML fragment for every mail folder in the
 /// mailbox (deep traversal, excludes calendar/contacts/tasks folders).
 async fn find_all_mail_folder_ids(access_token: &str) -> Vec<String> {
+    match find_mail_folder_ids(access_token).await {
+        Ok(ids) => ids,
+        Err(error) => {
+            eprintln!("[find_all_mail_folder_ids] error: {}", error);
+            vec![]
+        }
+    }
+}
+
+async fn find_mail_folder_ids(access_token: &str) -> Result<Vec<String>, String> {
     let soap_body = r#"<m:FindFolder Traversal="Deep">
   <m:FolderShape>
     <t:BaseShape>IdOnly</t:BaseShape>
@@ -150,13 +179,10 @@ async fn find_all_mail_folder_ids(access_token: &str) -> Vec<String> {
   </m:ParentFolderIds>
 </m:FindFolder>"#;
 
-    let xml = match send(access_token, soap_body).await {
-        Ok(x) => x,
-        Err(e) => {
-            eprintln!("[find_all_mail_folder_ids] error: {}", e);
-            return vec![];
-        }
-    };
+    let xml = send(access_token, soap_body).await?;
+    if xml.contains("ResponseClass=\"Error\"") {
+        return Err(ews_err(&xml, "EWS error finding mail folders"));
+    }
 
     let containers: Vec<String> = xml_all_ns(&xml, "t:Folders");
     let mut ids = Vec::new();
@@ -171,7 +197,7 @@ async fn find_all_mail_folder_ids(access_token: &str) -> Vec<String> {
             }
         }
     }
-    ids
+    Ok(ids)
 }
 
 /// Extract the first `<t:ItemId Id="..." ChangeKey="..."/>` from an EWS response.
@@ -1417,10 +1443,7 @@ impl MailProvider for EwsProvider {
 </m:DeleteItem>"#,
         );
         let xml = send(&self.access_token, &soap_body).await?;
-        if xml.contains("ResponseClass=\"Error\"") {
-            return Err(ews_err(&xml, "EWS permanently-delete error"));
-        }
-        Ok(())
+        check_permanent_delete_response(&xml)
     }
 
     async fn bulk_move_to_trash(&self, item_ids: Vec<String>) -> Result<(), String> {
@@ -1466,10 +1489,7 @@ impl MailProvider for EwsProvider {
 </m:DeleteItem>"#,
         );
         let xml = send(&self.access_token, &soap_body).await?;
-        if xml.contains("ResponseClass=\"Error\"") {
-            return Err(ews_err(&xml, "EWS bulk permanently-delete error"));
-        }
-        Ok(())
+        check_permanent_delete_response(&xml)
     }
 
     async fn bulk_move_to_folder(
@@ -2293,10 +2313,40 @@ pub async fn mail_get_thread_headers(
             thread_header_shape()
         )
     };
-    let xml = send(&access_token, &ids_xml).await?;
+    let mut xml = send(&access_token, &ids_xml).await?;
+    let mut direct_items = is_draft.unwrap_or(false);
+    if needs_thread_headers_fallback(&xml, direct_items) {
+        // A move can invalidate the conversation index while the messages still exist.
+        let mut folders = find_mail_folder_ids(&access_token).await?;
+        for (name, include) in [
+            ("deleteditems", include_trash.unwrap_or(false)),
+            ("drafts", include_drafts.unwrap_or(false)),
+        ] {
+            if !include {
+                let excluded = get_distinguished_folder_id(&access_token, name)
+                    .await
+                    .ok_or_else(|| format!("Unable to resolve the Exchange {name} folder"))?;
+                folders.retain(|id| id != &excluded);
+            }
+        }
+        if folders.is_empty() {
+            return Err(ews_err(&xml, "EWS error getting thread headers"));
+        }
+        let parent_ids = folders
+            .iter()
+            .map(|id| format!("<t:FolderId Id=\"{}\"/>", xml_escape(id)))
+            .collect::<String>();
+        let request = thread_headers_find_request(&conversation_id, &parent_ids);
+        xml = send(&access_token, &request).await?;
+        direct_items = true;
+    }
     if xml.contains("ResponseClass=\"Error\"") {
         return Err(ews_err(&xml, "EWS error getting thread headers"));
     }
+    Ok(parse_thread_headers(&xml, direct_items))
+}
+
+fn parse_thread_headers(xml: &str, direct_items: bool) -> Vec<MailMessage> {
     const ITEM_TYPES: &[&str] = &[
         "t:Message",
         "t:MeetingRequest",
@@ -2304,10 +2354,10 @@ pub async fn mail_get_thread_headers(
         "t:MeetingCancellation",
     ];
     let mut messages = Vec::new();
-    let containers = if is_draft.unwrap_or(false) {
-        vec![xml.clone()]
+    let containers = if direct_items {
+        vec![xml.to_string()]
     } else {
-        xml_all_ns(&xml, "t:ConversationNode")
+        xml_all_ns(xml, "t:ConversationNode")
             .into_iter()
             .filter_map(|node| xml_content_ns(&node, "t:Items"))
             .collect()
@@ -2324,7 +2374,7 @@ pub async fn mail_get_thread_headers(
         }
     }
     messages.sort_by(|a, b| a.date_time_received.cmp(&b.date_time_received));
-    Ok(messages)
+    messages
 }
 
 pub async fn mail_get_thread_snippet(
@@ -2369,6 +2419,27 @@ fn thread_header_shape() -> &'static str {
       <t:FieldURI FieldURI="message:CcRecipients"/>
       <t:FieldURI FieldURI="message:IsRead"/>
     </t:AdditionalProperties>"#
+}
+
+fn needs_thread_headers_fallback(xml: &str, is_draft: bool) -> bool {
+    !is_draft && xml_content_ns(xml, "m:ResponseCode").as_deref() == Some("ErrorItemNotFound")
+}
+
+fn thread_headers_find_request(conversation_id: &str, parent_ids: &str) -> String {
+    format!(
+        r#"<m:FindItem Traversal="Shallow">
+  <m:ItemShape>{}</m:ItemShape>
+  <m:IndexedPageItemView MaxEntriesReturned="50" Offset="0" BasePoint="Beginning"/>
+  <m:Restriction><t:IsEqualTo>
+    <t:FieldURI FieldURI="item:ConversationId"/>
+    <t:FieldURIOrConstant><t:Constant Value="{}"/></t:FieldURIOrConstant>
+  </t:IsEqualTo></m:Restriction>
+  <m:ParentFolderIds>{}</m:ParentFolderIds>
+</m:FindItem>"#,
+        thread_header_shape(),
+        xml_escape(conversation_id),
+        parent_ids,
+    )
 }
 
 pub async fn mail_get_message_content(
@@ -3107,6 +3178,78 @@ fn xml_unescape_body(raw: &str) -> String {
 #[cfg(test)]
 mod outlook_schedule_tests {
     use super::*;
+
+    #[test]
+    fn missing_conversation_falls_back_to_its_actual_items() {
+        let error = r#"<m:GetConversationItemsResponseMessage ResponseClass="Error"><m:ResponseCode>ErrorItemNotFound</m:ResponseCode></m:GetConversationItemsResponseMessage>"#;
+        assert!(needs_thread_headers_fallback(error, false));
+        let request = thread_headers_find_request(
+            "conversation&\"id",
+            "<t:FolderId Id=\"archive\"/><t:FolderId Id=\"inbox\"/>",
+        );
+        assert!(request.contains("<m:FindItem Traversal=\"Shallow\">"));
+        assert!(request.contains("<t:FolderId Id=\"archive\"/>"));
+        assert!(request.contains("<t:FolderId Id=\"inbox\"/>"));
+        assert!(request.contains("<t:FieldURI FieldURI=\"item:ConversationId\"/>"));
+        assert!(request.contains("<t:Constant Value=\"conversation&amp;&quot;id\"/>"));
+        assert!(!request.contains("<m:GetItem>"));
+
+        let found = r#"<m:FindItemResponseMessage ResponseClass="Success"><m:RootFolder><t:Items>
+            <t:Message><t:ItemId Id="trash-item" ChangeKey="current"/><t:Subject>Deleted email</t:Subject><t:IsRead>true</t:IsRead></t:Message>
+        </t:Items></m:RootFolder></m:FindItemResponseMessage>"#;
+        let messages = parse_thread_headers(found, true);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].item_id, "trash-item");
+        assert_eq!(messages[0].change_key, "current");
+        assert_eq!(messages[0].subject, "Deleted email");
+        assert!(parse_thread_headers("<t:Items/>", true).is_empty());
+    }
+
+    #[test]
+    fn headers_fallback_does_not_mask_other_errors_or_apply_to_drafts() {
+        let missing = "<m:ResponseCode>ErrorItemNotFound</m:ResponseCode>";
+        assert!(needs_thread_headers_fallback(missing, false));
+        assert!(!needs_thread_headers_fallback(missing, true));
+        assert!(!needs_thread_headers_fallback(
+            "<m:ResponseCode>ErrorAccessDenied</m:ResponseCode>",
+            false
+        ));
+        assert!(!needs_thread_headers_fallback(
+            "<m:ResponseCode>NoError</m:ResponseCode>",
+            false
+        ));
+    }
+
+    #[test]
+    fn permanent_delete_accepts_already_absent_items() {
+        let xml = r#"<m:ResponseMessages>
+          <m:DeleteItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode></m:DeleteItemResponseMessage>
+          <m:DeleteItemResponseMessage ResponseClass="Error"><m:MessageText>Item not found.</m:MessageText><m:ResponseCode>ErrorItemNotFound</m:ResponseCode></m:DeleteItemResponseMessage>
+        </m:ResponseMessages>"#;
+        assert_eq!(check_permanent_delete_response(xml), Ok(()));
+        assert_eq!(
+            check_permanent_delete_response(&xml.replace("m:", "")),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn permanent_delete_preserves_other_errors_in_mixed_responses() {
+        let xml = r#"<m:ResponseMessages>
+          <m:DeleteItemResponseMessage ResponseClass="Error"><m:ResponseCode>ErrorItemNotFound</m:ResponseCode></m:DeleteItemResponseMessage>
+          <m:DeleteItemResponseMessage ResponseClass="Error"><m:MessageText>Access denied.</m:MessageText><m:ResponseCode>ErrorAccessDenied</m:ResponseCode></m:DeleteItemResponseMessage>
+        </m:ResponseMessages>"#;
+        assert_eq!(
+            check_permanent_delete_response(xml),
+            Err("ErrorAccessDenied: Access denied.".into())
+        );
+    }
+
+    #[test]
+    fn permanent_delete_does_not_ignore_errors_from_other_operations() {
+        let xml = r#"<m:GetConversationItemsResponseMessage ResponseClass="Error"><m:ResponseCode>ErrorItemNotFound</m:ResponseCode></m:GetConversationItemsResponseMessage>"#;
+        assert!(check_permanent_delete_response(xml).is_err());
+    }
 
     #[test]
     fn meeting_ics_omits_empty_structured_location() {

@@ -159,15 +159,17 @@ export class EwsMailProvider implements MailProvider {
 
   private async collectItemIds(conversationIds: string[], includeTrash = false): Promise<string[]> {
     const CONCURRENCY = 5;
-    const itemIds: string[] = [];
+    const itemIds = new Set<string>();
     for (let i = 0; i < conversationIds.length; i += CONCURRENCY) {
       const batch = conversationIds.slice(i, i + CONCURRENCY);
       const batchMsgs = await Promise.all(
-        batch.map(id => this.getThread(id, includeTrash).catch(() => [])),
+        batch.map(id => this.getThread(id, includeTrash)),
       );
-      for (const msgs of batchMsgs) itemIds.push(...msgs.map(m => m.item_id));
+      for (const msgs of batchMsgs) {
+        for (const message of msgs) itemIds.add(message.item_id);
+      }
     }
-    return itemIds;
+    return [...itemIds];
   }
 
   async bulkMoveToTrash(conversationIds: string[]): Promise<void> {
