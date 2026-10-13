@@ -1,0 +1,80 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { NativeDeepLinks } from './NativeDeepLinks';
+
+const mocks = vi.hoisted(() => ({
+  navigate: vi.fn(), setActiveTab: vi.fn(), reveal: vi.fn(),
+  consume: vi.fn(), invalidate: vi.fn(),
+  listeners: new Map<string, (event: any) => void>(),
+}));
+vi.mock('@capacitor/app', () => ({ App: {
+  getLaunchUrl: async () => undefined,
+  addListener: async (name: string, listener: (event: any) => void) => {
+    mocks.listeners.set(name, listener);
+    return { remove: vi.fn() };
+  },
+} }));
+vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.navigate }));
+vi.mock('../store/LayoutStore', () => ({ useLayout: () => ({ setActiveTab: mocks.setActiveTab }) }));
+vi.mock('../store/ThemeStore', () => ({ useTheme: () => ({ resolved: 'dark' }) }));
+vi.mock('.', () => ({ platform: {
+  isNativeAndroid: true, consumeNotificationUrl: mocks.consume,
+  revealNotificationView: mocks.reveal,
+} }));
+vi.mock('../queryClient', () => ({ queryClient: {
+  invalidateQueries: mocks.invalidate, cancelQueries: vi.fn(),
+} }));
+vi.mock('../../features/mail/components/ContactAvatar', () => ({ ContactAvatar: () => null }));
+
+let root: ReturnType<typeof createRoot>;
+let host: HTMLDivElement;
+beforeEach(async () => {
+  vi.clearAllMocks();
+  mocks.listeners.clear();
+  mocks.consume.mockResolvedValue(null);
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
+  host = document.createElement('div');
+  document.body.appendChild(host);
+  root = createRoot(host);
+  await act(async () => root.render(<NativeDeepLinks />));
+  vi.clearAllMocks();
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  host.remove();
+  vi.unstubAllGlobals();
+});
+
+describe('Android resume', () => {
+  it('reveals the current screen and refreshes mail without navigating', async () => {
+    await act(async () => {
+      mocks.listeners.get('appStateChange')!({ isActive: false });
+      mocks.listeners.get('appStateChange')!({ isActive: true });
+    });
+    expect(mocks.reveal).toHaveBeenCalledOnce();
+    expect(mocks.invalidate).toHaveBeenCalledWith({ queryKey: ['mail'], refetchType: 'active' });
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.setActiveTab).not.toHaveBeenCalled();
+    expect(host.childElementCount).toBe(0);
+  });
+
+  it('reveals the WebView when a duplicate notification is ignored', async () => {
+    const url = 'courrier://mail/account/a/conversation/b';
+    await act(async () => mocks.listeners.get('appUrlOpen')!({ url }));
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+    mocks.reveal.mockClear();
+    await act(async () => mocks.listeners.get('appUrlOpen')!({ url }));
+    expect(mocks.reveal).toHaveBeenCalledOnce();
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+  });
+
+  it('reveals the WebView when a notification target is rejected', async () => {
+    await act(async () => mocks.listeners.get('appUrlOpen')!({ url: 'courrier://mail/invalid' }));
+    expect(mocks.reveal).toHaveBeenCalledOnce();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(host.childElementCount).toBe(0);
+  });
+});

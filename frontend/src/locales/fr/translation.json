@@ -441,6 +441,7 @@
     "savedToDrafts": "Brouillon enregistré",
     "messageSent": "Message envoyé",
     "reply": "Répondre",
+    "newToSameRecipients": "Nouveau message aux mêmes destinataires",
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
     "showOriginalMessage": "Afficher le message original",

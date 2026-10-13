@@ -20,6 +20,7 @@ export interface MessageBlockProps {
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
+  readonly onNewToRecipients?: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
   readonly onTrash: (message: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
@@ -59,7 +60,7 @@ async function decodeInlineImages(html: string): Promise<void> {
 
 export function MessageBlock({
   message, conversationId, defaultExpanded = false, scrollIntoViewOnMount = false, currentUserEmail, mailProviderType, provider,
-  onReply, onReplyAll, onForward, onTrash, onToggleRead,
+  onReply, onReplyAll, onForward, onNewToRecipients, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
   isInScheduledFolder = false, onScheduledSendCanceled,
   onBodyReady,
@@ -217,6 +218,7 @@ export function MessageBlock({
         onToggleExpand={handleToggleExpand}
         onReply={() => void withContent(onReply)}
         onReplyAll={() => void withContent(onReplyAll)}
+        onNewToRecipients={onNewToRecipients ? () => void withContent(onNewToRecipients) : undefined}
         onForward={() => void withContent(onForward)}
         onTrash={onTrash}
         onToggleRead={onToggleRead}

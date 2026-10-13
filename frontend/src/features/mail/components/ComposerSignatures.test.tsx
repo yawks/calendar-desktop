@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAllAccountIdentities } from '../hooks/useMailQueries';
@@ -14,7 +14,7 @@ vi.mock('../../../shared/store/SignatureStore', async importOriginal => ({
   useSignatures: () => ({ getSignature: (id: string) => (id === 'alias' || id === 'alias@example.test') ? '<p>My signature</p>' : '', signaturePosition: 'above-quoted' }),
 }));
 import { MailComposer } from './MailComposer';
-import { NewMessageComposer } from './NewMessageComposer';
+import { NewMessageComposer, type NewMessageComposerHandle } from './NewMessageComposer';
 
 beforeAll(() => {
   globalThis.requestAnimationFrame = callback => setTimeout(() => callback(0), 0) as unknown as number;
@@ -75,3 +75,31 @@ for (const mode of ['reply', 'replyAll'] as const) {
     host.remove();
   });
 }
+
+it('opens a new message with To, Cc and Bcc and the sender signature', async () => {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const ref = createRef<NewMessageComposerHandle>();
+  const restoreData: ComposerRestoreData = {
+    toRecipients: [{ email: 'to@example.test', name: 'To' }],
+    ccRecipients: [{ email: 'cc@example.test' }],
+    bccRecipients: [{ email: 'bcc@example.test' }],
+    subject: '', body: '', attachments: [],
+    showCc: true, showBcc: true, isNewMessage: true, replyingToMsg: null,
+  };
+  await act(async () => root.render(
+    <NewMessageComposer ref={ref} contacts={[]} identities={[identity]} selectedIdentityId="alias"
+      fromAccounts={[]} fromAccountId="account" onFromAccountChange={noop}
+      restoreData={restoreData} onSend={async () => {}} onCancel={noop} onSaveDraft={noop} />
+  ));
+  expect(ref.current?.getDraftData()).toEqual({
+    to: ['to@example.test'], cc: ['cc@example.test'], bcc: ['bcc@example.test'],
+    subject: '', bodyHtml: expect.stringContaining('My signature'),
+  });
+  expect(host.querySelectorAll('[data-courrier-sig]')).toHaveLength(1);
+  expect(host.querySelector('[data-courrier-sig]')?.textContent).toBe('My signature');
+  expect(host.querySelector('.mail-quoted')).toBeNull();
+  await act(async () => root.unmount());
+  host.remove();
+});

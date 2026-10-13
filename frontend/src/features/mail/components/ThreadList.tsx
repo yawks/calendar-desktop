@@ -99,7 +99,10 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       const previous = threadVersionsRef.current;
       threadVersionsRef.current = next;
       if (!previous) return;
-      const arriving = new Set([...next].filter(([id, version]) => previous.get(id) !== version).map(([id]) => id));
+      const latestDelivery = Math.max(0, ...[...previous.values()].map(version => Date.parse(version) || 0));
+      const arriving = new Set([...next].filter(([id, version]) =>
+        Date.parse(version) > (previous.has(id) ? Date.parse(previous.get(id)!) || 0 : latestDelivery)
+      ).map(([id]) => id));
       if (arriving.size === 0) return;
       setArrivingIds(arriving);
       if (arrivalTimerRef.current) clearTimeout(arrivalTimerRef.current);

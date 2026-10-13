@@ -28,6 +28,7 @@ interface MessageBlockHeaderProps {
   readonly onToggleExpand: () => void;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
+  readonly onNewToRecipients?: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
   readonly onTrash: (message: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
@@ -63,6 +64,7 @@ interface ActionsMenuProps {
   readonly message: MailMessage;
   readonly onReply: (m: MailMessage) => void;
   readonly onReplyAll: (m: MailMessage) => void;
+  readonly onNewToRecipients?: (msg: MailMessage) => void;
   readonly onForward: (m: MailMessage) => void;
   readonly onToggleRead: (m: MailMessage) => void;
   readonly onTrash: (message: MailMessage) => void;
@@ -70,7 +72,7 @@ interface ActionsMenuProps {
   readonly onClose: () => void;
 }
 
-function ActionsMenu({ message, onReply, onReplyAll, onForward, onToggleRead, onTrash, onShowOriginal, onClose }: ActionsMenuProps) {
+function ActionsMenu({ message, onReply, onReplyAll, onForward, onNewToRecipients, onToggleRead, onTrash, onShowOriginal, onClose }: ActionsMenuProps) {
   const { t } = useTranslation();
   const act = (e: MouseEvent, fn: () => void) => { e.stopPropagation(); fn(); onClose(); };
   return (
@@ -92,6 +94,10 @@ function ActionsMenu({ message, onReply, onReplyAll, onForward, onToggleRead, on
         <CodeXml size={14} /><span>{t('mail.showOriginalMessage', 'Show original message')}</span>
       </button>
 
+      {onNewToRecipients && <button type="button" className="mail-actions-menu__item"
+        onClick={e => act(e, () => onNewToRecipients(message))}>
+        <Mail size={14} /><span>{t('mail.newToSameRecipients')}</span>
+      </button>}
       <div className="mail-actions-menu__separator" />
 
       <button type="button" className="mail-actions-menu__item"
@@ -120,6 +126,7 @@ export function MessageBlockHeader({
   onReply,
   onReplyAll,
   onForward,
+  onNewToRecipients,
   onTrash,
   onToggleRead,
   onComposeToContact,
@@ -271,7 +278,7 @@ export function MessageBlockHeader({
                     <div className="mail-actions-backdrop" onClick={e => { e.stopPropagation(); setShowActions(false); }} />
                     <ActionsMenu
                       message={message}
-                      onReply={onReply} onReplyAll={onReplyAll} onForward={onForward}
+                      onReply={onReply} onReplyAll={onReplyAll} onNewToRecipients={onNewToRecipients} onForward={onForward}
                       onToggleRead={onToggleRead} onTrash={onTrash}
                       onShowOriginal={() => setShowOriginal(true)}
                       onClose={() => setShowActions(false)}

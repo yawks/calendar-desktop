@@ -609,6 +609,7 @@ export class GmailMailProvider implements MailProvider {
       from_email: from.email || null,
       to_recipients: parseAddressList(h('To')),
       cc_recipients: parseAddressList(h('Cc')),
+      bcc_recipients: parseAddressList(h('Bcc')),
       body_html: extractBody(msg.payload ?? {}),
       date_time_received: msToIso(msg.internalDate ?? '0'),
       is_read: !msg.labelIds?.includes('UNREAD'),

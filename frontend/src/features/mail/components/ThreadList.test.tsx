@@ -6,7 +6,8 @@ import { ThreadList, type ThreadListProps } from './ThreadList';
 import type { MailThread } from '../types';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock('./ThreadItem', () => ({ ThreadItem: () => <div /> }));
+vi.mock('./ThreadItem', () => ({ ThreadItem: ({ thread, animateArrival }: { thread: MailThread; animateArrival: boolean }) =>
+  <div data-thread-id={thread.conversation_id} data-arriving={animateArrival} /> }));
 
 const threads = (count: number): MailThread[] => Array.from({ length: count }, (_, index) => ({
   conversation_id: String(index), topic: 'Mail', snippet: '', last_delivery_time: '',
@@ -74,5 +75,29 @@ describe('ThreadList pagination after removal', () => {
     const accepted = vi.fn(() => true);
     await render({ onLoadMore: accepted });
     expect(accepted).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ThreadList incoming messages', () => {
+  const datedThread = (id: string, day: number) => ({
+    ...threads(1)[0], conversation_id: id, last_delivery_time: `2026-10-${String(day).padStart(2, '0')}T12:00:00Z`,
+  });
+  const arriving = () => [...host.querySelectorAll('[data-arriving="true"]')].map(row => row.getAttribute('data-thread-id'));
+
+  it('highlights new deliveries without animating initial loading or older paginated threads', async () => {
+    await render({ threads: [datedThread('existing', 10)] });
+    expect(arriving()).toEqual([]);
+    await render({ threads: [datedThread('existing', 10), datedThread('older', 9)] });
+    expect(arriving()).toEqual([]);
+    await render({ threads: [datedThread('new', 12), datedThread('existing', 11), datedThread('older', 9)] });
+    expect(arriving()).toEqual(['new', 'existing']);
+  });
+
+  it('does not animate another folder or a delivery timestamp moving backwards', async () => {
+    await render({ threads: [datedThread('existing', 10)] });
+    await render({ threads: [datedThread('existing', 9)] });
+    expect(arriving()).toEqual([]);
+    await render({ scrollResetKey: 'archive', threads: [datedThread('archive', 12)] });
+    expect(arriving()).toEqual([]);
   });
 });

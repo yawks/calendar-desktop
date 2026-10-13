@@ -41,6 +41,7 @@ export interface ThreadDetailProps {
   readonly onGetAttachmentData: (att: MailAttachment) => Promise<string>;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
+  readonly onNewToRecipients?: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
   readonly replyMode: 'reply' | 'replyAll' | 'forward';
@@ -104,7 +105,7 @@ export function ThreadDetail({
   identities, selectedIdentityId, onIdentityChange,
   onMarkRead, onTrash,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
-  onReply, onReplyAll, onForward, onToggleRead,
+  onReply, onReplyAll, onForward, onNewToRecipients, onToggleRead,
   replyMode, onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
   supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, isInScheduledFolder, onScheduledSendCanceled, onUnsnooze,
@@ -430,7 +431,7 @@ export function ThreadDetail({
               mailProviderType={mailProviderType}
               provider={provider}
               onReply={onReply}
-              onReplyAll={onReplyAll}
+              onReplyAll={onReplyAll} onNewToRecipients={onNewToRecipients}
               onForward={onForward}
               onTrash={onTrash}
               onToggleRead={onToggleRead}
@@ -455,7 +456,7 @@ export function ThreadDetail({
             mailProviderType={mailProviderType}
             provider={provider}
             onReply={onReply}
-            onReplyAll={onReplyAll}
+            onReplyAll={onReplyAll} onNewToRecipients={onNewToRecipients}
             onForward={onForward}
             onTrash={onTrash}
             onToggleRead={onToggleRead}

@@ -441,6 +441,7 @@
     "savedToDrafts": "Saved to drafts",
     "messageSent": "Message sent",
     "reply": "Reply",
+    "newToSameRecipients": "New message to same recipients",
     "replyAll": "Reply all",
     "forward": "Forward",
     "showOriginalMessage": "Show original message",

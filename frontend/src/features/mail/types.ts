@@ -34,6 +34,7 @@ export interface MailMessage {
   from_email: string | null;
   to_recipients: MailRecipient[];
   cc_recipients: MailRecipient[];
+  bcc_recipients?: MailRecipient[];
   body_html: string;
   /** False when only the message envelope/header has been loaded. */
   body_loaded?: boolean;

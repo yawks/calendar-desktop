@@ -31,6 +31,7 @@ export function NativeDeepLinks() {
     const match = /^\/account\/([^/]+)\/conversation\/([^/]+)$/.exec(deepLink.pathname);
     if (!match || deepLink.hostname !== 'mail') {
       console.warn('[notification-link] rejected malformed target');
+      void platform.revealNotificationView?.();
       return;
     }
     // Android can deliver the same notification through the launch intent,
@@ -39,6 +40,7 @@ export function NativeDeepLinks() {
     // conversation after the user has already navigated elsewhere.
     if (activeNotificationUrlRef.current === url) {
       console.info('[notification-link] ignored duplicate target');
+      void platform.revealNotificationView?.();
       return;
     }
     activeNotificationUrlRef.current = url;
@@ -122,7 +124,12 @@ export function NativeDeepLinks() {
     };
     const consumeNativeTarget = (releaseIfEmpty = false) => void platform.consumeNotificationUrl().then(url => {
       if (url) void openDeepLink(url);
-      else if (releaseIfEmpty) setNotificationOpening(false);
+      else {
+        // A normal resume must keep the current screen visible, even if a
+        // previous notification intent left the native WebView covered.
+        void platform.revealNotificationView?.();
+        if (releaseIfEmpty) setNotificationOpening(false);
+      }
     });
     consumeNativeTarget(true);
     void CapacitorApp.getLaunchUrl().then(result => {

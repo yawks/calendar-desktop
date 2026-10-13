@@ -17,7 +17,7 @@ import {
   X,
   TriangleAlert,
 } from 'lucide-react';
-import { MailMessage, MailThread } from './types';
+import { ComposerRestoreData, MailMessage, MailThread } from './types';
 import type { NativeNotificationThread } from '../../shared/platform/types';
 import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -419,7 +419,14 @@ export default function MailApp() {
     }
   };
 
+  const [newRecipientsDraft, setNewRecipientsDraft] = useState<ComposerRestoreData | null>(null);
+
+  useEffect(() => {
+    if (!composing) setNewRecipientsDraft(null);
+  }, [composing]);
+
   const startNewMessage = () => {
+    setNewRecipientsDraft(null);
     const sourceAccountId = selectedFolderAccountId
       ?? (!isAllMode ? selectedAccountId : undefined);
     const sourceIdentities = sourceAccountId
@@ -1006,7 +1013,7 @@ export default function MailApp() {
                 ref={newMessageComposerRef}
                 contacts={contacts}
                 provider={composerProvider}
-                restoreData={composerRestoreData}
+                restoreData={newRecipientsDraft ?? composerRestoreData}
                 scheduledSend={mailCapabilitiesByAccount.get(composingAccountId || selectedAccountId)?.scheduledSend}
                 onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients, sendAt) =>
                   scheduleSend(to, cc, bcc, subject, body, {
@@ -1152,6 +1159,23 @@ export default function MailApp() {
                 onGetAttachmentData={getRawAttachmentData}
                 onReply={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('reply'); setReplyingTo(msg); }}
                 onReplyAll={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('replyAll'); setReplyingTo(msg); }}
+                onNewToRecipients={(msg: MailMessage) => {
+                  const sourceAccountId = selectedThread.accountId ?? selectedFolderAccountId ?? selectedAccountId;
+                  startNewMessage();
+                  setComposingAccountId(sourceAccountId);
+                  const identity = accountIdentities.find(i => i.accountId === sourceAccountId && !i.mayDelete)
+                    ?? accountIdentities.find(i => i.accountId === sourceAccountId);
+                  setSelectedIdentityId(identity?.id ?? '');
+                  setNewRecipientsDraft({
+                    toRecipients: msg.to_recipients.map(r => ({ email: r.email, name: r.name ?? undefined })),
+                    ccRecipients: (msg.cc_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
+                    bccRecipients: (msg.bcc_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
+                    subject: '', body: '', attachments: [],
+                    showCc: (msg.cc_recipients ?? []).length > 0,
+                    showBcc: (msg.bcc_recipients ?? []).length > 0,
+                    isNewMessage: true, replyingToMsg: null, fromAccountId: sourceAccountId,
+                  });
+                }}
                 onForward={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('forward'); setReplyingTo(msg); }}
                 onToggleRead={toggleRead}
                 replyMode={replyMode}
