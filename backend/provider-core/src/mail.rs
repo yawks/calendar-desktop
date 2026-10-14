@@ -3,7 +3,7 @@ use base64::{
     Engine as _,
 };
 
-use crate::ews::{xml_all_ns, xml_attr, xml_content, xml_content_ns};
+use crate::ews::{xml_all_ns, xml_attr, xml_content_ns};
 use crate::mail_provider::{
     ComposerAttachment, MailAttachment, MailFolder, MailIdentity, MailItemRef, MailMessage,
     MailProvider, MailRecipient, MailSearchQuery, MailThread, SaveDraftParams, SendMailParams,
@@ -106,8 +106,13 @@ async fn send(access_token: &str, soap_body: &str) -> Result<String, String> {
 
 /// Extract a human-readable error from a ResponseClass="Error" response.
 fn ews_err(xml: &str, fallback: &str) -> String {
-    let code = xml_content(xml, "m:ResponseCode").unwrap_or_default();
-    let text = xml_content(xml, "m:MessageText").unwrap_or_default();
+    // Batch responses can contain a success before the failing item.
+    let xml = xml
+        .find("ResponseClass=\"Error\"")
+        .map(|start| &xml[start..])
+        .unwrap_or(xml);
+    let code = xml_content_ns(xml, "m:ResponseCode").unwrap_or_default();
+    let text = xml_content_ns(xml, "m:MessageText").unwrap_or_default();
     if code.is_empty() && text.is_empty() {
         fallback.to_string()
     } else {
@@ -2455,7 +2460,13 @@ fn thread_header_shape() -> &'static str {
 }
 
 fn needs_thread_headers_fallback(xml: &str, is_draft: bool) -> bool {
-    !is_draft && xml_content_ns(xml, "m:ResponseCode").as_deref() == Some("ErrorItemNotFound")
+    let codes: Vec<String> = xml_all_ns(xml, "m:ResponseCode")
+        .iter()
+        .filter_map(|response| xml_content_ns(response, "m:ResponseCode"))
+        .collect();
+    !is_draft
+        && codes.iter().any(|code| code == "ErrorItemNotFound")
+        && codes.iter().all(|code| code == "NoError" || code == "ErrorItemNotFound")
 }
 
 fn thread_headers_find_request(conversation_id: &str, parent_ids: &str) -> String {
@@ -3272,6 +3283,25 @@ mod outlook_schedule_tests {
         assert_eq!(messages[0].change_key, "current");
         assert_eq!(messages[0].subject, "Deleted email");
         assert!(parse_thread_headers("<t:Items/>", true).is_empty());
+    }
+
+    #[test]
+    fn mixed_thread_response_uses_missing_item_fallback_and_actual_error() {
+        let xml = r#"<m:GetConversationItemsResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:GetItemResponseMessage ResponseClass="Error">
+            <m:MessageText>The specified object was not found in the store.</m:MessageText>
+            <m:ResponseCode>ErrorItemNotFound</m:ResponseCode>
+          </m:GetItemResponseMessage>
+        </m:GetConversationItemsResponseMessage>"#;
+        for response in [xml.to_string(), xml.replace("m:", "")] {
+            assert!(needs_thread_headers_fallback(&response, false));
+            assert!(!needs_thread_headers_fallback(&response, true));
+            assert_eq!(ews_err(&response, "fallback"),
+                "ErrorItemNotFound: The specified object was not found in the store.");
+            assert!(!needs_thread_headers_fallback(
+                &format!("{response}<m:ResponseCode>ErrorAccessDenied</m:ResponseCode>"), false));
+        }
     }
 
     #[test]

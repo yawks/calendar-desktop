@@ -143,7 +143,9 @@ export function MessageBlock({
           // just rendered. Complete the cover from the leaf that knows the
           // content is ready instead of waiting for the safety timeout.
           void platform.diagnosticEvent?.('notification-body-ready-direct');
-          globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened'));
+          globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened', {
+            detail: { accountId: provider?.accountId, conversationId },
+          }));
         }, 250);
         secondFrame = -timeout;
       });
@@ -153,7 +155,7 @@ export function MessageBlock({
       if (secondFrame > 0) cancelAnimationFrame(secondFrame);
       else if (secondFrame < 0) clearTimeout(-secondFrame);
     };
-  }, [bodyLoading, isExpanded, notificationOpening, onBodyReady]);
+  }, [bodyLoading, isExpanded, notificationOpening, onBodyReady, provider?.accountId, conversationId]);
   const scheduledQuery = useQuery({
     queryKey: ['mail-scheduled-send', provider?.accountId, message.item_id],
     queryFn: () => provider!.getScheduledSend!(message.item_id),

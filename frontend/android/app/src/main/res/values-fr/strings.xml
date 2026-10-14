@@ -1,4 +1,5 @@
 <resources>
+    <string name="notification_opening">Ouverture du message…</string>
     <string name="app_name">Courrier</string>
     <string name="cancel">Annuler</string>
     <string name="biometric_enable_title">Activer le déverrouillage biométrique</string>

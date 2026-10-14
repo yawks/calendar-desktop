@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { App as CapacitorApp } from '@capacitor/app';
 import { useNavigate } from 'react-router-dom';
 import { platform } from '.';
@@ -23,6 +24,7 @@ export function NativeDeepLinks() {
   const { setActiveTab } = useLayout();
   const { resolved } = useTheme();
   const activeNotificationUrlRef = useRef<string | null>(null);
+  const notificationPaintPendingRef = useRef(false);
   const openingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enrichmentTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openingNotification, setOpeningNotification] = useState<OpeningNotification | null>(null);
@@ -40,28 +42,24 @@ export function NativeDeepLinks() {
     // conversation after the user has already navigated elsewhere.
     if (activeNotificationUrlRef.current === url) {
       console.info('[notification-link] ignored duplicate target');
-      void platform.revealNotificationView?.();
+      if (!notificationPaintPendingRef.current) void platform.revealNotificationView?.();
       return;
     }
     activeNotificationUrlRef.current = url;
+    notificationPaintPendingRef.current = true;
     if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
     enrichmentTimeoutRef.current = null;
-    setNotificationOpening(true);
-    void queryClient.cancelQueries({ queryKey: ['contact-photo'] });
-    setOpeningNotification({
+    // Commit the lightweight cover before notifying stores or navigating, which
+    // can trigger expensive renders of the previous conversation on Android.
+    flushSync(() => setOpeningNotification({
       url,
       subject: deepLink.searchParams.get('subject') || undefined,
       sender: deepLink.searchParams.get('sender') || undefined,
       snippet: deepLink.searchParams.get('snippet') || undefined,
       receivedAt: deepLink.searchParams.get('receivedAt') || undefined,
-    });
-    void platform.diagnosticEvent?.('notification-skeleton-shown');
-    // Android hides the WebView as soon as it receives a notification intent.
-    // Reveal it only after React has committed and painted this cover, avoiding
-    // a frame of the previously visible Inbox on both cold and warm launches.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      void platform.revealNotificationView?.();
     }));
+    setNotificationOpening(true);
+    void queryClient.cancelQueries({ queryKey: ['contact-photo'] });
     if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
     openingTimeoutRef.current = setTimeout(() => {
       void platform.diagnosticEvent?.('notification-skeleton-timeout');
@@ -104,6 +102,24 @@ export function NativeDeepLinks() {
     });
   }, [navigate, setActiveTab]);
 
+  const openingUrl = openingNotification?.url;
+  useLayoutEffect(() => {
+    if (!openingUrl) return;
+    void platform.diagnosticEvent?.('notification-skeleton-shown');
+    // Schedule the native handoff only once the preview is committed to the DOM.
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        notificationPaintPendingRef.current = false;
+        void platform.revealNotificationView?.();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [openingUrl]);
+
   useEffect(() => {
     // Only Android has a retained notification intent to resolve. On desktop
     // and web, release background enrichment immediately; otherwise snippets
@@ -122,12 +138,12 @@ export function NativeDeepLinks() {
         refetchType: 'active',
       });
     };
-    const consumeNativeTarget = (releaseIfEmpty = false) => void platform.consumeNotificationUrl().then(url => {
+    const consumeNativeTarget = (releaseIfEmpty = false) => platform.consumeNotificationUrl().then(url => {
       if (url) void openDeepLink(url);
       else {
         // A normal resume must keep the current screen visible, even if a
         // previous notification intent left the native WebView covered.
-        void platform.revealNotificationView?.();
+        if (!notificationPaintPendingRef.current) void platform.revealNotificationView?.();
         if (releaseIfEmpty) setNotificationOpening(false);
       }
     });
@@ -136,16 +152,33 @@ export function NativeDeepLinks() {
       if (result?.url) void openDeepLink(result.url);
     });
     const listener = CapacitorApp.addListener('appUrlOpen', ({ url }) => openDeepLink(url));
+    const backListener = CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+      const event = new Event('courrier:android-back', { cancelable: true });
+      if (!globalThis.dispatchEvent(event)) {
+        if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+        openingTimeoutRef.current = null;
+        setOpeningNotification(null);
+        setNotificationOpening(false);
+        return;
+      }
+      if (canGoBack) globalThis.history.back();
+      else void CapacitorApp.exitApp();
+    });
     const stateListener = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (isActive) {
-        refreshMail();
-        consumeNativeTarget();
+        void consumeNativeTarget().then(refreshMail);
       }
       else activeNotificationUrlRef.current = null;
     });
     // Also cover connectivity returning while Courrier is already visible.
     globalThis.addEventListener('online', refreshMail);
-    const notificationOpened = () => {
+    const notificationOpened = (event: Event) => {
+      const url = activeNotificationUrlRef.current;
+      const detail = (event as CustomEvent<{ accountId?: string; conversationId?: string }>).detail;
+      const match = url && /^\/account\/([^/]+)\/conversation\/([^/]+)$/.exec(new URL(url).pathname);
+      // A cached body from the previous conversation must not dismiss the new preview.
+      if (!match || detail?.accountId !== decodeURIComponent(match[1])
+        || detail?.conversationId !== decodeURIComponent(match[2])) return;
       void platform.diagnosticEvent?.('notification-skeleton-hidden');
       if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
       openingTimeoutRef.current = null;
@@ -166,6 +199,7 @@ export function NativeDeepLinks() {
       if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
       globalThis.removeEventListener('online', refreshMail);
       void listener.then(handle => handle.remove());
+      void backListener.then(handle => handle.remove());
       void stateListener.then(handle => handle.remove());
     };
   }, [openDeepLink]);

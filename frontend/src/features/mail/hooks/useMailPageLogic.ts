@@ -810,6 +810,10 @@ export function useMailPageLogic() {
   const moveToTrash = useCallback((id: string) => {
     const thread = actionThreads.find(t => t.conversation_id === id) ?? (selectedThread?.conversation_id === id ? selectedThread : null);
     if (!thread) return;
+    if (thread.conversation_id.startsWith('__optimistic_thread__')) {
+      actionToast?.onCancel?.();
+      return;
+    }
     const p = resolveProvider(thread.accountId);
     if (p) {
       flushPendingAction();
@@ -883,7 +887,7 @@ export function useMailPageLogic() {
       setDeleteToast({ label: toastLabel });
       pendingActionRef.current = { id: thread.conversation_id, timerId: setTimeout(execute, 5000), execute, rollback };
     }
-  }, [mutations, selectedThread, actionThreads, resolveProvider, selectedAccountId, selectedFolder, selectNextThread, t, flushPendingAction, optimisticallyRemoveThread, queryClient]);
+  }, [mutations, selectedThread, actionThreads, resolveProvider, selectedAccountId, selectedFolder, selectNextThread, t, flushPendingAction, optimisticallyRemoveThread, queryClient, actionToast]);
 
   const handleToggleThreadRead = useCallback((thread: MailThread) => {
     const p = resolveProvider(thread.accountId);
@@ -896,6 +900,10 @@ export function useMailPageLogic() {
 
   const handleDeleteMessage = useCallback(async (message: MailMessage) => {
     if (!selectedThread) return;
+    if (message.item_id.startsWith('__optimistic__')) {
+      actionToast?.onCancel?.();
+      return;
+    }
     const p = resolveProvider(selectedThread.accountId);
     if (!p) return;
 
@@ -948,7 +956,7 @@ export function useMailPageLogic() {
     } finally {
       rollback();
     }
-  }, [selectedThread, resolveProvider, selectedAccountId, selectedFolder, offlineMail.enabled, queryClient, messages, selectNextThread, optimisticallyRemoveThread, t, setActionToast]);
+  }, [selectedThread, resolveProvider, selectedAccountId, selectedFolder, offlineMail.enabled, queryClient, messages, selectNextThread, optimisticallyRemoveThread, t, setActionToast, actionToast]);
 
   const persistSnooze = useCallback((conversationId: string, until: string) => {
     setSnoozedMap(prev => {
@@ -966,6 +974,26 @@ export function useMailPageLogic() {
       return next;
     });
   }, [setSnoozedMap]);
+
+  const beginBulkRemoval = useCallback((accountId: string, conversationIds: string[]) => {
+    const ids = new Set(conversationIds);
+    setPendingRemovalIds(previous => new Set([...previous, ...ids]));
+    if (selectedThread && ids.has(selectedThread.conversation_id)
+      && (selectedThread.accountId ?? selectedAccountId) === accountId) {
+      setSelectedThread(actionThreads.find(thread => !ids.has(thread.conversation_id)) ?? null);
+    }
+    return {
+      onSuccess: () => setStableThreads(previous => previous.filter(thread =>
+        !ids.has(thread.conversation_id) || (thread.accountId ?? accountId) !== accountId,
+      )),
+      onError: (error: Error) => setError(getErrorMessage(error)),
+      onSettled: () => setPendingRemovalIds(previous => {
+        const next = new Set(previous);
+        for (const id of ids) next.delete(id);
+        return next;
+      }),
+    };
+  }, [selectedThread, selectedAccountId, actionThreads]);
 
   const handleSnooze = useCallback(async (snoozeUntil: string) => {
     if (!selectedThread) return;
@@ -985,21 +1013,20 @@ export function useMailPageLogic() {
       const execute = () => {
         mutations.snoozeThread(
           { accountId, provider: p, conversationId, until: snoozeUntil },
-          { onError: (error) => {
+          { ...beginBulkRemoval(accountId, [conversationId]), onError: (error) => {
             clearSnooze(conversationId);
             const detail = getErrorMessage(error);
             setActionToast({ label: `${t('mail.snoozeFailed', 'Impossible de mettre ce message en attente')} — ${detail}` });
             setTimeout(() => setActionToast(null), 8000);
           } },
         );
-        setPendingRemovalIds(prev => { const next = new Set(prev); next.delete(conversationId); return next; });
         setDeleteToast(null);
       };
 
       setDeleteToast({ label: t('mail.snoozed_toast', 'Conversation mise en attente') });
       pendingActionRef.current = { id: conversationId, timerId: setTimeout(execute, 5000), execute, rollback };
     }
-  }, [mutations, selectedThread, resolveProvider, selectedAccountId, selectNextThread, t, flushPendingAction, optimisticallyRemoveThread, persistSnooze, clearSnooze]);
+  }, [mutations, selectedThread, resolveProvider, selectedAccountId, selectNextThread, t, flushPendingAction, optimisticallyRemoveThread, persistSnooze, clearSnooze, beginBulkRemoval]);
 
   const handleUnsnooze = useCallback(async () => {
     if (!selectedThread) return;
@@ -1048,26 +1075,6 @@ export function useMailPageLogic() {
       pendingActionRef.current = { id: conversationId, timerId: setTimeout(execute, 5000), execute, rollback };
     }
   }, [selectedThread, mutations, resolveProvider, selectedAccountId, selectNextThread, t, flushPendingAction, optimisticallyRemoveThread]);
-
-  const beginBulkRemoval = useCallback((accountId: string, conversationIds: string[]) => {
-    const ids = new Set(conversationIds);
-    setPendingRemovalIds(previous => new Set([...previous, ...ids]));
-    if (selectedThread && ids.has(selectedThread.conversation_id)
-      && (selectedThread.accountId ?? selectedAccountId) === accountId) {
-      setSelectedThread(actionThreads.find(thread => !ids.has(thread.conversation_id)) ?? null);
-    }
-    return {
-      onSuccess: () => setStableThreads(previous => previous.filter(thread =>
-        !ids.has(thread.conversation_id) || (thread.accountId ?? accountId) !== accountId,
-      )),
-      onError: (error: Error) => setError(getErrorMessage(error)),
-      onSettled: () => setPendingRemovalIds(previous => {
-        const next = new Set(previous);
-        for (const id of ids) next.delete(id);
-        return next;
-      }),
-    };
-  }, [selectedThread, selectedAccountId, actionThreads]);
 
   const handleBulkDelete = useCallback(async () => {
     const permanent = selectedFolder === 'deleteditems';
@@ -1282,6 +1289,9 @@ export function useMailPageLogic() {
 
     const removeOptimistic = () => {
       if (!optimisticConversationId) return;
+      if (restoreData.isNewMessage) {
+        setSelectedThread(current => current?.conversation_id === optimisticConversationId ? null : current);
+      }
       setPendingOptimisticMsgs(prev => {
         const next = new Map(prev);
         const remaining = (prev.get(optimisticConversationId) ?? []).filter(m => m.item_id !== optimisticId);
@@ -1328,8 +1338,11 @@ export function useMailPageLogic() {
     const draftRollback = draftConversationId ? optimisticallyRemoveThread(draftConversationId) : null;
 
     let cancelled = false;
+    let sending = false;
     const timerId = setTimeout(async () => {
       if (cancelled) return;
+      sending = true;
+      setActionToast({ label: t('mail.sending', 'En cours d’envoi…') });
       try {
         await mutations.sendMail({
           accountId, provider: p, conversationId,
@@ -1340,6 +1353,9 @@ export function useMailPageLogic() {
           isForward: restoreData.isForward,
           sendAt,
         });
+        if (restoreData.isNewMessage) removeOptimistic();
+        void queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(accountId, 'sentitems') });
+        void queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads', 'sentitems'] });
         const sentAt = Math.floor(Date.now() / 1000);
         const recipientNames = new Map(
           [...restoreData.toRecipients, ...restoreData.ccRecipients, ...restoreData.bccRecipients]
@@ -1384,6 +1400,7 @@ export function useMailPageLogic() {
     }, 10_000);
 
     const cancel = () => {
+      if (sending) return;
       cancelled = true;
       clearTimeout(timerId);
       removeOptimistic();

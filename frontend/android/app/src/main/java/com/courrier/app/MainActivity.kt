@@ -2,13 +2,22 @@ package com.courrier.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
 import android.content.res.Configuration
 import android.graphics.Color
 import android.webkit.WebView
+import android.view.View
+import android.view.ViewGroup
 import com.getcapacitor.BridgeActivity
 
 class MainActivity : BridgeActivity() {
+    private var notificationLoadingView: View? = null
+    private var notificationReceivedAt: Long? = null
+    private var notificationLoaderShownAt: Long? = null
+    private val notificationRevealFallback = Runnable { revealNotificationView("timeout") }
     override fun onCreate(savedInstanceState: Bundle?) {
+        recordNotificationReceived(intent)
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         registerPlugin(CourrierNativePlugin::class.java)
         super.onCreate(savedInstanceState)
@@ -38,21 +47,55 @@ class MainActivity : BridgeActivity() {
     }
 
     override fun onNewIntent(intent: Intent) {
+        recordNotificationReceived(intent)
+        coverNotificationView(intent)
         super.onNewIntent(intent)
         setIntent(intent)
-        coverNotificationView(intent)
         runNotificationDiagnostic(intent)
+    }
+
+    private fun recordNotificationReceived(intent: Intent?) {
+        if (intent?.dataString?.startsWith("courrier://mail/") != true) return
+        notificationReceivedAt = SystemClock.elapsedRealtime()
+        Log.i("CourrierUi", "event=notification-native-received")
     }
 
     private fun coverNotificationView(intent: Intent?) {
         if (intent?.dataString?.startsWith("courrier://mail/") != true) return
-        bridge.webView.alpha = 0f
-        // Never leave the app hidden if JavaScript initialization fails.
-        bridge.webView.postDelayed({ revealNotificationView() }, 5_000)
+        if (notificationLoadingView == null) {
+            notificationLoadingView = layoutInflater.inflate(R.layout.notification_loading, null)
+            addContentView(notificationLoadingView, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            ))
+            notificationLoaderShownAt = SystemClock.elapsedRealtime()
+            Log.i("CourrierUi", "event=notification-native-loader-shown")
+        }
+        // The opaque loader covers the old screen while the WebView keeps
+        // painting the React preview underneath it.
+        // Match React's opening timeout; five seconds can expire before its
+        // preview paints and expose the previous conversation on a slow resume.
+        bridge.webView.removeCallbacks(notificationRevealFallback)
+        bridge.webView.postDelayed(notificationRevealFallback, 60_000)
     }
 
-    fun revealNotificationView() {
-        runOnUiThread { bridge.webView.alpha = 1f }
+    fun revealNotificationView(reason: String = "react") {
+        runOnUiThread {
+            val now = SystemClock.elapsedRealtime()
+            notificationLoaderShownAt?.let {
+                Log.i("CourrierUi", "event=notification-native-loader-hidden reason=$reason durationMs=${now - it}")
+            }
+            notificationLoaderShownAt = null
+            if (reason == "react") {
+                notificationReceivedAt?.let {
+                    Log.i("CourrierUi", "event=notification-native-react-handoff durationMs=${now - it}")
+                }
+                notificationReceivedAt = null
+            }
+            bridge.webView.removeCallbacks(notificationRevealFallback)
+            bridge.webView.alpha = 1f
+            notificationLoadingView?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            notificationLoadingView = null
+        }
     }
 
     private fun runNotificationDiagnostic(intent: Intent?) {

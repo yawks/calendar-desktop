@@ -6,10 +6,11 @@ import { NativeDeepLinks } from './NativeDeepLinks';
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(), setActiveTab: vi.fn(), reveal: vi.fn(),
-  consume: vi.fn(), invalidate: vi.fn(),
+  consume: vi.fn(), invalidate: vi.fn(), exit: vi.fn(),
   listeners: new Map<string, (event: any) => void>(),
 }));
 vi.mock('@capacitor/app', () => ({ App: {
+  exitApp: mocks.exit,
   getLaunchUrl: async () => undefined,
   addListener: async (name: string, listener: (event: any) => void) => {
     mocks.listeners.set(name, listener);
@@ -49,6 +50,61 @@ afterEach(async () => {
 });
 
 describe('Android resume', () => {
+  it('keeps the preview when a previous conversation reports its body ready', async () => {
+    await act(async () => mocks.listeners.get('appUrlOpen')!({ url: 'courrier://mail/account/a/conversation/b' }));
+    await act(async () => globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened', {
+      detail: { accountId: 'a', conversationId: 'previous' },
+    })));
+    expect(host.querySelector('.notification-opening')).not.toBeNull();
+    await act(async () => globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened', {
+      detail: { accountId: 'other-account', conversationId: 'b' },
+    })));
+    expect(host.querySelector('.notification-opening')).not.toBeNull();
+    await act(async () => globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened', {
+      detail: { accountId: 'a', conversationId: 'b' },
+    })));
+    expect(host.childElementCount).toBe(0);
+  });
+
+  it('keeps the native cover until the preview has committed and painted', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const url = 'courrier://mail/account/a/conversation/b';
+    await act(async () => {
+      mocks.listeners.get('appUrlOpen')!({ url });
+      expect(host.querySelector('.notification-opening')).not.toBeNull();
+    });
+    expect(host.querySelector('.notification-opening')).not.toBeNull();
+    expect(mocks.reveal).not.toHaveBeenCalled();
+    await act(async () => {
+      mocks.listeners.get('appUrlOpen')!({ url });
+      mocks.listeners.get('appStateChange')!({ isActive: true });
+    });
+    expect(mocks.reveal).not.toHaveBeenCalled();
+    await act(async () => frames.shift()!(0));
+    expect(mocks.reveal).not.toHaveBeenCalled();
+    await act(async () => frames.shift()!(0));
+    expect(mocks.reveal).toHaveBeenCalledOnce();
+  });
+
+  it('lets the mail screen handle Back and removes the notification cover', async () => {
+    await act(async () => mocks.listeners.get('appUrlOpen')!({ url: 'courrier://mail/account/a/conversation/b' }));
+    expect(host.childElementCount).toBe(1);
+    const handleBack = (event: Event) => event.preventDefault();
+    globalThis.addEventListener('courrier:android-back', handleBack, { once: true });
+    await act(async () => mocks.listeners.get('backButton')!({ canGoBack: true }));
+    expect(host.childElementCount).toBe(0);
+    expect(mocks.exit).not.toHaveBeenCalled();
+  });
+
+  it('exits when no screen handles Back and there is no history', async () => {
+    await act(async () => mocks.listeners.get('backButton')!({ canGoBack: false }));
+    expect(mocks.exit).toHaveBeenCalledOnce();
+  });
+
   it('reveals the current screen and refreshes mail without navigating', async () => {
     await act(async () => {
       mocks.listeners.get('appStateChange')!({ isActive: false });

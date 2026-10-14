@@ -1,4 +1,5 @@
 import { ALL_ACCOUNTS_ID, buildUnreadCounts } from './utils';
+import { App as CapacitorApp } from '@capacitor/app';
 import {
   ChartNoAxesCombined,
   CheckSquare,
@@ -81,8 +82,10 @@ export default function MailApp() {
   const [messageToDelete, setMessageToDelete] = useState<MailMessage | null>(null);
   const finishNotificationOpening = useCallback(() => {
     void platform.diagnosticEvent?.('notification-body-ready');
-    globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened'));
-  }, []);
+    globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened', {
+      detail: { accountId: selectedThread?.accountId, conversationId: selectedThread?.conversation_id },
+    }));
+  }, [selectedThread?.accountId, selectedThread?.conversation_id]);
   const moveSources = useMemo(() => allMailAccounts.map(account => ({
     accountId: account.id,
     label: account.name || account.email,
@@ -350,6 +353,25 @@ export default function MailApp() {
       setReplyingTo(null);
     }
   }, [setComposing, setReplyingTo, setSelectedThread, setSelectedThreadIds]);
+
+  useEffect(() => {
+    if (!platform.isNativeAndroid) return;
+    const handleAndroidBack = (event: Event) => {
+      event.preventDefault();
+      if (selectedThread || composing || new URLSearchParams(location.search).has('conversation')) {
+        setSelectedThread(null);
+        setComposing(false);
+        setSelectedThreadIds(new Set());
+        setReplyingTo(null);
+        // Remove the notification target so it cannot reopen the detail.
+        navigate('/', { replace: true });
+      } else {
+        void CapacitorApp.exitApp();
+      }
+    };
+    globalThis.addEventListener('courrier:android-back', handleAndroidBack);
+    return () => globalThis.removeEventListener('courrier:android-back', handleAndroidBack);
+  }, [selectedThread, composing, location.search, navigate, setSelectedThread, setComposing, setSelectedThreadIds, setReplyingTo]);
 
   useEffect(() => {
     const handleBrowserBack = () => {

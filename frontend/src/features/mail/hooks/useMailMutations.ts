@@ -42,6 +42,13 @@ export function useMailMutations() {
   const removeCachedConversations = async (accountId: string, conversationIds: string[]) => {
     await clearConversationQueries(accountId, conversationIds);
     const removed = new Set(conversationIds);
+    // A refresh during the undo delay can restore rows before the move finishes.
+    for (const queryKey of [['mail', accountId, 'threads'], ['mail', 'all', 'threads']]) {
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueriesData<MailThread[]>({ queryKey }, old =>
+        old?.filter(thread => !removed.has(thread.conversation_id)),
+      );
+    }
     queryClient.setQueriesData<MailThread[]>({ queryKey: ['mail', accountId, 'search'] }, old =>
       old?.filter(thread => !removed.has(thread.conversation_id)),
     );

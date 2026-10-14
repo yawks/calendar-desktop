@@ -76,7 +76,7 @@ it('restores each folder and page after a read failure, then can mark another em
   }
 });
 
-for (const operation of ['moveThread', 'moveToTrash', 'deletePermanently', 'bulkMove', 'bulkDelete'] as const) {
+for (const operation of ['moveThread', 'moveToTrash', 'deletePermanently', 'bulkMove', 'bulkDelete', 'snoozeThread'] as const) {
   for (const fails of [false, true]) {
     it(`${operation}: ${fails ? 'keeps cached messages on failure' : 'discards obsolete headers and bodies after success'}`, async () => {
       const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
@@ -93,11 +93,19 @@ for (const operation of ['moveThread', 'moveToTrash', 'deletePermanently', 'bulk
       client.setQueryData(headersKey, headers);
       client.setQueryData(bodyKey, { body_html: 'cached' });
       client.setQueryData(otherKey, headers);
+      const pageKey = [...MAIL_KEYS.threads('account', 'inbox'), 50, 0];
+      const otherPageKey = [...MAIL_KEYS.threads('other-account', 'inbox'), 50, 0];
+      const rows = [{ conversation_id: 'conversation' }, { conversation_id: 'neighbour' }];
+      client.setQueryData(pageKey, rows);
+      client.setQueryData(otherPageKey, rows);
       const perform = vi.fn(async () => {
         if (fails) throw new Error('Exchange unavailable');
+        // Simulate a refresh restoring the row after optimistic removal.
+        client.setQueryData(pageKey, rows);
       });
       const provider = {
         getThread: async () => headers,
+        snooze: perform,
         bulkMoveToFolder: perform,
         moveToTrash: perform,
         permanentlyDelete: perform,
@@ -108,7 +116,7 @@ for (const operation of ['moveThread', 'moveToTrash', 'deletePermanently', 'bulk
         await act(async () => {
           await new Promise<void>(resolve => {
             const callbacks = { onSettled: () => resolve() };
-            const params = { accountId: 'account', provider, conversationId: 'conversation', conversationIds: ['conversation'], targetFolderId: 'archive', permanent: false };
+            const params = { accountId: 'account', provider, conversationId: 'conversation', conversationIds: ['conversation'], targetFolderId: 'archive', permanent: false, until: '2099-01-01T10:00:00Z' };
             mutations[operation](params, callbacks);
           });
         });
@@ -116,6 +124,8 @@ for (const operation of ['moveThread', 'moveToTrash', 'deletePermanently', 'bulk
         expect(client.getQueryData(headersKey)).toEqual(fails ? headers : undefined);
         expect(client.getQueryData(bodyKey)).toEqual(fails ? { body_html: 'cached' } : undefined);
         expect(client.getQueryData(otherKey)).toEqual(headers);
+        if (!fails) expect(client.getQueryData(pageKey)).toEqual([rows[1]]);
+        expect(client.getQueryData(otherPageKey)).toEqual(rows);
       } finally {
         await act(async () => root.unmount());
         client.clear();
