@@ -686,9 +686,13 @@ export function useMailPageLogic() {
   }, [queryClient, selectedAccountId]);
 
   const selectFolder = useCallback((folder: Folder, accountId?: string) => {
+    if (folder === selectedFolder && accountId === selectedFolderAccountId) return;
+    // Clear the old identifier before its draft/conversation context changes.
+    setSelectedThread(null);
+    setReplyingTo(null);
     setSelectedFolderAccountId(accountId);
     setSelectedFolder(folder);
-  }, []);
+  }, [selectedFolder, selectedFolderAccountId]);
 
   // A notification already provides enough metadata to display a thread
   // immediately. Adopt its Inbox context without clearing that thread; the
@@ -847,6 +851,7 @@ export function useMailPageLogic() {
       };
 
       const execute = () => {
+        pendingActionRef.current = null;
         const isDraft = selectedFolder === 'drafts';
         const clearPendingRemoval = () => setPendingRemovalIds(prev => {
           const next = new Set(prev);
@@ -1011,6 +1016,7 @@ export function useMailPageLogic() {
       };
 
       const execute = () => {
+        pendingActionRef.current = null;
         mutations.snoozeThread(
           { accountId, provider: p, conversationId, until: snoozeUntil },
           { ...beginBulkRemoval(accountId, [conversationId]), onError: (error) => {
@@ -1053,6 +1059,7 @@ export function useMailPageLogic() {
       const rollback = optimisticallyRemoveThread(conversationId);
 
       const execute = () => {
+        pendingActionRef.current = null;
         mutations.moveThread({ accountId, provider: p, conversationId, targetFolderId }, {
           onSuccess: () => {
             setStableThreads(prev => prev.filter(item =>

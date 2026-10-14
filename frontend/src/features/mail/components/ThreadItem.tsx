@@ -190,7 +190,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
 
   const showTooltip = (e: React.MouseEvent, text: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top - 30 });
+    setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top });
   };
 
   const isUnread = thread.unread_count > 0;

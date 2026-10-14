@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { expect, it, vi } from 'vitest';
 import { useMailPageLogic } from './useMailPageLogic';
 import type { ComposerRestoreData } from '../types';
-const f = vi.hoisted(() => ({ accounts: [{ id: 'account', email: 'sender@example.com', displayName: 'Sender' }], empty: [], send: vi.fn(), trash: vi.fn(), query: { data: [], errors: [], refetch: vi.fn() }, folders: { allAccountFolders: new Map(), allModeDynamicFolders: [], mergedCounts: {}, errors: [] }, t: (key: string) => key }));
+const f = vi.hoisted(() => ({ accounts: [{ id: 'account', email: 'sender@example.com', displayName: 'Sender' }], empty: [], conversation: vi.fn(), send: vi.fn(), trash: vi.fn(), remove: vi.fn(), move: vi.fn(), snooze: vi.fn(), query: { data: [], errors: [], refetch: vi.fn() }, folders: { allAccountFolders: new Map(), allModeDynamicFolders: [], mergedCounts: {}, errors: [] }, t: (key: string) => key }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: f.t }) }));
 vi.mock('../../../shared/store/ExchangeAuthStore', () => ({ useExchangeAuth: () => ({ accounts: f.accounts, getValidToken: f.t }) }));
 vi.mock('../../../shared/store/GoogleAuthStore', () => ({ useGoogleAuth: () => ({ accounts: f.empty }) }));
@@ -18,8 +18,8 @@ vi.mock('./useContactBackfill', () => ({ useContactBackfill: () => ({}) }));
 vi.mock('./useContactSuggestions', () => ({ useContactSuggestions: () => f.empty }));
 vi.mock('../utils/contactIndex', () => ({ cleanupContactIndex: async () => 0, recordContactObservations: async () => {}, searchContactIndex: async () => [] }));
 vi.mock('../providers/EwsMailProvider', () => ({ EwsMailProvider: class { providerType = 'ews'; capabilities = {}; moveToTrash = f.trash; } }));
-vi.mock('./useMailMutations', () => ({ useMailMutations: () => ({ sendMail: f.send }) }));
-vi.mock('./useMailQueries', async importOriginal => ({ ...await importOriginal<typeof import('./useMailQueries')>(), useMailFolders: () => f.query, useAllAccountFolders: () => f.folders, useMailThreads: () => f.query, useAllAccountThreads: () => f.query, useMailConversation: () => f.query, useMailSearch: () => f.query, useAllAccountSearch: () => f.query, useAllAccountIdentities: () => f.empty }));
+vi.mock('./useMailMutations', () => ({ useMailMutations: () => ({ sendMail: f.send, moveToTrash: f.remove, moveThread: f.move, snoozeThread: f.snooze }) }));
+vi.mock('./useMailQueries', async importOriginal => ({ ...await importOriginal<typeof import('./useMailQueries')>(), useMailFolders: () => f.query, useAllAccountFolders: () => f.folders, useMailThreads: () => f.query, useAllAccountThreads: () => f.query, useMailConversation: (...args: unknown[]) => { f.conversation(...args); return f.query; }, useMailSearch: () => f.query, useAllAccountSearch: () => f.query, useAllAccountIdentities: () => f.empty }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 it('retires the temporary preview after sending and deletes only the server item', async () => {
   vi.useFakeTimers();
@@ -54,3 +54,66 @@ it('retires the temporary preview after sending and deletes only the server item
     vi.useRealTimers();
   }
 });
+
+it('clears the selected identifier before switching its folder context', async () => {
+  const client = new QueryClient();
+  const root = createRoot(document.createElement('div'));
+  let logic!: ReturnType<typeof useMailPageLogic>;
+  function Harness() { logic = useMailPageLogic(); return null; }
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+    for (const [source, destination] of [['inbox', 'drafts'], ['drafts', 'sentitems']] as const) {
+      await act(async () => logic.selectFolder(source));
+      await act(async () => logic.setSelectedThread({ conversation_id: 'old-identifier' } as never));
+      await act(async () => logic.selectFolder(source));
+      expect(logic.selectedThread?.conversation_id).toBe('old-identifier');
+      f.conversation.mockClear();
+      await act(async () => logic.selectFolder(destination));
+      expect(logic.selectedFolder).toBe(destination);
+      expect(logic.selectedThread).toBeNull();
+      expect(f.conversation.mock.calls.length).toBeGreaterThan(0);
+      for (const call of f.conversation.mock.calls) expect(call[1]).toBeNull();
+    }
+    await act(async () => logic.setSelectedThread({ conversation_id: 'another-account' } as never));
+    await act(async () => logic.selectFolder('sentitems', 'other-account'));
+    expect(logic.selectedThread).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+  }
+});
+
+for (const operation of ['trash', 'move', 'snooze'] as const) {
+  it(`does not replay an expired ${operation} action when archiving the next email`, async () => {
+    vi.useFakeTimers();
+    f.remove.mockClear();
+    f.move.mockClear();
+    f.snooze.mockClear();
+    const client = new QueryClient();
+    const root = createRoot(document.createElement('div'));
+    let logic!: ReturnType<typeof useMailPageLogic>;
+    function Harness() { logic = useMailPageLogic(); return null; }
+    try {
+      await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+      await act(async () => logic.setSelectedThread({ conversation_id: 'first', accountId: 'account' } as never));
+      await act(async () => {
+        if (operation === 'trash') logic.moveToTrash('first');
+        else if (operation === 'move') await logic.handleMove('archive');
+        else await logic.handleSnooze('2099-01-01T10:00:00Z');
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(5000));
+      const perform = operation === 'trash' ? f.remove : operation === 'move' ? f.move : f.snooze;
+      expect(perform).toHaveBeenCalledOnce();
+      await act(async () => logic.setSelectedThread({ conversation_id: 'second', accountId: 'account' } as never));
+      await act(async () => logic.handleMove('archive'));
+      expect(perform).toHaveBeenCalledOnce();
+      await act(async () => vi.advanceTimersByTimeAsync(5000));
+      expect(f.move).toHaveBeenCalledTimes(operation === 'move' ? 2 : 1);
+      expect(f.move.mock.calls.at(-1)?.[0]).toMatchObject({ conversationId: 'second', targetFolderId: 'archive' });
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      vi.useRealTimers();
+    }
+  });
+}

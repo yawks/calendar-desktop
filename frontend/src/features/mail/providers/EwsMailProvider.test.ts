@@ -31,6 +31,21 @@ describe('EwsMailProvider', () => {
     expect(mailCommand).not.toHaveBeenCalledWith('mail_bulk_move_to_folder', expect.anything());
   });
 
+  it('loads the complete draft before opening the editor', async () => {
+    const draft = { item_id: 'draft-item', body_html: '<p>Saved draft text</p>', attachments: [{ id: 'attachment' }] };
+    mailCommand.mockResolvedValueOnce([draft]);
+    const provider = new EwsMailProvider('account', async () => 'token');
+
+    const messages = await provider.getThread('draft-item', false, true);
+
+    expect(mailCommand).toHaveBeenCalledOnce();
+    expect(mailCommand).toHaveBeenCalledWith('mail_get_thread', {
+      accessToken: 'token', conversationId: 'draft-item', includeTrash: false,
+      isDraft: true, includeDrafts: false,
+    });
+    expect(messages).toEqual([{ ...draft, body_loaded: true }]);
+  });
+
   it('loads thread envelopes without downloading every message body', async () => {
     mailCommand.mockResolvedValueOnce([
       { item_id: 'older', body_html: '', subject: 'Thread' },
