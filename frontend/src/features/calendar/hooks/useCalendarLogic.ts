@@ -400,13 +400,15 @@ export function useCalendarLogic() {
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
 
     let rsvpSourceId = event.sourceId;
+    let respondSeries = false;
     let affectedIds = [event.id];
 
     if (isEventRecurring(event)) {
       const scope = await askRecurringScope();
       if (scope === null) return;
       if (scope === 'all' && event.seriesId) {
-        rsvpSourceId = event.seriesId;
+        respondSeries = true;
+        if (cal.type !== 'exchange') rsvpSourceId = event.seriesId;
         affectedIds = events.filter((e) => e.seriesId === event.seriesId).map((e) => e.id);
       }
     }
@@ -453,6 +455,7 @@ export function useCalendarLogic() {
           accessToken: token,
           itemId,
           changeKey,
+          respondSeries,
           responseType: status === 'ACCEPTED' ? 'accept' : status === 'DECLINED' ? 'decline' : 'tentative',
           ownerEmail: cal.ownerEmail,
           body: comment ?? null,

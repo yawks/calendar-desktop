@@ -26,6 +26,8 @@ pub struct RespondRequest {
     response_type: String,
     owner_email: String,
     body: Option<String>,
+    #[serde(default)]
+    respond_series: bool,
 }
 
 #[derive(Deserialize)]
@@ -141,10 +143,10 @@ pub async fn create(Json(request): Json<CreateRequest>) -> Result<Json<serde_jso
 }
 
 pub async fn respond(Json(request): Json<RespondRequest>) -> Result<Json<serde_json::Value>, ApiError> {
-    let element = match request.response_type.as_str() { "accept" => "AcceptItem", "decline" => "DeclineItem", "tentative" => "TentativelyAcceptItem", _ => return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "invalid_response_type" })))) };
-    let comment = request.body.filter(|v| !v.is_empty()).map(|v| format!(r#"<t:Body BodyType="Text">{}</t:Body>"#, escape(&v))).unwrap_or_default();
-    let body = format!(r#"<m:CreateItem MessageDisposition="SendAndSaveCopy"><m:Items><t:{element}>{comment}<t:ReferenceItemId Id="{}" ChangeKey="{}"/></t:{element}></m:Items></m:CreateItem>"#, escape(&request.item_id), escape(&request.change_key));
-    send(&request.access_token, &body, Some(&request.owner_email)).await?;
+    app_lib::ews::ews_respond_to_invitation(
+        request.access_token, request.item_id, request.change_key,
+        request.response_type, request.owner_email, request.body, request.respond_series,
+    ).await.map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

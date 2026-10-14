@@ -445,6 +445,8 @@ struct ExchangeRespond {
     response_type: String,
     owner_email: String,
     body: Option<String>,
+    #[serde(default)]
+    respond_series: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -582,6 +584,7 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                     a.response_type,
                     a.owner_email,
                     a.body,
+                    a.respond_series,
                 )
                 .await,
             )

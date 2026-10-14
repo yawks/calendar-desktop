@@ -338,14 +338,14 @@ pub async fn ews_delete_event(
     Ok(())
 }
 
-/// Cancel an organizer meeting using the same EWS response object as Outlook.
-pub async fn ews_cancel_event(
-    access_token: String,
+async fn resolve_response_item(
+    access_token: &str,
     item_id: String,
     change_key: String,
-    cancel_series: bool,
-) -> Result<(), String> {
-    let (reference_id, reference_change_key) = if cancel_series {
+    series: bool,
+    owner_email: Option<&str>,
+) -> Result<(String, String), String> {
+    let reference = if series {
         let get_master_body = format!(
             r#"<m:GetItem>
   <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
@@ -355,29 +355,45 @@ pub async fn ews_cancel_event(
 </m:GetItem>"#,
             item_id, change_key,
         );
-        let master_xml = send_ews_request(&access_token, &get_master_body, None).await?;
+        let master_xml = send_ews_request(&access_token, &get_master_body, owner_email).await?;
         if master_xml.contains("ResponseClass=\"Error\"") {
             let msg = xml_content(&master_xml, "m:MessageText")
                 .unwrap_or_else(|| "EWS recurring master lookup error".to_string());
             return Err(msg);
         }
-        let item_element = master_xml
-            .find("<t:ItemId ")
-            .and_then(|start| {
-                master_xml[start..]
-                    .find("/>")
-                    .map(|end| &master_xml[start..start + end])
-            })
-            .ok_or_else(|| "EWS recurring master ID missing".to_string())?;
-        (
-            xml_attr(item_element, "Id")
-                .ok_or_else(|| "EWS recurring master ID missing".to_string())?,
-            xml_attr(item_element, "ChangeKey").unwrap_or_default(),
-        )
+        parse_response_master(&master_xml)?
     } else {
         (item_id, change_key)
     };
 
+    Ok(reference)
+}
+
+fn parse_response_master(xml: &str) -> Result<(String, String), String> {
+    let item_element = xml
+        .find("<t:ItemId ")
+        .and_then(|start| {
+            xml[start..]
+                .find("/>")
+                .map(|end| &xml[start..start + end])
+        })
+        .ok_or_else(|| "EWS recurring master ID missing".to_string())?;
+    Ok((
+        xml_attr(item_element, "Id")
+            .ok_or_else(|| "EWS recurring master ID missing".to_string())?,
+        xml_attr(item_element, "ChangeKey").unwrap_or_default(),
+    ))
+}
+
+/// Cancel an organizer meeting using the same EWS response object as Outlook.
+pub async fn ews_cancel_event(
+    access_token: String,
+    item_id: String,
+    change_key: String,
+    cancel_series: bool,
+) -> Result<(), String> {
+    let (reference_id, reference_change_key) =
+        resolve_response_item(&access_token, item_id, change_key, cancel_series, None).await?;
     let soap_body = format!(
         r#"<m:CreateItem MessageDisposition="SendAndSaveCopy">
   <m:Items>
@@ -644,6 +660,7 @@ pub async fn ews_respond_to_invitation(
     response_type: String,
     owner_email: String,
     body: Option<String>,
+    respond_series: bool,
 ) -> Result<(), String> {
     let element = match response_type.as_str() {
         "accept" => "AcceptItem",
@@ -651,6 +668,15 @@ pub async fn ews_respond_to_invitation(
         "tentative" => "TentativelyAcceptItem",
         other => return Err(format!("Invalid response_type: {}", other)),
     };
+
+    let (item_id, change_key) = resolve_response_item(
+        &access_token,
+        item_id,
+        change_key,
+        respond_series,
+        Some(&owner_email),
+    )
+    .await?;
 
     let body_element = match &body {
         Some(text) if !text.is_empty() => format!(
@@ -720,4 +746,36 @@ pub async fn ews_respond_to_invitation(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod response_tests {
+    use super::*;
+
+    #[test]
+    fn resolves_master_id_and_its_own_change_key() {
+        let xml =
+            r#"<t:CalendarItem><t:ItemId Id="master" ChangeKey="master-key"/></t:CalendarItem>"#;
+        assert_eq!(
+            parse_response_master(xml).unwrap(),
+            ("master".into(), "master-key".into())
+        );
+        assert!(parse_response_master("<m:Items/>").is_err());
+    }
+
+    #[tokio::test]
+    async fn single_occurrence_keeps_its_reference_without_lookup() {
+        assert_eq!(
+            resolve_response_item(
+                "",
+                "occurrence".into(),
+                "occurrence-key".into(),
+                false,
+                None
+            )
+            .await
+            .unwrap(),
+            ("occurrence".into(), "occurrence-key".into())
+        );
+    }
 }
