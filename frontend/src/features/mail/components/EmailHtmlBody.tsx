@@ -7,6 +7,7 @@ import { useFontSize } from '../../../shared/store/FontSizeStore';
 import { openExternalUrl } from '../../../shared/services/fileService';
 import { platform } from '../../../shared/platform';
 import { disableSenderDarkModeCss } from '../utils/emailDarkMode';
+import { installEmailPinchZoom } from '../utils/emailPinchZoom';
 import { findQuoteMarker, processEmailQuotes } from '../utils/emailQuoteParser';
 
 function parseHexColor(raw: string): [number, number, number] | null {
@@ -50,6 +51,7 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
   const fontScale = fontSize === 'small' ? 0.85 : fontSize === 'medium' ? 1 : fontSize === 'intermediate' ? 1.1 : 1.2;
   const isDark = resolved === 'dark';
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const pinchCleanupRef = useRef<(() => void) | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const bgRaw = getComputedStyle(document.documentElement).getPropertyValue('--bg');
@@ -57,7 +59,10 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
   const [bgR, bgG, bgB] = bgParsed;
   const bgCss = `rgb(${bgR}, ${bgG}, ${bgB})`;
 
-  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
+  useEffect(() => () => {
+    resizeObserverRef.current?.disconnect();
+    pinchCleanupRef.current?.();
+  }, []);
 
   const kr = ((255 + bgR) / 255).toFixed(4);
   const kg = ((255 + bgG) / 255).toFixed(4);
@@ -123,6 +128,7 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
     : `@media only screen and (max-width: 720px) { ${responsiveWidthRules} }`;
 
   const handleFrameLoad = () => {
+    pinchCleanupRef.current?.();
     const frame = iframeRef.current;
     const doc = frame?.contentDocument;
     if (!frame || !doc?.body || !doc.documentElement) return;
@@ -209,7 +215,8 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
       fitToFrameWidth();
       // Document heights include the iframe viewport and would feed its
       // previous height back into the observer on every measurement.
-      const height = Math.ceil(root.getBoundingClientRect().height);
+      const bounds = root.getBoundingClientRect();
+      const height = Math.ceil(bounds.height + Math.min(0, bounds.top));
       if (height <= 0) return;
 
       // Apply the initial measurement directly to the element. Going through
@@ -221,6 +228,9 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
         onReady?.();
       }
     };
+    if (platform.isNativeAndroid) {
+      pinchCleanupRef.current = installEmailPinchZoom(frame, root, () => resize());
+    }
     resizeObserverRef.current?.disconnect();
     const observer = new ResizeObserver(() => resize());
     observer.observe(frame);
