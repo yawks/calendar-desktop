@@ -107,5 +107,6 @@ export function filterMailHtml(html: string, rules: MailContentRule[]): { html: 
       }
     }
   }
-  return { html: changed ? doc.body.innerHTML : html, changed };
+  const headStyles = Array.from(doc.head.querySelectorAll('style'), style => style.outerHTML).join('');
+  return { html: changed ? headStyles + doc.body.innerHTML : html, changed };
 }

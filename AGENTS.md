@@ -1,6 +1,18 @@
-# Courrier — règles de contribution UI
+# Courrier — règles de contribution
 
 Ce fichier s’applique à tout le dépôt. Toute modification d’interface doit rester visuellement cohérente entre web, desktop Tauri et Android Capacitor.
+
+## Actions de protocole et couverture des providers
+
+- Toute modification relative à une action de protocole doit être réalisée sur l’ensemble des providers disponibles concernés par cette action. Cela couvre notamment l’envoi et la réception de mails, la création, la modification et l’envoi de brouillons, le déplacement vers un dossier, la suppression de messages, ainsi que la création, l’envoi, la modification et la suppression d’évènements.
+- Les providers disponibles à ce jour sont : **Gmail**, **Exchange/EWS**, **IMAP/SMTP**, **JMAP** et **CalDAV/Nextcloud**. Tout nouveau provider doit être inclus dans cette obligation dès son ajout.
+- Avant de modifier une action, identifier ses implémentations dans chaque provider et appliquer le changement à toutes celles qui la prennent en charge. Une correction ou une fonctionnalité ne doit pas rester limitée au seul provider ayant servi à la développer.
+- Vérifier le comportement et les erreurs pour chaque provider concerné, et préciser dans le compte rendu les validations effectuées et celles qui n’ont pas pu l’être. Si une action ne s’applique pas à un provider ou n’est pas prise en charge par son protocole, documenter explicitement cette limite.
+
+## Documentation des fonctionnalités
+
+- Toute nouvelle fonctionnalité suffisamment conséquente pour apporter une nouvelle capacité ou un nouvel usage à l’utilisateur doit être mentionnée dans `README.md`, dans la section pertinente et avec un niveau de détail proportionné à son intérêt.
+- Ne pas documenter dans le README les microfonctionnalités, les ajustements mineurs d’interface (taille d’un élément, couleur, légère réorganisation visuelle, etc.) ni les correctifs. Le README décrit les capacités du produit, pas l’historique des changements.
 
 ## Sources de vérité
 

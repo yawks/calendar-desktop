@@ -110,6 +110,22 @@ describe('EmailHtmlBody regression: forwarded Gmail/Outlook message', () => {
 });
 
 describe('EmailHtmlBody content filtering', () => {
+  it.each([false, true])('preserves Outlook paragraph and list spacing with filtering enabled: %s', async filtering => {
+    if (filtering) vi.mocked(useMailContentRules).mockReturnValue({ rules: [{ id: '1', text: 'External banner.', enabled: true }], save: vi.fn() });
+    const host = document.createElement('div'); document.body.append(host);
+    const component = createRoot(host);
+    const css = 'p.MsoNormal, li.MsoNormal { margin: 0; }';
+    const html = `<html><head><style>${css}</style><script>alert('unsafe')</script></head><body><div>External banner.</div><p class="MsoNormal">Bonjour</p><p class="MsoNormal">&nbsp;</p><ul><li class="MsoNormal">Détail<br>Suite</li></ul></body></html>`;
+    await act(async () => component.render(<EmailHtmlBody html={html} />));
+    const doc = new DOMParser().parseFromString(host.querySelector('iframe')!.srcdoc, 'text/html');
+    expect(Array.from(doc.querySelectorAll('style'), style => style.textContent)).toContain(css);
+    expect(doc.querySelector('script')).toBeNull();
+    expect(doc.querySelectorAll('p.MsoNormal')).toHaveLength(2);
+    expect(doc.querySelector('li.MsoNormal')!.innerHTML).toBe('Détail<br>Suite');
+    expect(doc.body.textContent?.includes('External banner.')).toBe(!filtering);
+    await act(async () => component.unmount());
+  });
+
   it('reveals and hides the original without modifying the supplied email', async () => {
     vi.mocked(useMailContentRules).mockReturnValue({ rules: [{ id: '1', text: 'ATTENTION: email externe.', enabled: true }], save: vi.fn() });
     const host = document.createElement('div'); document.body.append(host);

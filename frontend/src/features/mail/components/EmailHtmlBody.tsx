@@ -27,7 +27,8 @@ function sanitizeEmailHtml(html: string): string {
       }
     }
   });
-  return parsed.body.innerHTML;
+  // Outlook defines paragraph/list spacing in head styles, not always inline.
+  return Array.from(parsed.head.querySelectorAll('style'), style => style.outerHTML).join('') + parsed.body.innerHTML;
 }
 
 export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = false, showHiddenContent = false, onHiddenContentChange }: {
