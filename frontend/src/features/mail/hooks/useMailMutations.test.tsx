@@ -133,3 +133,41 @@ for (const operation of ['moveThread', 'moveToTrash', 'deletePermanently', 'bulk
     });
   }
 }
+
+for (const providerType of ['jmap', 'gmail'] as const) {
+  for (const operation of ['moveToTrash', 'deletePermanently'] as const) {
+    it(`${providerType} ${operation} resolves consecutive draft message IDs and preserves sent messages`, async () => {
+      const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+      const root = createRoot(document.createElement('div'));
+      let mutations!: ReturnType<typeof useMailMutations>;
+      function Harness() { mutations = useMailMutations(); return null; }
+      const perform = vi.fn(async () => {});
+      const provider = {
+        providerType,
+        getThread: vi.fn(async (id: string) => [
+          { item_id: `${id}-sent`, is_draft: false },
+          { item_id: `${id}-draft`, is_draft: true },
+        ]),
+        moveToTrash: perform,
+        permanentlyDelete: perform,
+      } as unknown as MailProvider;
+      const pageKey = [...MAIL_KEYS.threads('account', 'drafts'), 50, 0];
+      client.setQueryData(pageKey, [{ conversation_id: 'first' }, { conversation_id: 'second' }]);
+      try {
+        await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+        for (const conversationId of ['first', 'second']) {
+          await act(async () => {
+            await new Promise<void>((resolve, reject) => mutations[operation]({
+              accountId: 'account', provider, conversationId, isDraft: true,
+            }, { onSuccess: () => resolve(), onError: reject }));
+          });
+        }
+        expect(perform.mock.calls).toEqual([['first-draft'], ['second-draft']]);
+        expect(client.getQueryData(pageKey)).toEqual([]);
+      } finally {
+        await act(async () => root.unmount());
+        client.clear();
+      }
+    });
+  }
+}

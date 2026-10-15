@@ -26,6 +26,7 @@ export interface ThreadListProps {
   readonly isInSnoozedFolder: boolean;
   readonly isSentFolder?: boolean;
   readonly isInScheduledFolder?: boolean;
+  readonly isInDraftsFolder?: boolean;
   readonly isSearchMode?: boolean;
   readonly draftConversationIds?: Set<string>;
   readonly sourceColor?: string;
@@ -60,6 +61,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       isInSnoozedFolder,
       isSentFolder = false,
       isInScheduledFolder = false,
+      isInDraftsFolder = false,
       isSearchMode = false,
       draftConversationIds,
       sourceColor,
@@ -411,6 +413,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={isSentFolder}
               isInScheduledFolder={isInScheduledFolder}
+              isInDraftsFolder={isInDraftsFolder}
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
               sourceColor={sourceColor}
               provider={resolveProvider?.(thread) ?? provider}

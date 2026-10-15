@@ -69,6 +69,12 @@ export class EwsMailProvider implements MailProvider {
   }
 
   async getThreadCount(folder: string): Promise<number> {
+    // Draft rows are individual items; Exchange conversation operations do not apply.
+    if (folder === 'drafts') {
+      const drafts = (await this.listFolders()).find(folder => folder.folder_id === 'drafts');
+      if (!drafts) throw new Error('EWS drafts folder not found');
+      return drafts.total_count;
+    }
     const accessToken = await this.token();
     return invoke<number>('mail_get_thread_count', { accessToken, folder });
   }

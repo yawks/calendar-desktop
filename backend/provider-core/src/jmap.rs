@@ -1346,7 +1346,7 @@ impl MailProvider for JmapProvider {
                 }),
                 body_text,
                 ics_mime: None,
-                is_draft: None,
+                is_draft: Some(email.keywords().contains(&"$draft")),
             });
         }
 

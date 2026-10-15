@@ -77,7 +77,7 @@ export class ImapMailProvider implements MailProvider {
     });
   }
 
-  async getThread(conversationId: string, _includeTrash?: boolean, _isDraft?: boolean): Promise<MailMessage[]> {
+  async getThread(conversationId: string, _includeTrash?: boolean, isDraft = false): Promise<MailMessage[]> {
     const [folder, uid] = conversationId.split(':');
     const targetFolder = folder || 'INBOX';
     const messages = await invoke<MailMessage[]>('imap_get_thread', {
@@ -85,10 +85,14 @@ export class ImapMailProvider implements MailProvider {
       conversationId: uid,
       folder: targetFolder,
     });
-    return messages.map(m => ({
-      ...m,
-      item_id: `${targetFolder}:${m.item_id}`,
-      body_loaded: false,
+    return Promise.all(messages.map(async message => {
+      const itemId = `${targetFolder}:${message.item_id}`;
+      return {
+        ...message,
+        ...(isDraft ? await this.getMessageContent(itemId) : {}),
+        item_id: itemId,
+        body_loaded: isDraft,
+      };
     }));
   }
 

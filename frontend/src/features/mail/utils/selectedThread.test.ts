@@ -9,6 +9,15 @@ const thread = (topic: string, overrides: Partial<MailThread> = {}): MailThread 
 });
 
 describe('mergeSelectedThread', () => {
+  it('does not reopen a discarded draft when an older list refresh arrives', () => {
+    expect(mergeSelectedThread(null, thread('Draft'))).toBeNull();
+  });
+
+  it('preserves a different conversation selected during a list refresh', () => {
+    const current = thread('Next', { conversation_id: 'next' });
+    expect(mergeSelectedThread(current, thread('Discarded'))).toBe(current);
+  });
+
   it('keeps the resolved detail subject when a recall changes the list topic', () => {
     const current = thread('(no subject)', { snippet: 'Original message' });
     const listed = thread('Rappel :', { message_count: 2, unread_count: 0 });

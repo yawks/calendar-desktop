@@ -623,9 +623,7 @@ export default function MailApp() {
     : undefined;
   useEffect(() => {
     if (!selectedThreadInFolder || selectedThread === selectedThreadInFolder) return;
-    setSelectedThread(current => current
-      ? mergeSelectedThread(current, selectedThreadInFolder)
-      : selectedThreadInFolder);
+    setSelectedThread(current => mergeSelectedThread(current, selectedThreadInFolder));
   }, [selectedThread, selectedThreadInFolder, setSelectedThread]);
   const displayedThreads = selectedThread && !listedThreads.some(thread => thread.conversation_id === selectedThread.conversation_id)
     ? [selectedThread, ...listedThreads]
@@ -901,6 +899,7 @@ export default function MailApp() {
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={selectedFolder === 'sentitems'}
               isInScheduledFolder={selectedFolder === 'scheduled'}
+              isInDraftsFolder={selectedFolder === 'drafts'}
               draftConversationIds={draftConversationIds}
               sourceColor={allMailAccounts.find(account => account.id === selectedAccountId)?.color}
               onSelect={handleSelectThread}

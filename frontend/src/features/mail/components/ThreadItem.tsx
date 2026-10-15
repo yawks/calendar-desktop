@@ -125,6 +125,7 @@ export interface ThreadItemProps {
   readonly isInSnoozedFolder: boolean;
   readonly isSentFolder?: boolean;
   readonly isInScheduledFolder?: boolean;
+  readonly isInDraftsFolder?: boolean;
   readonly hasDraft?: boolean;
   readonly sourceColor?: string;
   readonly provider?: MailProvider | null;
@@ -135,7 +136,7 @@ export interface ThreadItemProps {
   readonly onToggleCheck: (t: MailThread, shiftKey: boolean) => void;
 }
 
-export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, isInScheduledFolder = false, hasDraft, sourceColor, provider, animateArrival = false, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
+export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, isInScheduledFolder = false, isInDraftsFolder = false, hasDraft, sourceColor, provider, animateArrival = false, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const { preference } = useTheme();
   const notificationOpening = useNotificationOpening();
@@ -191,10 +192,10 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   const snippet = thread.snippet || snippetQuery.data || '';
   const needsBodyPreview = mailPreviewNeedsBody(snippet, rules);
   const filteredSnippetQuery = useQuery({
-    queryKey: ['mail-filtered-snippet-v4', snippetAccountId, thread.conversation_id, thread.last_delivery_time, rules],
+    queryKey: ['mail-filtered-snippet-v4', snippetAccountId, thread.conversation_id, thread.last_delivery_time, rules, isInDraftsFolder],
     enabled: !notificationOpening && snippetNearViewport && needsBodyPreview && !!provider,
     queryFn: () => scheduleSnippet(provider!.accountId, provider!.providerType === 'jmap' ? 1 : 3, async () => {
-      const messages = await provider!.getThread(thread.conversation_id);
+      const messages = await provider!.getThread(thread.conversation_id, false, isInDraftsFolder);
       const latest = [...messages].sort((a, b) => Date.parse(b.date_time_received) - Date.parse(a.date_time_received))[0];
       if (!latest) return '';
       const content = latest.body_loaded === false && provider!.getMessageContent

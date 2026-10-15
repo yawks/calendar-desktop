@@ -176,13 +176,13 @@ export function useMailMutations() {
 
   const moveToTrashMutation = useMutation({
     mutationFn: async ({ provider, conversationId, isDraft }: MutationParams & { conversationId: string; folderId?: string; threadUnreadCount?: number; isDraft?: boolean }) => {
-      if (isDraft) {
-        // For drafts, conversation_id == item_id — no need to fetch the thread first.
+      if (isDraft && provider.providerType !== 'jmap' && provider.providerType !== 'gmail') {
+        // Exchange and IMAP draft rows already carry an item identifier.
         await provider.moveToTrash(conversationId);
         return;
       }
       const msgs = await provider.getThread(conversationId, false);
-      for (const msg of msgs) {
+      for (const msg of msgs.filter(message => !isDraft || message.is_draft)) {
         await provider.moveToTrash(msg.item_id);
       }
     },
@@ -241,12 +241,12 @@ export function useMailMutations() {
 
   const deletePermanentlyMutation = useMutation({
     mutationFn: async ({ provider, conversationId, isDraft }: MutationParams & { conversationId: string; isDraft?: boolean }) => {
-      if (isDraft) {
+      if (isDraft && provider.providerType !== 'jmap' && provider.providerType !== 'gmail') {
         await provider.permanentlyDelete(conversationId);
         return;
       }
       const msgs = await provider.getThread(conversationId, true);
-      for (const msg of msgs) {
+      for (const msg of msgs.filter(message => !isDraft || message.is_draft)) {
         await provider.permanentlyDelete(msg.item_id);
       }
     },

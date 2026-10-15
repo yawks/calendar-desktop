@@ -537,7 +537,7 @@ export class GmailMailProvider implements MailProvider {
     return results.filter((t): t is MailThread => t !== null);
   }
 
-  async getThread(conversationId: string, includeTrash = false, _isDraft = false): Promise<MailMessage[]> {
+  async getThread(conversationId: string, includeTrash = false, isDraft = false): Promise<MailMessage[]> {
     const token = await this.token();
     const thread = await this.gFetch<GmailThread>(
       token,
@@ -551,7 +551,11 @@ export class GmailMailProvider implements MailProvider {
       m => includeTrash || !m.labelIds?.includes('TRASH'),
     );
 
-    return messages.map(m => ({ ...this.parseMessage(m), body_loaded: false }));
+    return Promise.all(messages.map(async message => ({
+      ...this.parseMessage(message),
+      ...(isDraft ? await this.getMessageContent(message.id) : {}),
+      body_loaded: isDraft,
+    })));
   }
 
   async getMessageContent(messageId: string) {
@@ -613,6 +617,7 @@ export class GmailMailProvider implements MailProvider {
       body_html: extractBody(msg.payload ?? {}),
       date_time_received: msToIso(msg.internalDate ?? '0'),
       is_read: !msg.labelIds?.includes('UNREAD'),
+      is_draft: msg.labelIds?.includes('DRAFT') ?? false,
       has_attachments: attachments.filter(a => !a.is_inline).length > 0,
       attachments: attachments.filter(a => !a.is_inline),
       size: msg.sizeEstimate,

@@ -171,3 +171,30 @@ it('preserves a notification selected when mail mounts after vault unlock', asyn
     client.clear();
   }
 });
+
+it('clears the detail selection immediately when discarding the last draft', async () => {
+  vi.useFakeTimers();
+  const client = new QueryClient();
+  const root = createRoot(document.createElement('div'));
+  let logic!: ReturnType<typeof useMailPageLogic>;
+  function Harness() { logic = useMailPageLogic(); return null; }
+  const previousData = f.query.data;
+  const draft = { conversation_id: 'last-draft', accountId: 'account', unread_count: 0, display_name: 'Drafts', topic: 'Draft', to_recipients: [], cc_recipients: [] };
+  try {
+    f.query.data = [draft] as never[];
+    await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+    await act(async () => logic.selectFolder('drafts'));
+    await act(async () => logic.setSelectedThread(draft as never));
+    await act(async () => logic.moveToTrash('last-draft'));
+    expect(logic.threads).toEqual([]);
+    expect(logic.selectedThread).toBeNull();
+    expect(f.conversation.mock.calls.at(-1)?.[1]).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(logic.selectedThread).toBeNull();
+  } finally {
+    f.query.data = previousData;
+    await act(async () => root.unmount());
+    client.clear();
+    vi.useRealTimers();
+  }
+});

@@ -64,12 +64,13 @@ export class JmapMailProvider implements MailProvider {
     });
   }
 
-  async getThread(conversationId: string): Promise<MailMessage[]> {
+  async getThread(conversationId: string, _includeTrash = false, isDraft = false): Promise<MailMessage[]> {
     const messages = await invoke<MailMessage[]>('jmap_get_thread', {
-      config: this.rustConfig,
+      // The draft editor needs the body before it mounts to restore its content.
+      config: { ...this.rustConfig, load_message_bodies: isDraft },
       conversationId,
     });
-    return messages.map(message => ({ ...message, body_loaded: false }));
+    return messages.map(message => ({ ...message, body_loaded: isDraft }));
   }
 
   async getMessageContent(messageId: string, conversationId?: string) {

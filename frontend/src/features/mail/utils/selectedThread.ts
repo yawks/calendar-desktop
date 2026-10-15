@@ -1,7 +1,9 @@
 import type { MailThread } from '../types';
 
 /** Keep conversation details stable while refreshing list-owned metadata. */
-export function mergeSelectedThread(current: MailThread, listed: MailThread): MailThread {
+export function mergeSelectedThread(current: MailThread | null, listed: MailThread): MailThread | null {
+  // A list refresh must not reopen a discarded draft or replace a new selection.
+  if (!current || current.conversation_id !== listed.conversation_id || current.accountId !== listed.accountId) return current;
   const merged: MailThread = {
     ...listed,
     // EWS can report a recall request's subject as the conversation topic while
