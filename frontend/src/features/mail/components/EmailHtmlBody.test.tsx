@@ -2,12 +2,15 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
 import { processEmailQuotes } from '../utils/emailQuoteParser';
 import { forwardedGmailOutlookHtml, forwardedGmailOutlookText } from './__fixtures__/forwardedGmailOutlookMessage';
 
+vi.mock('../../../shared/store/MailContentRulesStore', () => ({ useMailContentRules: vi.fn(() => ({ rules: [], save: vi.fn() })) }));
+
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (_key: string, fallback: string | { defaultValue?: string }) =>
-    typeof fallback === 'string' ? fallback : fallback.defaultValue ?? '' }),
+  useTranslation: () => ({ t: (_key: string, fallback?: string | { defaultValue?: string }) =>
+    typeof fallback === 'string' ? fallback : fallback?.defaultValue ?? _key }),
 }));
 vi.mock('../../../shared/store/ThemeStore', () => ({ useTheme: () => ({ resolved: 'light' }) }));
 vi.mock('../../../shared/store/FontSizeStore', () => ({ useFontSize: () => ({ fontSize: 'medium' }) }));
@@ -26,6 +29,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  vi.mocked(useMailContentRules).mockReturnValue({ rules: [], save: vi.fn() });
   document.body.replaceChildren();
 });
 
@@ -102,5 +106,33 @@ describe('EmailHtmlBody regression: forwarded Gmail/Outlook message', () => {
     expect(iframe!.style.height).toBe('2029px');
     expect(iframe!.style.visibility).toBe('visible');
     await act(async () => root.unmount());
+  });
+});
+
+describe('EmailHtmlBody content filtering', () => {
+  it('reveals and hides the original without modifying the supplied email', async () => {
+    vi.mocked(useMailContentRules).mockReturnValue({ rules: [{ id: '1', text: 'ATTENTION: email externe.', enabled: true }], save: vi.fn() });
+    const host = document.createElement('div'); document.body.append(host);
+    const component = createRoot(host);
+    const html = '<div>ATTENTION: email externe.</div><p>Bonjour</p>';
+    await act(async () => component.render(<EmailHtmlBody html={html} />));
+    expect(host.querySelector('iframe')!.srcdoc).not.toContain('ATTENTION: email externe.');
+    expect(host.querySelector('iframe')!.srcdoc).toContain('Bonjour');
+    expect(host.querySelector('button')).toBeNull();
+    await act(async () => component.render(<EmailHtmlBody html={html} showHiddenContent />));
+    expect(host.querySelector('iframe')!.srcdoc).toContain('ATTENTION: email externe.');
+    await act(async () => component.render(<EmailHtmlBody html={html} showHiddenContent={false} />));
+    expect(host.querySelector('iframe')!.srcdoc).not.toContain('ATTENTION: email externe.');
+    expect(html).toContain('ATTENTION: email externe.');
+    await act(async () => component.unmount());
+  });
+  it('filters plain text messages while escaping their HTML characters', async () => {
+    vi.mocked(useMailContentRules).mockReturnValue({ rules: [{ id: '1', text: 'External email.', enabled: true }], save: vi.fn() });
+    const host = document.createElement('div'); document.body.append(host);
+    const component = createRoot(host);
+    await act(async () => component.render(<EmailHtmlBody html="" bodyText="External email. Hello <script>" />));
+    expect(host.querySelector('iframe')!.srcdoc).toContain('Hello &lt;script&gt;');
+    expect(host.querySelector('iframe')!.srcdoc).not.toContain('External email.');
+    await act(async () => component.unmount());
   });
 });

@@ -1,3 +1,4 @@
+import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
 import { Archive, BellOff, CalendarClock, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -144,6 +145,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   const itemRef = useRef<HTMLDivElement>(null);
   const avatarLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const avatarLongPressHandledRef = useRef(false);
+  const { rules } = useMailContentRules();
   const [snippetNearViewport, setSnippetNearViewport] = useState(false);
 
   const isMobile = () => globalThis.matchMedia?.("(max-width: 700px)").matches ?? false;
@@ -156,7 +158,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
 
   useEffect(() => clearAvatarLongPress, []);
   useEffect(() => {
-    if (thread.snippet || !provider?.getThreadSnippet) return;
+    if ((thread.snippet && formatMailPreview(thread.snippet, rules)) || !provider) return;
     const element = itemRef.current;
     if (!element) return;
     const observer = new IntersectionObserver(([entry]) => {
@@ -164,7 +166,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
     }, { rootMargin: '300px 0px' });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [thread.conversation_id, thread.snippet, provider]);
+  }, [thread.conversation_id, thread.snippet, provider, rules]);
   // In unified mode the provider map may be rebuilt briefly while switching
   // source tabs. The thread keeps its account id throughout that transition,
   // so use it to keep observing the same cached preview instead of switching
@@ -187,6 +189,21 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
     retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   const snippet = thread.snippet || snippetQuery.data || '';
+  const needsBodyPreview = !!snippet && !formatMailPreview(snippet, rules);
+  const filteredSnippetQuery = useQuery({
+    queryKey: ['mail-filtered-snippet', snippetAccountId, thread.conversation_id, thread.last_delivery_time, rules],
+    enabled: !notificationOpening && snippetNearViewport && needsBodyPreview && !!provider,
+    queryFn: () => scheduleSnippet(provider!.accountId, provider!.providerType === 'jmap' ? 1 : 3, async () => {
+      const messages = await provider!.getThread(thread.conversation_id);
+      const latest = [...messages].sort((a, b) => Date.parse(b.date_time_received) - Date.parse(a.date_time_received))[0];
+      if (!latest) return '';
+      const content = latest.body_loaded === false && provider!.getMessageContent
+        ? await provider!.getMessageContent(latest.item_id, thread.conversation_id) : latest;
+      return formatMailPreview(content.body_text || content.body_html || '', rules);
+    }),
+    staleTime: Infinity,
+    retry: 1,
+  });
 
   const showTooltip = (e: React.MouseEvent, text: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -327,7 +344,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
             <span className="mail-thread-item__draft-badge">{t('mail.draftBadge', 'Brouillon')}</span>
           )}
           {snippet ? (
-            <span className="mail-thread-item__snippet-text">{formatMailPreview(snippet)}</span>
+            <span className="mail-thread-item__snippet-text">{(filteredSnippetQuery.data ?? formatMailPreview(snippet, rules))}</span>
           ) : provider?.getThreadSnippet && snippetQuery.isFetching ? (
             <span className="mail-thread-item__snippet-skeleton" aria-hidden="true" />
           ) : null}

@@ -2,6 +2,8 @@ import { FileIcon, defaultStyles } from 'react-file-icon';
 import { Monitor, Moon, Sun } from 'lucide-react';
 
 import React from 'react';
+import type { MailContentRule } from '../../shared/store/MailContentRulesStore';
+import { filterMailText } from './utils/mailContentFilter';
 import { ThemePreference } from '../../shared/store/ThemeStore';
 
 /** Decode HTML entities in a plain-text string (e.g. snippet previews).
@@ -43,14 +45,14 @@ export function getErrorMessage(error: unknown): string {
 }
 
 /** Prepare provider snippets/body text for a compact, plain-text preview. */
-export function formatMailPreview(text: string): string {
+export function formatMailPreview(text: string, rules: MailContentRule[] = []): string {
   let preview = decodeHtmlEntities(text);
   if (/<\/?[a-z][^>]*>/i.test(preview)) {
     const container = document.createElement('div');
     container.innerHTML = preview.replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h[1-6])>/gi, ' ');
     preview = container.textContent ?? '';
   }
-  return decodeHtmlEntities(preview).replace(/\uFFFC/g, '').trim();
+  return filterMailText(decodeHtmlEntities(preview).replace(/\uFFFC/g, ''), rules, true);
 }
 
 // ── Avatar colors (used as background with white text) ─────────────────────────

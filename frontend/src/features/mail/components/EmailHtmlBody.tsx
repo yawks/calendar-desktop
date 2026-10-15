@@ -1,3 +1,5 @@
+import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
+import { filterMailHtml, filterMailText } from '../utils/mailContentFilter';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
@@ -27,13 +29,22 @@ function sanitizeEmailHtml(html: string): string {
   return parsed.body.innerHTML;
 }
 
-export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = false }: {
+export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = false, showHiddenContent = false, onHiddenContentChange }: {
   readonly html: string;
   readonly bodyText?: string;
   readonly onReady?: () => void;
   readonly expandFirstQuote?: boolean;
+  readonly showHiddenContent?: boolean;
+  readonly onHiddenContentChange?: (hidden: boolean) => void;
 }) {
   const { t } = useTranslation();
+  const { rules } = useMailContentRules();
+  const filtered = filterMailHtml(html, rules);
+  const filteredText = filterMailText(bodyText ?? '', rules);
+  const hasHiddenContent = filtered.changed || filteredText !== (bodyText ?? '').trim();
+  useEffect(() => { onHiddenContentChange?.(hasHiddenContent); }, [hasHiddenContent, onHiddenContentChange]);
+  const displayText = showHiddenContent ? bodyText : filteredText;
+
   const { resolved } = useTheme();
   const { fontSize } = useFontSize();
   const fontScale = fontSize === 'small' ? 0.85 : fontSize === 'medium' ? 1 : fontSize === 'intermediate' ? 1.1 : 1.2;
@@ -84,9 +95,10 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
   });
 
   // Detect quote boundary from plain text, then pass the marker to the iframe script.
-  const quoteMarker = bodyText ? findQuoteMarker(bodyText) : null;
+  const quoteMarker = displayText ? findQuoteMarker(displayText) : null;
 
-  const safeHtml = sanitizeEmailHtml(disableSenderDarkModeCss(html))
+  const escapeText = (text: string) => { const el = document.createElement('div'); el.textContent = text; return el.innerHTML; };
+  const safeHtml = sanitizeEmailHtml(disableSenderDarkModeCss(html ? (showHiddenContent ? html : filtered.html) : `<pre>${escapeText(displayText ?? '')}</pre>`))
     .replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
 
   // Android WebView can expose the top-level layout viewport to srcdoc media
@@ -301,11 +313,11 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
       // restyling the document. Restore the sanitized source before revealing
       // it instead of exposing that intermediate DOM.
       root.innerHTML = safeHtml;
-      if (!(root.textContent ?? '').trim() && bodyText?.trim()) {
+      if (!(root.textContent ?? '').trim() && displayText?.trim()) {
         const fallbackText = doc.createElement('pre');
         fallbackText.style.whiteSpace = 'pre-wrap';
         fallbackText.style.fontFamily = 'inherit';
-        fallbackText.textContent = bodyText;
+        fallbackText.textContent = displayText;
         root.replaceChildren(fallbackText);
       }
 
@@ -321,7 +333,7 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
     }, 500);
 
     return () => window.clearTimeout(fallback);
-  }, [bodyText, onReady, safeHtml, srcdoc]);
+  }, [displayText, onReady, safeHtml, srcdoc]);
 
   return (
     <iframe

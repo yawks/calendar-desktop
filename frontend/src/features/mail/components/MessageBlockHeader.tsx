@@ -1,7 +1,9 @@
+import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
 import {
   ChevronDown,
   ChevronUp,
   CodeXml,
+  Eye,
   Forward,
   Mail,
   MailOpen,
@@ -23,6 +25,9 @@ import { OriginalMessageModal } from './OriginalMessageModal';
 // ── Props ──────────────────────────────────────────────────────────────────────
 
 interface MessageBlockHeaderProps {
+  readonly hasHiddenContent?: boolean;
+  readonly showHiddenContent?: boolean;
+  readonly onToggleHiddenContent?: () => void;
   readonly message: MailMessage;
   readonly expanded: boolean;
   readonly onToggleExpand: () => void;
@@ -61,6 +66,9 @@ function RecipientChip({ recipient, onClick }: RecipientChipProps) {
 // ── Actions dropdown menu ──────────────────────────────────────────────────────
 
 interface ActionsMenuProps {
+  readonly hasHiddenContent?: boolean;
+  readonly showHiddenContent?: boolean;
+  readonly onToggleHiddenContent?: () => void;
   readonly message: MailMessage;
   readonly onReply: (m: MailMessage) => void;
   readonly onReplyAll: (m: MailMessage) => void;
@@ -72,7 +80,7 @@ interface ActionsMenuProps {
   readonly onClose: () => void;
 }
 
-function ActionsMenu({ message, onReply, onReplyAll, onForward, onNewToRecipients, onToggleRead, onTrash, onShowOriginal, onClose }: ActionsMenuProps) {
+function ActionsMenu({ message, onReply, onReplyAll, onForward, onNewToRecipients, onToggleRead, onTrash, onShowOriginal, onClose, hasHiddenContent, showHiddenContent, onToggleHiddenContent }: ActionsMenuProps) {
   const { t } = useTranslation();
   const act = (e: MouseEvent, fn: () => void) => { e.stopPropagation(); fn(); onClose(); };
   return (
@@ -93,6 +101,11 @@ function ActionsMenu({ message, onReply, onReplyAll, onForward, onNewToRecipient
         onClick={e => act(e, onShowOriginal)}>
         <CodeXml size={14} /><span>{t('mail.showOriginalMessage', 'Show original message')}</span>
       </button>
+
+      {hasHiddenContent && onToggleHiddenContent && <button type="button" className="mail-actions-menu__item" aria-pressed={showHiddenContent}
+        onClick={e => act(e, onToggleHiddenContent)}>
+        <Eye size={14} /><span>{t(showHiddenContent ? 'settings.mailContentRules.hideOriginal' : 'settings.mailContentRules.showOriginal')}</span>
+      </button>}
 
       {onNewToRecipients && <button type="button" className="mail-actions-menu__item"
         onClick={e => act(e, () => onNewToRecipients(message))}>
@@ -131,7 +144,9 @@ export function MessageBlockHeader({
   onToggleRead,
   onComposeToContact,
   provider,
+  hasHiddenContent, showHiddenContent, onToggleHiddenContent,
 }: MessageBlockHeaderProps) {
+  const { rules } = useMailContentRules();
   const { t } = useTranslation();
   const { resolved } = useTheme();
   const isDark = resolved === 'dark';
@@ -174,7 +189,7 @@ export function MessageBlockHeader({
           {fromLabel}
         </span>
         <span className="mail-message-block__preview--collapsed">
-          {formatMailPreview(message.body_text || '') || formatMailPreview(message.subject)}
+          {formatMailPreview(message.body_text || '', rules) || formatMailPreview(message.subject)}
         </span>
         {message.has_attachments && <Paperclip size={11} className="mail-message-block__clip" />}
         <span className="mail-message-block__date">{formatDate(message.date_time_received)}</span>
@@ -268,6 +283,8 @@ export function MessageBlockHeader({
             {expanded && (
               <div className="mail-actions-dropdown">
                 <button type="button" className="btn-icon--labeled"
+                  aria-label={t('mail.actions')}
+                  aria-expanded={showActions}
                   onClick={e => { sp(e); setShowActions(v => !v); }}>
                   <span className="mail-actions-label">{t('mail.actions', 'Actions')}</span>
                   <ChevronDown className="mail-actions-chevron" size={11} />
@@ -277,6 +294,9 @@ export function MessageBlockHeader({
                   <>
                     <div className="mail-actions-backdrop" onClick={e => { e.stopPropagation(); setShowActions(false); }} />
                     <ActionsMenu
+                      hasHiddenContent={hasHiddenContent}
+                      showHiddenContent={showHiddenContent}
+                      onToggleHiddenContent={onToggleHiddenContent}
                       message={message}
                       onReply={onReply} onReplyAll={onReplyAll} onNewToRecipients={onNewToRecipients} onForward={onForward}
                       onToggleRead={onToggleRead} onTrash={onTrash}

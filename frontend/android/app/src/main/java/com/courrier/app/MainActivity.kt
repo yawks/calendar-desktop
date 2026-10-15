@@ -62,6 +62,12 @@ class MainActivity : BridgeActivity() {
 
     private fun coverNotificationView(intent: Intent?) {
         if (intent?.dataString?.startsWith("courrier://mail/") != true) return
+        // React's notification handler lives behind the vault screen. Keep
+        // unlock accessible and retain the intent until the vault is unlocked.
+        if (getSharedPreferences("native_sync_preferences", MODE_PRIVATE).getBoolean("vaultLocked", true)) {
+            revealNotificationView("vault-locked")
+            return
+        }
         if (notificationLoadingView == null) {
             notificationLoadingView = layoutInflater.inflate(R.layout.notification_loading, null)
             addContentView(notificationLoadingView, ViewGroup.LayoutParams(

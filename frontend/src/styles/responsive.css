@@ -788,12 +788,13 @@
     bottom: auto;
     left: auto;
     top: calc(100% + 6px);
-    z-index: 70;
+    z-index: 200;
     width: min(280px, calc(100vw - 28px));
     max-height: 70dvh;
     overflow-y: auto;
     border-radius: 9px;
   }
+  .mail-message-block .mail-actions-menu__item { min-height: 44px; }
 
   .vault-form { padding: 22px 18px; box-shadow: none; }
   .vault-screen { scroll-padding-block: 88px max(32px, env(safe-area-inset-bottom)); }

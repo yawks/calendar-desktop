@@ -106,7 +106,12 @@ class CourrierNativePlugin:Plugin(){
  @PluginMethod fun runSyncNow(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");if(SyncVault(context).get(id)==null)return call.reject("sync is not configured");SyncScheduler.runNow(context,id);call.resolve()}
  @PluginMethod fun getSyncStatus(call:PluginCall){val id=call.getString("accountId")?:return call.reject("accountId required");val account=SyncVault(context).get(id);val value=JSObject(SyncStatusStore(context).get(id).toString()).put("configuredMode",account?.syncMode);val success=value.optLong("lastSuccessAt",0);val staleAfter=(account?.syncIntervalMinutes?:15).coerceAtLeast(15)*180_000L;value.put("watchdogStale",success>0&&System.currentTimeMillis()-success>staleAfter);call.resolve(value)}
  @PluginMethod fun setNotificationPrivacy(call:PluginCall){context.getSharedPreferences("native_sync_preferences",0).edit().putString("privacy",call.getString("privacy")?:"generic").apply();call.resolve()}
- @PluginMethod fun setVaultLocked(call:PluginCall){context.getSharedPreferences("native_sync_preferences",0).edit().putBoolean("vaultLocked",call.getBoolean("locked",true)==true).apply();call.resolve()}
+ @PluginMethod fun setVaultLocked(call:PluginCall){
+  val locked=call.getBoolean("locked",true)==true
+  context.getSharedPreferences("native_sync_preferences",0).edit().putBoolean("vaultLocked",locked).apply()
+  if(locked)(activity as? MainActivity)?.revealNotificationView("vault-locked")
+  call.resolve()
+ }
  @PluginMethod fun credentialUpdates(call:PluginCall){if(context.getSharedPreferences("native_sync_preferences",0).getBoolean("vaultLocked",true))return call.reject("vault_locked");val updates=JSArray();val vault=SyncVault(context);vault.accountIds().forEach{id->vault.get(id)?.takeIf{it.credentialRevision>0}?.let{updates.put(JSObject().put("accountId",id).put("credentialRevision",it.credentialRevision).put("credentialsUpdatedAt",it.updatedAt).put("credentials",JSObject(it.credentials.toString())))}};call.resolve(JSObject().put("updates",updates))}
  @PluginMethod fun requestNotificationPermission(call:PluginCall){if(Build.VERSION.SDK_INT<33||getPermissionState("notifications")==PermissionState.GRANTED)call.resolve(JSObject().put("granted",true))else requestPermissionForAlias("notifications",call,"permissionResult")}
  @PluginMethod fun notificationPermission(call:PluginCall){val state=if(Build.VERSION.SDK_INT<33)"granted" else when(getPermissionState("notifications")){PermissionState.GRANTED->"granted";PermissionState.DENIED->"denied";else->"default"};call.resolve(JSObject().put("permission",state))}

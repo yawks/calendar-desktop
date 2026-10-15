@@ -597,6 +597,22 @@
     }
   },
   "settings": {
+    "mailContentRules": {
+      "title": "Contenus masqués dans les emails",
+      "hint": "Masquez un texte récurrent dans les messages et leurs aperçus, pour tous vos comptes. Les emails originaux sont conservés. La casse, les espaces et les apostrophes peuvent varier. Copiez le texte complet, sans les balises HTML.",
+      "text": "Texte à masquer",
+      "add": "Ajouter la règle",
+      "save": "Enregistrer la règle",
+      "cancel": "Annuler",
+      "enabled": "Règle active",
+      "edit": "Modifier",
+      "delete": "Supprimer",
+      "empty": "Aucune règle pour le moment.",
+      "sync": "Ces règles sont incluses dans la synchronisation chiffrée WebDAV. Utilisez l’envoi de configuration pour les partager avec vos autres appareils.",
+      "saved": "Règles enregistrées sur cet appareil.",
+      "showOriginal": "Afficher le contenu masqué",
+      "hideOriginal": "Masquer à nouveau"
+    },
     "language": {
       "sectionTitle": "Langue",
       "system": "Système",

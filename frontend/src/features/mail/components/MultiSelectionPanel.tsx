@@ -1,3 +1,4 @@
+import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
 import { useState, type ComponentProps } from 'react';
 import { MailThread } from '../types';
 import {
@@ -53,6 +54,7 @@ export function MultiSelectionPanel({
   threads, selectedIds, onClearSelection, onBulkDelete, onBulkArchive,
   onBulkSnooze, onBulkMove, onBulkToggleRead, moveFolders, moveSources, moveSourceAccountId, onBulkTransfer, supportsSnooze, compact = false, className
 }: MultiSelectionPanelProps) {
+  const { rules } = useMailContentRules();
   const { t } = useTranslation();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -214,7 +216,7 @@ export function MultiSelectionPanel({
                   {thread.topic || t('mail.noSubject', '(no subject)')}
                 </div>
                 <div className="mail-multiselect-card__snippet">
-                  {formatMailPreview(thread.snippet)}
+                  {formatMailPreview(thread.snippet, rules)}
                 </div>
               </div>
             </div>

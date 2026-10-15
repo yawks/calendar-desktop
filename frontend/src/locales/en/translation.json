@@ -597,6 +597,22 @@
     }
   },
   "settings": {
+    "mailContentRules": {
+      "title": "Hidden email content",
+      "hint": "Hide recurring text in messages and previews across all accounts. Original emails are preserved. Matching tolerates differences in case, whitespace and apostrophes. Paste the complete text without HTML tags.",
+      "text": "Text to hide",
+      "add": "Add rule",
+      "save": "Save rule",
+      "cancel": "Cancel",
+      "enabled": "Rule enabled",
+      "edit": "Edit",
+      "delete": "Delete",
+      "empty": "No rules yet.",
+      "sync": "These rules are included in encrypted WebDAV configuration sync. Upload your configuration to share them with your other devices.",
+      "saved": "Rules saved on this device.",
+      "showOriginal": "Show hidden content",
+      "hideOriginal": "Hide again"
+    },
     "language": {
       "sectionTitle": "Language",
       "system": "System",

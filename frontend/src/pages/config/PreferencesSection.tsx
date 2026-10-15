@@ -1,3 +1,4 @@
+import { MailContentRulesSection } from './MailContentRulesSection';
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
 import { Bell, Check, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Monitor, Moon, Sun, Type } from 'lucide-react';
@@ -215,6 +216,8 @@ export function PreferencesSection() {
           ))}
         </div>
       </section>
+
+      <MailContentRulesSection />
 
       {/* Notifications */}
       <section className="native-settings-card preferences-card">

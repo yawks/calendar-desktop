@@ -69,6 +69,9 @@ export function MessageBlock({
   const notificationOpening = useNotificationOpening();
   const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [showHiddenContent, setShowHiddenContent] = useState(false);
+  const [hasHiddenContent, setHasHiddenContent] = useState(false);
+  useEffect(() => { setShowHiddenContent(false); }, [message.item_id]);
   const [bodyReady, setBodyReady] = useState(false);
   const [cancelingScheduled, setCancelingScheduled] = useState(false);
   const [scheduledCanceled, setScheduledCanceled] = useState(false);
@@ -215,6 +218,9 @@ export function MessageBlock({
   return (
     <div ref={blockRef} className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}${scrollIntoViewOnMount ? ' mail-message-block--initial-unread' : ''}`}>
       <MessageBlockHeader
+        hasHiddenContent={hasHiddenContent}
+        showHiddenContent={showHiddenContent}
+        onToggleHiddenContent={() => setShowHiddenContent(value => !value)}
         message={message}
         expanded={isExpanded}
         onToggleExpand={handleToggleExpand}
@@ -292,6 +298,8 @@ export function MessageBlock({
                 )}
                 {!bodyLoading && (
                   <EmailHtmlBody
+                    showHiddenContent={showHiddenContent}
+                    onHiddenContentChange={setHasHiddenContent}
                     html={displayedMessage.body_html || ''}
                     bodyText={displayedMessage.body_text}
                     onReady={() => setBodyReady(true)}

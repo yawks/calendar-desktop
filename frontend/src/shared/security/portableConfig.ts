@@ -10,6 +10,7 @@ export const PORTABLE_CONFIG_KEYS = [
   'logodev-token',
   'courrier:signatures',
   'courrier:signaturePosition',
+  'courrier:mail-content-rules',
 ] as const;
 
 const portableConfigKeySet = new Set<string>(PORTABLE_CONFIG_KEYS);

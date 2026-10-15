@@ -392,3 +392,16 @@
 .sources-logo-card {
   order: -1;
 }
+
+/* Global mail content rules */
+.config-mail-rules__form { display: grid; gap: 12px; }
+.config-mail-rules textarea { width: 100%; min-height: 88px; box-sizing: border-box; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.config-mail-rules textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent); }
+.config-mail-rules__list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 14px; }
+.config-mail-rules__list li { min-width: 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.config-mail-rules__text { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; }
+.config-mail-rules__help { margin: 12px 0 0; color: var(--text-muted); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; }
+.config-mail-rules .config-mail-rules__delete { color: var(--danger); }
+.config-mail-rules button, .config-mail-rules .preferences-toggle { min-height: 44px; }
+.config-mail-rules button:focus-visible, .config-mail-rules input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 600px) { .config-mail-rules .native-settings-actions { align-items: stretch; } .config-mail-rules .native-settings-actions button { flex: 1; } }
