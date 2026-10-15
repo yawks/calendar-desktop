@@ -1,6 +1,6 @@
 import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
 import { Archive, BellOff, CalendarClock, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { decodeHtmlEntities, formatDate, formatMailPreview, mailPreviewNeedsBody, formatSnoozeDate, senderColor } from '../utils';
 
@@ -190,7 +190,8 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
     retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   const snippet = thread.snippet || snippetQuery.data || '';
-  const needsBodyPreview = mailPreviewNeedsBody(snippet, rules);
+  const needsBodyPreview = useMemo(() => mailPreviewNeedsBody(snippet, rules), [snippet, rules]);
+  const formattedSnippet = useMemo(() => formatMailPreview(snippet, rules), [snippet, rules]);
   const filteredSnippetQuery = useQuery({
     queryKey: ['mail-filtered-snippet-v4', snippetAccountId, thread.conversation_id, thread.last_delivery_time, rules, isInDraftsFolder],
     enabled: !notificationOpening && snippetNearViewport && needsBodyPreview && !!provider,
@@ -345,7 +346,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
             <span className="mail-thread-item__draft-badge">{t('mail.draftBadge', 'Brouillon')}</span>
           )}
           {snippet ? (
-            <span className="mail-thread-item__snippet-text">{(filteredSnippetQuery.data ?? formatMailPreview(snippet, rules))}</span>
+            <span className="mail-thread-item__snippet-text">{(filteredSnippetQuery.data ?? formattedSnippet)}</span>
           ) : provider?.getThreadSnippet && snippetQuery.isFetching ? (
             <span className="mail-thread-item__snippet-skeleton" aria-hidden="true" />
           ) : null}

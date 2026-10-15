@@ -34,6 +34,14 @@ describe('global mail content rules', () => {
     expect(filterMailText('İstanbul BANNER Bonjour', rule)).toBe('İstanbul  Bonjour');
     expect(filterMailHtml('<p>İstanbul BANNER Bonjour</p>', rule).html).toBe('<p>İstanbul  Bonjour</p>');
   });
+  it('filters a long message across text nodes without changing surrounding content', () => {
+    const before = 'İstanbul et le contenu du message. '.repeat(5_000);
+    const after = 'La suite doit rester intacte. '.repeat(5_000);
+    const rule = [{ id: '1', text: 'BANNER external warning', enabled: true }];
+    const result = filterMailHtml(`<p>${before}<span>BAN</span><b>NER external</b></p><p>warning</p><p>${after}</p>`, rule);
+    expect(result.changed).toBe(true);
+    expect(result.html).toBe(`<p>${before}</p><p>${after}</p>`);
+  });
   it('includes rules in portable config and replaces them on download', () => {
     const payload = { 'courrier:mail-content-rules': rules, private: 'local' };
     expect(pickPortableConfig(payload)).toEqual({ 'courrier:mail-content-rules': rules });

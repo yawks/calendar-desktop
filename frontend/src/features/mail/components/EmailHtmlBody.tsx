@@ -1,6 +1,6 @@
 import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
 import { filterMailHtml, filterMailText } from '../utils/mailContentFilter';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useFontSize } from '../../../shared/store/FontSizeStore';
@@ -41,8 +41,8 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
 }) {
   const { t } = useTranslation();
   const { rules } = useMailContentRules();
-  const filtered = filterMailHtml(html, rules);
-  const filteredText = filterMailText(bodyText ?? '', rules);
+  const filtered = useMemo(() => filterMailHtml(html, rules), [html, rules]);
+  const filteredText = useMemo(() => filterMailText(bodyText ?? '', rules), [bodyText, rules]);
   const hasHiddenContent = filtered.changed || filteredText !== (bodyText ?? '').trim();
   useEffect(() => { onHiddenContentChange?.(hasHiddenContent); }, [hasHiddenContent, onHiddenContentChange]);
   const displayText = showHiddenContent ? bodyText : filteredText;

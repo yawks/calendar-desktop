@@ -1,19 +1,23 @@
 import type { MailContentRule } from '../../../shared/store/MailContentRulesStore';
 
+const APOSTROPHES = /[’‘]/g;
+const INVISIBLE = /[\u200B-\u200D\uFEFF\u00AD]/;
+const WHITESPACE = /\s/;
+
 // Keep original offsets so matching across inline HTML never removes neighbouring content.
 function normalized(text: string) {
-  let value = '';
+  const characters: string[] = [];
   const starts: number[] = [], ends: number[] = [];
   for (let i = 0; i < text.length; i++) {
-    const char = text[i].replace(/[’‘]/g, "'").toLowerCase();
-    if (/[\u200B-\u200D\uFEFF\u00AD]/.test(char)) continue;
-    if (/\s/.test(char)) {
-      if (value.endsWith(' ')) { ends[ends.length - 1] = i + 1; continue; }
-      value += ' ';
-    } else value += char;
+    const char = text[i].replace(APOSTROPHES, "'").toLowerCase();
+    if (INVISIBLE.test(char)) continue;
+    if (WHITESPACE.test(char)) {
+      if (characters[characters.length - 1] === ' ') { ends[ends.length - 1] = i + 1; continue; }
+      characters.push(' ');
+    } else characters.push(char);
     for (let j = 0; j < char.length; j++) { starts.push(i); ends.push(i + 1); }
   }
-  return { value, starts, ends };
+  return { value: characters.join(''), starts, ends };
 }
 
 function ruleParts(text: string): string[] {
@@ -76,25 +80,31 @@ export function filterMailHtml(html: string, rules: MailContentRule[]): { html: 
     if (!parts.length) continue;
     for (;;) {
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-      const positions: { node: Text; offset: number }[] = [];
-      let text = '', node: Node | null;
+      // Track spans per text node instead of allocating an object per character.
+      const positions: { node: Text; start: number; end: number; offset: number }[] = [];
+      const chunks: string[] = [];
+      let length = 0, node: Node | null;
       let previous: Text | null = null;
       while ((node = walker.nextNode())) {
         if (node.parentElement?.closest('script, style')) continue;
         const current = node as Text;
         if (previous && (previous.parentElement?.closest('p, div, td, li') !== current.parentElement?.closest('p, div, td, li') || previous.nextSibling?.nodeName === 'BR')) {
-          text += ' '; positions.push({ node: previous, offset: previous.length });
+          chunks.push(' ');
+          positions.push({ node: previous, start: length, end: ++length, offset: previous.length });
         }
-        for (let i = 0; i < current.length; i++) { text += current.data[i]; positions.push({ node: current, offset: i }); }
+        chunks.push(current.data);
+        positions.push({ node: current, start: length, end: length + current.length, offset: 0 });
+        length += current.length;
         previous = current;
       }
-      const source = normalized(text), match = matchRule(source.value, parts);
+      const source = normalized(chunks.join('')), match = matchRule(source.value, parts);
       if (!match) break;
       const start = source.starts[match.start], end = source.ends[match.end - 1];
       const range = doc.createRange();
-      const first = positions[start], last = positions[end - 1];
-      range.setStart(first.node, first.offset);
-      range.setEnd(last.node, Math.min(last.offset + 1, last.node.length));
+      const first = positions.find(position => start >= position.start && start < position.end)!;
+      const last = positions.find(position => end - 1 >= position.start && end - 1 < position.end)!;
+      range.setStart(first.node, first.offset + start - first.start);
+      range.setEnd(last.node, Math.min(last.offset + end - last.start, last.node.length));
       const ancestors = new Set<Element>();
       for (const position of [first, last]) {
         let parent = position.node.parentElement;
