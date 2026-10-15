@@ -27,11 +27,13 @@ export function AttachmentList({ attachments, onPreview, onDownload, loadingAtta
               <span className="mail-view-att-card__size">{formatSize(att.size)}</span>
             </div>
             <div className="mail-view-att-card__actions">
-              <button type="button" className="mail-view-att-card__btn" onClick={() => onPreview(att)} title={t('mail.attachment.preview')} disabled={previewLoading || downloadLoading}>
+              <button type="button" className="mail-view-att-card__btn" onClick={() => onPreview(att)} title={t('mail.attachment.preview')} aria-label={t('mail.attachment.preview')} aria-busy={previewLoading} disabled={previewLoading || downloadLoading}>
                 {previewLoading ? <Loader2 size={14} className="spin" /> : <Eye size={14} />}
+                <span className="mail-view-att-card__action-label">{t('mail.attachment.preview')}</span>
               </button>
-              <button type="button" className="mail-view-att-card__btn" onClick={() => onDownload(att)} title={t('mail.attachment.download')} disabled={previewLoading || downloadLoading}>
+              <button type="button" className="mail-view-att-card__btn" onClick={() => onDownload(att)} title={t('mail.attachment.download')} aria-label={t('mail.attachment.download')} aria-busy={downloadLoading} disabled={previewLoading || downloadLoading}>
                 {downloadLoading ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
+                <span className="mail-view-att-card__action-label">{t('mail.attachment.download')}</span>
               </button>
             </div>
           </div>
