@@ -11,7 +11,7 @@ vi.mock('../../../shared/store/ThemeStore', () => ({ useTheme: () => ({ preferen
 vi.mock('../../../shared/platform/notificationOpening', () => ({ useNotificationOpening: () => false }));
 vi.mock('./ContactAvatar', () => ({ ContactAvatar: () => null }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-it('loads an unmodified body near the viewport to replace a truncated banner preview', async () => {
+it.each(['truncated', 'short greeting', 'cached Outlook styles'])('loads the full body near the viewport for a filtered %s preview', async (kind) => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   let intersect: IntersectionObserverCallback;
   globalThis.IntersectionObserver = class {
@@ -20,8 +20,8 @@ it('loads an unmodified body near the viewport to replace a truncated banner pre
     root = null; rootMargin = ''; thresholds = [];
   };
   const body = 'ATTENTION: email externe. Ne cliquez pas sur les liens. Bonjour, le vrai message.';
-  const provider = { accountId: 'account', providerType: 'gmail', getThread: vi.fn(async () => [{ item_id: 'message', date_time_received: '2026-10-14', body_loaded: false }]), getMessageContent: vi.fn(async () => ({ body_text: body })) } as unknown as MailProvider;
-  const thread: MailThread = { conversation_id: 'thread', topic: 'Subject', snippet: body.slice(0, 38), last_delivery_time: '2026-10-14', message_count: 1, unread_count: 1, from_name: 'Sender', from_email: 'sender@example.com', has_attachments: false };
+  const provider = { accountId: 'account', providerType: 'gmail', getThread: vi.fn(async () => [{ item_id: 'message', date_time_received: '2026-10-14', body_loaded: false }]), getMessageContent: vi.fn(async () => ({ body_text: body.replace('Bonjour, le vrai message.', 'Bonjour,levraimessage.'), body_html: '<style type="text/css"><!-- /* Font Definitions */ @font-face {font-family:Cambria Math;} --></style><p>ATTENTION: email externe. Ne cliquez pas sur les liens.</p><p>Bonjour,</p><p>le vrai message.</p>' })) } as unknown as MailProvider;
+  const thread: MailThread = { conversation_id: 'thread', topic: 'Subject', snippet: kind === 'cached Outlook styles' ? '<!-- /* Font Definitions */ @font-face {font-family:Cambria Math; panose-1:2 4' : kind === 'truncated' ? body.slice(0, 38) : 'ATTENTION: email externe. Ne cliquez pas sur les liens.   Bonjour,', last_delivery_time: '2026-10-14', message_count: 1, unread_count: 1, from_name: 'Sender', from_email: 'sender@example.com', has_attachments: false };
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host), client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => root.render(<QueryClientProvider client={client}><ThreadItem thread={thread} provider={provider} isSelected={false} isChecked={false} isInSnoozedFolder={false} onSelect={vi.fn()} onToggleRead={vi.fn()} onDelete={vi.fn()} onToggleCheck={vi.fn()} /></QueryClientProvider>));

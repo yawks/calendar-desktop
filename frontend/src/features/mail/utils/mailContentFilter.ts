@@ -16,20 +16,52 @@ function normalized(text: string) {
   return { value, starts, ends };
 }
 
+function ruleParts(text: string): string[] {
+  const pattern = normalized(text).value.trim();
+  return pattern.replace(/\*/g, '').trim() ? pattern.split(/\*+/).filter(Boolean) : [];
+}
+
+// Each wildcard takes the shortest span between literal fragments; no user-supplied regex.
+function matchRule(value: string, parts: string[]) {
+  if (!parts.length) return null;
+  const start = value.indexOf(parts[0]);
+  if (start < 0) return null;
+  let end = start + parts[0].length;
+  for (const part of parts.slice(1)) {
+    const index = value.indexOf(part, end);
+    if (index < 0) return null;
+    end = index + part.length;
+  }
+  return { start, end };
+}
+
+function isTruncatedMatch(value: string, parts: string[]): boolean {
+  if (!parts.length || value.length < 30) return false;
+  if (parts[0].startsWith(value)) return true;
+  if (!value.startsWith(parts[0])) return false;
+  let end = parts[0].length;
+  for (const part of parts.slice(1)) {
+    const index = value.indexOf(part, end);
+    if (index < 0) return true;
+    end = index + part.length;
+  }
+  return false;
+}
+
 export function filterMailText(text: string, rules: MailContentRule[], truncated = false): string {
   for (const rule of rules) {
     if (!rule.enabled) continue;
-    const needle = normalized(rule.text).value.trim();
-    if (!needle) continue;
+    const parts = ruleParts(rule.text);
+    if (!parts.length) continue;
     let source = normalized(text);
-    let index = source.value.indexOf(needle);
-    while (index >= 0) {
-      text = text.slice(0, source.starts[index]) + text.slice(source.ends[index + needle.length - 1]);
-      source = normalized(text); index = source.value.indexOf(needle);
+    let match = matchRule(source.value, parts);
+    while (match) {
+      text = text.slice(0, source.starts[match.start]) + text.slice(source.ends[match.end - 1]);
+      source = normalized(text); match = matchRule(source.value, parts);
     }
     // Provider previews can end inside a known banner. Do not display that partial banner.
     const tail = source.value.trimStart();
-    if (truncated && tail.length >= 30 && needle.startsWith(tail)) text = '';
+    if (truncated && isTruncatedMatch(tail, parts)) text = '';
   }
   return text.trim();
 }
@@ -40,8 +72,8 @@ export function filterMailHtml(html: string, rules: MailContentRule[]): { html: 
   let changed = false;
   for (const rule of rules) {
     if (!rule.enabled) continue;
-    const needle = normalized(rule.text).value.trim();
-    if (!needle) continue;
+    const parts = ruleParts(rule.text);
+    if (!parts.length) continue;
     for (;;) {
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
       const positions: { node: Text; offset: number }[] = [];
@@ -56,9 +88,9 @@ export function filterMailHtml(html: string, rules: MailContentRule[]): { html: 
         for (let i = 0; i < current.length; i++) { text += current.data[i]; positions.push({ node: current, offset: i }); }
         previous = current;
       }
-      const source = normalized(text), index = source.value.indexOf(needle);
-      if (index < 0) break;
-      const start = source.starts[index], end = source.ends[index + needle.length - 1];
+      const source = normalized(text), match = matchRule(source.value, parts);
+      if (!match) break;
+      const start = source.starts[match.start], end = source.ends[match.end - 1];
       const range = doc.createRange();
       const first = positions[start], last = positions[end - 1];
       range.setStart(first.node, first.offset);

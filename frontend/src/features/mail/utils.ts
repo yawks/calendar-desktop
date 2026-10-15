@@ -49,10 +49,22 @@ export function formatMailPreview(text: string, rules: MailContentRule[] = []): 
   let preview = decodeHtmlEntities(text);
   if (/<\/?[a-z][^>]*>/i.test(preview)) {
     const container = document.createElement('div');
-    container.innerHTML = preview.replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h[1-6])>/gi, ' ');
+    container.innerHTML = preview;
+    container.querySelectorAll('style, script, title').forEach(element => element.remove());
+    container.querySelectorAll('br').forEach(element => element.replaceWith(' '));
+    container.querySelectorAll('p, div, li, tr, td, th, h1, h2, h3, h4, h5, h6, pre, blockquote').forEach(element => element.append(' '));
     preview = container.textContent ?? '';
   }
-  return filterMailText(decodeHtmlEntities(preview).replace(/\uFFFC/g, ''), rules, true);
+  // Older cached previews could contain truncated Outlook styles instead of message text.
+  if (/^\s*(?:<!--\s*)?\/\*\s*Font Definitions\s*\*\//i.test(preview)) return '';
+  return filterMailText(decodeHtmlEntities(preview).replace(/\uFFFC/g, ''), rules, true).replace(/\s+/g, ' ').trim();
+}
+
+/** Refill short provider previews when hiding banners used most of their character budget. */
+export function mailPreviewNeedsBody(text: string, rules: MailContentRule[]): boolean {
+  if (!text) return false;
+  const preview = formatMailPreview(text, rules);
+  return !preview || (preview.length < 200 && preview !== formatMailPreview(text));
 }
 
 // ── Avatar colors (used as background with white text) ─────────────────────────

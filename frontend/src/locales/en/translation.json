@@ -599,7 +599,7 @@
   "settings": {
     "mailContentRules": {
       "title": "Hidden email content",
-      "hint": "Hide recurring text in messages and previews across all accounts. Original emails are preserved. Matching tolerates differences in case, whitespace and apostrophes. Paste the complete text without HTML tags.",
+      "hint": "Hide recurring text in messages and previews across all accounts. Original emails are preserved. Matching tolerates differences in case, whitespace and apostrophes. Paste the complete text without HTML tags. Use * for variable content between fixed text, for example: You don’t often get email from *. Learn why this is important. Rules containing only * are ignored.",
       "text": "Text to hide",
       "add": "Add rule",
       "save": "Save rule",

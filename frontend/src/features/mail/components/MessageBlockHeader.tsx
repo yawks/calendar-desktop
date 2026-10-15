@@ -189,7 +189,7 @@ export function MessageBlockHeader({
           {fromLabel}
         </span>
         <span className="mail-message-block__preview--collapsed">
-          {formatMailPreview(message.body_text || '', rules) || formatMailPreview(message.subject)}
+          {formatMailPreview(message.body_html || message.body_text || '', rules) || formatMailPreview(message.subject)}
         </span>
         {message.has_attachments && <Paperclip size={11} className="mail-message-block__clip" />}
         <span className="mail-message-block__date">{formatDate(message.date_time_received)}</span>

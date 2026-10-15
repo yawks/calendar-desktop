@@ -2,7 +2,7 @@ import { useMailContentRules } from '../../../shared/store/MailContentRulesStore
 import { Archive, BellOff, CalendarClock, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { decodeHtmlEntities, formatDate, formatMailPreview, formatSnoozeDate, senderColor } from '../utils';
+import { decodeHtmlEntities, formatDate, formatMailPreview, mailPreviewNeedsBody, formatSnoozeDate, senderColor } from '../utils';
 
 import { MailRecipient, MailThread } from '../types';
 import type { MailProvider } from '../providers/MailProvider';
@@ -158,7 +158,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
 
   useEffect(() => clearAvatarLongPress, []);
   useEffect(() => {
-    if ((thread.snippet && formatMailPreview(thread.snippet, rules)) || !provider) return;
+    if (!provider || (thread.snippet && !mailPreviewNeedsBody(thread.snippet, rules))) return;
     const element = itemRef.current;
     if (!element) return;
     const observer = new IntersectionObserver(([entry]) => {
@@ -189,9 +189,9 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
     retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   const snippet = thread.snippet || snippetQuery.data || '';
-  const needsBodyPreview = !!snippet && !formatMailPreview(snippet, rules);
+  const needsBodyPreview = mailPreviewNeedsBody(snippet, rules);
   const filteredSnippetQuery = useQuery({
-    queryKey: ['mail-filtered-snippet', snippetAccountId, thread.conversation_id, thread.last_delivery_time, rules],
+    queryKey: ['mail-filtered-snippet-v4', snippetAccountId, thread.conversation_id, thread.last_delivery_time, rules],
     enabled: !notificationOpening && snippetNearViewport && needsBodyPreview && !!provider,
     queryFn: () => scheduleSnippet(provider!.accountId, provider!.providerType === 'jmap' ? 1 : 3, async () => {
       const messages = await provider!.getThread(thread.conversation_id);
@@ -199,7 +199,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
       if (!latest) return '';
       const content = latest.body_loaded === false && provider!.getMessageContent
         ? await provider!.getMessageContent(latest.item_id, thread.conversation_id) : latest;
-      return formatMailPreview(content.body_text || content.body_html || '', rules);
+      return formatMailPreview(content.body_html || content.body_text || '', rules);
     }),
     staleTime: Infinity,
     retry: 1,

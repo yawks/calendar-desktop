@@ -1,3 +1,4 @@
+import { formatMailPreview } from '../utils';
 import type { MailMessage, MailThread } from '../types';
 
 const DB_NAME = 'offline-mail-cache';
@@ -55,8 +56,7 @@ export const getOfflineConversation = (accountId: string, conversationId: string
   requestValue<MailMessage[]>(MESSAGES, `${accountId}:${conversationId}`);
 
 function previewFromMessage(message: MailMessage): string {
-  const value = message.body_text || message.body_html || '';
-  return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500);
+  return formatMailPreview(message.body_html || message.body_text || '').slice(0, 500);
 }
 
 function updateThreadFromMessages(thread: MailThread, messages: MailMessage[]): MailThread {

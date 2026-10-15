@@ -40,3 +40,44 @@ describe('global mail content rules', () => {
     expect(applyPortableConfig(payload, { 'courrier:mail-content-rules': [] })).toEqual({ 'courrier:mail-content-rules': [], private: 'local' });
   });
 });
+
+describe('wildcard mail content rules', () => {
+  const rule = [{ id: 'sender-warning', text: "You don't often get email from *. Learn why this is important", enabled: true }];
+  it('hides different sender addresses and preserves the actual message', () => {
+    for (const address of ['d.deschutter@novadial.fr', 'other+sender@example.org']) {
+      expect(filterMailText(`You don’t often get email from ${address}. Learn why this is important Bonjour`, rule)).toBe('Bonjour');
+    }
+  });
+  it('removes the emptied table and link, preserving the next paragraph and image', () => {
+    const html = `<table style="border:1px solid orange"><tr><td><span>You don't often get email from </span><b>d.deschutter@novadial.fr.</b>&nbsp;<a href="https://example.com">Learn why this is important</a></td></tr></table><p>Bonjour</p><img src="cid:document">`;
+    const result = filterMailHtml(html, rule);
+    expect(result.changed).toBe(true);
+    expect(result.html).toBe('<p>Bonjour</p><img src="cid:document">');
+  });
+  it('uses the shortest match, supports multiple wildcards and repeated banners', () => {
+    const rules = [{ id: '1', text: 'Start * middle * end', enabled: true }];
+    expect(filterMailText('Start a middle b end KEEP Start c middle d end LAST', rules)).toBe('KEEP  LAST');
+    expect(filterMailText('Start middle end KEEP', [{ id: '1', text: 'Start*middle*end', enabled: true }])).toBe('KEEP');
+  });
+  it('keeps punctuation literal and ignores empty wildcard rules', () => {
+    const literal = [{ id: '1', text: 'Notice [external] (sender: *)?', enabled: true }];
+    expect(filterMailText('Notice [external] (sender: test@example.com)? Bonjour', literal)).toBe('Bonjour');
+    const empty = [{ id: 'empty', text: ' ** * ** ', enabled: true }];
+    expect(filterMailText('Bonjour', empty)).toBe('Bonjour');
+    expect(filterMailHtml('<p>Bonjour</p>', empty)).toEqual({ html: '<p>Bonjour</p>', changed: false });
+  });
+  it('requires all fixed fragments in full messages and honors disabled rules', () => {
+    const text = "You don't often get email from sender@example.com. Bonjour";
+    expect(filterMailText(text, rule)).toBe(text);
+    expect(filterMailHtml(`<p>${text}</p>`, rule).changed).toBe(false);
+    expect(filterMailText('Start x end', [{ id: '1', text: 'Start * end', enabled: false }])).toBe('Start x end');
+  });
+  it('recognizes previews truncated inside the address or final fixed fragment', () => {
+    const text = "You don't often get email from sender@example.com. Learn why this is important";
+    for (const length of [35, 45, 65]) {
+      expect(filterMailText(text.slice(0, length), rule, true)).toBe('');
+      expect(filterMailText(text.slice(0, length), rule)).toBe(text.slice(0, length));
+    }
+    expect(filterMailText('A normal message with more than thirty characters', rule, true)).toBe('A normal message with more than thirty characters');
+  });
+});

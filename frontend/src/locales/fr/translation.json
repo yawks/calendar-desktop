@@ -599,7 +599,7 @@
   "settings": {
     "mailContentRules": {
       "title": "Contenus masqués dans les emails",
-      "hint": "Masquez un texte récurrent dans les messages et leurs aperçus, pour tous vos comptes. Les emails originaux sont conservés. La casse, les espaces et les apostrophes peuvent varier. Copiez le texte complet, sans les balises HTML.",
+      "hint": "Masquez un texte récurrent dans les messages et leurs aperçus, pour tous vos comptes. Les emails originaux sont conservés. La casse, les espaces et les apostrophes peuvent varier. Copiez le texte complet, sans les balises HTML. Le joker * remplace une partie variable entre deux textes fixes, par exemple : You don’t often get email from *. Learn why this is important. Une règle composée uniquement de * est ignorée.",
       "text": "Texte à masquer",
       "add": "Ajouter la règle",
       "save": "Enregistrer la règle",
