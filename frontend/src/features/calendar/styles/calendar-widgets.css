@@ -263,7 +263,8 @@
 .form-row input[type='datetime-local'],
 .form-row input[type='time'],
 .form-row select,
-.form-row textarea {
+.form-row textarea,
+.event-recurrence__field select {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -277,7 +278,8 @@
   appearance: none;
 }
 
-.form-row select {
+.form-row select,
+.event-recurrence__field select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2370757a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
@@ -285,11 +287,13 @@
   cursor: pointer;
 }
 
-[data-theme="dark"] .form-row select {
+[data-theme="dark"] .form-row select,
+[data-theme="dark"] .event-recurrence__field select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23606478' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
 }
 
-.form-row select:disabled {
+.form-row select:disabled,
+.event-recurrence__field select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -307,7 +311,8 @@
 .form-row input[type='datetime-local']:focus,
 .form-row input[type='time']:focus,
 .form-row select:focus,
-.form-row textarea:focus { border-color: var(--primary); }
+.form-row textarea:focus,
+.event-recurrence__field select:focus { border-color: var(--primary); }
 
 .event-datetime-field {
   min-width: 0;

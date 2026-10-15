@@ -396,6 +396,7 @@ struct ExchangeList {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangeCreate {
+    recurrence: Option<String>,
     access_token: String,
     title: String,
     start: String,
@@ -408,6 +409,8 @@ struct ExchangeCreate {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangeUpdate {
+    original_start: Option<String>,
+    recurrence: Option<String>,
     access_token: String,
     item_id: String,
     change_key: String,
@@ -508,6 +511,13 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
             let a: ExchangeRefresh = args(value)?;
             output(crate::ews::ews_refresh_access_token(a.refresh_token).await)
         }
+        "exchange_calendar_recurrence" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct RecurrenceRequest { access_token: String, item_id: String }
+            let a: RecurrenceRequest = args(value)?;
+            output(crate::ews::recurrence::get_recurrence(a.access_token, a.item_id).await)
+        }
         "exchange_calendar_list" => {
             let a: ExchangeList = args(value)?;
             output(
@@ -527,6 +537,7 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                     a.location,
                     a.description,
                     a.attendees,
+                    a.recurrence,
                 )
                 .await,
             )
@@ -545,6 +556,8 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                     a.location,
                     a.description,
                     a.update_series,
+                    a.recurrence,
+                    a.original_start,
                 )
                 .await,
             )

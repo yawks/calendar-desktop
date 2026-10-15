@@ -4,6 +4,10 @@ Application de calendrier et de messagerie partageant une interface React et un 
 
 Les credentials des comptes ne sont pas persistés côté serveur. Ils sont conservés dans un coffre IndexedDB chiffré par le mot de passe maître de l'utilisateur.
 
+## Évènements récurrents
+
+Google Agenda, Exchange/EWS et CalDAV/Nextcloud permettent de créer une récurrence quotidienne, hebdomadaire, mensuelle, annuelle ou les jours ouvrés. La personnalisation propose un intervalle, les jours de la semaine et une fin (jamais, date ou nombre d’occurrences). Exchange limite l’intervalle annuel à un an. Une nouvelle règle remplace la récurrence de toute la série ; les règles existantes sont conservées si elles ne sont pas modifiées. Les séries horaires CalDAV sont actuellement définies en UTC : leur heure locale peut changer lors du passage à l’heure d’été ou d’hiver. IMAP/SMTP et JMAP ne proposent pas de calendrier dans Courrier ; les abonnements ICS sont en lecture seule.
+
 ## Développement
 
 ```bash

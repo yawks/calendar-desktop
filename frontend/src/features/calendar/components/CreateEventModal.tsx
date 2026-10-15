@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import FreeBusyGrid, { FreeBusyRow } from './FreeBusyGrid';
 import { FreeBusyResult, queryFreeBusy } from '../utils/googleCalendarApi';
 
+import RecurrenceEditor from './RecurrenceEditor';
 import AttendeeInput from './AttendeeInput';
 import { getDefaultCalendarId } from '../store/defaultCalendarStore';
 import { queryEWSFreeBusy } from '../utils/ewsApi';
@@ -22,6 +23,7 @@ interface Props {
   readonly editEvent?: CalendarEvent;
   readonly onSubmit: (payload: CreateEventPayload, scope?: EditRecurringScope) => Promise<void>;
   readonly onClose: () => void;
+  readonly loadRecurrence?: (event: CalendarEvent) => Promise<string | null>;
   /** Required to query freebusy for Google calendars */
   readonly getValidToken?: (accountId: string) => Promise<string | null>;
   /** Required to query freebusy for Exchange calendars (synchronous refresh token getter) */
@@ -42,7 +44,7 @@ function toDateLocal(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose, getValidToken, getExchangeRefreshToken }: Props) {
+export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose, getValidToken, getExchangeRefreshToken, loadRecurrence }: Props) {
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const descriptionEditorRef = useRef<MailEditorHandle>(null);
@@ -74,6 +76,20 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
       ?.filter((a) => a.email && !a.email.startsWith('/O='))
       .map((a) => ({ email: a.email, name: a.name })) ?? []
   );
+  const [currentRule, setCurrentRule] = useState<string | null>(null);
+  const [recurrenceLoading, setRecurrenceLoading] = useState(false);
+  const [recurrenceError, setRecurrenceError] = useState(false);
+  useEffect(() => {
+    if (!editEvent?.isRecurringInstance || !loadRecurrence) return;
+    let cancelled = false;
+    setRecurrenceLoading(true);
+    loadRecurrence(editEvent).then(rule => { if (!cancelled) setCurrentRule(rule); })
+      .catch(() => { if (!cancelled) setRecurrenceError(true); })
+      .finally(() => { if (!cancelled) setRecurrenceLoading(false); });
+    return () => { cancelled = true; };
+  }, [editEvent, loadRecurrence]);
+  const [editingRecurrence, setEditingRecurrence] = useState(false);
+  const [recurrence, setRecurrence] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showTagDropdown, setShowTagDropdown] = useState(false);
@@ -316,6 +332,8 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
   const handleSubmit = async (e: { preventDefault(): void }, scope?: EditRecurringScope) => {
     e.preventDefault();
+    if (editingRecurrence) return;
+    if (editEvent?.isRecurringInstance && scope === undefined) { setError(t('recurrence.chooseScope')); return; }
     if (!title.trim() || !calendarId) return;
 
     const startIso = isAllday ? startDate : new Date(start).toISOString();
@@ -333,6 +351,8 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
         description: isExchangeCalendar ? descriptionEditorRef.current?.getHTML() ?? description : description,
         calendarId,
         attendees,
+        recurrence: scope === 'this' ? undefined : recurrence,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         tagId: tagId || null,
       };
       await onSubmit(payload, scope);
@@ -477,6 +497,11 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
               </fieldset>
             </>
           )}
+
+          <RecurrenceEditor start={isAllday ? startDate : start} allDay={isAllday} existing={!!editEvent?.isRecurringInstance} initialRule={currentRule} value={recurrence} onChange={setRecurrence} disabled={saving || recurrenceLoading} exchange={isExchangeCalendar} onEditingChange={setEditingRecurrence} />
+
+          {recurrenceLoading && <p className="event-recurrence__help" role="status">{t('recurrence.loading')}</p>}
+          {recurrenceError && <p className="event-recurrence__error" role="alert">{t('recurrence.loadError')}</p>}
 
           <div className="form-row">
             <label htmlFor="ev-calendar">{t('createEvent.calendar')}</label>
@@ -639,21 +664,21 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
           </div>
 
           {error && (
-            <div style={{ color: 'var(--color-error, #d93025)', fontSize: 'calc(13px * var(--font-scale, 1))' }}>{error}</div>
+            <div className="event-recurrence__error" role="alert">{error}</div>
           )}
 
           <div className="config-edit-actions">
             {isEditing && editEvent?.isRecurringInstance ? (
               <>
-                <button type="button" className="btn-primary" disabled={saving || !title.trim()} onClick={(e) => void handleSubmit(e, 'this')}>
+                <button type="button" className="btn-primary" disabled={saving || editingRecurrence || !title.trim() || recurrence !== undefined} onClick={(e) => { if (e.currentTarget.form?.reportValidity()) void handleSubmit(e, 'this'); }}>
                   {saving ? t('createEvent.savingEdit') : t('recurringChoice.saveThisEvent')}
                 </button>
-                <button type="button" className="btn-primary" disabled={saving || !title.trim()} onClick={(e) => void handleSubmit(e, 'future')}>
+                <button type="button" className="btn-primary" disabled={saving || editingRecurrence || !title.trim()} onClick={(e) => { if (e.currentTarget.form?.reportValidity()) void handleSubmit(e, 'future'); }}>
                   {saving ? t('createEvent.savingEdit') : t('recurringChoice.saveFutureEvents')}
                 </button>
               </>
             ) : (
-              <button type="submit" className="btn-primary" disabled={saving || !title.trim()}>
+              <button type="submit" className="btn-primary" disabled={saving || editingRecurrence || !title.trim()}>
                 {submitLabel}
               </button>
             )}

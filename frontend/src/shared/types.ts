@@ -107,6 +107,9 @@ export interface ExchangeAccount {
 }
 
 export interface CreateEventPayload {
+  /** RRULE value; undefined preserves the rule, empty string removes it. */
+  recurrence?: string;
+  timeZone?: string;
   title: string;
   start: string; // ISO 8601
   end: string;   // ISO 8601
@@ -160,6 +163,8 @@ export interface CalendarEvent {
   seriesId?: string;
   /** True when this event is a specific instance of a recurring series */
   isRecurringInstance?: boolean;
+  /** Original scheduled start, retained when an exception has moved. */
+  recurrenceId?: string;
   /** Tag assigned to this event locally */
   tagId?: string;
 }

@@ -175,6 +175,7 @@ pub async fn ews_refresh_access_token(refresh_token: String) -> Result<TokenResp
     })
 }
 
+pub mod recurrence;
 pub mod calendar;
 pub use calendar::*;
 

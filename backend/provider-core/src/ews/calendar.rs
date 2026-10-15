@@ -128,7 +128,9 @@ pub async fn ews_create_event(
     location: Option<String>,
     description: Option<String>,
     attendees: Option<Vec<String>>, // list of email addresses
+    recurrence: Option<String>,
 ) -> Result<String, String> {
+    let recurrence_xml = recurrence.as_deref().filter(|s| !s.is_empty()).map(|rule| super::recurrence::recurrence_xml(rule, &start)).transpose()?.unwrap_or_default();
     let location_xml = location
         .filter(|s| !s.is_empty())
         .map(|s| format!("<t:Location>{}</t:Location>", xml_escape(&s)))
@@ -145,7 +147,7 @@ pub async fn ews_create_event(
         .map(|email| {
             format!(
             "<t:Attendee><t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox></t:Attendee>",
-            email
+            xml_escape(email)
         )
         })
         .collect::<Vec<_>>()
@@ -177,14 +179,15 @@ pub async fn ews_create_event(
       <t:IsAllDayEvent>{is_all_day}</t:IsAllDayEvent>
       {location_xml}
       {attendees_block}
+      {recurrence_xml}
     </t:CalendarItem>
   </m:Items>
 </m:CreateItem>"#,
         invitations_attr = invitations_attr,
         title = title_escaped,
         body_xml = body_xml,
-        start = start,
-        end = end,
+        start = xml_escape(&start),
+        end = xml_escape(&end),
         is_all_day = is_all_day,
         location_xml = location_xml,
         attendees_block = attendees_block,
@@ -219,13 +222,29 @@ pub async fn ews_update_event(
     item_id: String,
     change_key: String,
     title: String,
-    start: String,
-    end: String,
+    mut start: String,
+    mut end: String,
     is_all_day: bool,
     location: Option<String>,
     description: Option<String>,
     update_series: bool,
+    recurrence: Option<String>,
+    original_start: Option<String>,
 ) -> Result<(), String> {
+    if update_series {
+        if let Some(original) = original_start {
+            let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="calendar:Start"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:RecurringMasterItemId OccurrenceId="{}"/></m:ItemIds></m:GetItem>"#, xml_escape(&item_id));
+            let master = send_ews_request(&access_token, &body, None).await?;
+            let master_start = xml_content(&master, "t:Start").ok_or("Recurring master start missing")?;
+            let parse = |value: &str| chrono::DateTime::parse_from_rfc3339(value).map_err(|_| "Invalid series date".to_string());
+            let normalize = |value: &str| if value.len() == 10 { format!("{value}T00:00:00Z") } else { value.to_string() };
+            let next_start = parse(&normalize(&start))?;
+            let duration = parse(&normalize(&end))? - next_start;
+            let anchored = parse(&master_start)? + (next_start - parse(&normalize(&original))?);
+            start = anchored.to_rfc3339();
+            end = (anchored + duration).to_rfc3339();
+        }
+    }
     fn set_field(field_uri: &str, element: &str, value: &str) -> String {
         format!(
             r#"<t:SetItemField>
@@ -239,9 +258,9 @@ pub async fn ews_update_event(
     }
 
     let mut updates = vec![
-        set_field("item:Subject", "t:Subject", &title),
-        set_field("calendar:Start", "t:Start", &start),
-        set_field("calendar:End", "t:End", &end),
+        set_field("item:Subject", "t:Subject", &xml_escape(&title)),
+        set_field("calendar:Start", "t:Start", &xml_escape(&start)),
+        set_field("calendar:End", "t:End", &xml_escape(&end)),
         set_field(
             "calendar:IsAllDayEvent",
             "t:IsAllDayEvent",
@@ -250,7 +269,7 @@ pub async fn ews_update_event(
     ];
 
     if let Some(loc) = location.filter(|s| !s.is_empty()) {
-        updates.push(set_field("calendar:Location", "t:Location", &loc));
+        updates.push(set_field("calendar:Location", "t:Location", &xml_escape(&loc)));
     }
     if let Some(desc) = description.filter(|s| !s.is_empty()) {
         updates.push(format!(
@@ -262,15 +281,17 @@ pub async fn ews_update_event(
         ));
     }
 
+    updates.push(super::recurrence::recurrence_update_xml(recurrence.as_deref(), &start)?);
+
     // RecurringMasterItemId lets EWS resolve the master from the occurrence
     // currently being edited, without confusing it with our local series key.
     let target_id = if update_series {
         format!(
             r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#,
-            item_id, change_key
+            xml_escape(&item_id), xml_escape(&change_key)
         )
     } else {
-        format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, item_id, change_key)
+        format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, xml_escape(&item_id), xml_escape(&change_key))
     };
 
     let soap_body = format!(

@@ -7,6 +7,7 @@ const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRequest {
+    recurrence: Option<String>,
     access_token: String,
     title: String,
     start: String,
@@ -33,6 +34,8 @@ pub struct RespondRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRequest {
+    original_start: Option<String>,
+    recurrence: Option<String>,
     access_token: String, item_id: String, change_key: String,
     title: String, start: String, end: String, is_all_day: bool,
     location: Option<String>, description: Option<String>, update_series: bool,
@@ -129,17 +132,10 @@ async fn send(token: &str, body: &str, anchor: Option<&str>) -> Result<String, A
 }
 
 pub async fn create(Json(request): Json<CreateRequest>) -> Result<Json<serde_json::Value>, ApiError> {
-    let attendees: String = request.attendees.unwrap_or_default().into_iter().map(|email|
-        format!("<t:Attendee><t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox></t:Attendee>", escape(&email))
-    ).collect();
-    let attendees_block = if attendees.is_empty() { String::new() } else { format!("<t:RequiredAttendees>{attendees}</t:RequiredAttendees>") };
-    let send_mode = if attendees.is_empty() { "SendToNone" } else { "SendToAllAndSaveCopy" };
-    let location = request.location.filter(|v| !v.is_empty()).map(|v| format!("<t:Location>{}</t:Location>", escape(&v))).unwrap_or_default();
-    let description = request.description.filter(|v| !v.is_empty()).map(|v| format!(r#"<t:Body BodyType="HTML">{}</t:Body>"#, escape(&v))).unwrap_or_default();
-    let body = format!(r#"<m:CreateItem SendMeetingInvitations="{send_mode}"><m:Items><t:CalendarItem><t:Subject>{}</t:Subject>{description}<t:Start>{}</t:Start><t:End>{}</t:End><t:IsAllDayEvent>{}</t:IsAllDayEvent>{location}{attendees_block}</t:CalendarItem></m:Items></m:CreateItem>"#, escape(&request.title), escape(&request.start), escape(&request.end), request.is_all_day);
-    let xml = send(&request.access_token, &body, None).await?;
-    let element = xml.find("<t:ItemId ").and_then(|start| xml[start..].find("/>").map(|end| &xml[start..start + end])).ok_or_else(|| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "ews_item_id_missing" }))))?;
-    Ok(Json(serde_json::json!({ "itemId": xml_attr(element, "Id").unwrap_or_default(), "changeKey": xml_attr(element, "ChangeKey").unwrap_or_default() })))
+    let result = app_lib::ews::ews_create_event(request.access_token, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.attendees, request.recurrence).await
+        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))?;
+    let (item_id, change_key) = result.split_once('|').unwrap_or((&result, ""));
+    Ok(Json(serde_json::json!({ "itemId": item_id, "changeKey": change_key })))
 }
 
 pub async fn respond(Json(request): Json<RespondRequest>) -> Result<Json<serde_json::Value>, ApiError> {
@@ -151,26 +147,8 @@ pub async fn respond(Json(request): Json<RespondRequest>) -> Result<Json<serde_j
 }
 
 pub async fn update(Json(request): Json<UpdateRequest>) -> Result<Json<serde_json::Value>, ApiError> {
-    fn field(uri: &str, element: &str, value: &str) -> String {
-        format!(r#"<t:SetItemField><t:FieldURI FieldURI="{uri}"/><t:CalendarItem><{element}>{value}</{element}></t:CalendarItem></t:SetItemField>"#)
-    }
-    let mut updates = vec![
-        field("item:Subject", "t:Subject", &escape(&request.title)),
-        field("calendar:Start", "t:Start", &escape(&request.start)),
-        field("calendar:End", "t:End", &escape(&request.end)),
-        field("calendar:IsAllDayEvent", "t:IsAllDayEvent", if request.is_all_day { "true" } else { "false" }),
-    ];
-    if let Some(value) = request.location.filter(|v| !v.is_empty()) { updates.push(field("calendar:Location", "t:Location", &escape(&value))); }
-    if let Some(value) = request.description.filter(|v| !v.is_empty()) {
-        updates.push(format!(r#"<t:SetItemField><t:FieldURI FieldURI="item:Body"/><t:CalendarItem><t:Body BodyType="HTML">{}</t:Body></t:CalendarItem></t:SetItemField>"#, escape(&value)));
-    }
-    let target = if request.update_series {
-        format!(r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#, escape(&request.item_id), escape(&request.change_key))
-    } else {
-        format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, escape(&request.item_id), escape(&request.change_key))
-    };
-    let body = format!(r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AutoResolve" SendMeetingInvitationsOrCancellations="SendToAllAndSaveCopy"><m:ItemChanges><t:ItemChange>{target}<t:Updates>{}</t:Updates></t:ItemChange></m:ItemChanges></m:UpdateItem>"#, updates.join(""));
-    send(&request.access_token, &body, None).await?;
+    app_lib::ews::ews_update_event(request.access_token, request.item_id, request.change_key, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.update_series, request.recurrence, request.original_start).await
+        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -261,4 +239,12 @@ pub async fn free_busy(Json(request): Json<FreeBusyRequest>) -> Result<Json<Hash
         result.insert(email, slots);
     }
     Ok(Json(result))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecurrenceRequest { access_token: String, item_id: String }
+pub async fn recurrence(Json(request): Json<RecurrenceRequest>) -> Result<Json<Option<String>>, ApiError> {
+    app_lib::ews::recurrence::get_recurrence(request.access_token, request.item_id).await.map(Json)
+        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))
 }

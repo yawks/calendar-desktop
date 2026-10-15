@@ -1497,3 +1497,58 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
+
+.event-recurrence {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: calc(13px * var(--font-scale, 1));
+}
+.event-recurrence legend { padding: 0 4px; font-weight: 600; }
+.event-recurrence__field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.event-recurrence__field select { width: 100%; box-sizing: border-box; min-width: 0; }
+.event-recurrence__field input {
+  width: 100%; box-sizing: border-box; min-width: 0; min-height: 44px;
+  padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.event-recurrence__ending .event-recurrence__field input:disabled {
+  background: var(--bg-hover);
+  border-color: var(--border);
+  color: var(--text-muted);
+  -webkit-text-fill-color: var(--text-muted);
+  opacity: 1;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+.event-recurrence__ending input:disabled::-webkit-calendar-picker-indicator,
+.event-recurrence__ending input:disabled::-webkit-inner-spin-button { opacity: 0.4; }
+.event-recurrence :is(input, select, button):focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+.event-recurrence__help { margin: 8px 0 0; color: var(--text-muted); line-height: 1.45; font-size: calc(12px * var(--font-scale, 1)); }
+.event-recurrence__custom { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+.event-recurrence__custom h3 { margin: 0; font-size: calc(16px * var(--font-scale, 1)); }
+.event-recurrence__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.event-recurrence__days, .event-recurrence__ending { min-width: 0; margin: 0; padding: 0; border: 0; }
+.event-recurrence__days > div { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.event-recurrence__days button { width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-hover); color: var(--text); font: inherit; cursor: pointer; }
+.event-recurrence__days button[aria-pressed="true"] { background: var(--primary); color: var(--bg); border-color: var(--primary); }
+.event-recurrence__ending { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px 12px; }
+.event-recurrence__ending > label:first-of-type { grid-column: 1 / -1; }
+.event-recurrence__count { flex-direction: row-reverse; align-items: center; }
+.event-recurrence__count input { flex: 1; }
+.event-recurrence__count span { color: var(--text-muted); font-size: calc(12px * var(--font-scale, 1)); }
+.event-recurrence__ending > label:not(.event-recurrence__field) { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.event-recurrence__ending input[type="radio"] { width: 20px; height: 20px; accent-color: var(--primary); }
+.event-recurrence__actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+.event-recurrence__actions button { min-height: 44px; }
+.event-recurrence__error { margin: 0; color: var(--danger); }
+@media (max-width: 600px) {
+  .event-recurrence__grid { grid-template-columns: minmax(0, 1fr); }
+  .event-recurrence__actions button { flex: 1; }
+}
+
+.event-recurrence__sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }

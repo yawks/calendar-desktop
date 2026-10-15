@@ -1,3 +1,4 @@
+import { anchorSeriesDates } from './seriesDates';
 import { CalendarEvent, CalendarConfig, CreateEventPayload } from '../../../shared/types';
 
 const BASE = 'https://www.googleapis.com/calendar/v3';
@@ -44,6 +45,7 @@ interface GoogleEvent {
   attendees?: GoogleAttendee[];
   organizer?: { email: string; displayName?: string };
   recurringEventId?: string;
+  recurrence?: string[];
   conferenceData?: {
     entryPoints?: GoogleConferenceEntryPoint[];
   };
@@ -206,8 +208,8 @@ function buildEventBody(payload: CreateEventPayload): Record<string, unknown> {
     body.start = { date: payload.start.slice(0, 10) };
     body.end = { date: payload.end.slice(0, 10) };
   } else {
-    body.start = { dateTime: payload.start };
-    body.end = { dateTime: payload.end };
+    body.start = { dateTime: payload.start, timeZone: payload.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone };
+    body.end = { dateTime: payload.end, timeZone: payload.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone };
   }
 
   if (payload.attendees && payload.attendees.length > 0) {
@@ -218,6 +220,7 @@ function buildEventBody(payload: CreateEventPayload): Record<string, unknown> {
     });
   }
 
+  if (payload.recurrence !== undefined) body.recurrence = payload.recurrence ? [`RRULE:${payload.recurrence}`] : [];
   return body;
 }
 
@@ -238,12 +241,20 @@ export async function updateEvent(
   token: string,
   cal: CalendarConfig,
   sourceId: string,
-  payload: CreateEventPayload
+  payload: CreateEventPayload,
+  originalOccurrenceStart?: string,
 ): Promise<void> {
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);
+  if (originalOccurrenceStart) {
+    const master = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events/${eventId}`);
+    const masterStart = master.start?.dateTime ?? master.start?.date;
+    if (!masterStart) throw new Error('Recurring master start missing');
+    payload = anchorSeriesDates(payload, originalOccurrenceStart, masterStart);
+    if (master.start?.timeZone) payload.timeZone = master.start.timeZone;
+  }
   await gFetch(token, `/calendars/${calendarId}/events/${eventId}`, {
-    method: 'PUT',
+    method: 'PATCH',
     body: JSON.stringify(buildEventBody(payload)),
   });
 }
@@ -328,4 +339,11 @@ export async function respondToGoogleEvent(
     method: 'PATCH',
     body: JSON.stringify({ attendees: updatedAttendees }),
   });
+}
+
+export async function getGoogleRecurrence(token: string, cal: CalendarConfig, seriesId: string): Promise<string | null> {
+  const event = await gFetch<GoogleEvent>(token, `/calendars/${encodeURIComponent(cal.googleCalendarId ?? 'primary')}/events/${encodeURIComponent(seriesId)}`);
+  if (event.recurrence?.some(line => !line.startsWith('RRULE:'))) return null;
+  const rules = event.recurrence?.filter(line => line.startsWith('RRULE:')) ?? [];
+  return rules.length === 1 ? rules[0].slice(6) : null;
 }

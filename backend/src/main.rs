@@ -73,6 +73,7 @@ async fn main() {
         .route("/calendar/exchange/events", post(exchange_calendar::create))
         .route("/calendar/exchange/list", post(exchange_calendar::list))
         .route("/calendar/exchange/free-busy", post(exchange_calendar::free_busy))
+        .route("/calendar/exchange/recurrence", post(exchange_calendar::recurrence))
         .route("/calendar/exchange/update", post(exchange_calendar::update))
         .route("/calendar/exchange/delete", post(exchange_calendar::delete))
         .route("/calendar/exchange/cancel", post(exchange_calendar::cancel))

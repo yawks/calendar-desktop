@@ -12,8 +12,8 @@ import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { DEMO_CALENDARS, DEMO_EVENTS } from '../../../demo/demoData';
 import i18n from '../../../i18n';
-import { createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } from '../utils/googleCalendarApi';
-import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, cancelNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
+import { getGoogleRecurrence, createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } from '../utils/googleCalendarApi';
+import { getNextcloudRecurrence, createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, cancelNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
 import { useQueryClient } from '@tanstack/react-query';
 import { CALENDAR_KEYS } from './useCalendarQueries';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
@@ -233,9 +233,9 @@ export function useCalendarLogic() {
     setTimeout(syncDate, 50);
   }, [syncDate]);
 
-  const saveNextcloudEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
+  const saveNextcloudEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent, wholeSeries = false): Promise<string | undefined> => {
     if (sourceEvent?.sourceId) {
-      await updateNextcloudEvent(cal, sourceEvent.sourceId, payload);
+      await updateNextcloudEvent(cal, sourceEvent.sourceId, payload, sourceEvent, wholeSeries);
       return sourceEvent.seriesId;
     } else {
       return await createNextcloudEvent(cal, payload);
@@ -259,7 +259,9 @@ export function useCalendarLogic() {
         isAllDay: payload.isAllday,
         location: payload.location ?? null,
         description: payload.description ?? null,
+        originalStart: updateSeries ? sourceEvent.start : undefined,
         updateSeries,
+        recurrence: payload.recurrence,
       });
       return sourceEvent.seriesId;
     } else {
@@ -272,22 +274,40 @@ export function useCalendarLogic() {
         location: payload.location ?? null,
         description: payload.description ?? null,
         attendees: attendeeEmails.length > 0 ? attendeeEmails : null,
+        recurrence: payload.recurrence,
       });
       return result.split('|')[0];
     }
   }, [getExchangeToken]);
 
-  const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
+  const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent, originalOccurrenceStart?: string): Promise<string | undefined> => {
     if (!cal.googleAccountId) throw new Error('Compte Google introuvable');
     const token = await getValidToken(cal.googleAccountId);
     if (!token) throw new Error('Token invalide. Reconnectez votre compte Google.');
     if (sourceEvent?.sourceId) {
-      await updateEvent(token, cal, sourceEvent.sourceId, payload);
+      await updateEvent(token, cal, sourceEvent.sourceId, payload, originalOccurrenceStart);
       return sourceEvent.seriesId;
     } else {
       return await createEvent(token, cal, payload);
     }
   }, [getValidToken]);
+
+  const loadEventRecurrence = useCallback(async (event: CalendarEvent): Promise<string | null> => {
+    const cal = calendars.find(c => c.id === event.calendarId);
+    if (!cal || !event.sourceId) return null;
+    if (cal.type === 'nextcloud') return getNextcloudRecurrence(cal, event.sourceId);
+    if (cal.type === 'exchange' && cal.exchangeAccountId) {
+      const token = await getExchangeToken(cal.exchangeAccountId);
+      if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+      return exchangeCalendarApi.recurrence({ accessToken: token, itemId: event.sourceId.split('|')[0] });
+    }
+    if (cal.type === 'google' && cal.googleAccountId && event.seriesId) {
+      const token = await getValidToken(cal.googleAccountId);
+      if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+      return getGoogleRecurrence(token, cal, event.seriesId);
+    }
+    return null;
+  }, [calendars, getExchangeToken, getValidToken]);
 
   const handleSaveEvent = useCallback(async (payload: CreateEventPayload, sourceEvent?: CalendarEvent, recurringScope?: 'this' | 'future') => {
     const cal = calendars.find((c) => c.id === payload.calendarId);
@@ -297,9 +317,9 @@ export function useCalendarLogic() {
       ? { ...sourceEvent, sourceId: sourceEvent.seriesId }
       : sourceEvent;
     const doSave = () => {
-      if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, seriesSourceEvent);
+      if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, sourceEvent, recurringScope === 'future');
       if (cal.type === 'exchange') return saveExchangeEvent(cal, payload, sourceEvent, recurringScope === 'future');
-      return saveGoogleEvent(cal, payload, seriesSourceEvent);
+      return saveGoogleEvent(cal, payload, seriesSourceEvent, recurringScope === 'future' ? sourceEvent?.start : undefined);
     };
     const doRefresh = async () => {
       if (cal.type === 'nextcloud') await ncRefresh(cal.id);
@@ -732,6 +752,7 @@ export function useCalendarLogic() {
     handleNavigateToDate,
     handleViewChange,
     handleSaveEvent,
+    loadEventRecurrence,
     handleRsvp,
     handleDeleteEvent,
     handleCancelEvent,

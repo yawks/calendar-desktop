@@ -105,6 +105,7 @@ export default function CalendarPage() {
     handleNavigateToDate,
     handleViewChange,
     handleSaveEvent,
+    loadEventRecurrence,
     handleRsvp,
     handleDeleteEvent,
     handleCancelEvent,
@@ -491,10 +492,11 @@ export default function CalendarPage() {
           writableCalendars={writableCalendars}
           allEvents={events}
           editEvent={editEvent}
+          loadRecurrence={loadEventRecurrence}
           onSubmit={async (payload, scope) => {
             const save = handleSaveEvent(payload, editEvent, scope);
-            setEditEvent(null);
             await save;
+            setEditEvent(null);
           }}
           onClose={() => setEditEvent(null)}
           getValidToken={getValidToken}

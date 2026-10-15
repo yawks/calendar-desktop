@@ -125,7 +125,7 @@ function expandRecurring(
       if (d > rangeEnd) break;
       if (d >= rangeStart) {
         const det = icalEvent.getOccurrenceDetails(next);
-        results.push(buildEvent(det.startDate, det.endDate, det.item, calendar, next.toString(), true));
+        results.push({ ...buildEvent(det.startDate, det.endDate, det.item, calendar, next.toString(), true), recurrenceId: toISO(next) });
       }
       count++;
       next = expand.next();
