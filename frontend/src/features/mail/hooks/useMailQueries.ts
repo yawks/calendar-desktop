@@ -308,7 +308,7 @@ export function useMailConversation(
   isDraft = false,
   includeTrash = false,
 ) {
-  const { data, isLoading, isFetching, error, refetch } = useQuery({
+  const { data, isLoading, isFetching, isSuccess, isError, isPaused, error, refetch } = useQuery({
     // EWS item and attachment IDs change when an item is moved. Keeping the
     // source and destination folders in one cache entry can therefore replay
     // an invalid ID after an archive/move operation.
@@ -337,9 +337,9 @@ export function useMailConversation(
     retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   return useMemo(
-    () => ({ data: data ?? (EMPTY_ARRAY as MailMessage[]), isLoading, isFetching, error, refetch }),
+    () => ({ data: data ?? (EMPTY_ARRAY as MailMessage[]), isLoading, isFetching, isSuccess, isError, isPaused, error, refetch }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, isLoading, isFetching, error],
+    [data, isLoading, isFetching, isSuccess, isError, isPaused, error],
   );
 }
 

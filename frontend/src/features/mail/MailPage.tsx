@@ -730,7 +730,7 @@ export default function MailApp() {
       </header>
 
       {error && (
-        <div className="mail-error-banner">
+        <div className="mail-error-banner" role="alert">
           <TriangleAlert size={16} aria-hidden="true" />
           <span className="mail-error-banner__message">{error}</span>
           {displayedConnectionIssue && (

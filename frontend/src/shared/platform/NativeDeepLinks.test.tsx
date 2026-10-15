@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   consume: vi.fn(), invalidate: vi.fn(), exit: vi.fn(),
   listeners: new Map<string, (event: any) => void>(),
 }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@capacitor/app', () => ({ App: {
   exitApp: mocks.exit,
   getLaunchUrl: async () => undefined,
@@ -64,6 +65,29 @@ describe('Android resume', () => {
       detail: { accountId: 'a', conversationId: 'b' },
     })));
     expect(host.childElementCount).toBe(0);
+  });
+
+  it('returns to the list from the preview back button', async () => {
+    const url = 'courrier://mail/account/a/conversation/b';
+    await act(async () => mocks.listeners.get('appUrlOpen')!({ url }));
+    const button = host.querySelector<HTMLButtonElement>('.notification-opening__nav button')!;
+    expect(button.getAttribute('aria-label')).toBeTruthy();
+    await act(async () => button.click());
+    expect(host.childElementCount).toBe(0);
+    expect(mocks.navigate).toHaveBeenLastCalledWith('/', { replace: true });
+    await act(async () => mocks.listeners.get('appUrlOpen')!({ url }));
+    expect(host.childElementCount).toBe(0);
+  });
+
+  it('dismisses only an unavailable notification matching the current target', async () => {
+    await act(async () => mocks.listeners.get('appUrlOpen')!({ url: 'courrier://mail/account/a/conversation/b' }));
+    for (const [accountId, conversationId, accepted] of [['a', 'old', false], ['other', 'b', false], ['a', 'b', true]] as const) {
+      const event = new CustomEvent('courrier:notification-unavailable', { cancelable: true, detail: { accountId, conversationId } });
+      await act(async () => { globalThis.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(accepted);
+      expect(host.childElementCount).toBe(accepted ? 0 : 1);
+    }
+    expect(mocks.navigate).toHaveBeenLastCalledWith('/', { replace: true });
   });
 
   it('keeps the native cover until the preview has committed and painted', async () => {

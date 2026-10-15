@@ -111,6 +111,7 @@ export function useMailPageLogic() {
   const [selectedFolderAccountId, setSelectedFolderAccountId] = useState<string | undefined>();
   const [selectedThread, setSelectedThread] = useState<MailThread | null>(null);
   const preserveThreadOnAccountChangeRef = useRef(false);
+  const previousSelectedAccountIdRef = useRef(selectedAccountId);
   // Needed before queries so we can load identities for the composing account in all-mode
   const [composingAccountId, setComposingAccountId] = useState<string>(() => allMailAccounts[0]?.id ?? '');
 
@@ -257,6 +258,9 @@ export function useMailPageLogic() {
   }, [selectedAccountId, selectedFolder, searchQuery]);
 
   useEffect(() => {
+    // Mounting after vault unlock can already have selected the notification in a layout effect.
+    if (previousSelectedAccountIdRef.current === selectedAccountId) return;
+    previousSelectedAccountIdRef.current = selectedAccountId;
     if (preserveThreadOnAccountChangeRef.current) {
       preserveThreadOnAccountChangeRef.current = false;
       return;
@@ -291,6 +295,19 @@ export function useMailPageLogic() {
 
   const messagesLoading = conversationQuery.isLoading;
   const messagesFetching = conversationQuery.isFetching;
+
+  useEffect(() => {
+    if (!selectedThread || conversationQuery.isFetching || conversationQuery.isPaused) return;
+    const empty = conversationQuery.isSuccess && messages.length === 0;
+    if (!empty && !conversationQuery.isError) return;
+    const event = new CustomEvent('courrier:notification-unavailable', {
+      cancelable: true,
+      detail: { accountId: selectedThread.accountId ?? selectedAccountId, conversationId: selectedThread.conversation_id },
+    });
+    if (!globalThis.dispatchEvent(event) && empty) setError(t('mail.messageUnavailable'));
+  }, [selectedThread, selectedAccountId, conversationQuery.isFetching, conversationQuery.isPaused,
+    conversationQuery.isSuccess, conversationQuery.isError, messages.length, t]);
+
 
   useEffect(() => {
     if (!conversationQuery.error) return;

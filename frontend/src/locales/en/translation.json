@@ -398,6 +398,7 @@
     "filterAll": "All",
     "filterUnread": "Unread",
     "settings": "Settings",
+    "messageUnavailable": "This message is no longer available. It may have been deleted from another client.",
     "backToList": "Back to messages",
     "previousMessage": "Previous message",
     "nextMessage": "Next message",

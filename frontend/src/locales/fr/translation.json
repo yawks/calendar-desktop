@@ -398,6 +398,7 @@
     "filterAll": "Tous",
     "filterUnread": "Non lus",
     "settings": "Paramètres",
+    "messageUnavailable": "Ce message n’est plus disponible. Il a peut-être été supprimé depuis un autre client.",
     "backToList": "Retour aux messages",
     "previousMessage": "Message précédent",
     "nextMessage": "Message suivant",

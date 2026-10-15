@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { flushSync } from 'react-dom';
 import { App as CapacitorApp } from '@capacitor/app';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { platform } from '.';
 import { useLayout } from '../store/LayoutStore';
 import { useTheme } from '../store/ThemeStore';
@@ -21,6 +22,7 @@ type OpeningNotification = {
 
 export function NativeDeepLinks() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { setActiveTab } = useLayout();
   const { resolved } = useTheme();
   const activeNotificationUrlRef = useRef<string | null>(null);
@@ -28,6 +30,16 @@ export function NativeDeepLinks() {
   const openingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enrichmentTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openingNotification, setOpeningNotification] = useState<OpeningNotification | null>(null);
+  const closeNotification = useCallback(() => {
+    if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+    if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
+    openingTimeoutRef.current = null;
+    enrichmentTimeoutRef.current = null;
+    setOpeningNotification(null);
+    setNotificationOpening(false);
+    const event = new Event('courrier:android-back', { cancelable: true });
+    if (globalThis.dispatchEvent(event)) navigate('/', { replace: true });
+  }, [navigate]);
   const openDeepLink = useCallback((url: string) => {
     const deepLink = new URL(url);
     const match = /^\/account\/([^/]+)\/conversation\/([^/]+)$/.exec(deepLink.pathname);
@@ -192,8 +204,21 @@ export function NativeDeepLinks() {
         setNotificationOpening(false);
       }, 15_000);
     };
+    const notificationUnavailable = (event: Event) => {
+      const detail = (event as CustomEvent<{ accountId: string; conversationId: string }>).detail;
+      const url = activeNotificationUrlRef.current;
+      if (!url || !openingTimeoutRef.current) return;
+      const target = new URL(url);
+      const match = /^\/account\/([^/]+)\/conversation\/([^/]+)$/.exec(target.pathname);
+      if (!match || detail.accountId !== decodeURIComponent(match[1])
+        || detail.conversationId !== decodeURIComponent(match[2])) return;
+      event.preventDefault();
+      closeNotification();
+    };
+    globalThis.addEventListener('courrier:notification-unavailable', notificationUnavailable);
     globalThis.addEventListener('courrier:notification-opened', notificationOpened);
     return () => {
+      globalThis.removeEventListener('courrier:notification-unavailable', notificationUnavailable);
       globalThis.removeEventListener('courrier:notification-opened', notificationOpened);
       if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
       if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
@@ -202,7 +227,7 @@ export function NativeDeepLinks() {
       void backListener.then(handle => handle.remove());
       void stateListener.then(handle => handle.remove());
     };
-  }, [openDeepLink]);
+  }, [openDeepLink, closeNotification]);
   if (!openingNotification) return null;
   const sender = openingNotification.sender || '';
   const senderAddressMatch = /<([^<>]+)>/.exec(sender);
@@ -224,8 +249,8 @@ export function NativeDeepLinks() {
     setNotificationOpening(false);
   };
   return <div className="notification-opening" role="region" aria-busy="true" aria-label="Ouverture du message">
-    <div className="mail-mobile-detail-nav notification-opening__nav" aria-hidden="true">
-      <button type="button"><ChevronLeft /></button>
+    <div className="mail-mobile-detail-nav notification-opening__nav">
+      <button type="button" onClick={closeNotification} aria-label={t('mail.backToList')} title={t('mail.backToList')}><ChevronLeft /></button>
       <div className="mail-mobile-detail-nav__position">Inbox</div>
       <div className="mail-mobile-detail-nav__arrows">
         <button type="button" disabled><ChevronUp /></button>

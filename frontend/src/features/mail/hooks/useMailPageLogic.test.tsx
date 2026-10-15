@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { expect, it, vi } from 'vitest';
@@ -117,3 +117,57 @@ for (const operation of ['trash', 'move', 'snooze'] as const) {
     }
   });
 }
+
+it('reports a missing notification target only after the conversation request finishes', async () => {
+  const client = new QueryClient();
+  const root = createRoot(document.createElement('div'));
+  let logic!: ReturnType<typeof useMailPageLogic>;
+  function Harness() { logic = useMailPageLogic(); return null; }
+  const unavailable = vi.fn((event: Event) => event.preventDefault());
+  globalThis.addEventListener('courrier:notification-unavailable', unavailable);
+  const original = { ...f.query };
+  try {
+    Object.assign(f.query, { isSuccess: true, isFetching: true, isPaused: false, isError: false });
+    await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+    await act(async () => logic.setSelectedThread({ conversation_id: 'missing', accountId: 'account' } as never));
+    expect(unavailable).not.toHaveBeenCalled();
+    Object.assign(f.query, { isFetching: false, isPaused: true });
+    await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+    expect(unavailable).not.toHaveBeenCalled();
+    Object.assign(f.query, { isPaused: false });
+    await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+    expect(unavailable).toHaveBeenCalledOnce();
+    expect(unavailable.mock.calls[0][0]).toMatchObject({ detail: { accountId: 'account', conversationId: 'missing' } });
+    expect(logic.error).toBe('mail.messageUnavailable');
+  } finally {
+    globalThis.removeEventListener('courrier:notification-unavailable', unavailable);
+    await act(async () => root.unmount());
+    for (const key of Object.keys(f.query)) if (!(key in original)) delete (f.query as Record<string, unknown>)[key];
+    Object.assign(f.query, original);
+    client.clear();
+  }
+});
+
+it('preserves a notification selected when mail mounts after vault unlock', async () => {
+  const client = new QueryClient();
+  const root = createRoot(document.createElement('div'));
+  let logic!: ReturnType<typeof useMailPageLogic>;
+  function Harness() {
+    logic = useMailPageLogic();
+    useLayoutEffect(() => {
+      logic.openThread({ conversation_id: 'notified', accountId: 'account' } as never);
+      logic.adoptNotificationInboxContext('account');
+    }, []);
+    return null;
+  }
+  try {
+    await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+    expect(logic.selectedThread?.conversation_id).toBe('notified');
+    expect(logic.selectedAccountId).toBe('account');
+    await act(async () => logic.selectAccount('other-account'));
+    expect(logic.selectedThread).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+  }
+});
