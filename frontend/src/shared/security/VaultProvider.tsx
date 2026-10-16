@@ -1,6 +1,7 @@
+import { persistVaultFields } from './vaultPersistence';
 import { get, set } from 'idb-keyval';
 import { createContext, FormEvent, Fragment, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, exportVaultKey, generateVaultKey, importVaultKey, vaultSalt } from './vaultCrypto';
+import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, exportVaultKey, generateVaultKey, importVaultKey } from './vaultCrypto';
 import { biometricApiAvailable, biometricUnlockAvailable, disableBiometricUnlock, enableBiometricUnlock, hasBiometricUnlock, unlockWithBiometrics } from './biometricUnlock';
 import { CloudDownload, Fingerprint, LockKeyhole, QrCode } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { platform } from '../platform';
 import { getTauriInvoke } from '../platform/tauriRuntime';
 import { ConfigSyncConflictError, decodeConfigInvitation, encodeConfigInvitation, fetchRemoteVault, NextcloudConfigLocation, putRemoteVault, RemoteVaultDocument } from '../api/configSyncApi';
-import { applyPortableConfig, isPortableConfigKey, pickPortableConfig, PortableConfigSummary, portableConfigSummary, portableValuesEqual } from './portableConfig';
+import { applyPortableConfig, PORTABLE_CONFIG_KEYS, isPortableConfigKey, pickPortableConfig, PortableConfigSummary, portableConfigSummary, portableValuesEqual } from './portableConfig';
 const DB_KEY = 'courrier-encrypted-vault-v1';
 const ITERATIONS = 600_000;
 const LOCK_AFTER_MS = 30 * 60 * 1000;
@@ -246,13 +247,12 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     });
   }, []);
 
-  const persist = useCallback((next: VaultPayload) => {
+  const persist = useCallback((next: VaultPayload, changedKeys: readonly string[]) => {
     const key = keyRef.current;
     const vault = stored;
     if (!key || !vault) return;
     writeQueue.current = writeQueue.current.then(async () => {
-      const encrypted = await encryptVaultWithKey(next, key, vaultSalt(vault), vault.kdf.iterations);
-      await set(DB_KEY, encrypted);
+      const encrypted = await persistVaultFields(DB_KEY, vault, key, next, changedKeys);
       setStored(encrypted);
     }).catch(error => console.error('[Vault] persistence failed', error));
   }, [stored]);
@@ -363,7 +363,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
       const confirmed = await fetchRemoteVault(location);
       const sync: ConfigSyncSettings = { ...location, recoveryKey, enabled: true, etag: confirmed.etag, revision: document.revision, dirty: false };
       const next = { ...payloadRef.current, [CONFIG_SYNC_KEY]: sync };
-      payloadRef.current = next; setPayload(next); setConfigSyncSettings(sync); persist(next);
+      payloadRef.current = next; setPayload(next); setConfigSyncSettings(sync); persist(next, [CONFIG_SYNC_KEY]);
       setConfigSyncSummary({ direction: 'uploaded', revision: document.revision, contents });
       setConfigSyncStatus('synced');
     } catch (cause) {
@@ -379,7 +379,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
       const pendingKey = location.recoveryKey ?? bytesToRecoveryKey(await exportVaultKey(await generateVaultKey()));
       const pending: ConfigSyncSettings = { ...location, recoveryKey: pendingKey, enabled: true, etag: remote.etag, revision: remote.document?.revision ?? 0, dirty: true };
       const next = { ...payloadRef.current, [CONFIG_SYNC_KEY]: pending };
-      payloadRef.current = next; setPayload(next); setConfigSyncSettings(pending); persist(next);
+      payloadRef.current = next; setPayload(next); setConfigSyncSettings(pending); persist(next, [CONFIG_SYNC_KEY]);
       setConfigSyncStatus('conflict');
       throw new ConfigSyncConflictError();
     }
@@ -388,7 +388,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
 
   const disableConfigSync = useCallback(() => {
     const next = { ...payloadRef.current }; delete next[CONFIG_SYNC_KEY];
-    payloadRef.current = next; setPayload(next); setConfigSyncSettings(null); setConfigSyncStatus('disabled'); persist(next);
+    payloadRef.current = next; setPayload(next); setConfigSyncSettings(null); setConfigSyncStatus('disabled'); persist(next, [CONFIG_SYNC_KEY]);
   }, [persist]);
 
   const resolveConfigSyncConflict = useCallback(async (strategy: 'local' | 'remote') => {
@@ -404,7 +404,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     // Remount consumers in the same React update as the payload replacement.
     // Otherwise their persistence effects can write stale local state back first.
     resetMailNavigationAfterConfigReplacement();
-    payloadRef.current = next; setPayload(next); setConfigSyncSettings(nextSync); setContentRevision(revision => revision + 1); persist(next); setConfigSyncStatus('synced');
+    payloadRef.current = next; setPayload(next); setConfigSyncSettings(nextSync); setContentRevision(revision => revision + 1); persist(next, [...PORTABLE_CONFIG_KEYS, CONFIG_SYNC_KEY]); setConfigSyncStatus('synced');
     await writeQueue.current;
   }, [configSyncSettings, persist, pushConfiguration]);
 
@@ -486,7 +486,7 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     }
     payloadRef.current = next;
     setPayload(next);
-    persist(next);
+    persist(next, activeSync?.enabled && portableChanged ? [key, CONFIG_SYNC_KEY] : [key]);
     // Uploads are deliberately manual: background writes must never overwrite
     // another device's configuration.
   }, [configSyncSettings, configSyncStatus, persist, pushConfiguration]);

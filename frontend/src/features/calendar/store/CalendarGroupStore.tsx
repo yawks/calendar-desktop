@@ -1,4 +1,5 @@
 import { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import { useVault } from '../../../shared/security/VaultProvider';
 import { CalendarGroup } from '../../../shared/types';
 
 const STORAGE_KEY = 'calendar-desktop-groups';
@@ -33,20 +34,17 @@ interface CalendarGroupContextValue {
 const CalendarGroupContext = createContext<CalendarGroupContextValue | null>(null);
 
 export function CalendarGroupProvider({ children }: { children: ReactNode }) {
+  const vault = useVault();
   const [groups, dispatch] = useReducer(reducer, [], () => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as CalendarGroup[];
-      if (!parsed.find((g) => g.id === 'default')) {
-        return [DEFAULT_GROUP, ...parsed];
-      }
-      return parsed;
-    }
-    return [DEFAULT_GROUP];
+    const saved = vault.read<CalendarGroup[] | null>(STORAGE_KEY, null);
+    const stored = saved === null ? localStorage.getItem(STORAGE_KEY) : null;
+    const parsed = saved ?? (stored ? JSON.parse(stored) as CalendarGroup[] : []);
+    return parsed.some((group) => group.id === 'default') ? parsed : [DEFAULT_GROUP, ...parsed];
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
+    vault.write(STORAGE_KEY, groups);
+    localStorage.removeItem(STORAGE_KEY);
   }, [groups]);
 
   const addGroup = (name: string) =>

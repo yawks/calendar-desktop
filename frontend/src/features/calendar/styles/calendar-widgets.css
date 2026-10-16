@@ -798,6 +798,23 @@
   padding: 2px 3px 0 4px;
 }
 
+/* Keep the tag in the first visible line, even when the event is clipped. */
+.calendar-app .calendar-event-content--time.calendar-event-content--tagged {
+  padding-right: 16px;
+}
+
+.calendar-event-content__tag {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .calendar-event-content__title,
 .calendar-event-content__time {
   position: relative;

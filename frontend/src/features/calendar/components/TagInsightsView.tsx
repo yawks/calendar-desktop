@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { calculateTagInsights } from '../utils/tagInsights';
 import { CalendarConfig, CalendarGroup, CalendarEvent, Tag, EventTagMapping } from '../../../shared/types';
 import { useTranslation } from 'react-i18next';
 
@@ -9,32 +10,6 @@ interface Props {
   calendars: CalendarConfig[];
   groups: CalendarGroup[];
   viewRange?: { start: Date; end: Date };
-}
-
-function getEventKey(event: CalendarEvent): string | undefined {
-  return event.seriesId || event.sourceId || event.id;
-}
-
-/** Merge overlapping [start, end] intervals and return total duration in ms. */
-function mergedDurationMs(intervals: [number, number][]): number {
-  if (intervals.length === 0) return 0;
-  const sorted = [...intervals].sort((a, b) => a[0] - b[0]);
-  let totalMs = 0;
-  let curStart = sorted[0][0];
-  let curEnd = sorted[0][1];
-  for (let i = 1; i < sorted.length; i++) {
-    const [s, e] = sorted[i];
-    if (s < curEnd) {
-      // overlapping: extend current window
-      curEnd = Math.max(curEnd, e);
-    } else {
-      totalMs += curEnd - curStart;
-      curStart = s;
-      curEnd = e;
-    }
-  }
-  totalMs += curEnd - curStart;
-  return totalMs;
 }
 
 function formatDuration(ms: number): string {
@@ -75,8 +50,6 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
 
   const filtered = useMemo(() => {
     return events.filter((event) => {
-      if (event.isDeclined) return false;
-      if (event.isAllday) return false;
       const cal = calendars.find((c) => c.id === event.calendarId);
       if (!cal) return false;
       if (selectedCalendarId && event.calendarId !== selectedCalendarId) return false;
@@ -90,45 +63,10 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
     });
   }, [events, calendars, selectedGroupId, selectedCalendarId, viewRange]);
 
-  const stats = useMemo(() => {
-    // Collect intervals per tag (tagId → list of [startMs, endMs])
-    const intervalsByTag: Record<string, [number, number][]> = {};
-    const untaggedIntervals: [number, number][] = [];
-    const allIntervals: [number, number][] = [];
-
-    filtered.forEach((event) => {
-      const key = getEventKey(event);
-      const tagId = key ? eventTags[key] : undefined;
-      const startMs = new Date(event.start).getTime();
-      const endMs = new Date(event.end).getTime();
-      if (startMs >= endMs) return; // skip zero-duration events
-
-      allIntervals.push([startMs, endMs]);
-
-      if (tagId) {
-        if (!intervalsByTag[tagId]) intervalsByTag[tagId] = [];
-        intervalsByTag[tagId].push([startMs, endMs]);
-      } else {
-        untaggedIntervals.push([startMs, endMs]);
-      }
-    });
-
-    // Total = globally merged duration (stable regardless of tagging)
-    const totalMs = mergedDurationMs(allIntervals);
-
-    // Compute merged duration per tag
-    const rows = tags
-      .map((tag) => ({
-        tag,
-        durationMs: mergedDurationMs(intervalsByTag[tag.id] ?? []),
-      }))
-      .filter((r) => r.durationMs > 0)
-      .sort((a, b) => b.durationMs - a.durationMs);
-
-    const untaggedMs = mergedDurationMs(untaggedIntervals);
-
-    return { rows, untaggedMs, totalMs, eventCount: filtered.length };
-  }, [filtered, eventTags, tags]);
+  const stats = useMemo(
+    () => calculateTagInsights(filtered, eventTags, tags, viewRange),
+    [filtered, eventTags, tags, viewRange]
+  );
 
   const { rows, untaggedMs, totalMs, eventCount } = stats;
   const hasData = totalMs > 0;

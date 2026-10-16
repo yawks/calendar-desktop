@@ -390,9 +390,9 @@ export default function CalendarPage() {
                 const tagColor = event.raw?.tagColor;
                 const isDeclined = event.raw?.isDeclined || event.raw?.isCancelled;
                 const dot = tagColor
-                  ? `<span style="position:absolute;bottom:3px;right:3px;width:7px;height:7px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);display:block;pointer-events:none;z-index:1;"></span>`
+                  ? `<span class="calendar-event-content__tag" style="background:${tagColor}"></span>`
                   : '';
-                return `<div class="calendar-event-content calendar-event-content--time">
+                return `<div class="calendar-event-content calendar-event-content--time${tagColor ? ' calendar-event-content--tagged' : ''}">
                   <div class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${event.title}</div>
                   ${timeLabel ? `<div class="calendar-event-content__time">${timeLabel}</div>` : ''}
                   ${dot}

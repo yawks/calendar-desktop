@@ -1,4 +1,5 @@
 import { createContext, useContext, useReducer, useEffect, ReactNode, useState } from 'react';
+import { useVault } from '../../../shared/security/VaultProvider';
 import { Tag, EventTagMapping } from '../../../shared/types';
 import { cacheGetStale, cacheSet } from '../utils/eventCache';
 
@@ -56,28 +57,42 @@ interface TagContextValue {
 const TagContext = createContext<TagContextValue | null>(null);
 
 export function TagProvider({ children }: { children: ReactNode }) {
+  const vault = useVault();
   const [tags, dispatchTags] = useReducer(tagsReducer, [], () => {
+    const saved = vault.read<Tag[] | null>(STORAGE_KEY_TAGS, null);
+    if (saved !== null) return saved;
     const stored = localStorage.getItem(STORAGE_KEY_TAGS);
-    return stored ? (JSON.parse(stored) as Tag[]) : [];
+    return stored ? JSON.parse(stored) as Tag[] : [];
   });
 
-  const [eventTags, dispatchMappings] = useReducer(mappingsReducer, {});
+  const [eventTags, dispatchMappings] = useReducer(mappingsReducer, {},
+    () => vault.read<EventTagMapping>(STORAGE_KEY_MAPPINGS, {}));
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
+    if (vault.read<EventTagMapping | null>(STORAGE_KEY_MAPPINGS, null) !== null) {
+      setIsLoaded(true);
+      return;
+    }
+    let active = true;
     cacheGetStale<EventTagMapping>(STORAGE_KEY_MAPPINGS).then((data) => {
+      if (!active) return;
       if (data) dispatchMappings({ type: 'INIT', payload: data });
       setIsLoaded(true);
-    }).catch(() => setIsLoaded(true));
+    }).catch(() => { if (active) setIsLoaded(true); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_TAGS, JSON.stringify(tags));
+    vault.write(STORAGE_KEY_TAGS, tags);
+    localStorage.removeItem(STORAGE_KEY_TAGS);
   }, [tags]);
 
   useEffect(() => {
     if (isLoaded) {
-      void cacheSet(STORAGE_KEY_MAPPINGS, eventTags);
+      vault.write(STORAGE_KEY_MAPPINGS, eventTags);
+      // The vault is now authoritative; old cache data must not return after a restore.
+      void cacheSet(STORAGE_KEY_MAPPINGS, {});
     }
   }, [eventTags, isLoaded]);
 
