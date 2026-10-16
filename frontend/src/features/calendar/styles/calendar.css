@@ -1295,6 +1295,20 @@
   object-fit: contain;
 }
 
+/* Imported HTML can impose black text and a light background. */
+[data-theme="dark"] .modal-description,
+[data-theme="dark"] .modal-description * {
+  color: var(--text) !important;
+  background-color: transparent !important;
+}
+
+.modal-description a,
+.modal-description a *,
+[data-theme="dark"] .modal-description a,
+[data-theme="dark"] .modal-description a * {
+  color: var(--primary) !important;
+}
+
 .modal-attendees-row {
   align-items: flex-start;
 }

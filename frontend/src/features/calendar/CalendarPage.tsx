@@ -402,7 +402,7 @@ export default function CalendarPage() {
                 const tagColor = event.raw?.tagColor;
                 const isDeclined = event.raw?.isDeclined || event.raw?.isCancelled;
                 const dot = tagColor
-                  ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tagColor};border:1.5px solid rgba(255,255,255,0.5);margin-left:4px;vertical-align:middle;flex-shrink:0;position:relative;z-index:1;"></span>`
+                  ? `<span class="calendar-event-content__tag calendar-event-content__tag--allday" style="background:${tagColor}"></span>`
                   : '';
                 return `<div class="calendar-event-content calendar-event-content--allday">
                   <span class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${event.title}</span>${dot}

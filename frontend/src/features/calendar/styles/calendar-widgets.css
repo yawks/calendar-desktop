@@ -807,12 +807,22 @@
   position: absolute;
   top: 3px;
   right: 3px;
-  width: 7px;
-  height: 7px;
-  border: 1.5px solid var(--text-muted);
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--bg);
   border-radius: 50%;
   pointer-events: none;
   z-index: 1;
+}
+
+.calendar-event-content__tag--allday {
+  display: inline-block;
+  position: relative;
+  top: auto;
+  right: auto;
+  margin-left: 4px;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .calendar-event-content__title,
