@@ -237,6 +237,43 @@ pub async fn ews_create_event(
     }
 }
 
+// None at the call site preserves participants; an empty list explicitly removes them.
+fn attendees_update_xml(attendees: &[String]) -> String {
+    if attendees.is_empty() {
+        return r#"<t:DeleteItemField><t:FieldURI FieldURI="calendar:RequiredAttendees"/></t:DeleteItemField>"#.into();
+    }
+    let mailboxes = attendees.iter().map(|email| format!(
+        "<t:Attendee><t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox></t:Attendee>",
+        xml_escape(email)
+    )).collect::<Vec<_>>().join("");
+    format!(r#"<t:SetItemField><t:FieldURI FieldURI="calendar:RequiredAttendees"/><t:CalendarItem><t:RequiredAttendees>{mailboxes}</t:RequiredAttendees></t:CalendarItem></t:SetItemField>"#)
+}
+
+fn check_update_response(xml: &str) -> Result<(), String> {
+    let code = xml_content_ns(xml, "m:ResponseCode").unwrap_or_else(|| "MissingResponseCode".into());
+    if code != "NoError" {
+        let message = xml_content_ns(xml, "m:MessageText").unwrap_or_default();
+        return Err(format!("EWS update {code}: {message}"));
+    }
+    Ok(())
+}
+
+fn verify_updated_attendees(xml: &str, expected: &[String]) -> Result<(), String> {
+    check_update_response(xml)?;
+    let item = xml_all_ns(xml, "t:CalendarItem").into_iter().next()
+        .ok_or("ews_attendees_verification_failed")?;
+    let actual: Vec<String> = xml_content_ns(&item, "t:RequiredAttendees")
+        .map(|list| xml_all_ns(&list, "t:Attendee").iter().filter_map(|attendee|
+            xml_content_ns(attendee, "t:EmailAddress").map(|email| xml_decode(&email))
+        ).collect()).unwrap_or_default();
+    if actual.len() != expected.len() || expected.iter().any(|email|
+        !actual.iter().any(|stored| stored.eq_ignore_ascii_case(email.trim()))
+    ) {
+        return Err("ews_attendees_verification_failed".into());
+    }
+    Ok(())
+}
+
 /// Update an existing calendar event.
 pub async fn ews_update_event(
     access_token: String,
@@ -251,6 +288,7 @@ pub async fn ews_update_event(
     update_series: bool,
     recurrence: Option<String>,
     original_start: Option<String>,
+    attendees: Option<Vec<String>>,
 ) -> Result<(), String> {
     if update_series {
         if let Some(original) = original_start {
@@ -302,6 +340,10 @@ pub async fn ews_update_event(
         ));
     }
 
+    if let Some(attendees) = &attendees {
+        updates.push(attendees_update_xml(attendees));
+    }
+
     updates.push(super::recurrence::recurrence_update_xml(recurrence.as_deref(), &start)?);
 
     // RecurringMasterItemId lets EWS resolve the master from the occurrence
@@ -332,10 +374,13 @@ pub async fn ews_update_event(
 
     let xml = send_ews_request(&access_token, &soap_body, None).await?;
 
-    if xml.contains("ResponseClass=\"Error\"") {
-        let msg =
-            xml_content(&xml, "m:MessageText").unwrap_or_else(|| "EWS update error".to_string());
-        return Err(msg);
+    check_update_response(&xml)?;
+    if let Some(attendees) = attendees {
+        // Read the saved item with its new ID, never the stale pre-update ChangeKey.
+        let (saved_id, _) = parse_response_master(&xml)?;
+        let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="calendar:RequiredAttendees"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="{}"/></m:ItemIds></m:GetItem>"#, xml_escape(&saved_id));
+        let saved = send_ews_request(&access_token, &body, None).await?;
+        verify_updated_attendees(&saved, &attendees)?;
     }
     Ok(())
 }
@@ -455,7 +500,7 @@ pub async fn ews_cancel_event(
     Ok(())
 }
 
-/// Free/busy slot returned by Graph API getSchedule.
+/// Free/busy slot returned by EWS GetUserAvailability.
 #[derive(Serialize, Debug)]
 pub struct EwsFreeBusySlot {
     pub start: String,
@@ -463,82 +508,8 @@ pub struct EwsFreeBusySlot {
     pub busy_type: String, // "Busy" | "Tentative" | "OOF"
 }
 
-/// Query free/busy via Microsoft Graph API getSchedule.
-/// Uses the EWS refresh token to obtain a Graph API access token on-the-fly.
-/// `start` and `end` must be ISO 8601 strings without timezone (e.g. "2026-04-01T00:00:00").
-pub async fn ews_get_free_busy(
-    refresh_token: String,
-    emails: Vec<String>,
-    start: String,
-    end: String,
-) -> Result<std::collections::HashMap<String, Vec<EwsFreeBusySlot>>, String> {
-    // Exchange the EWS refresh token for a Graph API access token
-    let graph_token = get_graph_token(&refresh_token).await?;
-
-    let client = reqwest::Client::new();
-    let body = serde_json::json!({
-        "schedules": &emails,
-        "startTime": { "dateTime": start, "timeZone": "UTC" },
-        "endTime":   { "dateTime": end,   "timeZone": "UTC" },
-        "availabilityViewInterval": 15,
-    });
-
-    let response = client
-        .post("https://graph.microsoft.com/v1.0/me/calendar/getSchedule")
-        .header("Authorization", format!("Bearer {}", graph_token))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !response.status().is_success() {
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("Graph getSchedule error: {}", text));
-    }
-
-    let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-
-    let mut result: std::collections::HashMap<String, Vec<EwsFreeBusySlot>> =
-        std::collections::HashMap::new();
-    for email in &emails {
-        result.insert(email.clone(), Vec::new());
-    }
-
-    if let Some(schedules) = json["value"].as_array() {
-        for schedule in schedules {
-            let schedule_id = schedule["scheduleId"].as_str().unwrap_or("").to_lowercase();
-            let matched = emails
-                .iter()
-                .find(|e| e.to_lowercase() == schedule_id)
-                .cloned();
-            if let Some(email) = matched {
-                let mut slots = Vec::new();
-                if let Some(items) = schedule["scheduleItems"].as_array() {
-                    for item in items {
-                        let status = item["status"].as_str().unwrap_or("free");
-                        if status == "free" || status == "workingElsewhere" {
-                            continue;
-                        }
-                        let busy_type = match status {
-                            "tentative" => "Tentative",
-                            "oof" => "OOF",
-                            _ => "Busy",
-                        };
-                        let s = item["start"]["dateTime"].as_str().unwrap_or("").to_string();
-                        let e = item["end"]["dateTime"].as_str().unwrap_or("").to_string();
-                        slots.push(EwsFreeBusySlot {
-                            start: s,
-                            end: e,
-                            busy_type: busy_type.to_string(),
-                        });
-                    }
-                }
-                result.insert(email, slots);
-            }
-        }
-    }
-
-    Ok(result)
+fn availability_utc(value: &str) -> String {
+    if value.ends_with('Z') { value.into() } else { format!("{value}Z") }
 }
 
 pub async fn ews_get_free_busy_ews(
@@ -551,21 +522,11 @@ pub async fn ews_get_free_busy_ews(
     let token_response = ews_refresh_access_token(refresh_token).await?;
     let access_token = token_response.access_token;
 
-    // Déterminer le Bias du timezone local (en minutes)
-    let now = Local::now();
-    let offset_seconds = now.offset().local_minus_utc();
-    let bias = -(offset_seconds / 60); // EWS Bias en minutes (négatif de offset UTC)
+    // The frontend sends UTC dates; the host timezone must not shift the requested window.
+    let bias = 0;
 
-    let normalized = |t: &str| {
-        if t.ends_with('Z') || t.ends_with('z') || t.contains('+') {
-            t.to_string()
-        } else {
-            format!("{}Z", t)
-        }
-    };
-
-    let start_time = normalized(&start);
-    let end_time = normalized(&end);
+    let start_time = availability_utc(&start);
+    let end_time = availability_utc(&end);
 
     let mailbox_data = emails
         .iter()
@@ -576,7 +537,7 @@ pub async fn ews_get_free_busy_ews(
   <t:AttendeeType>Required</t:AttendeeType>
   <t:ExcludeConflicts>false</t:ExcludeConflicts>
 </t:MailboxData>"#,
-                email
+                xml_escape(email)
             )
         })
         .collect::<Vec<_>>()
@@ -586,6 +547,8 @@ pub async fn ews_get_free_busy_ews(
         r#"<m:GetUserAvailabilityRequest>
   <t:TimeZone>
     <t:Bias>{bias}</t:Bias>
+    <t:StandardTime><t:Bias>0</t:Bias><t:Time>00:00:00</t:Time><t:DayOrder>1</t:DayOrder><t:Month>1</t:Month><t:DayOfWeek>Sunday</t:DayOfWeek></t:StandardTime>
+    <t:DaylightTime><t:Bias>0</t:Bias><t:Time>00:00:00</t:Time><t:DayOrder>1</t:DayOrder><t:Month>7</t:Month><t:DayOfWeek>Sunday</t:DayOfWeek></t:DaylightTime>
   </t:TimeZone>
   <m:MailboxDataArray>
     {mailbox_data}
@@ -604,11 +567,13 @@ pub async fn ews_get_free_busy_ews(
         bias = bias,
     );
 
-    let anchor_mailbox = anchor_mailbox
-        .as_deref()
-        .or_else(|| emails.first().map(|s| s.as_str()));
+    let anchor_mailbox = anchor_mailbox.as_deref();
     let xml = send_ews_request(&access_token, &soap_body, anchor_mailbox).await?;
 
+    parse_availability(&xml, &emails)
+}
+
+fn parse_availability(xml: &str, emails: &[String]) -> Result<std::collections::HashMap<String, Vec<EwsFreeBusySlot>>, String> {
     if xml.contains("ResponseClass=\"Error\"") {
         let msg =
             xml_content(&xml, "m:MessageText").unwrap_or_else(|| "EWS free/busy error".to_string());
@@ -616,11 +581,14 @@ pub async fn ews_get_free_busy_ews(
     }
 
     let mut result = std::collections::HashMap::new();
-    for email in &emails {
+    for email in emails {
         result.insert(email.clone(), Vec::new());
     }
 
-    let freebusy_responses = xml_all_ns(&xml, "m:FreeBusyResponse");
+    let freebusy_responses = xml_all_ns(xml, "m:FreeBusyResponse");
+    if freebusy_responses.len() != emails.len() {
+        return Err("EWS availability: incomplete response".into());
+    }
     for (idx, freebusy_response) in freebusy_responses.iter().enumerate() {
         let email = emails
             .get(idx)
@@ -630,8 +598,7 @@ pub async fn ews_get_free_busy_ews(
         let mut slots = Vec::new();
 
         if !freebusy_response.contains("ResponseClass=\"Success\"") {
-            result.insert(email, slots);
-            continue;
+            return Err("EWS availability: missing success response".into());
         }
 
         let events = xml_all_ns(freebusy_response, "t:CalendarEvent");
@@ -649,8 +616,8 @@ pub async fn ews_get_free_busy_ews(
             .to_string();
 
             slots.push(EwsFreeBusySlot {
-                start: st,
-                end: en,
+                start: availability_utc(&st),
+                end: availability_utc(&en),
                 busy_type,
             });
         }
@@ -659,11 +626,6 @@ pub async fn ews_get_free_busy_ews(
     }
 
     Ok(result)
-}
-
-/// Exchange the EWS refresh token for a Microsoft Graph API access token.
-async fn get_graph_token(refresh_token: &str) -> Result<String, String> {
-    get_graph_token_for_scope(refresh_token, "https://graph.microsoft.com/Calendars.Read offline_access").await
 }
 
 async fn get_graph_token_for_scope(refresh_token: &str, scope: &str) -> Result<String, String> {
@@ -797,6 +759,40 @@ pub async fn ews_respond_to_invitation(
 #[cfg(test)]
 mod response_tests {
     use super::*;
+
+    #[test]
+    fn update_requires_explicit_success_and_preserved_participants() {
+        assert!(check_update_response("<ResponseCode>ErrorAccessDenied</ResponseCode>").unwrap_err().contains("ErrorAccessDenied"));
+        assert!(check_update_response("<m:ResponseCode>ErrorIrresolvableConflict</m:ResponseCode>").is_err());
+        assert!(check_update_response("<m:ResponseMessages/>").is_err());
+        let saved = r#"<m:ResponseCode>NoError</m:ResponseCode><t:CalendarItem><t:RequiredAttendees><t:Attendee><t:Mailbox><t:EmailAddress>New@example.org</t:EmailAddress></t:Mailbox></t:Attendee></t:RequiredAttendees></t:CalendarItem>"#;
+        assert!(verify_updated_attendees(saved, &["new@example.org".into()]).is_ok());
+        assert_eq!(verify_updated_attendees(saved, &["missing@example.org".into()]).unwrap_err(), "ews_attendees_verification_failed");
+        assert!(verify_updated_attendees("<m:ResponseCode>NoError</m:ResponseCode>", &[]).is_err());
+        assert!(verify_updated_attendees("<m:ResponseCode>NoError</m:ResponseCode><t:CalendarItem></t:CalendarItem>", &[]).is_ok());
+    }
+
+    #[test]
+    fn ews_availability_parses_utc_slots_and_rejects_errors() {
+        let emails = vec!["guest@example.org".into()];
+        let xml = r#"<FreeBusyResponse><ResponseMessage ResponseClass="Success"><ResponseCode>NoError</ResponseCode></ResponseMessage><FreeBusyView><CalendarEventArray><CalendarEvent><StartTime>2026-10-16T14:00:00</StartTime><EndTime>2026-10-16T15:00:00</EndTime><BusyType>Tentative</BusyType></CalendarEvent></CalendarEventArray></FreeBusyView></FreeBusyResponse>"#;
+        let slots = parse_availability(xml, &emails).unwrap();
+        assert_eq!(slots[&emails[0]][0].start, "2026-10-16T14:00:00Z");
+        assert_eq!(slots[&emails[0]][0].busy_type, "Tentative");
+        assert!(parse_availability("<Response/>", &emails).is_err());
+        assert!(parse_availability(&xml.replace("Success", "Error"), &emails).is_err());
+        assert_eq!(availability_utc("2026-10-16T14:00:00Z"), "2026-10-16T14:00:00Z");
+    }
+
+    #[test]
+    fn attendee_updates_include_every_address_and_escape_xml() {
+        let update = attendees_update_xml(&["first@example.org".into(), "a&b@example.org".into()]);
+        assert!(update.contains(r#"FieldURI="calendar:RequiredAttendees""#));
+        assert!(update.contains("<t:EmailAddress>first@example.org</t:EmailAddress>"));
+        assert!(update.contains("<t:EmailAddress>a&amp;b@example.org</t:EmailAddress>"));
+        assert_eq!(update.matches("<t:Attendee>").count(), 2);
+        assert!(attendees_update_xml(&[]).contains("<t:DeleteItemField>"));
+    }
 
     #[test]
     fn resolves_master_id_and_its_own_change_key() {

@@ -412,6 +412,7 @@ struct ExchangeCreate {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangeUpdate {
+    attendees: Option<Vec<String>>,
     original_start: Option<String>,
     recurrence: Option<String>,
     access_token: String,
@@ -457,6 +458,7 @@ struct ExchangeRespond {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangeFreeBusy {
+    anchor_mailbox: Option<String>,
     refresh_token: String,
     emails: Vec<String>,
     start: String,
@@ -563,6 +565,7 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                     a.update_series,
                     a.recurrence,
                     a.original_start,
+                    a.attendees,
                 )
                 .await,
             )
@@ -609,7 +612,7 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
         }
         "exchange_calendar_free_busy" => {
             let a: ExchangeFreeBusy = args(value)?;
-            output(crate::ews::ews_get_free_busy(a.refresh_token, a.emails, a.start, a.end).await)
+            output(crate::ews::ews_get_free_busy_ews(a.refresh_token, a.emails, a.start, a.end, a.anchor_mailbox).await)
         }
         "calendar_ics_fetch" => {
             let a: HttpUrl = args(value)?;

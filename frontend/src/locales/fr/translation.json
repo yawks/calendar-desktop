@@ -218,6 +218,7 @@
     "savingEdit": "Sauvegarde…",
     "savingNew": "Création…",
     "cancel": "Annuler",
+    "attendeesVerificationError": "Exchange n’a pas confirmé la liste des participants. Les autres modifications ont peut-être été enregistrées. Rechargez l’événement et vérifiez les participants avant de réessayer.",
     "saveError": "Erreur lors de la sauvegarde"
   },
   "attendeeInput": {

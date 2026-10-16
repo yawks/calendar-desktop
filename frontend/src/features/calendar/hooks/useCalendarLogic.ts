@@ -259,6 +259,7 @@ export function useCalendarLogic() {
         isAllDay: payload.isAllday,
         location: payload.location ?? null,
         description: payload.description ?? null,
+        attendees: attendeeEmails,
         originalStart: updateSeries ? sourceEvent.start : undefined,
         updateSeries,
         recurrence: payload.recurrence,

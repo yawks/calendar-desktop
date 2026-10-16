@@ -218,6 +218,7 @@
     "savingEdit": "Saving…",
     "savingNew": "Creating…",
     "cancel": "Cancel",
+    "attendeesVerificationError": "Exchange did not confirm the attendee list. Other changes may have been saved. Reload the event and check its attendees before trying again.",
     "saveError": "Error saving event"
   },
   "attendeeInput": {

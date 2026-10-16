@@ -4,7 +4,11 @@ import { hasNativeTransport, invokeNative } from './nativeTransport';
 async function post<T>(path: string, body: unknown): Promise<T> {
   if (hasNativeTransport()) {
     const operation = path === 'events' ? 'create' : path === 'free-busy' ? 'free_busy' : path;
-    return invokeNative<T>(`exchange_calendar_${operation}`, body as Record<string, unknown>);
+    try {
+      return await invokeNative<T>(`exchange_calendar_${operation}`, body as Record<string, unknown>);
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    }
   }
   const response = await fetch(apiUrl(`/api/calendar/exchange/${path}`), { method: 'POST', credentials: 'same-origin', headers: apiHeaders({ 'content-type': 'application/json' }), body: JSON.stringify(body) });
   return apiJson<T>(response);

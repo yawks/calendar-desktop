@@ -361,7 +361,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message.includes('teams_') ? t('createEvent.teamsError') : err instanceof Error ? err.message : t('createEvent.saveError'));
+      setError(message.includes('ews_attendees_verification_failed') ? t('createEvent.attendeesVerificationError') : message.includes('teams_') ? t('createEvent.teamsError') : err instanceof Error ? err.message : t('createEvent.saveError'));
       setSaving(false);
     }
   };

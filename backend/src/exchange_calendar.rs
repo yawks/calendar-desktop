@@ -37,6 +37,7 @@ pub struct RespondRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRequest {
+    attendees: Option<Vec<String>>,
     original_start: Option<String>,
     recurrence: Option<String>,
     access_token: String, item_id: String, change_key: String,
@@ -74,10 +75,7 @@ pub struct EwsEvent {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FreeBusyRequest { refresh_token: String, emails: Vec<String>, start: String, end: String }
-
-#[derive(Serialize)]
-pub struct FreeBusySlot { start: String, end: String, busy_type: String }
+pub struct FreeBusyRequest { anchor_mailbox: Option<String>, refresh_token: String, emails: Vec<String>, start: String, end: String }
 
 type ApiError = (StatusCode, Json<serde_json::Value>);
 
@@ -150,7 +148,7 @@ pub async fn respond(Json(request): Json<RespondRequest>) -> Result<Json<serde_j
 }
 
 pub async fn update(Json(request): Json<UpdateRequest>) -> Result<Json<serde_json::Value>, ApiError> {
-    app_lib::ews::ews_update_event(request.access_token, request.item_id, request.change_key, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.update_series, request.recurrence, request.original_start).await
+    app_lib::ews::ews_update_event(request.access_token, request.item_id, request.change_key, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.update_series, request.recurrence, request.original_start, request.attendees).await
         .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -213,35 +211,9 @@ pub async fn list(Json(request): Json<ListRequest>) -> Result<Json<Vec<EwsEvent>
     Ok(Json(events))
 }
 
-pub async fn free_busy(Json(request): Json<FreeBusyRequest>) -> Result<Json<HashMap<String, Vec<FreeBusySlot>>>, ApiError> {
-    let client_id = std::env::var("COURRIER_MICROSOFT_CLIENT_ID").unwrap_or_else(|_| "d3590ed6-52b3-4102-aeff-aad2292ab01c".into());
-    let token_body = format!("client_id={client_id}&grant_type=refresh_token&refresh_token={}&scope={}", urlencoding::encode(&request.refresh_token), urlencoding::encode("https://graph.microsoft.com/Calendars.Read offline_access"));
-    let token_response: serde_json::Value = reqwest::Client::new().post("https://login.microsoftonline.com/common/oauth2/v2.0/token")
-        .header("content-type", "application/x-www-form-urlencoded").body(token_body).send().await
-        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error.to_string() }))))?.json().await
-        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error.to_string() }))))?;
-    let token = token_response["access_token"].as_str().ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "graph_token_failed" }))))?;
-    let graph_body = serde_json::json!({
-        "schedules": request.emails, "startTime": { "dateTime": request.start, "timeZone": "UTC" },
-        "endTime": { "dateTime": request.end, "timeZone": "UTC" }, "availabilityViewInterval": 15
-    });
-    let response = reqwest::Client::new().post("https://graph.microsoft.com/v1.0/me/calendar/getSchedule")
-        .bearer_auth(token).json(&graph_body).send().await
-        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error.to_string() }))))?;
-    if !response.status().is_success() { return Err((StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": "graph_schedule_failed" })))); }
-    let value: serde_json::Value = response.json().await.map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error.to_string() }))))?;
-    let mut result: HashMap<String, Vec<FreeBusySlot>> = request.emails.iter().cloned().map(|email| (email, Vec::new())).collect();
-    for schedule in value["value"].as_array().into_iter().flatten() {
-        let schedule_id = schedule["scheduleId"].as_str().unwrap_or_default();
-        let Some(email) = request.emails.iter().find(|email| email.eq_ignore_ascii_case(schedule_id)).cloned() else { continue };
-        let slots = schedule["scheduleItems"].as_array().into_iter().flatten().filter_map(|item| {
-            let status = item["status"].as_str()?;
-            let busy_type = match status { "tentative" => "Tentative", "oof" => "OOF", "busy" => "Busy", _ => return None };
-            Some(FreeBusySlot { start: item["start"]["dateTime"].as_str().unwrap_or_default().into(), end: item["end"]["dateTime"].as_str().unwrap_or_default().into(), busy_type: busy_type.into() })
-        }).collect();
-        result.insert(email, slots);
-    }
-    Ok(Json(result))
+pub async fn free_busy(Json(request): Json<FreeBusyRequest>) -> Result<Json<HashMap<String, Vec<app_lib::ews::EwsFreeBusySlot>>>, ApiError> {
+    app_lib::ews::ews_get_free_busy_ews(request.refresh_token, request.emails, request.start, request.end, request.anchor_mailbox).await.map(Json)
+        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))
 }
 
 #[derive(Deserialize)]

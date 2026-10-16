@@ -70,3 +70,21 @@ describe('CalDAV recurrence writes', () => {
     expect(vi.mocked(calendarApi.putCalDav).mock.calls[0][1]).not.toContain('RRULE:');
   });
 });
+
+describe('participant updates across calendar providers', () => {
+  const attendees = [{ email: 'existing@example.org' }, { email: 'new@example.org' }];
+  it('includes existing and added Google participants and propagates failures', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+    await updateEvent('token', cal, 'event', { ...payload, attendees });
+    expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string).attendees.map((a: { email: string }) => a.email)).toEqual(attendees.map(a => a.email));
+    fetchMock.mockResolvedValue(new Response('denied', { status: 403 }));
+    await expect(updateEvent('token', cal, 'event', { ...payload, attendees })).rejects.toThrow();
+  });
+  it('includes existing and added CalDAV participants and propagates failures', async () => {
+    await updateNextcloudEvent(cal, 'series', { ...payload, attendees }, source, true);
+    const component = new ICAL.Component(ICAL.parse(vi.mocked(calendarApi.putCalDav).mock.calls[0][1]));
+    expect(component.getFirstSubcomponent('vevent').getAllProperties('attendee').map((a: any) => a.getFirstValue())).toEqual(attendees.map(a => `mailto:${a.email}`));
+    vi.mocked(calendarApi.putCalDav).mockRejectedValueOnce(new Error('denied'));
+    await expect(updateNextcloudEvent(cal, 'series', { ...payload, attendees }, source, true)).rejects.toThrow('denied');
+  });
+});
