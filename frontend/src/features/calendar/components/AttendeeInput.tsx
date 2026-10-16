@@ -125,39 +125,42 @@ export default function AttendeeInput({ value, onChange, allEvents }: Props) {
   }, []);
 
   return (
-    <div ref={containerRef} style={{ position: 'relative' }}>
-      <input
-        ref={inputRef}
-        type="text"
-        value={inputValue}
-        onChange={(e) => { setInputValue(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={handleKeyDown}
-        placeholder={t('attendeeInput.placeholder')}
-        autoComplete="off"
-      />
-      {open && filtered.length > 0 && (
-        <ul ref={listRef} className="attendee-dropdown">
-          {filtered.map((s, i) => (
-            <li
-              key={s.email}
-              ref={i === activeIndex ? activeRef : null}
-              className={`attendee-dropdown-item${i === activeIndex ? ' attendee-dropdown-item--active' : ''}`}
-              onMouseDown={(e) => { e.preventDefault(); addAttendee(s); }}
-            >
-              <ContactAvatar email={s.email} name={s.name} size={28} />
-              {s.name ? (
-                <>
-                  <span className="attendee-dropdown-name">{s.name}</span>
-                  <span className="attendee-dropdown-email">{s.email}</span>
-                </>
-              ) : (
-                <span className="attendee-dropdown-name">{s.email}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+    <div ref={containerRef}>
+      <div className="attendee-input-anchor">
+        <input
+          id="ev-attendees"
+          ref={inputRef}
+          type="text"
+          value={inputValue}
+          onChange={(e) => { setInputValue(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
+          placeholder={t('attendeeInput.placeholder')}
+          autoComplete="off"
+        />
+        {open && filtered.length > 0 && (
+          <ul ref={listRef} className="attendee-dropdown">
+            {filtered.map((s, i) => (
+              <li
+                key={s.email}
+                ref={i === activeIndex ? activeRef : null}
+                className={`attendee-dropdown-item${i === activeIndex ? ' attendee-dropdown-item--active' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); addAttendee(s); }}
+              >
+                <ContactAvatar email={s.email} name={s.name} size={28} />
+                {s.name ? (
+                  <>
+                    <span className="attendee-dropdown-name">{s.name}</span>
+                    <span className="attendee-dropdown-email">{s.email}</span>
+                  </>
+                ) : (
+                  <span className="attendee-dropdown-name">{s.email}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       {value.length > 0 && (
         <div className="attendee-chips">
           {value.map((a) => (

@@ -621,6 +621,10 @@
 }
 
 /* ── Attendee autocomplete dropdown ─────────────────────────────────────── */
+.attendee-input-anchor {
+  position: relative;
+}
+
 .attendee-dropdown {
   position: absolute;
   top: calc(100% + 4px);
