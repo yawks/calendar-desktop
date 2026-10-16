@@ -12,6 +12,19 @@ const original = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:series'
 const source = { sourceId: 'series', start: payload.start, end: payload.end, isRecurringInstance: true, isAllday: false } as CalendarEvent;
 beforeEach(() => { vi.restoreAllMocks(); vi.mocked(calendarApi.putCalDav).mockReset(); vi.mocked(calendarApi.fetchCalDav).mockResolvedValue(original); });
 describe('Google recurrence writes', () => {
+  it('requests a new Meet only when enabled on creation', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{"id":"new"}'));
+    await createEvent('token', cal, { ...payload, onlineMeeting: true });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('conferenceDataVersion=1');
+    const request = JSON.parse(fetchMock.mock.calls[0][1]!.body as string).conferenceData.createRequest;
+    expect(request.conferenceSolutionKey.type).toBe('hangoutsMeet');
+    expect(request.requestId).toBeTruthy();
+    await createEvent('token', cal, { ...payload, onlineMeeting: false });
+    expect(String(fetchMock.mock.calls[1][0])).not.toContain('conferenceDataVersion');
+    expect(JSON.parse(fetchMock.mock.calls[1][1]!.body as string)).not.toHaveProperty('conferenceData');
+    await updateEvent('token', cal, 'event', { ...payload, onlineMeeting: true });
+    expect(JSON.parse(fetchMock.mock.calls[2][1]!.body as string)).not.toHaveProperty('conferenceData');
+  });
   it('sends recurrence and the expansion time zone on creation', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"id":"new"}'));
     await createEvent('token', cal, payload);

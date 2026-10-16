@@ -7,6 +7,9 @@ const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRequest {
+    #[serde(default)]
+    online_meeting: bool,
+    refresh_token: Option<String>,
     recurrence: Option<String>,
     access_token: String,
     title: String,
@@ -132,7 +135,7 @@ async fn send(token: &str, body: &str, anchor: Option<&str>) -> Result<String, A
 }
 
 pub async fn create(Json(request): Json<CreateRequest>) -> Result<Json<serde_json::Value>, ApiError> {
-    let result = app_lib::ews::ews_create_event(request.access_token, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.attendees, request.recurrence).await
+    let result = app_lib::ews::ews_create_event(request.access_token, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.attendees, request.recurrence, request.online_meeting, request.refresh_token).await
         .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))?;
     let (item_id, change_key) = result.split_once('|').unwrap_or((&result, ""));
     Ok(Json(serde_json::json!({ "itemId": item_id, "changeKey": change_key })))

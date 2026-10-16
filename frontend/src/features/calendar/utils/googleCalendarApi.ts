@@ -230,9 +230,14 @@ export async function createEvent(
   payload: CreateEventPayload
 ): Promise<string> {
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
-  const res = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events`, {
+  const body = buildEventBody(payload);
+  if (payload.onlineMeeting) {
+    body.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } };
+  }
+  const query = payload.onlineMeeting ? '?conferenceDataVersion=1' : '';
+  const res = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events${query}`, {
     method: 'POST',
-    body: JSON.stringify(buildEventBody(payload)),
+    body: JSON.stringify(body),
   });
   return res.recurringEventId ?? res.id.split('_')[0];
 }

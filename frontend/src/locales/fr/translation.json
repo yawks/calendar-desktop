@@ -194,6 +194,9 @@
     }
   },
   "createEvent": {
+    "teamsError": "Impossible de créer la réunion Teams. Vérifiez votre licence Teams et l’autorisation du compte Microsoft, puis reconnectez le compte si nécessaire. Vous pouvez désactiver Teams pour créer l’événement sans réunion en ligne.",
+    "teamsMeeting": "Ajouter une réunion Teams",
+    "meetMeeting": "Ajouter une réunion Google Meet",
     "titleNew": "Nouvel événement",
     "titleEdit": "Modifier l'événement",
     "close": "Fermer",

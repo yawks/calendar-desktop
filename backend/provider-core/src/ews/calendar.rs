@@ -129,8 +129,29 @@ pub async fn ews_create_event(
     description: Option<String>,
     attendees: Option<Vec<String>>, // list of email addresses
     recurrence: Option<String>,
+    online_meeting: bool,
+    refresh_token: Option<String>,
 ) -> Result<String, String> {
     let recurrence_xml = recurrence.as_deref().filter(|s| !s.is_empty()).map(|rule| super::recurrence::recurrence_xml(rule, &start)).transpose()?.unwrap_or_default();
+    // shortcut: standalone Teams links have an independent lifetime; use calendar-backed Graph meetings when synchronizing cancellation.
+    let description = if online_meeting {
+        let refresh = refresh_token.as_deref().filter(|s| !s.is_empty())
+            .ok_or("teams_auth_required")?;
+        let token = get_graph_token_for_scope(refresh, "https://graph.microsoft.com/OnlineMeetings.ReadWrite offline_access").await.map_err(|_| "teams_auth_required".to_string())?;
+        let date_time = |value: &str| if value.len() == 10 { format!("{value}T00:00:00Z") } else { value.to_string() };
+        let response = reqwest::Client::new()
+            .post("https://graph.microsoft.com/v1.0/me/onlineMeetings")
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "subject": title, "startDateTime": date_time(&start), "endDateTime": date_time(&end) }))
+            .send().await.map_err(|_| "teams_request_failed".to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("teams_creation_failed_http_{}", response.status().as_u16()));
+        }
+        let meeting: serde_json::Value = response.json().await.map_err(|_| "teams_invalid_response".to_string())?;
+        let url = meeting["joinWebUrl"].as_str().filter(|url| url.starts_with("https://"))
+            .ok_or("teams_missing_link")?;
+        Some(format!("{}<p><a href=\"{}\">Microsoft Teams</a></p>", description.unwrap_or_default(), xml_escape(url)))
+    } else { description };
     let location_xml = location
         .filter(|s| !s.is_empty())
         .map(|s| format!("<t:Location>{}</t:Location>", xml_escape(&s)))
@@ -642,8 +663,12 @@ pub async fn ews_get_free_busy_ews(
 
 /// Exchange the EWS refresh token for a Microsoft Graph API access token.
 async fn get_graph_token(refresh_token: &str) -> Result<String, String> {
+    get_graph_token_for_scope(refresh_token, "https://graph.microsoft.com/Calendars.Read offline_access").await
+}
+
+async fn get_graph_token_for_scope(refresh_token: &str, scope: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
-    let scope = urlencoding::encode("https://graph.microsoft.com/Calendars.Read offline_access");
+    let scope = urlencoding::encode(scope);
     let body = format!(
         "client_id={}&grant_type=refresh_token&refresh_token={}&scope={}",
         CLIENT_ID,
@@ -798,5 +823,17 @@ mod response_tests {
             .unwrap(),
             ("occurrence".into(), "occurrence-key".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod online_meeting_tests {
+    #[tokio::test]
+    async fn teams_requires_refresh_token_before_creating_an_ews_event() {
+        let result = super::ews_create_event(
+            "unused".into(), "Meeting".into(), "2026-10-15T14:00:00Z".into(),
+            "2026-10-15T15:00:00Z".into(), false, None, None, None, None, true, None,
+        ).await;
+        assert_eq!(result.unwrap_err(), "teams_auth_required");
     }
 }

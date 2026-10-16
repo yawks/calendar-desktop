@@ -396,6 +396,9 @@ struct ExchangeList {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangeCreate {
+    #[serde(default)]
+    online_meeting: bool,
+    refresh_token: Option<String>,
     recurrence: Option<String>,
     access_token: String,
     title: String,
@@ -538,6 +541,8 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                     a.description,
                     a.attendees,
                     a.recurrence,
+                    a.online_meeting,
+                    a.refresh_token,
                 )
                 .await,
             )

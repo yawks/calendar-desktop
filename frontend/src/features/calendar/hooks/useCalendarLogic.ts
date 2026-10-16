@@ -267,6 +267,8 @@ export function useCalendarLogic() {
     } else {
       const result = await exchangeCalendarApi.create({
         accessToken: token,
+        onlineMeeting: payload.onlineMeeting,
+        refreshToken: payload.onlineMeeting ? getExchangeRefreshToken(cal.exchangeAccountId) : undefined,
         title: payload.title,
         start: payload.start,
         end: payload.end,
@@ -278,7 +280,7 @@ export function useCalendarLogic() {
       });
       return result.split('|')[0];
     }
-  }, [getExchangeToken]);
+  }, [getExchangeToken, getExchangeRefreshToken]);
 
   const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent, originalOccurrenceStart?: string): Promise<string | undefined> => {
     if (!cal.googleAccountId) throw new Error('Compte Google introuvable');

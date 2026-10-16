@@ -107,6 +107,7 @@ export interface ExchangeAccount {
 }
 
 export interface CreateEventPayload {
+  onlineMeeting?: boolean;
   /** RRULE value; undefined preserves the rule, empty string removes it. */
   recurrence?: string;
   timeZone?: string;
