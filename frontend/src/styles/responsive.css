@@ -229,6 +229,8 @@
     order: 5;
     flex: 0 0 44px;
   }
+  .calendar-app > .app-mobile-header > .app-mobile-header__more { display: block; order: 4; }
+  .calendar-app > .app-mobile-header > .app-mobile-header__sync { order: 5; }
   .calendar-app > .header > .calendar-header-desktop-action { display: none; }
   .calendar-app > .header > .header-nav,
   .calendar-app > .header > .header-date-label { display: none; }
@@ -265,6 +267,10 @@
     text-decoration: none;
   }
   .calendar-mobile-more-menu__content .mail-actions-menu__item span { flex: 1; }
+  .calendar-mobile-more-menu__content .mail-actions-menu__item:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+  }
   .calendar-mobile-more-menu__label {
     padding: 8px 12px 4px;
     color: var(--text-muted);

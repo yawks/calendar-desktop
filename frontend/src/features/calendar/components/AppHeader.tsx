@@ -10,7 +10,6 @@ import {
   Clock3,
   ListFilter,
   Menu,
-  MoreVertical,
   RefreshCw,
   Search,
   Settings,
@@ -74,6 +73,7 @@ export default function AppHeader({
     };
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (mobileMenuOpen) mobileMenuRef.current?.querySelector('button')?.focus();
         setFiltersOpen(false);
         setMobileMenuOpen(false);
       }
@@ -98,17 +98,17 @@ export default function AppHeader({
       <div className="calendar-mobile-more-menu app-mobile-header__more" ref={mobileMenuRef}>
         <button
           type="button"
-          className="btn-icon"
+          className="btn-icon calendar-mobile-view-menu__trigger"
           onClick={() => setMobileMenuOpen((open) => !open)}
           aria-expanded={mobileMenuOpen}
           aria-haspopup="menu"
-          aria-label={t('mail.moreActions')}
-          title={t('mail.moreActions')}
+          aria-label={t('header.changeView')}
+          title={t('header.changeView')}
         >
-          <MoreVertical size={21} aria-hidden="true" />
+          <CalendarRange size={21} aria-hidden="true" />
         </button>
         {mobileMenuOpen && (
-          <div className="mail-actions-menu calendar-mobile-more-menu__content" role="menu" aria-label={t('mail.moreActions')}>
+          <div className="mail-actions-menu calendar-mobile-more-menu__content" role="menu" aria-label={t('header.changeView')}>
             <div className="calendar-mobile-more-menu__label">{t('header.changeView')}</div>
             {VIEW_TYPES.map((mobileView) => (
               <button
@@ -120,6 +120,7 @@ export default function AppHeader({
                 onClick={() => {
                   onViewChange(mobileView);
                   setMobileMenuOpen(false);
+                  mobileMenuRef.current?.querySelector('button')?.focus();
                 }}
               >
                 <CalendarRange size={16} aria-hidden="true" />
@@ -208,7 +209,7 @@ export default function AppHeader({
 
       <div className="view-switcher">
         {VIEW_TYPES.map((v) => (
-          <button key={v} className={view === v ? 'active' : ''} onClick={() => onViewChange(v)}>
+          <button key={v} aria-pressed={view === v} className={view === v ? 'active' : ''} onClick={() => onViewChange(v)}>
             {t(`header.views.${v}`)}
           </button>
         ))}
