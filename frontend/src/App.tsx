@@ -1,9 +1,8 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { QueryPersistenceProvider } from './shared/QueryPersistenceProvider';
 import { OfflineMailProvider } from './shared/store/OfflineMailStore';
 import { MailNotificationProvider } from './shared/store/MailNotificationStore';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { queryClient, indexedDBPersister, shouldPersistQuery } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 import { FontSizeProvider } from './shared/store/FontSizeStore';
 import { MailContentRulesProvider } from './shared/store/MailContentRulesStore';
@@ -59,16 +58,7 @@ function RootView() {
 export default function App() {
   const isCalendarWindow = new URLSearchParams(globalThis.location.search).get('window') === 'calendar';
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{
-        persister: indexedDBPersister,
-        buster: 'mail-provider-loading-v6',
-        dehydrateOptions: {
-          shouldDehydrateQuery: query => shouldPersistQuery(query.queryKey),
-        },
-      }}
-    >
+    <QueryPersistenceProvider>
       <ThemeProvider>
       <OfflineMailProvider>
       <VaultProvider>
@@ -110,6 +100,6 @@ export default function App() {
       </OfflineMailProvider>
       </ThemeProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
-    </PersistQueryClientProvider>
+    </QueryPersistenceProvider>
   );
 }

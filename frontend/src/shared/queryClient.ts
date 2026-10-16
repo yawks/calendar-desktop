@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { get, set, del } from 'idb-keyval';
-import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client';
+import { persistQueryClientSave, type PersistedClient, type Persister, type PersistedQueryClientSaveOptions } from '@tanstack/react-query-persist-client';
 
 const PERSISTED_QUERY_CACHE_KEY = 'react-query-cache-v2';
 const CACHE_WRITE_INTERVAL = 2_000;
@@ -48,7 +48,6 @@ async function writeClient(client: PersistedClient): Promise<void> {
 async function persistPendingClients(): Promise<void> {
   try {
     while (pendingClient) {
-      await new Promise(resolve => setTimeout(resolve, CACHE_WRITE_INTERVAL));
       const client = pendingClient;
       pendingClient = undefined;
       if (client) await writeClient(client);
@@ -78,3 +77,41 @@ export const indexedDBPersister: Persister = {
     }
   },
 };
+
+// Batch before dehydration: throttling only persistClient still copies the
+// entire cache for every expired query in a burst.
+export function subscribeToQueryPersistence(options: PersistedQueryClientSaveOptions): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let saving = false;
+  let dirty = false;
+  let stopped = false;
+
+  const schedule = () => {
+    dirty = true;
+    if (stopped || saving || timer !== undefined) return;
+    timer = setTimeout(async () => {
+      timer = undefined;
+      dirty = false;
+      saving = true;
+      try {
+        await persistQueryClientSave(options);
+      } catch {
+        console.warn('[QueryCache] cache persistence failed');
+      } finally {
+        saving = false;
+        if (!stopped && dirty) schedule();
+      }
+    }, CACHE_WRITE_INTERVAL);
+  };
+  const onEvent = (event: { type: string }) => {
+    if (event.type === 'added' || event.type === 'removed' || event.type === 'updated') schedule();
+  };
+  const unsubscribeQueries = options.queryClient.getQueryCache().subscribe(onEvent);
+  const unsubscribeMutations = options.queryClient.getMutationCache().subscribe(onEvent);
+  return () => {
+    stopped = true;
+    if (timer !== undefined) clearTimeout(timer);
+    unsubscribeQueries();
+    unsubscribeMutations();
+  };
+}
