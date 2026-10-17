@@ -1,6 +1,16 @@
 import { get, update } from 'idb-keyval';
 import { decryptVaultWithKey, EncryptedVault, encryptVaultWithKey, vaultSalt } from './vaultCrypto';
 
+/** Read the shared local snapshot rather than a window's stale in-memory copy. */
+export async function readPersistedVault(
+  storageKey: string,
+  fallbackVault: EncryptedVault,
+  key: CryptoKey,
+): Promise<Record<string, unknown>> {
+  const latest = await get<EncryptedVault>(storageKey);
+  return decryptVaultWithKey<Record<string, unknown>>(latest ?? fallbackVault, key);
+}
+
 /** Commit only the changed fields, retaining writes made by other windows. */
 export async function persistVaultFields(
   storageKey: string,

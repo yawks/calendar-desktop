@@ -12,11 +12,13 @@ import android.view.ViewGroup
 import com.getcapacitor.BridgeActivity
 
 class MainActivity : BridgeActivity() {
+    val sharedIntents = java.util.concurrent.ConcurrentLinkedQueue<Intent>()
     private var notificationLoadingView: View? = null
     private var notificationReceivedAt: Long? = null
     private var notificationLoaderShownAt: Long? = null
     private val notificationRevealFallback = Runnable { revealNotificationView("timeout") }
     override fun onCreate(savedInstanceState: Bundle?) {
+        retainShare(intent)
         recordNotificationReceived(intent)
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         registerPlugin(CourrierNativePlugin::class.java)
@@ -47,11 +49,19 @@ class MainActivity : BridgeActivity() {
     }
 
     override fun onNewIntent(intent: Intent) {
+        retainShare(intent)
         recordNotificationReceived(intent)
         coverNotificationView(intent)
         super.onNewIntent(intent)
         setIntent(intent)
         runNotificationDiagnostic(intent)
+        bridge.triggerWindowJSEvent("courrier:share-ready")
+    }
+
+    private fun retainShare(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND && intent?.action != Intent.ACTION_SEND_MULTIPLE) return
+        sharedIntents.add(Intent(intent))
+        intent?.action = Intent.ACTION_MAIN
     }
 
     private fun recordNotificationReceived(intent: Intent?) {

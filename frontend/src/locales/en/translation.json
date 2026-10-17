@@ -383,6 +383,7 @@
     "invalidToken": "Invalid token. Reconnect your Google account."
   },
   "mail": {
+    "shareReceiveError": "Unable to read shared content. Check file access and the 25 MB total limit, then try again.",
     "office": {
       "close": "Close preview",
       "previous": "Previous page",

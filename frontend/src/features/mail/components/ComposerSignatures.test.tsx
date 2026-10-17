@@ -95,11 +95,36 @@ it('opens a new message with To, Cc and Bcc and the sender signature', async () 
   ));
   expect(ref.current?.getDraftData()).toEqual({
     to: ['to@example.test'], cc: ['cc@example.test'], bcc: ['bcc@example.test'],
-    subject: '', bodyHtml: expect.stringContaining('My signature'),
+    subject: '', bodyHtml: expect.stringContaining('My signature'), attachments: [],
   });
   expect(host.querySelectorAll('[data-courrier-sig]')).toHaveLength(1);
   expect(host.querySelector('[data-courrier-sig]')?.textContent).toBe('My signature');
   expect(host.querySelector('.mail-quoted')).toBeNull();
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+
+it('keeps shared attachments and text available when saving the local draft', async () => {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const ref = createRef<NewMessageComposerHandle>();
+  const attachments = [{ name: 'photo.jpg', contentType: 'image/jpeg', data: 'YQ==', size: 1 }];
+  const restoreData: ComposerRestoreData = {
+    toRecipients: [], ccRecipients: [], bccRecipients: [], subject: 'Photo',
+    body: '<p>Shared text</p>', attachments, isShared: true,
+    isNewMessage: true, showCc: false, showBcc: false, replyingToMsg: null,
+  };
+  await act(async () => root.render(
+    <NewMessageComposer ref={ref} contacts={[]} identities={[identity]} selectedIdentityId="alias"
+      fromAccounts={[]} fromAccountId="account" onFromAccountChange={noop}
+      restoreData={restoreData} onSend={async () => {}} onCancel={noop} onSaveDraft={noop} />,
+  ));
+  expect(ref.current?.hasChanges()).toBe(true);
+  expect(ref.current?.getDraftData()).toMatchObject({ subject: 'Photo', attachments });
+  expect(ref.current?.getDraftData().bodyHtml).toContain('Shared text');
+  expect(host.textContent).toContain('photo.jpg');
   await act(async () => root.unmount());
   host.remove();
 });

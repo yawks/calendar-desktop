@@ -6,9 +6,10 @@ import { NativeDeepLinks } from './NativeDeepLinks';
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(), setActiveTab: vi.fn(), reveal: vi.fn(),
-  consume: vi.fn(), invalidate: vi.fn(), exit: vi.fn(),
+  sharePending: vi.fn(), consume: vi.fn(), invalidate: vi.fn(), exit: vi.fn(),
   listeners: new Map<string, (event: any) => void>(),
 }));
+vi.mock('./nativeAndroid', () => ({ androidShare: { pending: mocks.sharePending } }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@capacitor/app', () => ({ App: {
   exitApp: mocks.exit,
@@ -36,6 +37,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mocks.listeners.clear();
   mocks.consume.mockResolvedValue(null);
+  mocks.sharePending.mockResolvedValue(false);
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 0; });
   host = document.createElement('div');
@@ -156,5 +158,25 @@ describe('Android resume', () => {
     expect(mocks.reveal).toHaveBeenCalledOnce();
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(host.childElementCount).toBe(0);
+  });
+});
+
+
+describe('Android shares', () => {
+  it('opens the mail tab when a share arrives while the app is running', async () => {
+    mocks.sharePending.mockResolvedValue(true);
+    const received = vi.fn();
+    globalThis.addEventListener('courrier:share-available', received);
+    await act(async () => { globalThis.dispatchEvent(new Event('courrier:share-ready')); });
+    expect(mocks.setActiveTab).toHaveBeenCalledWith('mail');
+    expect(mocks.navigate).toHaveBeenCalledWith('/');
+    expect(received).toHaveBeenCalledTimes(1);
+    globalThis.removeEventListener('courrier:share-available', received);
+  });
+
+  it('checks retained shares when Android resumes', async () => {
+    mocks.sharePending.mockResolvedValue(true);
+    await act(async () => mocks.listeners.get('appStateChange')!({ isActive: true }));
+    expect(mocks.setActiveTab).toHaveBeenCalledWith('mail');
   });
 });

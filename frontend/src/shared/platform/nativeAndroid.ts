@@ -1,7 +1,17 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import type { NativeCredentialUpdate, NativeNotificationPermission, NativeNotificationThread, NativePlatform, NativeSyncAccount, NativeSyncStatus, NotificationPrivacy } from './types';
 
+export interface AndroidShare {
+  id: string;
+  subject: string;
+  text: string;
+  attachments: import('../../features/mail/providers/MailProvider').ComposerAttachment[];
+}
+
 interface CourrierNativePlugin {
+  acknowledgeShare(options: { id: string }): Promise<void>;
+  pendingShare(): Promise<{ pending: boolean }>;
+  consumeShare(): Promise<{ share?: AndroidShare }>;
   configureSync(options: NativeSyncAccount): Promise<void>;
   disableSync(options: { accountId: string }): Promise<void>;
   runSyncNow(options: { accountId: string }): Promise<void>;
@@ -30,6 +40,12 @@ interface CourrierNativePlugin {
   notificationThread(options: { accountId: string; conversationId: string }): Promise<{ thread?: NativeNotificationThread }>;
   scanConfigQr(): Promise<{ value: string }>;
 }
+
+export const androidShare = {
+  acknowledge: (id: string) => plugin.acknowledgeShare({ id }),
+  pending: async () => (await plugin.pendingShare()).pending,
+  consume: async () => (await plugin.consumeShare()).share,
+};
 
 const plugin = registerPlugin<CourrierNativePlugin>('CourrierNative');
 

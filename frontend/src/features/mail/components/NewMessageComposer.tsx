@@ -32,7 +32,7 @@ export interface NewMessageComposerProps {
 
 export interface NewMessageComposerHandle {
   hasChanges: () => boolean;
-  getDraftData: () => { to: string[]; cc: string[]; bcc: string[]; subject: string; bodyHtml: string };
+  getDraftData: () => { to: string[]; cc: string[]; bcc: string[]; subject: string; bodyHtml: string; attachments: ComposerAttachment[] };
 }
 
 export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessageComposerProps>(function NewMessageComposer({
@@ -51,7 +51,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
   const [subject, setSubject] = useState(restoreData?.subject ?? '');
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(restoreData?.attachments ?? []);
-  const fieldsModifiedRef = useRef(false);
+  const fieldsModifiedRef = useRef(restoreData?.isShared ?? false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef    = useRef<MailEditorHandle>(null);
@@ -87,8 +87,9 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
       bcc: bccRecipients.map(r => r.email),
       subject,
       bodyHtml: editorRef.current?.getHTML() ?? '',
+      attachments,
     }),
-  }), [toRecipients, ccRecipients, bccRecipients, subject]);
+  }), [toRecipients, ccRecipients, bccRecipients, subject, attachments]);
 
   const markFieldsModified = <T,>(setter: React.Dispatch<React.SetStateAction<T>>) =>
     (value: React.SetStateAction<T>) => {

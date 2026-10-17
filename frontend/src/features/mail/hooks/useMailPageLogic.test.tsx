@@ -28,19 +28,22 @@ it('retires the temporary preview after sending and deletes only the server item
   const root = createRoot(document.createElement('div'));
   let logic!: ReturnType<typeof useMailPageLogic>;
   function Harness() { logic = useMailPageLogic(); return null; }
+  const onSent = vi.fn();
   let completeSend!: () => void;
   f.send.mockImplementation(() => new Promise<void>(resolve => { completeSend = resolve; }));
   try {
     await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
-    await act(async () => logic.scheduleSend(['recipient@example.com'], [], [], 'Subject', '<p>Body</p>', { isNewMessage: true, toRecipients: [], ccRecipients: [], bccRecipients: [] } as unknown as ComposerRestoreData));
+    await act(async () => logic.scheduleSend(['recipient@example.com'], [], [], 'Subject', '<p>Body</p>', { isNewMessage: true, toRecipients: [], ccRecipients: [], bccRecipients: [] } as unknown as ComposerRestoreData, undefined, undefined, onSent));
     const preview = logic.messages[0];
     expect(preview.item_id).toMatch(/^__optimistic__/);
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(f.send).toHaveBeenCalledOnce();
+    expect(onSent).not.toHaveBeenCalled();
     expect(logic.actionToast?.onCancel).toBeUndefined();
     await act(async () => logic.handleDeleteMessage(preview));
     expect(f.trash).not.toHaveBeenCalled();
     await act(async () => completeSend());
+    expect(onSent).toHaveBeenCalledOnce();
     expect(logic.selectedThread).toBeNull();
     expect(logic.messages).toEqual([]);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['mail', 'account', 'threads', 'sentitems'] });
@@ -198,3 +201,29 @@ it('clears the detail selection immediately when discarding the last draft', asy
     vi.useRealTimers();
   }
 });
+
+
+for (const outcome of ['failure', 'undo'] as const) {
+  it(`retains the shared draft when send ends with ${outcome}`, async () => {
+    vi.useFakeTimers();
+    const client = new QueryClient();
+    const root = createRoot(document.createElement('div'));
+    let logic!: ReturnType<typeof useMailPageLogic>;
+    function Harness() { logic = useMailPageLogic(); return null; }
+    const onSent = vi.fn();
+    f.send.mockRejectedValue(new Error('offline'));
+    try {
+      await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+      await act(async () => logic.scheduleSend(['recipient@example.com'], [], [], 'Shared', '<p>Text</p>', {
+        isNewMessage: true, toRecipients: [], ccRecipients: [], bccRecipients: [],
+      } as unknown as ComposerRestoreData, undefined, undefined, onSent));
+      if (outcome === 'undo') await act(async () => logic.actionToast?.onCancel?.());
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(onSent).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      vi.useRealTimers();
+    }
+  });
+}

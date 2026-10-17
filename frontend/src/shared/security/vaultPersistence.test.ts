@@ -1,6 +1,7 @@
+import { pickPortableConfig } from './portableConfig';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { decryptVault, decryptVaultWithKey, encryptVault, EncryptedVault } from './vaultCrypto';
-import { persistVaultFields } from './vaultPersistence';
+import { persistVaultFields, readPersistedVault } from './vaultPersistence';
 
 const storage = vi.hoisted(() => ({ vault: undefined as EncryptedVault | undefined, reads: 0 }));
 vi.mock('idb-keyval', () => ({
@@ -51,4 +52,20 @@ describe('vault field persistence', () => {
     await expect(persistVaultFields('vault', vault, key, {}, ['calendars'])).rejects.toThrow();
     expect(storage.vault).toBe(vault);
   });
+  it('exports groups, calendar assignments and tags saved by another window and restores them from the encrypted backup', async () => {
+    const { vault, key } = await setup();
+    const organization = {
+      'calendar-desktop-calendars': [{ id: 'calendar', groupId: 'work' }],
+      'calendar-desktop-groups': [{ id: 'work', name: 'Work' }],
+      'calendar-desktop-tags': [{ id: 'focus', name: 'Focus', color: '#123456' }],
+      'calendar-event-tags': { series: 'focus' },
+    };
+    await persistVaultFields('vault', vault, key, organization, Object.keys(organization));
+    // The exporting window still holds the old vault from before these edits.
+    const portable = pickPortableConfig(await readPersistedVault('vault', vault, key));
+    const remote = await encryptVault(portable, 'recovery password', 10);
+    const { payload } = await decryptVault(remote, 'recovery password');
+    expect(payload).toEqual(organization);
+  });
+
 });

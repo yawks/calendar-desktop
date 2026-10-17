@@ -22,6 +22,60 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 @CapacitorPlugin(name="CourrierNative",permissions=[Permission(alias="notifications",strings=[Manifest.permission.POST_NOTIFICATIONS])])
 class CourrierNativePlugin:Plugin(){
+ @PluginMethod fun pendingShare(call:PluginCall) {
+  call.resolve(JSObject().put("pending", (activity as MainActivity).sharedIntents.isNotEmpty()))
+ }
+ @PluginMethod fun acknowledgeShare(call:PluginCall) {
+  val queue = (activity as MainActivity).sharedIntents
+  val intent = queue.peek()
+  if (intent != null && System.identityHashCode(intent).toString() == call.getString("id")) queue.remove(intent)
+  call.resolve()
+ }
+ @PluginMethod fun consumeShare(call:PluginCall) {
+  val queue = (activity as MainActivity).sharedIntents
+  val intent = queue.peek() ?: return call.resolve(JSObject())
+  commandExecutor.execute {
+   try {
+    val uris = linkedSetOf<android.net.Uri>()
+    if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+     uris.addAll(androidx.core.content.IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java).orEmpty())
+    } else {
+     androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, android.net.Uri::class.java)?.let { uris.add(it) }
+    }
+    intent.clipData?.let { clip -> for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { uris.add(it) } }
+    require(uris.size <= 100) { "Too many shared files" }
+    val attachments = JSArray()
+    var total = 0
+    for (uri in uris) {
+     require(uri.scheme == "content") { "Unsupported shared file" }
+     var name = "attachment"
+     context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+      if (cursor.moveToFirst()) name = cursor.getString(0) ?: name
+     }
+     name = name.replace(Regex("[\\r\\n\\x00-\\x1f\\x7f\\\"]"), "_")
+     val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+      val output = java.io.ByteArrayOutputStream()
+      val buffer = ByteArray(8192)
+      while (true) {
+       val count = input.read(buffer)
+       if (count < 0) break
+       total += count
+       require(total <= 25 * 1024 * 1024) { "Shared files exceed 25 MB" }
+       output.write(buffer, 0, count)
+      }
+      output.toByteArray()
+     } ?: error("Cannot read shared file")
+     val contentType = context.contentResolver.getType(uri)?.takeIf { it.matches(Regex("[a-zA-Z0-9.+_-]+/[a-zA-Z0-9.+_-]+")) } ?: "application/octet-stream"
+     attachments.put(JSObject().put("name", name).put("contentType", contentType).put("size", bytes.size).put("data", Base64.encodeToString(bytes, Base64.NO_WRAP)))
+    }
+    call.resolve(JSObject().put("share", JSObject().put("id", System.identityHashCode(intent).toString()).put("subject", intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: "").put("text", intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString() ?: "").put("attachments", attachments)))
+   } catch (error:Exception) {
+    queue.remove(intent)
+    // Report failure without logging the shared content or its URI.
+    call.reject("Unable to read shared content (maximum 25 MB)")
+   }
+  }
+ }
  private var pendingNotificationUrl:String?=null
  private val commandExecutor:ExecutorService=Executors.newFixedThreadPool(4)
  private val interactiveCommandExecutor:ExecutorService=Executors.newFixedThreadPool(2)

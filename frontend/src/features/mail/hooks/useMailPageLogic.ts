@@ -1235,7 +1235,7 @@ export function useMailPageLogic() {
 
   const scheduleSend = useCallback(async (
     to: string[], cc: string[], bcc: string[], subject: string, body: string,
-    restoreData: ComposerRestoreData, attachments?: ComposerAttachment[], sendAt?: string,
+    restoreData: ComposerRestoreData, attachments?: ComposerAttachment[], sendAt?: string, onSent?: () => void,
   ) => {
     const { fromAccountId, fromIdentityId, draftItemId } = restoreData;
     const p = fromAccountId ? (allProviders.get(fromAccountId) ?? null) : resolveProvider(selectedThread?.accountId);
@@ -1377,6 +1377,7 @@ export function useMailPageLogic() {
           isForward: restoreData.isForward,
           sendAt,
         });
+        onSent?.();
         if (restoreData.isNewMessage) removeOptimistic();
         void queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(accountId, 'sentitems') });
         void queryClient.invalidateQueries({ queryKey: ['mail', 'all', 'threads', 'sentitems'] });

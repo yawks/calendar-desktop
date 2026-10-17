@@ -39,6 +39,8 @@ cd ../backend && cargo test
 
 ## Applications natives
 
+Depuis le menu **Partager** d’Android, choisissez **Courrier** pour préparer un nouveau mail : les fichiers partagés deviennent des pièces jointes (25 Mo au total maximum), le texte ou lien remplit le corps et l’objet est repris s’il est fourni. Le brouillon partagé est conservé localement dans le coffre chiffré et peut être repris avec **Nouveau message** ; il n’est pas synchronisé dans les brouillons du serveur. Les partages suivants attendent l’envoi ou la suppression de ce brouillon. Cette préparation fonctionne avec Gmail, Exchange/EWS, IMAP/SMTP et JMAP ; CalDAV/Nextcloud concerne uniquement le calendrier.
+
 Android contacte directement Gmail, Exchange/EWS, IMAP/SMTP, JMAP et CalDAV/Nextcloud via le cœur Rust embarqué :
 
 ```bash

@@ -91,6 +91,8 @@ export interface ComposerRestoreData {
   showCc: boolean;
   showBcc: boolean;
   isNewMessage: boolean;
+  /** Draft received through the Android share sheet and kept in the local vault. */
+  isShared?: boolean;
   isForward?: boolean;
   replyingToMsg: MailMessage | null;
   /** Account to send from (all-accounts mode or explicit override). */

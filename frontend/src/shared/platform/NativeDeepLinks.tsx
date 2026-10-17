@@ -4,6 +4,7 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { platform } from '.';
+import { androidShare } from './nativeAndroid';
 import { useLayout } from '../store/LayoutStore';
 import { useTheme } from '../store/ThemeStore';
 import { Archive, ChevronDown, ChevronLeft, ChevronUp, FolderInput, MoreHorizontal, Reply, Trash2 } from 'lucide-react';
@@ -140,6 +141,16 @@ export function NativeDeepLinks() {
       setNotificationOpening(false);
       return;
     }
+    const openShare = () => {
+      void androidShare.pending().then(pending => {
+        if (!pending) return;
+        setActiveTab('mail');
+        navigate('/');
+        globalThis.dispatchEvent(new Event('courrier:share-available'));
+      }).catch(() => {});
+    };
+    openShare();
+    globalThis.addEventListener('courrier:share-ready', openShare);
     const refreshMail = () => {
       // Capacitor's WebView does not reliably emit a window focus transition
       // when the app resumes. In particular, after airplane mode React Query
@@ -178,9 +189,13 @@ export function NativeDeepLinks() {
     });
     const stateListener = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (isActive) {
+        openShare();
         void consumeNativeTarget().then(refreshMail);
       }
-      else activeNotificationUrlRef.current = null;
+      else {
+        globalThis.dispatchEvent(new Event('courrier:share-save'));
+        activeNotificationUrlRef.current = null;
+      }
     });
     // Also cover connectivity returning while Courrier is already visible.
     globalThis.addEventListener('online', refreshMail);
@@ -223,6 +238,7 @@ export function NativeDeepLinks() {
       if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
       if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
       globalThis.removeEventListener('online', refreshMail);
+      globalThis.removeEventListener('courrier:share-ready', openShare);
       void listener.then(handle => handle.remove());
       void backListener.then(handle => handle.remove());
       void stateListener.then(handle => handle.remove());

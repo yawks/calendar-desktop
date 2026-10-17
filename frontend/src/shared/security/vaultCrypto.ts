@@ -14,9 +14,11 @@ function asBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 function toBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
+  const chunks: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 32768) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 32768)));
+  }
+  return btoa(chunks.join(''));
 }
 
 function fromBase64(value: string): Uint8Array {

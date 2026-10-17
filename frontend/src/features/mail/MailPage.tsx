@@ -43,12 +43,20 @@ import { useIncomingMailNotifications } from './hooks/useIncomingMailNotificatio
 import { recordUserInitiatedUnread } from './utils/userInitiatedUnread';
 import { mergeSelectedThread } from './utils/selectedThread';
 import { platform } from '../../shared/platform';
+import { androidShare } from '../../shared/platform/nativeAndroid';
+import { sharedMailDraft } from './utils/sharedMailDraft';
+import { useVault } from '../../shared/security/VaultProvider';
 import { useConnectionIssues } from '../../shared/store/ConnectionIssueStore';
 import { useQueryClient } from '@tanstack/react-query';
 export default function MailApp() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const vault = useVault();
+  const sharedDraftKey = 'courrier:android-shared-mail-draft';
+  const sharedDraftActiveRef = useRef(false);
+  const checkedSharedDraftRef = useRef(false);
+  const saveSharedDraftRef = useRef(() => {});
   const {
     t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder, selectedFolderAccountId,
     threads, threadsLoading, threadsRefreshing, threadsLoadingMore, threadTotalCount, selectedThread,
@@ -345,6 +353,7 @@ export default function MailApp() {
   };
 
   const closeMobileDetail = useCallback(() => {
+    saveSharedDraftRef.current();
     if (globalThis.history.state?.mailScreen) globalThis.history.back();
     else {
       setSelectedThread(null);
@@ -359,6 +368,7 @@ export default function MailApp() {
     const handleAndroidBack = (event: Event) => {
       event.preventDefault();
       if (selectedThread || composing || new URLSearchParams(location.search).has('conversation')) {
+        if (composing) saveSharedDraftRef.current();
         setSelectedThread(null);
         setComposing(false);
         setSelectedThreadIds(new Set());
@@ -376,6 +386,7 @@ export default function MailApp() {
   useEffect(() => {
     const handleBrowserBack = () => {
       if (!globalThis.matchMedia('(max-width: 700px)').matches) return;
+      if (composing) saveSharedDraftRef.current();
       const conversationId = new URL(globalThis.location.href).searchParams.get('conversation');
       if (conversationId && deletedConversationIdsRef.current.has(conversationId)) {
         // A notification URL can remain one entry behind the current detail.
@@ -395,7 +406,8 @@ export default function MailApp() {
     if (newMessageComposerRef.current) {
       if (newMessageComposerRef.current.hasChanges()) {
         const data = newMessageComposerRef.current.getDraftData();
-        handleSaveDraft(
+        if (sharedDraftActiveRef.current && composing) saveSharedDraftRef.current();
+        else handleSaveDraft(
           composing ? (composingAccountId || selectedAccountId) : selectedThread?.accountId,
           data.to, data.cc, data.bcc, data.subject, data.bodyHtml,
         );
@@ -445,10 +457,15 @@ export default function MailApp() {
 
   useEffect(() => {
     if (!composing) setNewRecipientsDraft(null);
+    else if (sharedDraftActiveRef.current) {
+      setNewRecipientsDraft(vault.read<ComposerRestoreData | null>(sharedDraftKey, null));
+    }
   }, [composing]);
 
   const startNewMessage = () => {
-    setNewRecipientsDraft(null);
+    const savedShare = vault.read<ComposerRestoreData | null>(sharedDraftKey, null);
+    sharedDraftActiveRef.current = Boolean(savedShare);
+    setNewRecipientsDraft(savedShare);
     const sourceAccountId = selectedFolderAccountId
       ?? (!isAllMode ? selectedAccountId : undefined);
     const sourceIdentities = sourceAccountId
@@ -458,10 +475,72 @@ export default function MailApp() {
     pushMobileScreen('composer');
     setComposing(true);
     setSelectedThread(null);
-    setComposingAccountId(sourceAccountId ?? allMailAccounts[0]?.id ?? '');
-    setSelectedIdentityId(primaryIdentity?.id ?? '');
+    setComposingAccountId(savedShare?.fromAccountId ?? sourceAccountId ?? allMailAccounts[0]?.id ?? '');
+    setSelectedIdentityId(savedShare?.fromIdentityId ?? primaryIdentity?.id ?? '');
     if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
   };
+
+  saveSharedDraftRef.current = () => {
+    if (!sharedDraftActiveRef.current || !composing) return;
+    const data = newMessageComposerRef.current?.getDraftData();
+    if (!data) return;
+    vault.write(sharedDraftKey, {
+      ...sharedMailDraft({ subject: data.subject, text: '', attachments: data.attachments }),
+      body: data.bodyHtml,
+      toRecipients: data.to.map(email => ({ email })),
+      ccRecipients: data.cc.map(email => ({ email })),
+      bccRecipients: data.bcc.map(email => ({ email })),
+      showCc: data.cc.length > 0, showBcc: data.bcc.length > 0,
+      fromAccountId: composingAccountId || selectedAccountId,
+      fromIdentityId: selectedIdentityId,
+    });
+  };
+
+  const startNewMessageRef = useRef(startNewMessage);
+  startNewMessageRef.current = startNewMessage;
+  useEffect(() => {
+    const save = () => saveSharedDraftRef.current();
+    globalThis.addEventListener('courrier:share-save', save);
+    return () => globalThis.removeEventListener('courrier:share-save', save);
+  }, []);
+
+  const receivingShareRef = useRef(false);
+  useEffect(() => {
+    if (!platform.isNativeAndroid || !allMailAccounts.length || composing || replyingTo) return;
+    let active = true;
+    const receive = async () => {
+      if (newMessageComposerRef.current || composerRef.current) return;
+      if (receivingShareRef.current) return;
+      receivingShareRef.current = true;
+      try {
+        const savedShare = vault.read<ComposerRestoreData | null>(sharedDraftKey, null);
+        if (savedShare) {
+          if (!checkedSharedDraftRef.current) startNewMessageRef.current();
+          checkedSharedDraftRef.current = true;
+          return;
+        }
+        checkedSharedDraftRef.current = true;
+        const share = await androidShare.consume();
+        if (!share || !active) return;
+        startNewMessageRef.current();
+        const draft = sharedMailDraft(share);
+        sharedDraftActiveRef.current = true;
+        vault.write(sharedDraftKey, draft);
+        void androidShare.acknowledge(share.id).catch(() => setError(t('mail.shareReceiveError')));
+        setNewRecipientsDraft(draft);
+      } catch {
+        setError(t('mail.shareReceiveError'));
+      } finally {
+        receivingShareRef.current = false;
+      }
+    };
+    void receive();
+    globalThis.addEventListener('courrier:share-available', receive);
+    return () => {
+      active = false;
+      globalThis.removeEventListener('courrier:share-available', receive);
+    };
+  }, [allMailAccounts.length, composing, replyingTo, selectedThread?.conversation_id]);
 
   const composerIdentities = selectedFolderAccountId
     ? accountIdentities.filter(identity => identity.accountId === selectedFolderAccountId)
@@ -1036,8 +1115,10 @@ export default function MailApp() {
                 provider={composerProvider}
                 restoreData={newRecipientsDraft ?? composerRestoreData}
                 scheduledSend={mailCapabilitiesByAccount.get(composingAccountId || selectedAccountId)?.scheduledSend}
-                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients, sendAt) =>
-                  scheduleSend(to, cc, bcc, subject, body, {
+                onSend={async (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients, sendAt) => {
+                  const isShared = sharedDraftActiveRef.current;
+                  if (isShared) saveSharedDraftRef.current();
+                  await scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: true,
                     toRecipients: recipients.to,
                     ccRecipients: recipients.cc,
@@ -1050,14 +1131,23 @@ export default function MailApp() {
                     replyingToMsg: null,
                     fromAccountId: composingAccountId || undefined,
                     fromIdentityId,
-                  }, attachments, sendAt)
-                }
-                onCancel={() => { setComposing(false); }}
-                onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) =>
-                  handleSaveDraft(composingAccountId || selectedAccountId, to, cc, bcc, subject, bodyHtml)
-                }
-                onDeleteDraft={composingDraftItemId ? async () => {
-                   setComposing(false);
+                  }, attachments, sendAt, isShared ? () => {
+                    vault.write(sharedDraftKey, null);
+                    sharedDraftActiveRef.current = false;
+                    globalThis.dispatchEvent(new Event('courrier:share-available'));
+                  } : undefined);
+                }}
+                onCancel={() => { saveSharedDraftRef.current(); setComposing(false); }}
+                onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) => {
+                  if (sharedDraftActiveRef.current) saveSharedDraftRef.current();
+                  else handleSaveDraft(composingAccountId || selectedAccountId, to, cc, bcc, subject, bodyHtml);
+                }}
+                onDeleteDraft={sharedDraftActiveRef.current || composingDraftItemId ? () => {
+                  if (sharedDraftActiveRef.current) {
+                    vault.write(sharedDraftKey, null);
+                    sharedDraftActiveRef.current = false;
+                  }
+                  setComposing(false);
                 } : undefined}
                 fromAccounts={isAllMode ? allMailAccounts as any : []}
                 fromAccountId={composingAccountId}

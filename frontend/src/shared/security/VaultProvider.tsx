@@ -1,4 +1,4 @@
-import { persistVaultFields } from './vaultPersistence';
+import { persistVaultFields, readPersistedVault } from './vaultPersistence';
 import { get, set } from 'idb-keyval';
 import { createContext, FormEvent, Fragment, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { decryptVault, decryptVaultWithKey, deriveVaultKey, EncryptedVault, encryptVaultWithKey, exportVaultKey, generateVaultKey, importVaultKey } from './vaultCrypto';
@@ -346,17 +346,19 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
 
   const pushConfiguration = useCallback(async (location: NextcloudConfigLocation, etag?: string, revision = 0, overwrite = false) => {
     const vault = stored;
-    if (!keyRef.current || !vault) throw new Error('Vault is locked');
+    const localKey = keyRef.current;
+    if (!localKey || !vault) throw new Error('Vault is locked');
     setConfigSyncStatus('syncing');
-    let recoveryKey = location.recoveryKey?.trim();
-    let syncKey: CryptoKey;
-    if (recoveryKey) syncKey = await importVaultKey(recoveryKeyToBytes(recoveryKey));
-    else { syncKey = await generateVaultKey(); recoveryKey = bytesToRecoveryKey(await exportVaultKey(syncKey)); }
-    const portable = pickPortableConfig(payloadRef.current);
-    const contents = portableConfigSummary(portable);
-    const encrypted = await encryptVaultWithKey(portable, syncKey, crypto.getRandomValues(new Uint8Array(16)), vault.kdf.iterations);
-    const document: RemoteVaultDocument = { format: 'courrier-config', version: 1, deviceId: deviceId(), revision: revision + 1, updatedAt: new Date().toISOString(), vault: encrypted };
     try {
+      let recoveryKey = location.recoveryKey?.trim();
+      let syncKey: CryptoKey;
+      if (recoveryKey) syncKey = await importVaultKey(recoveryKeyToBytes(recoveryKey));
+      else { syncKey = await generateVaultKey(); recoveryKey = bytesToRecoveryKey(await exportVaultKey(syncKey)); }
+      await writeQueue.current;
+      const portable = pickPortableConfig(await readPersistedVault(DB_KEY, vault, localKey));
+      const contents = portableConfigSummary(portable);
+      const encrypted = await encryptVaultWithKey(portable, syncKey, crypto.getRandomValues(new Uint8Array(16)), vault.kdf.iterations);
+      const document: RemoteVaultDocument = { format: 'courrier-config', version: 1, deviceId: deviceId(), revision: revision + 1, updatedAt: new Date().toISOString(), vault: encrypted };
       let expectedEtag = etag;
       if (overwrite) expectedEtag = (await fetchRemoteVault(location)).etag;
       await putRemoteVault(location, document, expectedEtag);
