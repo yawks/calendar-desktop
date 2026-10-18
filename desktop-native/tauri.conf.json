@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.courrier.desktop",
   "build": {
+    "additionalWatchFolders": ["../backend/provider-core"],
     "beforeDevCommand": "npm --prefix frontend run dev",
     "devUrl": "http://localhost:6173",
     "beforeBuildCommand": "npm --prefix frontend run build",

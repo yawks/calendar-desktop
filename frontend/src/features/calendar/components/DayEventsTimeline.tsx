@@ -1,3 +1,4 @@
+import EventMarkers from './EventMarkers';
 import { useMemo } from 'react';
 import { CalendarEvent, CalendarConfig } from '../../../shared/types';
 import './DayEventsTimeline.css';
@@ -198,7 +199,7 @@ export function DayEventsTimeline({
                     ...(!isCancelledEv && { backgroundColor: bgColor, color: textColor, borderColor: color }),
                   }}
                 >
-                  <span className="det-event-title">{ev.title}</span>
+                  <span className="det-event-title"><EventMarkers event={ev} />{ev.title}</span>
                 </div>
               );
             })}

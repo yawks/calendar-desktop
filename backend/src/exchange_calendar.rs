@@ -7,6 +7,8 @@ const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRequest {
+    sensitivity: Option<String>,
+    availability: Option<String>,
     #[serde(default)]
     online_meeting: bool,
     refresh_token: Option<String>,
@@ -37,6 +39,8 @@ pub struct RespondRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRequest {
+    sensitivity: Option<String>,
+    availability: Option<String>,
     attendees: Option<Vec<String>>,
     original_start: Option<String>,
     recurrence: Option<String>,
@@ -107,7 +111,7 @@ async fn send(token: &str, body: &str, anchor: Option<&str>) -> Result<String, A
 }
 
 pub async fn create(Json(request): Json<CreateRequest>) -> Result<Json<serde_json::Value>, ApiError> {
-    let result = app_lib::ews::ews_create_event(request.access_token, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.attendees, request.recurrence, request.online_meeting, request.refresh_token).await
+    let result = app_lib::ews::ews_create_event(request.access_token, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.attendees, request.recurrence, request.online_meeting, request.refresh_token, request.sensitivity, request.availability).await
         .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))?;
     let (item_id, change_key) = result.split_once('|').unwrap_or((&result, ""));
     Ok(Json(serde_json::json!({ "itemId": item_id, "changeKey": change_key })))
@@ -122,7 +126,7 @@ pub async fn respond(Json(request): Json<RespondRequest>) -> Result<Json<serde_j
 }
 
 pub async fn update(Json(request): Json<UpdateRequest>) -> Result<Json<serde_json::Value>, ApiError> {
-    app_lib::ews::ews_update_event(request.access_token, request.item_id, request.change_key, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.update_series, request.recurrence, request.original_start, request.attendees).await
+    app_lib::ews::ews_update_event(request.access_token, request.item_id, request.change_key, request.title, request.start, request.end, request.is_all_day, request.location, request.description, request.update_series, request.recurrence, request.original_start, request.attendees, request.sensitivity, request.availability).await
         .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

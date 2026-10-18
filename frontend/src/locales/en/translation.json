@@ -1,4 +1,41 @@
 {
+  "eventOptions": {
+  "type": "Event type",
+  "availability": "Availability",
+  "sensitivity": "Visibility",
+  "values": {
+    "Busy": "Busy",
+    "Free": "Free",
+    "Tentative": "Tentative",
+    "OOF": "Out of office",
+    "WorkingElsewhere": "Working elsewhere",
+    "Normal": "Normal",
+    "Personal": "Personal",
+    "Private": "Private",
+    "Confidential": "Confidential",
+    "default": "Default",
+    "public": "Public",
+    "private": "Private",
+    "confidential": "Confidential",
+    "PUBLIC": "Public",
+    "PRIVATE": "Private",
+    "CONFIDENTIAL": "Confidential",
+    "opaque": "Busy",
+    "transparent": "Free",
+    "OPAQUE": "Busy",
+    "TRANSPARENT": "Free",
+    "outOfOffice": "Out of office",
+    "focusTime": "Focus time",
+    "workingLocation": "Working location",
+    "birthday": "Birthday",
+    "fromGmail": "From Gmail"
+  },
+  "googleHelp": "Google special types require a primary calendar and an eligible subscription. Out of office and focus time are created without automatically declining invitations.",
+  "immutableType": "Google does not allow changing an existing event’s type.",
+  "timedOnly": "Google out of office and focus time require start and end times (not all day).",
+  "oneDayOnly": "An all-day working location must last exactly one day. Use the Location field to specify the workplace.",
+  "birthdayOnly": "A birthday must last exactly one full day; it will repeat every year."
+},
   "tabs": {
     "calendar": "Calendar",
     "mail": "Mail"
@@ -194,6 +231,7 @@
     }
   },
   "createEvent": {
+    "moreOptions": "Recurrence, availability and visibility",
     "teamsError": "Could not create the Teams meeting. Check your Teams license and Microsoft account permission, then reconnect the account if needed. You can turn off Teams to create the event without an online meeting.",
     "teamsMeeting": "Add a Teams meeting",
     "meetMeeting": "Add a Google Meet meeting",

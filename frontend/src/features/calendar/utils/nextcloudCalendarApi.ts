@@ -1,3 +1,4 @@
+import { validateEventOptions } from './eventOptions';
 import { t } from 'i18next';
 import { anchorSeriesDates } from './seriesDates';
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../../../shared/types';
@@ -36,6 +37,7 @@ function toICSDate(iso: string): string {
 
 // shortcut: timed CalDAV series use UTC; add explicit calendar time zones to preserve wall-clock time across DST.
 function buildVCalendar(uid: string, payload: CreateEventPayload): string {
+  validateEventOptions(payload, 'nextcloud');
   const now = toICSDateTime(new Date().toISOString());
 
   const startProp = payload.isAllday
@@ -57,6 +59,9 @@ function buildVCalendar(uid: string, payload: CreateEventPayload): string {
     endProp,
     `SUMMARY:${escapeICS(payload.title)}`,
   ];
+
+  if (payload.sensitivity !== undefined) lines.push(`CLASS:${payload.sensitivity}`);
+  if (payload.availability !== undefined) lines.push(`TRANSP:${payload.availability}`);
 
   if (payload.location?.trim()) {
     lines.push(`LOCATION:${escapeICS(payload.location)}`);
@@ -140,6 +145,9 @@ export async function updateNextcloudEvent(
   for (const name of ['summary', 'dtstart', 'dtend', 'location', 'description', 'attendee']) {
     target.removeAllProperties(name);
     for (const property of replacement.getAllProperties(name)) target.addProperty(new ICAL.Property(property.toJSON()));
+  }
+  for (const [field, value] of [['class', payload.sensitivity], ['transp', payload.availability]]) {
+    if (value !== undefined) target.updatePropertyWithValue(field, value);
   }
   if (!singleOccurrence && payload.recurrence !== undefined) {
     master.removeAllProperties('rrule');

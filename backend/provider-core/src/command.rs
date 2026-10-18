@@ -398,6 +398,8 @@ struct ExchangeList {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangeCreate {
+    sensitivity: Option<String>,
+    availability: Option<String>,
     #[serde(default)]
     online_meeting: bool,
     refresh_token: Option<String>,
@@ -414,6 +416,8 @@ struct ExchangeCreate {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangeUpdate {
+    sensitivity: Option<String>,
+    availability: Option<String>,
     attendees: Option<Vec<String>>,
     original_start: Option<String>,
     recurrence: Option<String>,
@@ -558,6 +562,8 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                     a.recurrence,
                     a.online_meeting,
                     a.refresh_token,
+                    a.sensitivity,
+                    a.availability,
                 )
                 .await,
             )
@@ -579,6 +585,8 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                     a.recurrence,
                     a.original_start,
                     a.attendees,
+                    a.sensitivity,
+                    a.availability,
                 )
                 .await,
             )

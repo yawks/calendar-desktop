@@ -255,6 +255,9 @@ export function useCalendarLogic() {
         accessToken: token,
         itemId,
         changeKey,
+        availability: payload.availability,
+        sensitivity: payload.sensitivity,
+        eventType: payload.eventType,
         title: payload.title,
         start: payload.start,
         end: payload.end,
@@ -272,6 +275,9 @@ export function useCalendarLogic() {
         accessToken: token,
         onlineMeeting: payload.onlineMeeting,
         refreshToken: payload.onlineMeeting ? getExchangeRefreshToken(cal.exchangeAccountId) : undefined,
+        availability: payload.availability,
+        sensitivity: payload.sensitivity,
+        eventType: payload.eventType,
         title: payload.title,
         start: payload.start,
         end: payload.end,
@@ -336,6 +342,9 @@ export function useCalendarLogic() {
     if (sourceEvent) {
       const optimistic: CalendarEvent = {
         ...sourceEvent,
+        availability: payload.availability,
+        sensitivity: payload.sensitivity,
+        eventType: payload.eventType,
         title: payload.title,
         start: payload.start,
         end: payload.end,
@@ -365,6 +374,9 @@ export function useCalendarLogic() {
       const optimistic: CalendarEvent = {
         id: tempId,
         calendarId: payload.calendarId,
+        availability: payload.availability,
+        sensitivity: payload.sensitivity,
+        eventType: payload.eventType,
         title: payload.title,
         start: payload.start,
         end: payload.end,
@@ -375,7 +387,7 @@ export function useCalendarLogic() {
         tagId: payload.tagId ?? undefined,
       };
       setOptimisticCreated((prev) => [...prev, optimistic]);
-      console.log('[createEvent] optimistic added', tempId, payload.title);
+      console.log('[createEvent] optimistic added', tempId);
       const cleanup = () => {
         console.log('[createEvent] cleanup – removing optimistic', tempId);
         setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
@@ -693,6 +705,9 @@ export function useCalendarLogic() {
       }
 
       const payload: CreateEventPayload = {
+        availability: originalEvent.availability,
+        sensitivity: originalEvent.sensitivity,
+        eventType: originalEvent.eventType,
         title: originalEvent.title,
         start: newStart,
         end: newEnd,

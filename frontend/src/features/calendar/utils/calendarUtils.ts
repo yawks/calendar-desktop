@@ -1,3 +1,4 @@
+import { isFreeEvent } from './eventOptions';
 import { CalendarConfig, CalendarEvent, ViewType, Tag, EventTagMapping } from '../../../shared/types';
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
@@ -306,7 +307,7 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
       isReadOnly: !!cal?.shared,
       category: ev.isAllday ? 'allday' : 'time',
       location: ev.location,
-      state: ev.isDeclined || ev.isCancelled ? 'Free' : 'Busy',
+      state: ev.isDeclined || ev.isCancelled || isFreeEvent(ev) ? 'Free' : 'Busy',
       backgroundColor,
       color: textColor,
       borderColor,

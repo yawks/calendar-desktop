@@ -1,3 +1,4 @@
+import EventMarkers from './EventMarkers';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, X, Clock, MapPin, Users } from 'lucide-react';
@@ -136,7 +137,7 @@ export default function SearchModal({ open, onClose, events, calendars, onSearch
                     className="search-suggestion-dot"
                     style={{ background: cal?.color ?? '#888' }}
                   />
-                  <span className="search-suggestion-title">{ev.title}</span>
+                  <span className="search-suggestion-title"><EventMarkers event={ev} />{ev.title}</span>
                   <span className="search-suggestion-meta">
                     <Clock size={12} />
                     {formatEventDate(ev.start)}

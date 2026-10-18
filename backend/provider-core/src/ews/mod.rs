@@ -50,6 +50,8 @@ pub struct EwsAttendee {
 
 #[derive(Serialize, Debug)]
 pub struct EwsEvent {
+    pub sensitivity: Option<String>,
+    pub availability: Option<String>,
     pub item_id: String,
     pub change_key: String,
     pub subject: String,
@@ -493,6 +495,8 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         }
 
         events.push(EwsEvent {
+            sensitivity: xml_content(&item_xml, "t:Sensitivity"),
+            availability: xml_content(&item_xml, "t:LegacyFreeBusyStatus"),
             availability_only: false,
             item_id,
             change_key,

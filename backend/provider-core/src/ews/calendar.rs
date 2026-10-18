@@ -1,5 +1,15 @@
 use super::*;
 
+fn validate_event_options(sensitivity: Option<&str>, availability: Option<&str>) -> Result<(), String> {
+    if sensitivity.is_some_and(|v| !["Normal", "Personal", "Private", "Confidential"].contains(&v)) {
+        return Err("Invalid EWS sensitivity".into());
+    }
+    if availability.is_some_and(|v| !["Free", "Tentative", "Busy", "OOF", "WorkingElsewhere"].contains(&v)) {
+        return Err("Invalid EWS availability".into());
+    }
+    Ok(())
+}
+
 // ── Calendar commands ──────────────────────────────────────────────────────────
 
 /// Fetch calendar events in the given date range.
@@ -81,6 +91,7 @@ pub async fn ews_get_calendar_events(
         );
 
         if let Ok(details_xml) = send_ews_request(&access_token, &get_body, anchor_mailbox).await {
+            refresh_event_snapshots(&mut events, &details_xml)?;
             let mut detailed = parse_get_item_response(&details_xml);
             for detail in detailed.iter_mut() {
                 let Some(mut body) = detail.body.take() else {
@@ -140,6 +151,28 @@ pub async fn ews_get_calendar_events(
     Ok(events)
 }
 
+// Keep the version token and editable fields from the same, most recent read.
+fn refresh_event_snapshots(events: &mut [EwsEvent], xml: &str) -> Result<(), String> {
+    for snapshot in parse_calendar_events(xml)? {
+        if snapshot.change_key.is_empty() || snapshot.start.is_empty() || snapshot.end.is_empty() {
+            continue;
+        }
+        if let Some(event) = events.iter_mut().find(|event| event.item_id == snapshot.item_id) {
+            *event = snapshot;
+        }
+    }
+    Ok(())
+}
+
+fn verify_event_version(xml: &str, expected_key: &str) -> Result<(), String> {
+    check_update_response(xml)?;
+    let (_, current_key) = parse_response_master(xml)?;
+    if expected_key.is_empty() || current_key != expected_key {
+        return Err("EWS update ErrorIrresolvableConflict: Event changed since it was loaded; refresh before editing again".into());
+    }
+    Ok(())
+}
+
 /// Create a new calendar event. Returns `"item_id|change_key"`.
 pub async fn ews_create_event(
     access_token: String,
@@ -153,7 +186,12 @@ pub async fn ews_create_event(
     recurrence: Option<String>,
     online_meeting: bool,
     refresh_token: Option<String>,
+    sensitivity: Option<String>,
+    availability: Option<String>,
 ) -> Result<String, String> {
+    validate_event_options(sensitivity.as_deref(), availability.as_deref())?;
+    let sensitivity_xml = sensitivity.map(|v| format!("<t:Sensitivity>{v}</t:Sensitivity>")).unwrap_or_default();
+    let availability_xml = availability.map(|v| format!("<t:LegacyFreeBusyStatus>{v}</t:LegacyFreeBusyStatus>")).unwrap_or_default();
     let recurrence_xml = recurrence.as_deref().filter(|s| !s.is_empty()).map(|rule| super::recurrence::recurrence_xml(rule, &start)).transpose()?.unwrap_or_default();
     // shortcut: standalone Teams links have an independent lifetime; use calendar-backed Graph meetings when synchronizing cancellation.
     let description = if online_meeting {
@@ -216,10 +254,12 @@ pub async fn ews_create_event(
   <m:Items>
     <t:CalendarItem>
       <t:Subject>{title}</t:Subject>
+      {sensitivity_xml}
       {body_xml}
       <t:Start>{start}</t:Start>
       <t:End>{end}</t:End>
       <t:IsAllDayEvent>{is_all_day}</t:IsAllDayEvent>
+      {availability_xml}
       {location_xml}
       {attendees_block}
       {recurrence_xml}
@@ -311,11 +351,24 @@ pub async fn ews_update_event(
     recurrence: Option<String>,
     original_start: Option<String>,
     attendees: Option<Vec<String>>,
+    sensitivity: Option<String>,
+    availability: Option<String>,
 ) -> Result<(), String> {
+    validate_event_options(sensitivity.as_deref(), availability.as_deref())?;
+    let mut target_item_id = item_id.clone();
+    let mut target_change_key = change_key.clone();
     if update_series {
+        // An occurrence's ChangeKey cannot be used to update its master.
+        // Check the user's occurrence version before resolving the master, without retrying conflicts.
+        let lookup = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape><m:ItemIds><t:ItemId Id="{}"/></m:ItemIds></m:GetItem>"#, xml_escape(&item_id));
+        let current = send_ews_request(&access_token, &lookup, None).await?;
+        verify_event_version(&current, &change_key)?;
+        let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="calendar:Start"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:RecurringMasterItemId OccurrenceId="{}"/></m:ItemIds></m:GetItem>"#, xml_escape(&item_id));
+        let master = send_ews_request(&access_token, &body, None).await?;
+        check_update_response(&master)?;
+        (target_item_id, target_change_key) = parse_response_master(&master)?;
+        if target_change_key.is_empty() { return Err("EWS recurring master ChangeKey missing".into()); }
         if let Some(original) = original_start {
-            let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="calendar:Start"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:RecurringMasterItemId OccurrenceId="{}"/></m:ItemIds></m:GetItem>"#, xml_escape(&item_id));
-            let master = send_ews_request(&access_token, &body, None).await?;
             let master_start = xml_content(&master, "t:Start").ok_or("Recurring master start missing")?;
             let parse = |value: &str| chrono::DateTime::parse_from_rfc3339(value).map_err(|_| "Invalid series date".to_string());
             let normalize = |value: &str| if value.len() == 10 { format!("{value}T00:00:00Z") } else { value.to_string() };
@@ -349,6 +402,12 @@ pub async fn ews_update_event(
         ),
     ];
 
+    if let Some(value) = sensitivity {
+        updates.push(set_field("item:Sensitivity", "t:Sensitivity", &value));
+    }
+    if let Some(value) = availability {
+        updates.push(set_field("calendar:LegacyFreeBusyStatus", "t:LegacyFreeBusyStatus", &value));
+    }
     if let Some(loc) = location.filter(|s| !s.is_empty()) {
         updates.push(set_field("calendar:Location", "t:Location", &xml_escape(&loc)));
     }
@@ -368,16 +427,8 @@ pub async fn ews_update_event(
 
     updates.push(super::recurrence::recurrence_update_xml(recurrence.as_deref(), &start)?);
 
-    // RecurringMasterItemId lets EWS resolve the master from the occurrence
-    // currently being edited, without confusing it with our local series key.
-    let target_id = if update_series {
-        format!(
-            r#"<t:RecurringMasterItemId OccurrenceId="{}" ChangeKey="{}"/>"#,
-            xml_escape(&item_id), xml_escape(&change_key)
-        )
-    } else {
-        format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#, xml_escape(&item_id), xml_escape(&change_key))
-    };
+    let target_id = format!(r#"<t:ItemId Id="{}" ChangeKey="{}"/>"#,
+        xml_escape(&target_item_id), xml_escape(&target_change_key));
 
     let soap_body = format!(
         r#"<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AutoResolve" SendMeetingInvitationsOrCancellations="SendToAllAndSaveCopy">
@@ -874,7 +925,7 @@ mod online_meeting_tests {
     async fn teams_requires_refresh_token_before_creating_an_ews_event() {
         let result = super::ews_create_event(
             "unused".into(), "Meeting".into(), "2026-10-15T14:00:00Z".into(),
-            "2026-10-15T15:00:00Z".into(), false, None, None, None, None, true, None,
+            "2026-10-15T15:00:00Z".into(), false, None, None, None, None, true, None, None, None,
         ).await;
         assert_eq!(result.unwrap_err(), "teams_auth_required");
     }
@@ -925,6 +976,7 @@ fn availability_event(slot: EwsFreeBusySlot) -> EwsEvent {
         organizer_name: None, organizer_email: None, my_response_type: "Accept".into(),
         attendees: Vec::new(), is_meeting: false, is_cancelled: false, recurring_master_id: None, body: None,
         availability_only: true,
+        sensitivity: None, availability: Some(slot.busy_type),
     }
 }
 
@@ -1111,5 +1163,58 @@ mod shared_calendar_tests {
         assert_eq!(folders.len(), 2);
         assert_eq!(folders[0].name, "Research & work");
         assert_eq!(folders[1].id, "two");
+    }
+}
+
+#[cfg(test)]
+mod event_options_tests {
+    #[test]
+    fn validates_independent_ews_values_and_rejects_injected_xml() {
+        for availability in ["Free", "Tentative", "Busy", "OOF", "WorkingElsewhere"] {
+            for sensitivity in ["Normal", "Personal", "Private", "Confidential"] {
+                assert!(super::validate_event_options(Some(sensitivity), Some(availability)).is_ok());
+            }
+        }
+        assert!(super::validate_event_options(None, None).is_ok());
+        assert!(super::validate_event_options(Some("Private</t:Sensitivity>"), None).is_err());
+        assert!(super::validate_event_options(None, Some("NoData")).is_err());
+    }
+
+    #[test]
+    fn reads_privacy_and_absence_from_ews() {
+        let xml = r#"<m:FindItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><t:CalendarItem><t:ItemId Id="id" ChangeKey="key"/><t:Subject>Absence</t:Subject><t:Start>2026-10-20T08:00:00Z</t:Start><t:End>2026-10-20T18:00:00Z</t:End><t:Sensitivity>Private</t:Sensitivity><t:LegacyFreeBusyStatus>OOF</t:LegacyFreeBusyStatus></t:CalendarItem></m:FindItemResponseMessage>"#;
+        let events = super::parse_calendar_events(xml).unwrap();
+        assert_eq!(events[0].sensitivity.as_deref(), Some("Private"));
+        assert_eq!(events[0].availability.as_deref(), Some("OOF"));
+    }
+}
+
+#[cfg(test)]
+mod event_version_tests {
+    use super::*;
+
+    #[test]
+    fn latest_read_keeps_version_and_editable_fields_together() {
+        let old = r#"<t:CalendarItem><t:ItemId Id="event" ChangeKey="old"/><t:Subject>Old</t:Subject><t:Start>2026-10-20T08:00:00Z</t:Start><t:End>2026-10-20T09:00:00Z</t:End></t:CalendarItem>"#;
+        let mut events = parse_calendar_events(old).unwrap();
+        let latest = old.replace("old", "new").replace("Old", "Updated").replace("</t:CalendarItem>", "<t:Sensitivity>Private</t:Sensitivity><t:LegacyFreeBusyStatus>OOF</t:LegacyFreeBusyStatus></t:CalendarItem>");
+        refresh_event_snapshots(&mut events, &latest).unwrap();
+        assert_eq!(events[0].change_key, "new");
+        assert_eq!(events[0].subject, "Updated");
+        assert_eq!(events[0].sensitivity.as_deref(), Some("Private"));
+        assert_eq!(events[0].availability.as_deref(), Some("OOF"));
+        refresh_event_snapshots(&mut events, r#"<t:CalendarItem><t:ItemId Id="event" ChangeKey="incomplete"/></t:CalendarItem>"#).unwrap();
+        assert_eq!(events[0].change_key, "new");
+    }
+
+    #[test]
+    fn series_lookup_rejects_a_stale_occurrence_before_resolving_its_master() {
+        let current = r#"<m:ResponseCode>NoError</m:ResponseCode><t:CalendarItem><t:ItemId Id="occurrence" ChangeKey="current"/></t:CalendarItem>"#;
+        assert!(verify_event_version(current, "current").is_ok());
+        assert!(verify_event_version(current, "stale").unwrap_err().contains("ErrorIrresolvableConflict"));
+        assert!(verify_event_version(current, "").is_err());
+        assert!(verify_event_version(&current.replace("NoError", "ErrorAccessDenied"), "current").is_err());
+        let master = current.replace("occurrence", "master").replace("current", "master-key");
+        assert_eq!(parse_response_master(&master).unwrap(), ("master".into(), "master-key".into()));
     }
 }

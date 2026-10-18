@@ -13,6 +13,8 @@ export const CALENDAR_KEYS = {
 // --- EWS FETCH ---
 interface EwsEventRaw {
   availability_only?: boolean;
+  sensitivity?: string;
+  availability?: string;
   item_id: string;
   change_key: string;
   subject: string;
@@ -107,6 +109,8 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
       calendarId: cal.id,
       title: ev.subject || (ev.availability_only ? i18n.t('sharedCalendars.busy') : ''),
       availabilityOnly: ev.availability_only,
+      sensitivity: ev.sensitivity,
+      availability: ev.availability,
       start: ev.start,
       end: ev.end,
       isAllday: ev.is_all_day,

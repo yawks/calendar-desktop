@@ -1,4 +1,41 @@
 {
+  "eventOptions": {
+  "type": "Type d’évènement",
+  "availability": "Disponibilité",
+  "sensitivity": "Confidentialité",
+  "values": {
+    "Busy": "Occupé",
+    "Free": "Libre",
+    "Tentative": "Provisoire",
+    "OOF": "Absent du bureau",
+    "WorkingElsewhere": "Travaille ailleurs",
+    "Normal": "Normal",
+    "Personal": "Personnel",
+    "Private": "Privé",
+    "Confidential": "Confidentiel",
+    "default": "Par défaut",
+    "public": "Public",
+    "private": "Privé",
+    "confidential": "Confidentiel",
+    "PUBLIC": "Public",
+    "PRIVATE": "Privé",
+    "CONFIDENTIAL": "Confidentiel",
+    "opaque": "Occupé",
+    "transparent": "Libre",
+    "OPAQUE": "Occupé",
+    "TRANSPARENT": "Libre",
+    "outOfOffice": "Absent du bureau",
+    "focusTime": "Concentration",
+    "workingLocation": "Lieu de travail",
+    "birthday": "Anniversaire",
+    "fromGmail": "Issu de Gmail"
+  },
+  "googleHelp": "Les types spéciaux Google sont réservés à l’agenda principal et dépendent de votre abonnement. Absence et concentration sont créées sans refus automatique des invitations.",
+  "immutableType": "Google ne permet pas de changer le type d’un évènement existant.",
+  "timedOnly": "Les absences et périodes de concentration Google nécessitent des heures de début et de fin (pas une journée entière).",
+  "oneDayOnly": "Un lieu de travail sur une journée entière doit durer exactement un jour. Le champ Lieu indique le lieu de travail.",
+  "birthdayOnly": "Un anniversaire doit durer exactement une journée entière ; il sera répété chaque année."
+},
   "tabs": {
     "calendar": "Calendrier",
     "mail": "Mail"
@@ -194,6 +231,7 @@
     }
   },
   "createEvent": {
+    "moreOptions": "Récurrence, disponibilité et visibilité",
     "teamsError": "Impossible de créer la réunion Teams. Vérifiez votre licence Teams et l’autorisation du compte Microsoft, puis reconnectez le compte si nécessaire. Vous pouvez désactiver Teams pour créer l’événement sans réunion en ligne.",
     "teamsMeeting": "Ajouter une réunion Teams",
     "meetMeeting": "Ajouter une réunion Google Meet",

@@ -111,6 +111,11 @@ export interface ExchangeAccount {
 }
 
 export interface CreateEventPayload {
+  /** Provider-native values; omitted fields are preserved on update. */
+  availability?: string;
+  sensitivity?: string;
+  eventType?: string;
+
   onlineMeeting?: boolean;
   /** RRULE value; undefined preserves the rule, empty string removes it. */
   recurrence?: string;
@@ -144,6 +149,11 @@ export interface Attendee {
 }
 
 export interface CalendarEvent {
+  /** Provider-native values; omitted fields are preserved on update. */
+  availability?: string;
+  sensitivity?: string;
+  eventType?: string;
+
   /** Time slot supplied by the provider availability service, without full event access. */
   availabilityOnly?: boolean;
   id: string;

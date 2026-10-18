@@ -1,3 +1,4 @@
+import { validateEventOptions } from './eventOptions';
 import { t } from 'i18next';
 import { anchorSeriesDates } from './seriesDates';
 import { CalendarEvent, CalendarConfig, CreateEventPayload } from '../../../shared/types';
@@ -38,6 +39,10 @@ interface GoogleConferenceEntryPoint {
 interface GoogleEvent {
   id: string;
   summary?: string;
+  visibility?: string;
+  transparency?: string;
+  eventType?: string;
+  workingLocationProperties?: { type: string; customLocation?: { label?: string }; officeLocation?: { label?: string } };
   description?: string;
   location?: string;
   start?: GoogleEventDateTime;
@@ -121,12 +126,15 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
     id: `${cal.id}-${gEvent.id}`,
     sourceId: gEvent.id,
     calendarId: cal.id,
+    sensitivity: gEvent.visibility,
+    availability: gEvent.transparency,
+    eventType: gEvent.eventType,
     title: gEvent.summary ?? '(sans titre)',
     start,
     end,
     isAllday,
     category: isAllday ? 'allday' : 'time',
-    location: gEvent.location,
+    location: gEvent.workingLocationProperties?.customLocation?.label ?? gEvent.workingLocationProperties?.officeLocation?.label ?? gEvent.location,
     description: gEvent.description,
     isCancelled: gEvent.status === 'cancelled',
     isUnaccepted,
@@ -206,11 +214,15 @@ export async function listEvents(
 }
 
 function buildEventBody(payload: CreateEventPayload): Record<string, unknown> {
+  validateEventOptions(payload, 'google');
   const body: Record<string, unknown> = {
     summary: payload.title,
     location: payload.location ?? null,
     description: payload.description ?? null,
   };
+
+  if (payload.sensitivity !== undefined) body.visibility = payload.sensitivity;
+  if (payload.availability !== undefined) body.transparency = payload.availability;
 
   if (payload.isAllday) {
     body.start = { date: payload.start.slice(0, 10) };
@@ -232,6 +244,38 @@ function buildEventBody(payload: CreateEventPayload): Record<string, unknown> {
   return body;
 }
 
+function applyGoogleEventType(body: Record<string, unknown>, payload: CreateEventPayload, creating: boolean) {
+  const type = payload.eventType ?? 'default';
+  if (creating) body.eventType = type;
+  if (type === 'outOfOffice' || type === 'focusTime') {
+    if (payload.isAllday) throw new Error(t('eventOptions.timedOnly'));
+    body.transparency = 'opaque';
+    if (creating) body[`${type}Properties`] = { autoDeclineMode: 'declineNone' };
+  }
+  if (type === 'workingLocation') {
+    delete body.location;
+    body.visibility = 'public';
+    body.transparency = 'transparent';
+    if (creating) body.workingLocationProperties = { type: 'customLocation', customLocation: { label: payload.location || payload.title } };
+    if (payload.isAllday && Date.parse(payload.end) - Date.parse(payload.start) !== 86400000) throw new Error(t('eventOptions.oneDayOnly'));
+  }
+  if (type === 'birthday') {
+    if (!payload.isAllday || Date.parse(payload.end) - Date.parse(payload.start) !== 86400000) throw new Error(t('eventOptions.birthdayOnly'));
+    if (creating) {
+      body.birthdayProperties = { type: 'birthday' };
+      body.recurrence = [payload.start.slice(5, 10) === '02-29' ? 'RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1' : 'RRULE:FREQ=YEARLY'];
+    }
+    body.visibility = 'private';
+    for (const key of ['location', 'description', 'attendees']) delete body[key];
+    body.transparency = 'transparent';
+    if (!creating) { delete body.visibility; delete body.transparency; delete body.recurrence; }
+  }
+  if (['outOfOffice', 'focusTime', 'workingLocation', 'birthday'].includes(type)) delete body.attendees;
+  if (type === 'fromGmail') {
+    for (const key of Object.keys(body)) if (!['visibility', 'transparency', 'attendees'].includes(key)) delete body[key];
+  }
+}
+
 export async function createEvent(
   token: string,
   cal: CalendarConfig,
@@ -240,10 +284,12 @@ export async function createEvent(
   if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const body = buildEventBody(payload);
-  if (payload.onlineMeeting) {
+  const type = payload.eventType ?? 'default';
+  applyGoogleEventType(body, payload, true);
+  if (payload.onlineMeeting && type === 'default') {
     body.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } };
   }
-  const query = payload.onlineMeeting ? '?conferenceDataVersion=1' : '';
+  const query = payload.onlineMeeting && type === 'default' ? '?conferenceDataVersion=1' : '';
   const res = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events${query}`, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -268,9 +314,18 @@ export async function updateEvent(
     payload = anchorSeriesDates(payload, originalOccurrenceStart, masterStart);
     if (master.start?.timeZone) payload.timeZone = master.start.timeZone;
   }
+  const body = buildEventBody(payload);
+  applyGoogleEventType(body, payload, false);
+  if (payload.eventType === 'workingLocation') {
+    const current = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events/${eventId}`);
+    const label = current.workingLocationProperties?.customLocation?.label ?? current.workingLocationProperties?.officeLocation?.label ?? current.location ?? '';
+    if ((payload.location ?? '') !== label) {
+      body.workingLocationProperties = { type: 'customLocation', customLocation: { label: payload.location || payload.title } };
+    }
+  }
   await gFetch(token, `/calendars/${calendarId}/events/${eventId}`, {
     method: 'PATCH',
-    body: JSON.stringify(buildEventBody(payload)),
+    body: JSON.stringify(body),
   });
 }
 

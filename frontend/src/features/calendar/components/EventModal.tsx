@@ -1,3 +1,4 @@
+import EventMarkers from './EventMarkers';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -359,7 +360,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
               className="modal-title"
               style={event.isDeclined || event.isCancelled ? { textDecoration: 'line-through' } : undefined}
             >
-              {event.title}
+              <EventMarkers event={event} />{event.title}
             </span>
             {!calendar?.shared && tags.length > 0 && event && (
               <div style={{ marginLeft: 12 }}>

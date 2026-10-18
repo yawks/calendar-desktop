@@ -1,3 +1,4 @@
+import { eventMarkers } from './utils/eventOptions';
 import '@toast-ui/calendar/dist/toastui-calendar.min.css';
 
 import { CalendarEvent } from '../../shared/types';
@@ -180,7 +181,7 @@ export default function CalendarPage() {
     calendarRef.current?.getInstance()?.setDate(currentDate);
   }, [searchQuery]);
 
-  type TuiEventStyle = { backgroundColor: string; color: string; borderColor: string; customStyle: Record<string, string>; state: string; title: string };
+  type TuiEventStyle = { backgroundColor: string; color: string; borderColor: string; customStyle: Record<string, string>; state: string; title: string; markers: string };
   const prevTuiStylesRef = useRef<Map<string, TuiEventStyle>>(new Map());
   useEffect(() => {
     const inst = calendarRef.current?.getInstance() as any;
@@ -194,6 +195,7 @@ export default function CalendarPage() {
         prev.color !== ev.color ||
         prev.state !== ev.state ||
         prev.title !== ev.title ||
+        prev.markers !== eventMarkers(ev.raw) ||
         JSON.stringify(prev.customStyle) !== JSON.stringify(ev.customStyle)
       ) {
         inst.updateEvent(ev.id, ev.calendarId, {
@@ -215,6 +217,7 @@ export default function CalendarPage() {
       customStyle: ev.customStyle,
       state: ev.state,
       title: ev.title,
+      markers: eventMarkers(ev.raw),
     }));
     prevTuiStylesRef.current = newMap;
   }, [tuiEvents]);
@@ -396,7 +399,7 @@ export default function CalendarPage() {
                   ? `<span class="calendar-event-content__tag" style="background:${tagColor}"></span>`
                   : '';
                 return `<div class="calendar-event-content calendar-event-content--time${tagColor ? ' calendar-event-content--tagged' : ''}">
-                  <div class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${event.title}</div>
+                  <div class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${eventMarkers(event.raw ?? {})} ${event.title}</div>
                   ${timeLabel ? `<div class="calendar-event-content__time">${timeLabel}</div>` : ''}
                   ${dot}
                 </div>`;
@@ -408,7 +411,7 @@ export default function CalendarPage() {
                   ? `<span class="calendar-event-content__tag calendar-event-content__tag--allday" style="background:${tagColor}"></span>`
                   : '';
                 return `<div class="calendar-event-content calendar-event-content--allday">
-                  <span class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${event.title}</span>${dot}
+                  <span class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${eventMarkers(event.raw ?? {})} ${event.title}</span>${dot}
                 </div>`;
               },
             }}

@@ -1,3 +1,4 @@
+import EventMarkers from './EventMarkers';
 import { ArrowLeft, Calendar, Clock, MapPin, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CalendarConfig, CalendarEvent } from '../../../shared/types';
@@ -91,7 +92,7 @@ export default function SearchResultsView({ query, events, calendars, onClose, o
                       style={{ background: cal?.color ?? '#888' }}
                     />
                     <span className="search-result-body">
-                      <span className="search-result-title">{ev.title}</span>
+                      <span className="search-result-title"><EventMarkers event={ev} />{ev.title}</span>
                       <span className="search-result-details">
                         <span className="search-result-detail">
                           <Clock size={12} />

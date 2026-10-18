@@ -91,6 +91,8 @@ function buildEvent(
     id: `${calendar.id}-${icalEvent.uid}-${suffix || start.toString()}`,
     sourceId: icalEvent.uid as string | undefined,
     calendarId: calendar.id,
+    sensitivity: icalEvent.component.getFirstPropertyValue('class')?.toUpperCase(),
+    availability: icalEvent.component.getFirstPropertyValue('transp')?.toUpperCase(),
     title: icalEvent.summary || '(sans titre)',
     start: toISO(start),
     end: toISO(end),
