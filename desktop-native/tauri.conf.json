@@ -11,7 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [{ "title": "Courrier", "width": 1280, "height": 820, "minWidth": 800, "minHeight": 600 }],
+    "windows": [{ "dragDropEnabled": false, "title": "Courrier", "width": 1280, "height": 820, "minWidth": 800, "minHeight": 600 }],
     "security": { "csp": null }
   },
   "bundle": {

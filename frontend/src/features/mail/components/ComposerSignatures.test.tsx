@@ -7,7 +7,9 @@ import { EwsMailProvider } from '../providers/EwsMailProvider';
 import { beforeAll, expect, it, vi } from 'vitest';
 import type { ComposerRestoreData, MailIdentity, MailMessage } from '../types';
 
-vi.mock('./RecipientInput', () => ({ RecipientInput: () => null }));
+vi.mock('./RecipientInput', () => ({
+  RecipientInput: ({ autoFocus, fieldId }: { autoFocus?: boolean; fieldId?: string }) => <input autoFocus={autoFocus} data-recipient-field={fieldId} />,
+}));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: string) => fallback }) }));
 vi.mock('../../../shared/store/SignatureStore', async importOriginal => ({
   ...await importOriginal<typeof import('../../../shared/store/SignatureStore')>(),
@@ -40,6 +42,22 @@ for (const kind of ['new', 'reply', 'replyAll'] as const) {
         : <MailComposer replyTo={replyTo} mode={kind} contacts={[]} identities={identities} selectedIdentityId="" restoreData={restoreData} onSend={async () => {}} onCancel={noop} />;
       await act(async () => root.render(render(delayed ? [] : [identity])));
       if (delayed) await act(async () => root.render(render([identity])));
+      if (kind === 'new' && !restoreData) {
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+        expect(document.activeElement).toBe(host.querySelector('[data-recipient-field="to"]'));
+      }
+      const subjectInput = host.querySelector<HTMLInputElement>('input[placeholder="Objet"]')!;
+      subjectInput.focus();
+      const backwardsTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+      await act(async () => subjectInput.dispatchEvent(backwardsTab));
+      expect(backwardsTab.defaultPrevented).toBe(false);
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      await act(async () => {
+        subjectInput.dispatchEvent(tab);
+        await new Promise(resolve => setTimeout(resolve, 20));
+      });
+      expect(tab.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(host.querySelector('.tiptap'));
       expect(host.querySelectorAll('[data-courrier-sig]')).toHaveLength(1);
       expect(host.querySelector('.mail-quoted [data-courrier-sig]')).toBeNull();
       expect(host.querySelector('[data-courrier-sig]')?.textContent).toBe(scenario === 'draft' ? 'Saved signature' : 'My signature');

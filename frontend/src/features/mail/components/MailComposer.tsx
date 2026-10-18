@@ -327,6 +327,12 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
             value={subject}
             onChange={e => { fieldsModifiedRef.current = true; setSubject(e.target.value); }}
+            onKeyDown={e => {
+              if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && editorRef.current) {
+                e.preventDefault();
+                editorRef.current.focus();
+              }
+            }}
           />
         </div>
       </div>

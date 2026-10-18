@@ -6,7 +6,7 @@ import { useTheme } from '../../../shared/store/ThemeStore';
 import { useFontSize } from '../../../shared/store/FontSizeStore';
 import { openExternalUrl } from '../../../shared/services/fileService';
 import { platform } from '../../../shared/platform';
-import { disableSenderDarkModeCss } from '../utils/emailDarkMode';
+import { disableSenderDarkModeCss, protectEmailEmojis } from '../utils/emailDarkMode';
 import { installEmailPinchZoom } from '../utils/emailPinchZoom';
 import { findQuoteMarker, processEmailQuotes } from '../utils/emailQuoteParser';
 
@@ -15,7 +15,7 @@ function parseHexColor(raw: string): [number, number, number] | null {
   return m ? [Number.parseInt(m[1], 16), Number.parseInt(m[2], 16), Number.parseInt(m[3], 16)] : null;
 }
 
-function sanitizeEmailHtml(html: string): string {
+function sanitizeEmailHtml(html: string, isDark: boolean): string {
   const parsed = new DOMParser().parseFromString(html, 'text/html');
   parsed.querySelectorAll('script, iframe, frame, object, embed, base, meta[http-equiv="refresh"]').forEach(element => element.remove());
   parsed.querySelectorAll<HTMLElement>('*').forEach(element => {
@@ -27,6 +27,7 @@ function sanitizeEmailHtml(html: string): string {
       }
     }
   });
+  if (isDark) protectEmailEmojis(parsed.body);
   // Outlook defines paragraph/list spacing in head styles, not always inline.
   return Array.from(parsed.head.querySelectorAll('style'), style => style.outerHTML).join('') + parsed.body.innerHTML;
 }
@@ -81,7 +82,8 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
   .ew { filter: url(#dm); }
   /* Applying the involutive filter a second time keeps media colours unchanged.
      !important prevents styles embedded by the sender from overriding it. */
-  .ew img, .ew video, .ew canvas, .ew iframe, .ew svg, .ew .qt-toggle {
+  .ew .ew-emoji { display: inline-block; }
+  .ew img, .ew video, .ew canvas, .ew iframe, .ew svg, .ew .qt-toggle, .ew .ew-emoji {
     filter: url(#dm) !important;
   }
   .ew .ew-bg-media-host { isolation: isolate; }
@@ -104,7 +106,7 @@ export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = fals
   const quoteMarker = displayText ? findQuoteMarker(displayText) : null;
 
   const escapeText = (text: string) => { const el = document.createElement('div'); el.textContent = text; return el.innerHTML; };
-  const safeHtml = sanitizeEmailHtml(disableSenderDarkModeCss(html ? (showHiddenContent ? html : filtered.html) : `<pre>${escapeText(displayText ?? '')}</pre>`))
+  const safeHtml = sanitizeEmailHtml(disableSenderDarkModeCss(html ? (showHiddenContent ? html : filtered.html) : `<pre>${escapeText(displayText ?? '')}</pre>`), isDark)
     .replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
 
   // Android WebView can expose the top-level layout viewport to srcdoc media

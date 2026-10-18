@@ -137,38 +137,53 @@ export function RecipientInput({ value, onChange, contacts, provider, autoFocus,
     e.dataTransfer.setData('application/x-recipient', JSON.stringify({ entry, fromFieldId: fieldId ?? '' }));
   };
 
-  const handleDragEnter = (e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes('application/x-recipient')) return;
-    e.preventDefault();
-    dragEnterCount.current += 1;
-    setIsDragOver(true);
-  };
+  useEffect(() => {
+    // Include the label, padding and Cc/Bcc buttons in the drop target.
+    const target = containerRef.current?.closest<HTMLElement>('.mail-composer__field') ?? containerRef.current;
+    if (!target) return;
+    const handleDragEnter = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('application/x-recipient')) return;
+      e.preventDefault();
+      dragEnterCount.current += 1;
+      setIsDragOver(true);
+    };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes('application/x-recipient')) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
+    const handleDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('application/x-recipient')) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    };
 
-  const handleDragLeave = () => {
-    dragEnterCount.current -= 1;
-    if (dragEnterCount.current === 0) setIsDragOver(false);
-  };
+    const handleDragLeave = () => {
+      dragEnterCount.current = Math.max(0, dragEnterCount.current - 1);
+      if (dragEnterCount.current === 0) setIsDragOver(false);
+    };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    dragEnterCount.current = 0;
-    setIsDragOver(false);
-    const raw = e.dataTransfer.getData('application/x-recipient');
-    if (!raw) return;
-    try {
-      const { entry, fromFieldId } = JSON.parse(raw) as { entry: RecipientEntry; fromFieldId: string };
-      if (fromFieldId === fieldId) return;
-      onDropFromOtherField?.(entry, fromFieldId);
-    } catch {
-      // ignore malformed drag data
-    }
-  };
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragEnterCount.current = 0;
+      setIsDragOver(false);
+      const raw = e.dataTransfer?.getData('application/x-recipient');
+      if (!raw) return;
+      try {
+        const { entry, fromFieldId } = JSON.parse(raw) as { entry: RecipientEntry; fromFieldId: string };
+        if (fromFieldId === fieldId) return;
+        onDropFromOtherField?.(entry, fromFieldId);
+      } catch {
+        // ignore malformed drag data
+      }
+    };
+    target.addEventListener('dragenter', handleDragEnter);
+    target.addEventListener('dragover', handleDragOver);
+    target.addEventListener('dragleave', handleDragLeave);
+    target.addEventListener('drop', handleDrop);
+    return () => {
+      target.removeEventListener('dragenter', handleDragEnter);
+      target.removeEventListener('dragover', handleDragOver);
+      target.removeEventListener('dragleave', handleDragLeave);
+      target.removeEventListener('drop', handleDrop);
+    };
+  }, [fieldId, onDropFromOtherField]);
 
   const commitText = (text: string) => {
     const parts = splitRecipientString(text);
@@ -262,14 +277,13 @@ export function RecipientInput({ value, onChange, contacts, provider, autoFocus,
   }, []);
 
   return (
-    <div ref={containerRef} className="recipient-input">
+    <div
+      ref={containerRef}
+      className="recipient-input"
+    >
       <ul
         ref={chipsRef}
         className={`recipient-input__chips${isDragOver ? ' recipient-input__chips--drag-over' : ''}`}
-        onDragEnter={handleDragEnter}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
       >
         {value.map(r => (
           <li
@@ -281,6 +295,7 @@ export function RecipientInput({ value, onChange, contacts, provider, autoFocus,
             <button
               type="button"
               className="recipient-chip__label"
+              draggable
               onClick={() => editChip(r)}
               title={r.name ? r.email : undefined}
             >
