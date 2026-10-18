@@ -142,3 +142,8 @@ mod tests {
         assert!(state.checked_url("https://user:secret@calendar.example.com/dav").is_err());
     }
 }
+
+pub async fn query(State(state): State<CalendarHttpState>, Json(body): Json<app_lib::caldav::Query>) -> ApiResult<serde_json::Value> {
+    state.checked_url(&body.url)?;
+    app_lib::caldav::query(body).await.map(Json).map_err(upstream)
+}

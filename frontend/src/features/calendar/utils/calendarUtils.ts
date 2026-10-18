@@ -221,7 +221,7 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
     // Newly-created optimistic events do not have a provider/series ID yet.
     // Keep using the tag carried by the event until the server ID is available
     // and the persistent mapping takes over.
-    const tagId = (eventKey ? eventTags[eventKey] : undefined) ?? ev.tagId;
+    const tagId = cal?.shared ? undefined : (eventKey ? eventTags[eventKey] : undefined) ?? ev.tagId;
     const tag = tagId ? tags.find((t) => t.id === tagId) : undefined;
     const isPast = new Date(ev.end) < now;
     const isUnaccepted = ev.isUnaccepted;
@@ -303,6 +303,7 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
       start: tuiStart,
       end: tuiEnd,
       isAllday: ev.isAllday,
+      isReadOnly: !!cal?.shared,
       category: ev.isAllday ? 'allday' : 'time',
       location: ev.location,
       state: ev.isDeclined || ev.isCancelled ? 'Free' : 'Busy',

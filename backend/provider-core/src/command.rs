@@ -388,6 +388,8 @@ struct GoogleCodeExchange {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExchangeList {
+    folder_id: Option<String>,
+    shared_mailbox: Option<String>,
     access_token: String,
     owner_email: Option<String>,
     start: String,
@@ -523,10 +525,21 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
             let a: RecurrenceRequest = args(value)?;
             output(crate::ews::recurrence::get_recurrence(a.access_token, a.item_id).await)
         }
+        "exchange_calendar_shared" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct SharedRequest { access_token: String, email: String }
+            let a: SharedRequest = args(value)?;
+            output(crate::ews::ews_shared_calendars(a.access_token, a.email).await)
+        }
+        "calendar_caldav_query" => {
+            let a: crate::caldav::Query = args(value)?;
+            output(crate::caldav::query(a).await)
+        }
         "exchange_calendar_list" => {
             let a: ExchangeList = args(value)?;
             output(
-                crate::ews::ews_get_calendar_events(a.access_token, a.owner_email, a.start, a.end)
+                crate::ews::ews_get_calendar_events(a.access_token, a.owner_email, a.start, a.end, a.folder_id, a.shared_mailbox)
                     .await,
             )
         }

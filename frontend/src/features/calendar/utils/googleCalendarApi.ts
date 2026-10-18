@@ -1,3 +1,4 @@
+import { t } from 'i18next';
 import { anchorSeriesDates } from './seriesDates';
 import { CalendarEvent, CalendarConfig, CreateEventPayload } from '../../../shared/types';
 
@@ -161,8 +162,15 @@ export interface FreeBusyResult {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function listCalendars(token: string): Promise<GoogleCalendarListEntry[]> {
-  const data = await gFetch<{ items: GoogleCalendarListEntry[] }>(token, '/users/me/calendarList');
-  return data.items ?? [];
+  const items: GoogleCalendarListEntry[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ maxResults: '250', ...(pageToken ? { pageToken } : {}) });
+    const data = await gFetch<{ items?: GoogleCalendarListEntry[]; nextPageToken?: string }>(token, `/users/me/calendarList?${params}`);
+    items.push(...(data.items ?? []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return items;
 }
 
 export async function listEvents(
@@ -229,6 +237,7 @@ export async function createEvent(
   cal: CalendarConfig,
   payload: CreateEventPayload
 ): Promise<string> {
+  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const body = buildEventBody(payload);
   if (payload.onlineMeeting) {
@@ -249,6 +258,7 @@ export async function updateEvent(
   payload: CreateEventPayload,
   originalOccurrenceStart?: string,
 ): Promise<void> {
+  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);
   if (originalOccurrenceStart) {
@@ -270,6 +280,7 @@ export async function deleteGoogleEvent(
   sourceId: string,
   sendUpdates = false,
 ): Promise<void> {
+  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);
   const query = sendUpdates ? '?sendUpdates=all' : '';
@@ -323,6 +334,7 @@ export async function respondToGoogleEvent(
   newStatus: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
   _comment?: string,
 ): Promise<void> {
+  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);
 

@@ -17,6 +17,8 @@ import Sidebar from './components/Sidebar';
 import { useCalendarLogic } from './hooks/useCalendarLogic';
 import { formatDateLabel, DARK_THEME, LIGHT_THEME, toTUIEvents, getViewRange, formatTime } from './utils/calendarUtils';
 
+import { isCalendarWritable } from './utils/sharedCalendars';
+
 export default function CalendarPage() {
   const { t } = useTranslation();
   const [isMobile, setIsMobile] = useState(() => globalThis.matchMedia?.('(max-width: 700px)').matches ?? false);
@@ -126,13 +128,14 @@ export default function CalendarPage() {
   }, []);
 
   const visibleEvents = useMemo(() => events.filter((event) => {
+    if (!calendars.some((calendar) => calendar.id === event.calendarId && calendar.visible)) return false;
     let status: EventVisibilityStatus = 'accepted';
     if (event.isCancelled) status = 'cancelled';
     else if (event.isDeclined || event.selfRsvpStatus === 'DECLINED') status = 'declined';
     else if (event.selfRsvpStatus === 'TENTATIVE') status = 'tentative';
     else if (event.isUnaccepted || event.selfRsvpStatus === 'NEEDS-ACTION' || event.selfRsvpStatus === 'DELEGATED') status = 'pending';
     return visibleEventStatuses.has(status);
-  }), [events, visibleEventStatuses]);
+  }), [events, calendars, visibleEventStatuses]);
   const eventsRef = useRef(events);
   eventsRef.current = events;
 
@@ -242,7 +245,7 @@ export default function CalendarPage() {
   const isWorkweek = view === 'workweek';
   const tuiView = isWorkweek ? 'week' : view;
   const writableCalendars = useMemo(() => calendars.filter(
-    (c) => c.type === 'google' || c.type === 'nextcloud' || c.type === 'exchange'
+    isCalendarWritable
   ), [calendars]);
 
   const handleCalendarTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -421,7 +424,7 @@ export default function CalendarPage() {
           /> : (
             <SearchResultsView
               query={searchQuery}
-              events={events}
+              events={visibleEvents}
               calendars={calendars}
               onClose={() => setSearchQuery(null)}
               onEventClick={(ev) => { setSearchQuery(null); setSelectedEvent(ev); }}
@@ -440,7 +443,7 @@ export default function CalendarPage() {
               ? () => { void handleStartEdit(selectedEvent); }
               : undefined
           }
-          onDelete={() => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null))}
+          onDelete={isCalendarWritable(calendars.find(cal => cal.id === selectedEvent.calendarId)) ? () => handleDeleteEvent(selectedEvent).then(() => setSelectedEvent(null)) : undefined}
           onCancelEvent={
             isEventEditable(selectedEvent) &&
             (selectedEvent.attendees?.length ?? 0) > 0
@@ -448,7 +451,7 @@ export default function CalendarPage() {
               : undefined
           }
           onRsvp={
-            selectedEvent.selfRsvpStatus && !isExchangeOrganizer(selectedEvent)
+            !calendars.find(cal => cal.id === selectedEvent.calendarId)?.shared && selectedEvent.selfRsvpStatus && !isExchangeOrganizer(selectedEvent)
               ? (status, comment) => handleRsvp(selectedEvent, status, comment)
               : undefined
           }

@@ -2,6 +2,8 @@ import { createContext, useContext, useReducer, useEffect, ReactNode, useMemo } 
 import { CalendarConfig } from '../../../shared/types';
 import { useVault } from '../../../shared/security/VaultProvider';
 
+import { OTHER_CALENDARS_GROUP, sameCalendar } from '../utils/sharedCalendars';
+
 const STORAGE_KEY = 'calendar-desktop-calendars';
 
 type Action =
@@ -14,16 +16,19 @@ type Action =
 function reducer(state: CalendarConfig[], action: Action): CalendarConfig[] {
   switch (action.type) {
     case 'ADD':
-      return [...state, action.payload];
+      return state.some(cal => action.payload.shared && sameCalendar(cal, action.payload)) ? state : [...state, action.payload];
     case 'REMOVE':
-      return state.filter((c) => c.id !== action.payload);
+      return state.filter((c) => c.id !== action.payload && c.shared?.sourceCalendarId !== action.payload);
     case 'TOGGLE':
       return state.map((c) =>
         c.id === action.payload ? { ...c, visible: !c.visible } : c
       );
     case 'UPDATE':
       return state.map((c) =>
-        c.id === action.payload.id ? { ...c, ...action.payload.data } : c
+        c.id === action.payload.id ? c.shared ? {
+          ...c, name: action.payload.data.name ?? c.name, color: action.payload.data.color ?? c.color,
+          visible: action.payload.data.visible ?? c.visible, groupId: OTHER_CALENDARS_GROUP,
+        } : { ...c, ...action.payload.data } : c
       );
     case 'REORDER':
       return action.payload;
@@ -50,7 +55,7 @@ export function CalendarProvider({ children }: { readonly children: ReactNode })
   }, [calendars]);
 
   const addCalendar = (cal: Omit<CalendarConfig, 'id'>) =>
-    dispatch({ type: 'ADD', payload: { ...cal, id: crypto.randomUUID() } });
+    dispatch({ type: 'ADD', payload: { ...cal, ...(cal.shared ? { groupId: OTHER_CALENDARS_GROUP } : {}), id: crypto.randomUUID() } });
 
   const removeCalendar = (id: string) => dispatch({ type: 'REMOVE', payload: id });
 
@@ -60,7 +65,7 @@ export function CalendarProvider({ children }: { readonly children: ReactNode })
     dispatch({ type: 'UPDATE', payload: { id, data } });
 
   const reorderCalendars = (newCalendars: CalendarConfig[]) =>
-    dispatch({ type: 'REORDER', payload: newCalendars });
+    dispatch({ type: 'REORDER', payload: newCalendars.map(cal => cal.shared ? { ...cal, groupId: OTHER_CALENDARS_GROUP } : cal) });
 
   const contextValue = useMemo(() => ({
     calendars, addCalendar, removeCalendar, toggleCalendar, updateCalendar, reorderCalendars

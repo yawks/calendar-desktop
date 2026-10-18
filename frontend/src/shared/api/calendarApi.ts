@@ -14,6 +14,11 @@ async function request<T>(path: string, body: unknown, method = 'POST'): Promise
 }
 
 export const calendarApi = {
+  async queryCalDav(credentials: Credentials, method: 'PROPFIND' | 'REPORT', depth: '0' | '1', body: string): Promise<string> {
+    const args = { ...credentials, method, depth, body };
+    if (hasNativeTransport()) return (await invokeNative<{ text: string }>('calendar_caldav_query', args)).text;
+    return (await request<{ text: string }>('/caldav/query', args)).text;
+  },
   async fetchIcs(url: string): Promise<string> {
     if (hasNativeTransport()) return (await invokeNative<{ text: string }>('calendar_ics_fetch', { url })).text;
     return (await request<{ text: string }>('/ics/fetch', { url })).text;

@@ -32,8 +32,8 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
   );
 
   const availableCalendars = useMemo(() => {
-    if (!selectedGroupId) return calendars;
-    return calendars.filter((c) => (c.groupId ?? 'default') === selectedGroupId);
+    if (!selectedGroupId) return calendars.filter(cal => !cal.shared);
+    return calendars.filter((c) => !c.shared && (c.groupId ?? 'default') === selectedGroupId);
   }, [calendars, selectedGroupId]);
 
   const handleGroupChange = (groupId: string) => {
@@ -51,7 +51,7 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
   const filtered = useMemo(() => {
     return events.filter((event) => {
       const cal = calendars.find((c) => c.id === event.calendarId);
-      if (!cal) return false;
+      if (!cal || cal.shared) return false;
       if (selectedCalendarId && event.calendarId !== selectedCalendarId) return false;
       if (selectedGroupId && (cal.groupId ?? 'default') !== selectedGroupId) return false;
       if (viewRange) {
@@ -64,8 +64,8 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
   }, [events, calendars, selectedGroupId, selectedCalendarId, viewRange]);
 
   const stats = useMemo(
-    () => calculateTagInsights(filtered, eventTags, tags, viewRange),
-    [filtered, eventTags, tags, viewRange]
+    () => calculateTagInsights(filtered, eventTags, tags, viewRange, calendars),
+    [filtered, eventTags, tags, viewRange, calendars]
   );
 
   const { rows, untaggedMs, totalMs, eventCount } = stats;
@@ -81,7 +81,7 @@ export default function TagInsightsView({ events, eventTags, tags, calendars, gr
           className="insights-select"
         >
           <option value="">{t('insights.allGroups')}</option>
-          {groups.map((g) => (
+          {groups.filter(g => g.id !== 'other-calendars').map((g) => (
             <option key={g.id} value={g.id}>{g.name}</option>
           ))}
         </select>

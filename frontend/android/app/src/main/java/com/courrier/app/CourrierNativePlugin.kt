@@ -145,7 +145,7 @@ class CourrierNativePlugin:Plugin(){
   val clientId=call.getString("serverClientId")?:return call.reject("serverClientId required")
   val values=call.getArray("capabilities")?.toList<String>().orEmpty()
   val scopes=arrayListOf("openid","email","profile")
-  if(values.contains("calendar"))scopes.add("https://www.googleapis.com/auth/calendar")
+  if(values.contains("calendar"))scopes.addAll(listOf("https://www.googleapis.com/auth/calendar","https://www.googleapis.com/auth/contacts.readonly","https://www.googleapis.com/auth/directory.readonly"))
   if(values.contains("email"))scopes.addAll(listOf("https://mail.google.com/","https://www.googleapis.com/auth/contacts.readonly","https://www.googleapis.com/auth/contacts.other.readonly"))
   val intent=Intent(context,GoogleAuthorizationActivity::class.java).putExtra(GoogleAuthorizationActivity.EXTRA_CLIENT_ID,clientId).putStringArrayListExtra(GoogleAuthorizationActivity.EXTRA_SCOPES,scopes)
   startActivityForResult(call,intent,"googleAuthorizationResult")

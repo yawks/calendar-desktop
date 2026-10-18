@@ -1,6 +1,7 @@
 import { useQueries } from '@tanstack/react-query';
 import { CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
+import i18n from '../../../i18n';
 import { useMemo } from 'react';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 
@@ -11,6 +12,7 @@ export const CALENDAR_KEYS = {
 
 // --- EWS FETCH ---
 interface EwsEventRaw {
+  availability_only?: boolean;
   item_id: string;
   change_key: string;
   subject: string;
@@ -63,6 +65,8 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
     raw = await exchangeCalendarApi.list<EwsEventRaw[]>({
       accessToken,
       ownerEmail: cal.ownerEmail,
+      folderId: cal.exchangeFolderId,
+      sharedMailbox: cal.shared?.ownerEmail,
       start: start.toISOString(),
       end: end.toISOString(),
     });
@@ -97,11 +101,12 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
     const selfStatus = ewsResponseToRsvp(ev.my_response_type);
     return {
       id: `${cal.id}::${ev.item_id}`,
-      sourceId: `${ev.item_id}|${ev.change_key}`,
+      sourceId: ev.availability_only ? undefined : `${ev.item_id}|${ev.change_key}`,
       seriesId: ev.recurring_master_id ?? ev.item_id,
       isRecurringInstance: !!ev.recurring_master_id,
       calendarId: cal.id,
-      title: ev.subject,
+      title: ev.subject || (ev.availability_only ? i18n.t('sharedCalendars.busy') : ''),
+      availabilityOnly: ev.availability_only,
       start: ev.start,
       end: ev.end,
       isAllday: ev.is_all_day,

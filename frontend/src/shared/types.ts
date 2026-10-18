@@ -35,6 +35,10 @@ export interface CalendarConfig {
   nextcloudPassword?: string;
   /** Reference to ExchangeAccount.id */
   exchangeAccountId?: string;
+  /** Folder selected in a shared Exchange mailbox. */
+  exchangeFolderId?: string;
+  /** Read-only subscription; credentials remain attached to the source account/calendar. */
+  shared?: { ownerEmail: string; sourceCalendarId?: string };
 }
 
 export interface GoogleAccount {
@@ -140,6 +144,8 @@ export interface Attendee {
 }
 
 export interface CalendarEvent {
+  /** Time slot supplied by the provider availability service, without full event access. */
+  availabilityOnly?: boolean;
   id: string;
   /** Raw provider event ID — used for updates */
   sourceId?: string;

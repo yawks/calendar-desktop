@@ -1,12 +1,14 @@
-import { CalendarEvent, EventTagMapping, Tag } from '../../../shared/types';
+import { CalendarConfig, CalendarEvent, EventTagMapping, Tag } from '../../../shared/types';
 
 export function calculateTagInsights(
   events: CalendarEvent[],
   eventTags: EventTagMapping,
   tags: Tag[],
   range?: { start: Date; end: Date },
+  calendars?: CalendarConfig[],
 ) {
   const intervals = events.flatMap((event) => {
+    if (calendars?.some(cal => cal.id === event.calendarId && cal.shared)) return [];
     if (event.isAllday || event.isCancelled || event.isDeclined || event.isUnaccepted
       || (event.selfRsvpStatus && event.selfRsvpStatus !== 'ACCEPTED')) return [];
     const start = Math.max(Date.parse(event.start), range?.start.getTime() ?? -Infinity);

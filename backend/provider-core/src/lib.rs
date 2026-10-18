@@ -14,3 +14,5 @@ pub mod sync;
 pub mod command;
 #[cfg(target_os = "android")]
 mod native_android;
+
+pub mod caldav;

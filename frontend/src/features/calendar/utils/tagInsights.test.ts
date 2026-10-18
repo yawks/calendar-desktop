@@ -64,3 +64,14 @@ describe('calculateTagInsights', () => {
     expect(result.eventCount).toBe(1);
   });
 });
+
+it('excludes shared calendar copies even when a personal copy of the series has a tag', () => {
+  const personal = event('personal', '10:00', '11:00', { seriesId: 'same-series' });
+  const shared = event('shared', '09:00', '12:00', { calendarId: 'other', seriesId: 'same-series', tagId: 'A' });
+  const result = calculateTagInsights([shared, personal], { 'same-series': 'A' }, tags, undefined, [
+    { id: 'other', name: 'Other', url: '', color: '#123456', visible: true, shared: { ownerEmail: 'other@example.com' } },
+  ]);
+  expect(result.totalMs).toBe(hour);
+  expect(result.eventCount).toBe(1);
+  expect(result.rows[0].durationMs).toBe(hour);
+});

@@ -9,7 +9,10 @@ pub async fn ews_get_calendar_events(
     owner_email: Option<String>,
     start: String,
     end: String,
+    folder_id: Option<String>,
+    shared_mailbox: Option<String>,
 ) -> Result<Vec<EwsEvent>, String> {
+    let parent = calendar_parent(folder_id.as_deref(), shared_mailbox.as_deref());
     let soap_body = format!(
         r#"<m:FindItem Traversal="Shallow">
   <m:ItemShape>
@@ -17,15 +20,34 @@ pub async fn ews_get_calendar_events(
   </m:ItemShape>
   <m:CalendarView MaxEntriesReturned="500" StartDate="{}" EndDate="{}"/>
   <m:ParentFolderIds>
-    <t:DistinguishedFolderId Id="calendar"/>
+    {}
   </m:ParentFolderIds>
 </m:FindItem>"#,
-        start, end
+        xml_escape(&start), xml_escape(&end), parent
     );
 
-    let anchor_mailbox = owner_email.as_deref().filter(|email| !email.is_empty());
+    let anchor_mailbox = calendar_anchor_mailbox(shared_mailbox.as_deref(), owner_email.as_deref());
     let xml = send_ews_request(&access_token, &soap_body, anchor_mailbox).await?;
-    let mut events = parse_calendar_events(&xml)?;
+    let mut events = match parse_calendar_events(&xml) {
+        Ok(events) => events,
+        Err(error) => {
+            if let Some(mailbox) = shared_mailbox.as_deref().filter(|email| !email.trim().is_empty()) {
+                if shared_read_allows_availability(&xml) {
+                    let primary = calendar_parent(None, Some(mailbox));
+                    let lookup = format!("<m:GetFolder><m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape><m:FolderIds>{primary}</m:FolderIds></m:GetFolder>");
+                    let default_id = match shared_folder_response(send_ews_request(&access_token, &lookup, Some(mailbox)).await) {
+                        Ok(response) => parse_shared_folders(&response).into_iter().next().map(|folder| folder.id),
+                        Err(_) => None,
+                    };
+                    if shared_primary_matches(folder_id.as_deref(), default_id.as_deref()) {
+                        return shared_availability_events(&access_token, mailbox, &start, &end).await;
+                    }
+                }
+                return Err(shared_calendar_read_error(&xml, folder_id.as_deref(), &error));
+            }
+            return Err(error);
+        }
+    };
 
     // Batch GetItem for ALL events: fetches attendees (for meetings) and
     // CleanGlobalObjectId (same for all occurrences of a recurring series).
@@ -506,6 +528,10 @@ pub struct EwsFreeBusySlot {
     pub start: String,
     pub end: String,
     pub busy_type: String, // "Busy" | "Tentative" | "OOF"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
 }
 
 fn availability_utc(value: &str) -> String {
@@ -522,6 +548,12 @@ pub async fn ews_get_free_busy_ews(
     let token_response = ews_refresh_access_token(refresh_token).await?;
     let access_token = token_response.access_token;
 
+    ews_availability_with_token(&access_token, emails, start, end, anchor_mailbox).await
+}
+
+async fn ews_availability_with_token(
+    access_token: &str, emails: Vec<String>, start: String, end: String, anchor_mailbox: Option<String>,
+) -> Result<std::collections::HashMap<String, Vec<EwsFreeBusySlot>>, String> {
     // The frontend sends UTC dates; the host timezone must not shift the requested window.
     let bias = 0;
 
@@ -601,6 +633,9 @@ fn parse_availability(xml: &str, emails: &[String]) -> Result<std::collections::
             return Err("EWS availability: missing success response".into());
         }
 
+        if xml_content_ns(freebusy_response, "t:FreeBusyViewType").as_deref() == Some("None") {
+            return Err("EWS availability: access unavailable".into());
+        }
         let events = xml_all_ns(freebusy_response, "t:CalendarEvent");
         for event_xml in events {
             let st = xml_content_ns(&event_xml, "t:StartTime").unwrap_or_default();
@@ -608,6 +643,7 @@ fn parse_availability(xml: &str, emails: &[String]) -> Result<std::collections::
             let busy_type = xml_content_ns(&event_xml, "t:BusyType").unwrap_or_default();
 
             let busy_type = match busy_type.as_str() {
+                "NoData" => return Err("EWS availability: data unavailable".into()),
                 "Tentative" => "Tentative",
                 "OOF" => "OOF",
                 "Busy" | "WorkingElsewhere" => "Busy",
@@ -619,6 +655,14 @@ fn parse_availability(xml: &str, emails: &[String]) -> Result<std::collections::
                 start: availability_utc(&st),
                 end: availability_utc(&en),
                 busy_type,
+                subject: xml_content_ns(&event_xml, "t:CalendarEventDetails").and_then(|details| {
+                    if xml_content_ns(&details, "t:IsPrivate").as_deref() == Some("true") { None }
+                    else { xml_content_ns(&details, "t:Subject").map(|value| xml_decode(&value)) }
+                }),
+                location: xml_content_ns(&event_xml, "t:CalendarEventDetails").and_then(|details| {
+                    if xml_content_ns(&details, "t:IsPrivate").as_deref() == Some("true") { None }
+                    else { xml_content_ns(&details, "t:Location").map(|value| xml_decode(&value)) }
+                }),
             });
         }
 
@@ -781,6 +825,8 @@ mod response_tests {
         assert_eq!(slots[&emails[0]][0].busy_type, "Tentative");
         assert!(parse_availability("<Response/>", &emails).is_err());
         assert!(parse_availability(&xml.replace("Success", "Error"), &emails).is_err());
+        assert!(parse_availability(&xml.replace("<FreeBusyView>", "<FreeBusyView><FreeBusyViewType>None</FreeBusyViewType>"), &emails).is_err());
+        assert!(parse_availability(&xml.replace("<BusyType>Tentative", "<BusyType>NoData"), &emails).is_err());
         assert_eq!(availability_utc("2026-10-16T14:00:00Z"), "2026-10-16T14:00:00Z");
     }
 
@@ -831,5 +877,239 @@ mod online_meeting_tests {
             "2026-10-15T15:00:00Z".into(), false, None, None, None, None, true, None,
         ).await;
         assert_eq!(result.unwrap_err(), "teams_auth_required");
+    }
+}
+
+fn shared_read_allows_availability(xml: &str) -> bool {
+    matches!(xml_content_ns(xml, "m:ResponseCode").as_deref(), Some("ErrorAccessDenied" | "ErrorItemNotFound" | "ErrorFolderNotFound"))
+}
+
+fn shared_primary_matches(selected: Option<&str>, primary: Option<&str>) -> bool {
+    match selected.filter(|id| !id.is_empty()) {
+        None => true,
+        Some(selected) => primary == Some(selected),
+    }
+}
+
+async fn shared_availability_events(token: &str, mailbox: &str, start: &str, end: &str) -> Result<Vec<EwsEvent>, String> {
+    let mut events = Vec::new();
+    // Exchange limits an availability request to 62 days; use shorter UTC windows.
+    for (from, to) in availability_windows(start, end)? {
+        let slots = ews_availability_with_token(token, vec![mailbox.into()], from, to, None).await?;
+        for slot in slots.into_values().flatten() {
+            let event = availability_event(slot);
+            if !events.iter().any(|known: &EwsEvent| known.item_id == event.item_id) { events.push(event); }
+        }
+    }
+    Ok(events)
+}
+
+fn availability_windows(start: &str, end: &str) -> Result<Vec<(String, String)>, String> {
+    let mut from = chrono::DateTime::parse_from_rfc3339(start).map_err(|_| "ews_invalid_availability_range")?.with_timezone(&chrono::Utc);
+    let end = chrono::DateTime::parse_from_rfc3339(end).map_err(|_| "ews_invalid_availability_range")?.with_timezone(&chrono::Utc);
+    if from >= end || end - from > chrono::Duration::days(1096) { return Err("ews_invalid_availability_range".into()); }
+    let mut windows = Vec::new();
+    while from < end {
+        let to = std::cmp::min(from + chrono::Duration::days(60), end);
+        windows.push((from.to_rfc3339_opts(chrono::SecondsFormat::Secs, true), to.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)));
+        from = to;
+    }
+    Ok(windows)
+}
+
+fn availability_event(slot: EwsFreeBusySlot) -> EwsEvent {
+    EwsEvent {
+        item_id: format!("availability:{}:{}:{}", slot.start, slot.end, slot.busy_type),
+        change_key: String::new(), subject: slot.subject.unwrap_or_default(),
+        start: slot.start, end: slot.end, is_all_day: false, location: slot.location,
+        organizer_name: None, organizer_email: None, my_response_type: "Accept".into(),
+        attendees: Vec::new(), is_meeting: false, is_cancelled: false, recurring_master_id: None, body: None,
+        availability_only: true,
+    }
+}
+
+// Retain the failing operation and SOAP code, never identifiers or the full server response.
+fn shared_calendar_read_error(xml: &str, folder_id: Option<&str>, message: &str) -> String {
+    let code = xml_content_ns(xml, "m:ResponseCode").filter(|code|
+        code.starts_with("Error") && code.len() < 96 && code.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    ).unwrap_or_else(|| "UnknownEwsError".into());
+    let target = if folder_id.is_some_and(|id| !id.trim().is_empty()) { "selected-folder" } else { "default-calendar" };
+    format!("[ews-shared-read-v2 FindItem {code} {target}] {message}")
+}
+
+// Discovery and subsequent reads must route to the same mailbox, including GetItem batches.
+fn calendar_anchor_mailbox<'a>(shared_mailbox: Option<&'a str>, owner_email: Option<&'a str>) -> Option<&'a str> {
+    shared_mailbox.filter(|email| !email.trim().is_empty())
+        .or_else(|| owner_email.filter(|email| !email.trim().is_empty()))
+}
+
+// A shared mailbox must be in the folder identifier; X-AnchorMailbox only routes requests.
+fn calendar_parent(folder_id: Option<&str>, mailbox: Option<&str>) -> String {
+    if let Some(id) = folder_id.filter(|id| !id.is_empty()) {
+        return format!(r#"<t:FolderId Id="{}"/>"#, xml_escape(id));
+    }
+    let mailbox = mailbox.map(|email| format!("<t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox>", xml_escape(email))).unwrap_or_default();
+    format!(r#"<t:DistinguishedFolderId Id="calendar">{mailbox}</t:DistinguishedFolderId>"#)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedCalendarFolder { id: String, name: String }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedCalendarFolders { calendars: Vec<SharedCalendarFolder>, limited_discovery: bool }
+
+pub async fn ews_shared_calendars(access_token: String, email: String) -> Result<SharedCalendarFolders, String> {
+    let parent = calendar_parent(None, Some(&email));
+    let body = format!("<m:GetFolder><m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape><m:FolderIds>{parent}</m:FolderIds></m:GetFolder>");
+    let primary = shared_folder_response(send_ews_request(&access_token, &body, Some(&email)).await);
+    let mut calendars = primary.as_ref().map(|xml| parse_shared_folders(xml)).unwrap_or_default();
+    let root = format!(r#"<t:DistinguishedFolderId Id="msgfolderroot"><t:Mailbox><t:EmailAddress>{}</t:EmailAddress></t:Mailbox></t:DistinguishedFolderId>"#, xml_escape(&email));
+    let body = format!(r#"<m:FindFolder Traversal="Deep"><m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape><m:IndexedPageFolderView MaxEntriesReturned="100" Offset="0" BasePoint="Beginning"/><m:Restriction><t:IsEqualTo><t:FieldURI FieldURI="folder:FolderClass"/><t:FieldURIOrConstant><t:Constant Value="IPF.Appointment"/></t:FieldURIOrConstant></t:IsEqualTo></m:Restriction><m:ParentFolderIds>{root}</m:ParentFolderIds></m:FindFolder>"#);
+    // Folder-level calendar sharing may not grant permission to enumerate the mailbox root.
+    let limited_discovery = match shared_folder_response(send_ews_request(&access_token, &body, Some(&email)).await) {
+        Ok(xml) => {
+            for folder in parse_shared_folders(&xml) {
+                if !calendars.iter().any(|known| known.id == folder.id) { calendars.push(folder); }
+            }
+            !xml.contains("IncludesLastItemInRange=\"true\"")
+        }
+        Err(_) => true,
+    };
+    if calendars.is_empty() {
+        let error = primary.err().unwrap_or_else(|| "ews_shared_invalid_response".into());
+        if error == "ews_shared_access_denied" || error == "ews_shared_folder_not_found" {
+            let now = chrono::Utc::now();
+            ews_availability_with_token(&access_token, vec![email.clone()], now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true), (now + chrono::Duration::days(1)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true), None).await?;
+            calendars.push(SharedCalendarFolder { id: String::new(), name: String::new() });
+        } else { return Err(error); }
+    }
+    Ok(SharedCalendarFolders { calendars, limited_discovery })
+}
+
+// EWS can return HTTP 200 with a SOAP error; never treat it as an empty folder list.
+fn shared_folder_response(response: Result<String, String>) -> Result<String, String> {
+    let xml = response.map_err(|error| {
+        if error.contains("ews_unauthorized") || error.contains("401") { "ews_shared_unauthorized" }
+        else if error.contains("403") { "ews_shared_access_denied" }
+        else { "ews_shared_request_failed" }.to_string()
+    })?;
+    let code = xml_content_ns(&xml, "m:ResponseCode").unwrap_or_default();
+    if code == "NoError" { return Ok(xml); }
+    let error = match code.as_str() {
+        "ErrorAccessDenied" | "ErrorAccessModeSpecified" => "ews_shared_access_denied",
+        "ErrorFolderNotFound" | "ErrorItemNotFound" => "ews_shared_folder_not_found",
+        "ErrorNonExistentMailbox" | "ErrorInvalidSmtpAddress" | "ErrorRecipientNotFound" => "ews_shared_mailbox_not_found",
+        "ErrorInvalidClientAccessToken" | "ErrorInvalidToken" | "ErrorTokenExpired" => "ews_shared_unauthorized",
+        "ErrorServerBusy" | "ErrorTimeoutExpired" => "ews_shared_server_busy",
+        _ => "ews_shared_invalid_response",
+    };
+    Err(error.into())
+}
+
+fn parse_shared_folders(xml: &str) -> Vec<SharedCalendarFolder> {
+    xml_all_ns(xml, "t:CalendarFolder").iter().filter_map(|folder| {
+        let start = folder.find("<t:FolderId ").or_else(|| folder.find("<FolderId "))?;
+        let id = xml_attr(&folder[start..], "Id")?;
+        Some(SharedCalendarFolder { id: xml_decode(&id), name: xml_decode(&xml_content_ns(folder, "t:DisplayName").unwrap_or_default()) })
+    }).collect()
+}
+
+#[cfg(test)]
+mod shared_calendar_tests {
+    use super::*;
+    #[test]
+    fn availability_fallback_never_substitutes_a_secondary_calendar() {
+        assert!(shared_primary_matches(None, None));
+        assert!(shared_primary_matches(Some(""), None));
+        assert!(shared_primary_matches(Some("primary-id"), Some("primary-id")));
+        assert!(!shared_primary_matches(Some("secondary-id"), Some("primary-id")));
+        assert!(!shared_primary_matches(Some("selected-id"), None));
+        assert!(shared_read_allows_availability("<m:ResponseCode>ErrorItemNotFound</m:ResponseCode>"));
+        assert!(shared_read_allows_availability("<ResponseCode>ErrorAccessDenied</ResponseCode>"));
+        assert!(!shared_read_allows_availability("<ResponseCode>ErrorServerBusy</ResponseCode>"));
+        assert!(!shared_read_allows_availability("<ResponseCode>ErrorInvalidToken</ResponseCode>"));
+    }
+    #[test]
+    fn availability_splits_long_calendar_ranges_without_gaps_or_overlaps() {
+        let windows = availability_windows("2026-01-01T00:00:00Z", "2026-08-01T00:00:00Z").unwrap();
+        assert_eq!(windows.len(), 4);
+        assert_eq!(windows[0].0, "2026-01-01T00:00:00Z");
+        assert_eq!(windows.last().unwrap().1, "2026-08-01T00:00:00Z");
+        for pair in windows.windows(2) { assert_eq!(pair[0].1, pair[1].0); }
+        for (from, to) in &windows {
+            let duration = chrono::DateTime::parse_from_rfc3339(to).unwrap() - chrono::DateTime::parse_from_rfc3339(from).unwrap();
+            assert!(duration <= chrono::Duration::days(60));
+        }
+        assert!(availability_windows("invalid", "2026-08-01T00:00:00Z").is_err());
+        assert!(availability_windows("2026-08-01T00:00:00Z", "2026-01-01T00:00:00Z").is_err());
+    }
+    #[test]
+    fn availability_preserves_allowed_details_and_anonymizes_private_events() {
+        let xml = r#"<FreeBusyResponse><ResponseMessage ResponseClass="Success"><ResponseCode>NoError</ResponseCode></ResponseMessage><FreeBusyView><CalendarEventArray><CalendarEvent><StartTime>2026-10-16T14:00:00</StartTime><EndTime>2026-10-16T15:00:00</EndTime><BusyType>Busy</BusyType><CalendarEventDetails><Subject>Team &amp; planning</Subject><Location>Room</Location><IsPrivate>false</IsPrivate></CalendarEventDetails></CalendarEvent></CalendarEventArray></FreeBusyView></FreeBusyResponse>"#;
+        let emails = vec!["other@example.com".into()];
+        let slots = parse_availability(xml, &emails).unwrap();
+        let event = availability_event(slots.into_values().next().unwrap().remove(0));
+        assert_eq!(event.subject, "Team & planning");
+        assert_eq!(event.location.as_deref(), Some("Room"));
+        assert!(event.availability_only);
+        assert!(!event.is_meeting);
+        assert!(event.attendees.is_empty());
+        let private = xml.replace("<IsPrivate>false", "<IsPrivate>true");
+        let slots = parse_availability(&private, &emails).unwrap();
+        assert!(slots[&emails[0]][0].subject.is_none());
+        assert!(slots[&emails[0]][0].location.is_none());
+        let busy_only = xml.replace("<CalendarEventDetails><Subject>Team &amp; planning</Subject><Location>Room</Location><IsPrivate>false</IsPrivate></CalendarEventDetails>", "");
+        let slots = parse_availability(&busy_only, &emails).unwrap();
+        assert_eq!(slots[&emails[0]][0].start, "2026-10-16T14:00:00Z");
+        assert!(slots[&emails[0]][0].subject.is_none());
+    }
+    #[test]
+    fn shared_read_errors_identify_the_stage_and_target_without_leaking_identifiers() {
+        let xml = "<m:ResponseCode>ErrorItemNotFound</m:ResponseCode><t:FolderId Id=\"private-id\"/>";
+        let error = shared_calendar_read_error(xml, Some("private-id"), "Item not found.");
+        assert_eq!(error, "[ews-shared-read-v2 FindItem ErrorItemNotFound selected-folder] Item not found.");
+        assert!(!error.contains("private-id"));
+        assert!(shared_calendar_read_error(xml, None, "Item not found.").contains("default-calendar"));
+    }
+    #[test]
+    fn shared_calendar_reads_route_to_the_discovered_mailbox_even_without_owner_email() {
+        assert_eq!(calendar_anchor_mailbox(Some("shared@example.com"), None), Some("shared@example.com"));
+        assert_eq!(calendar_anchor_mailbox(Some("shared@example.com"), Some("me@example.com")), Some("shared@example.com"));
+        assert_eq!(calendar_anchor_mailbox(None, Some("me@example.com")), Some("me@example.com"));
+        assert_eq!(calendar_anchor_mailbox(Some(" "), Some("me@example.com")), Some("me@example.com"));
+        assert_eq!(calendar_anchor_mailbox(None, None), None);
+        // Retain the selected secondary folder; do not silently use the default calendar.
+        assert_eq!(calendar_parent(Some("secondary-folder"), Some("shared@example.com")), r#"<t:FolderId Id="secondary-folder"/>"#);
+    }
+    #[test]
+    fn shared_mailbox_and_folder_identifiers_are_explicit_and_escaped() {
+        assert!(calendar_parent(None, Some("a&b@example.com")).contains("<t:EmailAddress>a&amp;b@example.com</t:EmailAddress>"));
+        assert_eq!(calendar_parent(Some("a\"&"), Some("other@example.com")), r#"<t:FolderId Id="a&quot;&amp;"/>"#);
+        assert!(!calendar_parent(None, None).contains("Mailbox"));
+    }
+    #[test]
+    fn soap_errors_are_reported_even_when_http_succeeded() {
+        for (code, expected) in [
+            ("ErrorAccessDenied", "ews_shared_access_denied"),
+            ("ErrorFolderNotFound", "ews_shared_folder_not_found"),
+            ("ErrorNonExistentMailbox", "ews_shared_mailbox_not_found"),
+            ("ErrorInvalidSmtpAddress", "ews_shared_mailbox_not_found"),
+            ("ErrorServerBusy", "ews_shared_server_busy"),
+        ] {
+            let xml = format!("<m:GetFolderResponseMessage ResponseClass=\"Error\"><m:ResponseCode>{code}</m:ResponseCode><m:MessageText>Private provider detail</m:MessageText></m:GetFolderResponseMessage>");
+            assert_eq!(shared_folder_response(Ok(xml)).unwrap_err(), expected);
+        }
+        assert!(shared_folder_response(Ok("<ResponseCode>NoError</ResponseCode>".into())).is_ok());
+        assert_eq!(shared_folder_response(Ok("<html>unexpected response</html>".into())).unwrap_err(), "ews_shared_invalid_response");
+        assert_eq!(shared_folder_response(Err("EWS HTTP 403: private body".into())).unwrap_err(), "ews_shared_access_denied");
+    }
+    #[test]
+    fn shared_folders_keep_their_names_and_ids() {
+        let folders = parse_shared_folders(r#"<t:Folders><t:CalendarFolder><t:FolderId Id="one"/><t:DisplayName>Research &amp; work</t:DisplayName></t:CalendarFolder><t:CalendarFolder><t:FolderId Id="two"/><t:DisplayName>Team</t:DisplayName></t:CalendarFolder></t:Folders>"#);
+        assert_eq!(folders.len(), 2);
+        assert_eq!(folders[0].name, "Research & work");
+        assert_eq!(folders[1].id, "two");
     }
 }

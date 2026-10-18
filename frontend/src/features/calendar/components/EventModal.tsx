@@ -309,7 +309,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
 
   const tagKey = event ? event.seriesId || event.sourceId || event.id || undefined : undefined;
   if (event) console.log('[TAG] tagKey:', tagKey, '| seriesId:', event.seriesId, '| sourceId:', event.sourceId);
-  const selectedTagId = tagKey ? eventTags[tagKey] : undefined;
+  const selectedTagId = !calendar?.shared && tagKey ? eventTags[tagKey] : undefined;
   const selectedTag = selectedTagId ? tags.find((tag) => tag.id === selectedTagId) : undefined;
   const isPast = event ? new Date(event.end) < new Date() : false;
 
@@ -361,7 +361,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             >
               {event.title}
             </span>
-            {tags.length > 0 && event && (
+            {!calendar?.shared && tags.length > 0 && event && (
               <div style={{ marginLeft: 12 }}>
                 <button
                   ref={tagBtnRef}
@@ -391,7 +391,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                 </button>
               </div>
             )}
-            {showTagDropdown && dropdownPos && createPortal(
+            {!calendar?.shared && showTagDropdown && dropdownPos && createPortal(
               <div
                 ref={dropdownRef}
                 className="event-modal-tag-dropdown"
@@ -419,12 +419,12 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
               </div>,
               dialogRef.current ?? document.body
             )}
-            {onEdit && (
+            {!calendar?.shared && onEdit && (
               <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
                 <Pencil size={16} />
               </button>
             )}
-            {onDelete && (
+            {!calendar?.shared && onDelete && (
               <button
                 className="btn-icon modal-close"
                 onClick={() => {
@@ -438,7 +438,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                 <Trash2 size={16} />
               </button>
             )}
-            {onCancelEvent && !event.isCancelled && (
+            {!calendar?.shared && onCancelEvent && !event.isCancelled && (
               <button
                 className="btn-icon modal-close"
                 onClick={() => {
@@ -494,6 +494,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
           )}
 
           <div className="modal-body">
+            {calendar?.shared && <p className="shared-calendar-help">{t(event.availabilityOnly ? 'sharedCalendars.availabilityOnly' : 'sharedCalendars.readOnly')}</p>}
             <div className="modal-row">
               <Clock size={16} className="modal-icon" />
               <span>{formatEventDate(event)}</span>
@@ -532,7 +533,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
               </div>
             )}
 
-            {!isOrganizer && event.selfRsvpStatus && onRsvp && (
+            {!calendar?.shared && !isOrganizer && event.selfRsvpStatus && onRsvp && (
               <div className="modal-row">
                 <UserCheck size={16} className="modal-icon" style={{ marginTop: 3 }} />
                 <RsvpRow current={event.selfRsvpStatus} onRsvp={onRsvp} />

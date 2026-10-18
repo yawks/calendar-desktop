@@ -23,7 +23,7 @@ async function challenge(verifier: string): Promise<string> {
 
 function scopes(capabilities: Capabilities): string[] {
   const values = ['openid', 'email', 'profile'];
-  if (capabilities.includes('calendar')) values.push('https://www.googleapis.com/auth/calendar');
+  if (capabilities.includes('calendar')) values.push('https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/contacts.readonly', 'https://www.googleapis.com/auth/directory.readonly');
   if (capabilities.includes('email')) values.push('https://mail.google.com/', 'https://www.googleapis.com/auth/contacts.readonly', 'https://www.googleapis.com/auth/contacts.other.readonly');
   return values;
 }

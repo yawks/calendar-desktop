@@ -130,3 +130,10 @@ describe('getEventColorStyle', () => {
     });
   });
 });
+
+it('never displays a tag on a read-only shared copy of the same series', () => {
+  const shared = { ...calendar, type: 'google' as const, shared: { ownerEmail: 'other@example.com' } };
+  const [result] = toTUIEvents([{ ...event, seriesId: 'same-series', tagId: tag.id }], [shared], false, [tag], { 'same-series': tag.id });
+  expect(result.raw.tagColor).toBeUndefined();
+  expect(result.isReadOnly).toBe(true);
+});

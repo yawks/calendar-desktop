@@ -78,7 +78,7 @@ async fn authorization_url(state: &GoogleOAuthState, headers: &HeaderMap, capabi
     let client_id = credentials.client_id.clone();
     state.pending.lock().await.insert(oauth_state.clone(), credentials);
     let mut scopes = vec!["openid", "email", "profile"];
-    if capabilities.split(',').any(|value| value == "calendar") { scopes.push("https://www.googleapis.com/auth/calendar"); }
+    if capabilities.split(',').any(|value| value == "calendar") { scopes.extend(["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/contacts.readonly", "https://www.googleapis.com/auth/directory.readonly"]); }
     if capabilities.split(',').any(|value| value == "email") { scopes.extend(["https://mail.google.com/", "https://www.googleapis.com/auth/contacts.readonly", "https://www.googleapis.com/auth/contacts.other.readonly"]); }
     let params = [("client_id", client_id), ("redirect_uri", redirect_uri(&headers)), ("response_type", "code".into()), ("scope", scopes.join(" ")), ("access_type", "offline".into()), ("prompt", "consent".into()), ("state", oauth_state)];
     let url = format!("{AUTH_URL}?{}", serde_urlencoded::to_string(params).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?);

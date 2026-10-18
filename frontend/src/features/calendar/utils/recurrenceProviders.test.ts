@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createEvent, updateEvent } from './googleCalendarApi';
-import { createNextcloudEvent, updateNextcloudEvent } from './nextcloudCalendarApi';
+import { createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } from './googleCalendarApi';
+import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, cancelNextcloudEvent, respondToNextcloudEvent } from './nextcloudCalendarApi';
 import { calendarApi } from '../../../shared/api/calendarApi';
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../../../shared/types';
 // @ts-ignore ical.js v1 has no bundled declarations
@@ -86,5 +86,27 @@ describe('participant updates across calendar providers', () => {
     expect(component.getFirstSubcomponent('vevent').getAllProperties('attendee').map((a: any) => a.getFirstValue())).toEqual(attendees.map(a => `mailto:${a.email}`));
     vi.mocked(calendarApi.putCalDav).mockRejectedValueOnce(new Error('denied'));
     await expect(updateNextcloudEvent(cal, 'series', { ...payload, attendees }, source, true)).rejects.toThrow('denied');
+  });
+});
+
+describe('shared calendars are read only at the provider boundary', () => {
+  it('rejects Google creation, editing, deletion and RSVP before any request', async () => {
+    const shared = { ...cal, type: 'google' as const, shared: { ownerEmail: 'other@example.com' } };
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    await expect(createEvent('token', shared, payload)).rejects.toThrow();
+    await expect(updateEvent('token', shared, 'event', payload)).rejects.toThrow();
+    await expect(deleteGoogleEvent('token', shared, 'event')).rejects.toThrow();
+    await expect(respondToGoogleEvent('token', shared, 'event', 'other@example.com', 'ACCEPTED')).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('rejects CalDAV creation, editing, deletion, cancellation and RSVP before any request', async () => {
+    const shared = { ...cal, shared: { ownerEmail: 'other@example.com' } };
+    await expect(createNextcloudEvent(shared, payload)).rejects.toThrow();
+    await expect(updateNextcloudEvent(shared, 'event', payload)).rejects.toThrow();
+    await expect(deleteNextcloudEvent(shared, 'event')).rejects.toThrow();
+    await expect(cancelNextcloudEvent(shared, 'event', source, false)).rejects.toThrow();
+    await expect(respondToNextcloudEvent(shared, 'event', 'other@example.com', 'ACCEPTED')).rejects.toThrow();
+    expect(calendarApi.fetchCalDav).not.toHaveBeenCalled();
+    expect(calendarApi.putCalDav).not.toHaveBeenCalled();
   });
 });

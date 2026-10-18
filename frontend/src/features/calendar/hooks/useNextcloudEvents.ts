@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AttendeeStatus, CalendarConfig, CalendarEvent } from '../../../shared/types';
+import { davResponses, resolveSharedCalDav } from '../utils/sharedCalendars';
 import { parseICS } from '../utils/parseICS';
 import { cacheGetStale, cacheSet, cacheIsFresh, patchCachedEventRsvp } from '../utils/eventCache';
 import { calendarApi } from '../../../shared/api/calendarApi';
@@ -17,6 +18,17 @@ function buildExportUrl(calUrl: string): string {
 }
 
 async function fetchAndParse(cal: CalendarConfig): Promise<CalendarEvent[]> {
+  if (cal.shared) {
+    const start = new Date(); start.setFullYear(start.getFullYear() - 1);
+    const end = new Date(); end.setFullYear(end.getFullYear() + 2);
+    const compact = (date: Date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const xml = await calendarApi.queryCalDav({ url: cal.url, username: cal.nextcloudUsername ?? '', password: cal.nextcloudPassword ?? '' }, 'REPORT', '1',
+      `<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="${compact(start)}" end="${compact(end)}"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>`);
+    return davResponses(xml).flatMap(({ prop }) => {
+      const ics = prop.getElementsByTagNameNS('urn:ietf:params:xml:ns:caldav', 'calendar-data')[0]?.textContent;
+      return ics ? parseICS(ics, cal) : [];
+    });
+  }
   const text = await calendarApi.fetchCalDav({
     url: buildExportUrl(cal.url),
     username: cal.nextcloudUsername ?? '',
@@ -56,7 +68,7 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
 
     const settled = await Promise.allSettled(
       toRefresh.map(async (cal) => {
-        const parsed = await fetchAndParse(cal);
+        const parsed = await fetchAndParse(resolveSharedCalDav(cal, calendarsRef.current));
         await cacheSet(cacheKey(cal.id), parsed);
         return parsed;
       })

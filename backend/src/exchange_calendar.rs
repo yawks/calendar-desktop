@@ -1,5 +1,5 @@
 use axum::{http::StatusCode, Json};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 
 const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
@@ -60,18 +60,7 @@ pub struct CancelRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ListRequest { access_token: String, owner_email: Option<String>, start: String, end: String }
-
-#[derive(Serialize)]
-pub struct EwsAttendee { name: Option<String>, email: String, response_type: String }
-
-#[derive(Serialize)]
-pub struct EwsEvent {
-    item_id: String, change_key: String, subject: String, start: String, end: String,
-    is_all_day: bool, location: Option<String>, organizer_name: Option<String>, organizer_email: Option<String>,
-    my_response_type: String, attendees: Vec<EwsAttendee>, is_meeting: bool, is_cancelled: bool,
-    recurring_master_id: Option<String>, body: Option<String>,
-}
+pub struct ListRequest { folder_id: Option<String>, shared_mailbox: Option<String>, access_token: String, owner_email: Option<String>, start: String, end: String }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,21 +89,6 @@ fn xml_content(xml: &str, tag: &str) -> Option<String> {
     let start = xml.find(&open)? + open.len();
     let end = xml[start..].find(&close)? + start;
     Some(xml[start..end].into())
-}
-
-fn xml_all(xml: &str, tag: &str) -> Vec<String> {
-    let open = format!("<{tag}");
-    let close = format!("</{tag}>");
-    let mut values = Vec::new();
-    let mut offset = 0;
-    while let Some(relative) = xml[offset..].find(&open) {
-        let start = offset + relative;
-        let Some(gt) = xml[start..].find('>').map(|value| start + value + 1) else { break };
-        let Some(end) = xml[gt..].find(&close).map(|value| gt + value + close.len()) else { break };
-        values.push(xml[start..end].to_string());
-        offset = end;
-    }
-    values
 }
 
 async fn send(token: &str, body: &str, anchor: Option<&str>) -> Result<String, ApiError> {
@@ -177,38 +151,17 @@ pub async fn cancel(Json(request): Json<CancelRequest>) -> Result<Json<serde_jso
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-pub async fn list(Json(request): Json<ListRequest>) -> Result<Json<Vec<EwsEvent>>, ApiError> {
-    let body = format!(r#"<m:FindItem Traversal="Shallow"><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape></m:ItemShape><m:CalendarView MaxEntriesReturned="500" StartDate="{}" EndDate="{}"/><m:ParentFolderIds><t:DistinguishedFolderId Id="calendar"/></m:ParentFolderIds></m:FindItem>"#, escape(&request.start), escape(&request.end));
-    let xml = send(&request.access_token, &body, request.owner_email.as_deref().filter(|value| !value.is_empty())).await?;
-    let mut events = Vec::new();
-    for item in xml_all(&xml, "t:CalendarItem") {
-        let Some(id_element) = item.find("<t:ItemId ").and_then(|start| item[start..].find("/>").map(|end| &item[start..start + end])) else { continue };
-        let item_id = xml_attr(id_element, "Id").unwrap_or_default();
-        let organizer = xml_content(&item, "t:Organizer");
-        let mut attendees = Vec::new();
-        for list_tag in ["t:RequiredAttendees", "t:OptionalAttendees"] {
-            if let Some(list) = xml_content(&item, list_tag) {
-                for attendee in xml_all(&list, "t:Attendee") {
-                    attendees.push(EwsAttendee {
-                        name: xml_content(&attendee, "t:Name").filter(|value| !value.is_empty()),
-                        email: xml_content(&attendee, "t:EmailAddress").unwrap_or_default(),
-                        response_type: xml_content(&attendee, "t:ResponseType").unwrap_or_else(|| "Unknown".into()),
-                    });
-                }
-            }
-        }
-        let item_type = xml_content(&item, "t:CalendarItemType").unwrap_or_default();
-        events.push(EwsEvent {
-            item_id: item_id.clone(), change_key: xml_attr(id_element, "ChangeKey").unwrap_or_default(),
-            subject: xml_content(&item, "t:Subject").unwrap_or_default(), start: xml_content(&item, "t:Start").unwrap_or_default(), end: xml_content(&item, "t:End").unwrap_or_default(),
-            is_all_day: xml_content(&item, "t:IsAllDayEvent").as_deref() == Some("true"), location: xml_content(&item, "t:Location").filter(|value| !value.is_empty()),
-            organizer_name: organizer.as_deref().and_then(|value| xml_content(value, "t:Name")), organizer_email: organizer.as_deref().and_then(|value| xml_content(value, "t:EmailAddress")),
-            my_response_type: xml_content(&item, "t:MyResponseType").unwrap_or_else(|| "Unknown".into()), attendees,
-            is_meeting: xml_content(&item, "t:IsMeeting").as_deref() == Some("true"), is_cancelled: xml_content(&item, "t:IsCancelled").as_deref() == Some("true"),
-            recurring_master_id: matches!(item_type.as_str(), "Occurrence" | "Exception").then_some(item_id), body: xml_content(&item, "t:Body"),
-        });
-    }
-    Ok(Json(events))
+pub async fn list(Json(request): Json<ListRequest>) -> Result<Json<Vec<app_lib::ews::EwsEvent>>, ApiError> {
+    app_lib::ews::ews_get_calendar_events(request.access_token, request.owner_email, request.start, request.end, request.folder_id, request.shared_mailbox).await.map(Json)
+        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedRequest { access_token: String, email: String }
+pub async fn shared(Json(request): Json<SharedRequest>) -> Result<Json<app_lib::ews::SharedCalendarFolders>, ApiError> {
+    app_lib::ews::ews_shared_calendars(request.access_token, request.email).await.map(Json)
+        .map_err(|error| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))))
 }
 
 pub async fn free_busy(Json(request): Json<FreeBusyRequest>) -> Result<Json<HashMap<String, Vec<app_lib::ews::EwsFreeBusySlot>>>, ApiError> {

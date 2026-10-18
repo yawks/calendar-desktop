@@ -31,7 +31,7 @@ it('migrates existing groups, tags and mappings and restores their portable snap
   localStorage.setItem('calendar-desktop-tags', '[{"id":"focus","name":"Focus","color":"#123456"}]');
   data.cache = { event: 'focus' };
   const root = await mount();
-  expect(groups.groups.map(g => g.id)).toEqual(['default', 'work']);
+  expect(groups.groups.map(g => g.id)).toEqual(['default', 'work', 'other-calendars']);
   expect(tags.eventTags).toEqual({ event: 'focus' });
   await act(async () => { tags.updateTag('focus', { name: 'Updated' }); groups.updateGroup('work', { name: 'Updated work' }); tags.setEventTag('series', 'focus'); });
   data.payload['calendar-desktop-calendars'] = [{ id: 'calendar', groupId: 'work' }];
@@ -69,5 +69,27 @@ it('keeps calendar group changes and order after remounting', async () => {
   await act(async () => root.unmount());
   const restored = await mount();
   expect(calendars.calendars.map(c => [c.id, c.groupId])).toEqual([['second', 'work'], ['first', undefined]]);
+  await act(async () => restored.unmount());
+});
+
+it('syncs shared references, colors and visibility without event data or copied CalDAV secrets', async () => {
+  const root = await mount();
+  await act(async () => {
+    calendars.addCalendar({ name: 'Team', type: 'nextcloud', url: 'https://cloud.example/dav/team/', color: '#123456', visible: true,
+      shared: { ownerEmail: 'other@example.com', sourceCalendarId: 'source' } });
+  });
+  const id = calendars.calendars[0].id;
+  await act(async () => { calendars.toggleCalendar(id); calendars.updateCalendar(id, { color: '#abcdef', groupId: 'work', shared: undefined }); });
+  const remote = pickPortableConfig(data.payload);
+  const stored = (remote['calendar-desktop-calendars'] as Array<Record<string, unknown>>)[0];
+  expect(stored).toMatchObject({ groupId: 'other-calendars', color: '#abcdef', visible: false, shared: { ownerEmail: 'other@example.com', sourceCalendarId: 'source' } });
+  expect(stored).not.toHaveProperty('nextcloudPassword');
+  expect(stored).not.toHaveProperty('events');
+  await act(async () => root.unmount());
+  data.payload = applyPortableConfig({}, remote);
+  const restored = await mount();
+  expect(calendars.calendars[0]).toEqual(stored);
+  await act(async () => { calendars.removeCalendar('source'); });
+  expect(calendars.calendars).toEqual([]);
   await act(async () => restored.unmount());
 });

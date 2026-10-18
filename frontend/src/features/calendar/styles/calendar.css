@@ -1577,3 +1577,57 @@
 .event-conference input:checked + .event-conference__switch::before { transform: translateX(16px); }
 .event-conference:focus-within { outline: 2px solid var(--primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent); }
 .event-conference:has(input:disabled) { cursor: wait; opacity: .65; }
+
+/* Shared calendars */
+.shared-calendar-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; width: min(640px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 24px); padding: 0; border: 1px solid var(--border); border-radius: 12px; color: var(--text); background: var(--bg); box-shadow: var(--shadow); overflow: auto; }
+.shared-calendar-dialog::backdrop { background: color-mix(in srgb, var(--text) 35%, transparent); }
+.shared-calendar-modal { min-width: 0; }
+.shared-calendar-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.shared-calendar-header h2 { flex: 1; min-width: 0; margin: 0; font-size: calc(16px * var(--font-scale, 1)); font-weight: 600; overflow-wrap: anywhere; }
+.shared-calendar-header button { min-width: 44px; min-height: 44px; display: grid; place-items: center; }
+.shared-calendar-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 20px; font-size: calc(14px * var(--font-scale, 1)); }
+.shared-calendar-body p { margin: 0; }
+.shared-calendar-help { margin: 0; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-muted); line-height: 1.45; overflow-wrap: anywhere; }
+.shared-calendar-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: calc(13px * var(--font-scale, 1)); }
+.shared-calendar-field input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; color: var(--text); background: var(--bg); font: inherit; }
+.shared-calendar-dialog :is(input, button):focus-visible, .shared-calendar-item :is(input, button):focus-visible, .shared-calendar-add:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent); }
+.shared-calendar-suggestions { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.shared-calendar-suggestion { display: flex; width: 100%; min-height: 52px; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; text-align: start; color: var(--text); background: var(--bg); font: inherit; cursor: pointer; }
+.shared-calendar-suggestion[aria-selected="true"], .shared-calendar-suggestion:hover { background: var(--bg-hover); border-color: var(--primary); }
+.shared-calendar-suggestion > span:last-child { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow-wrap: anywhere; }
+.shared-calendar-suggestion strong { font-size: calc(13px * var(--font-scale, 1)); font-weight: 600; }
+.shared-calendar-suggestion > span > span { font-size: calc(12px * var(--font-scale, 1)); color: var(--text-muted); }
+.shared-calendar-source-icon { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border: 1px solid currentColor; border-radius: 8px; background: color-mix(in srgb, currentColor 10%, transparent); }
+.shared-calendar-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 20px; border-top: 1px solid var(--border); }
+.shared-calendar-actions button { min-height: 44px; white-space: normal; }
+.shared-calendar-results { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.shared-calendar-results h3 { margin: 0; font-size: calc(15px * var(--font-scale, 1)); overflow-wrap: anywhere; }
+.shared-calendar-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.shared-calendar-check { flex: 1; display: flex; align-items: center; min-width: 0; gap: 10px; min-height: 44px; cursor: pointer; overflow-wrap: anywhere; }
+.shared-calendar-check > input { flex: 0 0 20px; width: 20px; height: 20px; accent-color: var(--primary); }
+.shared-calendar-check > span { min-width: 0; }
+.shared-calendar-check small { display: block; margin-top: 4px; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-muted); }
+.shared-calendar-color { display: flex; gap: 8px; align-items: center; min-width: 0; font-size: calc(12px * var(--font-scale, 1)); }
+.shared-calendar-color input { width: 48px; height: 44px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); cursor: pointer; }
+.shared-calendar-error { color: var(--danger); line-height: 1.45; }
+.shared-calendar-spinner { color: var(--primary); animation: shared-calendar-spin 1s linear infinite; }
+@keyframes shared-calendar-spin { to { transform: rotate(360deg); } }
+.shared-calendar-add { min-height: 44px; white-space: normal; text-align: start; }
+.shared-calendar-item .calendar-edit-btn { opacity: 1; min-width: 44px; min-height: 44px; }
+.shared-calendar-item .shared-calendar-remove { color: var(--danger); }
+.shared-calendar-item .calendar-item { min-width: 0; }
+.shared-calendar-item .calendar-name { white-space: normal; overflow-wrap: anywhere; }
+.shared-calendar-item .calendar-item input[type="checkbox"] { display: block !important; position: absolute; width: 1px; height: 1px; opacity: 0; }
+.shared-calendar-item .calendar-item:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
+.shared-calendar-item .calendar-edit-input { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; }
+.shared-calendar-group .group-collapse-btn { min-width: 44px; min-height: 44px; }
+.shared-calendar-item .calendar-color-swatch, .shared-calendar-item .calendar-color-picker { width: 44px; height: 44px; }
+.shared-calendar-item .calendar-edit-actions button { min-width: 44px; min-height: 44px; }
+@media (max-width: 600px) {
+  .shared-calendar-header, .shared-calendar-actions { padding: 12px; }
+  .shared-calendar-body { padding: 14px; }
+  .shared-calendar-actions button { flex: 1 1 100%; justify-content: center; }
+  .shared-calendar-choice { padding: 10px; }
+  .shared-calendar-check { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .shared-calendar-spinner { animation: none; } }

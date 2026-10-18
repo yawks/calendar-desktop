@@ -19,6 +19,8 @@ import { CALENDAR_KEYS } from './useCalendarQueries';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 import { isOfflineLikeError } from '../../../shared/utils/networkError';
 
+import { isCalendarWritable } from '../utils/sharedCalendars';
+
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 const CALENDAR_NAVIGATION_KEY = 'courrier-calendar-navigation-v1';
 const CALENDAR_VIEWS: ViewType[] = ['day', 'workweek', 'week', 'month'];
@@ -315,6 +317,7 @@ export function useCalendarLogic() {
   const handleSaveEvent = useCallback(async (payload: CreateEventPayload, sourceEvent?: CalendarEvent, recurringScope?: 'this' | 'future') => {
     const cal = calendars.find((c) => c.id === payload.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
+    if (!isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     const seriesSourceEvent = recurringScope === 'future' && sourceEvent?.seriesId && cal.type !== 'exchange'
       ? { ...sourceEvent, sourceId: sourceEvent.seriesId }
@@ -421,6 +424,7 @@ export function useCalendarLogic() {
   ) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
+    if (!isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     let rsvpSourceId = event.sourceId;
     let respondSeries = false;
@@ -509,6 +513,7 @@ export function useCalendarLogic() {
     const cal = calendars.find((c) => c.id === event.calendarId);
     console.log('[recurring] handleDeleteEvent cal=', cal?.type, 'event.isRecurringInstance=', event.isRecurringInstance, 'seriesId=', event.seriesId);
     if (!cal) return;
+    if (!isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     let deleteSourceId = event.sourceId;
     let affectedIds = [event.id];
@@ -643,7 +648,7 @@ export function useCalendarLogic() {
 
   const isEventEditable = useCallback((event: CalendarEvent) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
-    if (!cal) return false;
+    if (!cal || !isCalendarWritable(cal)) return false;
     if (cal.type === 'exchange') return isExchangeOrganizer(event);
     if (cal.type !== 'google' && cal.type !== 'nextcloud') return false;
     const attendees = event.attendees;

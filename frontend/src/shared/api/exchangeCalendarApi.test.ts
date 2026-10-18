@@ -55,4 +55,18 @@ describe('exchangeCalendarApi', () => {
     await exchangeCalendarApi[operation]<Record<string, never>>({});
     expect(fetchMock).toHaveBeenCalledWith(`/api/calendar/exchange/${route}`, expect.anything());
   });
+  it('uses the shared-folder endpoint and passes the selected mailbox and folder to native reads', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ calendars: [], limitedDiscovery: false }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await exchangeCalendarApi.shared({ accessToken: 'token', email: 'other@example.com' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/calendar/exchange/shared', expect.objectContaining({ method: 'POST' }));
+    vi.mocked(hasNativeTransport).mockReturnValue(true);
+    vi.mocked(invokeNative).mockResolvedValue([]);
+    const request = { accessToken: 'token', sharedMailbox: 'other@example.com', folderId: 'shared-folder', start: '2026-10-01', end: '2026-11-01' };
+    await exchangeCalendarApi.list(request);
+    expect(invokeNative).toHaveBeenCalledWith('exchange_calendar_list', request);
+    await exchangeCalendarApi.shared({ accessToken: 'token', email: 'other@example.com' });
+    expect(invokeNative).toHaveBeenCalledWith('exchange_calendar_shared', { accessToken: 'token', email: 'other@example.com' });
+  });
+
 });

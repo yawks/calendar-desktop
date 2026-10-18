@@ -66,6 +66,7 @@ pub struct EwsEvent {
     /// RecurringMasterId — shared by all occurrences of the same recurring series.
     pub recurring_master_id: Option<String>,
     pub body: Option<String>,
+    pub availability_only: bool,
 }
 
 // ── Auth commands ──────────────────────────────────────────────────────────────
@@ -492,6 +493,7 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         }
 
         events.push(EwsEvent {
+            availability_only: false,
             item_id,
             change_key,
             subject,

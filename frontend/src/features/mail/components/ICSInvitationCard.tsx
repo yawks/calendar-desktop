@@ -21,6 +21,7 @@ import { useNextcloudEvents, patchNextcloudCachedRsvp } from '../../calendar/hoo
 import { patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
 import { DayEventsTimeline } from '../../calendar/components/DayEventsTimeline';
 import { respondToGoogleEvent, createEvent as createGoogleEvent } from '../../calendar/utils/googleCalendarApi';
+import { isCalendarWritable } from '../../calendar/utils/sharedCalendars';
 import { respondToNextcloudEvent, createNextcloudEvent } from '../../calendar/utils/nextcloudCalendarApi';
 import { EmailHtmlBody } from './EmailHtmlBody';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
@@ -498,7 +499,7 @@ export function ICSInvitationCard({
 
   // Writable calendars only (ICS feeds are read-only)
   const writableCalendars = useMemo(
-    () => allCalendars.filter(c => c.type !== 'ics'),
+    () => allCalendars.filter(isCalendarWritable),
     [allCalendars],
   );
 
