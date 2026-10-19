@@ -1,5 +1,5 @@
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../../../shared/types';
-import { ChevronDown, X } from 'lucide-react';
+import { CalendarDays, ChevronDown, Clock, MapPin, Tag, AlignLeft, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import FreeBusyGrid, { FreeBusyRow } from './FreeBusyGrid';
 import { FreeBusyResult, queryFreeBusy } from '../utils/googleCalendarApi';
@@ -64,6 +64,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const [title, setTitle] = useState(editEvent?.title ?? '');
   const [tagId, setTagId] = useState(initialTagId ?? '');
   const [showOptions, setShowOptions] = useState(false);
+  const [showEndDate, setShowEndDate] = useState(false);
   const [isAllday, setIsAllday] = useState(editEvent?.isAllday ?? false);
   const [start, setStart] = useState(() => toDatetimeLocal(editEvent?.start ?? initialStart));
   const [end, setEnd] = useState(() => toDatetimeLocal(editEvent?.end ?? initialEnd));
@@ -408,50 +409,11 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
         <form onSubmit={handleSubmit} className="event-editor-form">
           <div className="modal-body modal-form">
-            {!isEditing && writableCalendars.length > 1 && <div className="form-row event-editor-calendar">
-              <label htmlFor="ev-calendar">{t('createEvent.calendar')}</label>
-              <select
-                id="ev-calendar"
-                value={calendarId}
-                onChange={(e) => { setCalendarId(e.target.value); setAvailability(''); setSensitivity(''); setEventType('default'); }}
-                required
-              >
-                {googleCals.length > 0 || nextcloudCals.length > 0 || exchangeCals.length > 0 ? (
-                  <>
-                    {googleCals.length > 0 && (
-                      <optgroup label="Google Agenda">
-                        {googleCals.map((cal) => (
-                          <option key={cal.id} value={cal.id}>{cal.name}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {nextcloudCals.length > 0 && (
-                      <optgroup label={t('config.nextcloudCalDAV')}>
-                        {nextcloudCals.map((cal) => (
-                          <option key={cal.id} value={cal.id}>{cal.name}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {exchangeCals.length > 0 && (
-                      <optgroup label="Exchange / Office 365">
-                        {exchangeCals.map((cal) => (
-                          <option key={cal.id} value={cal.id}>{cal.name}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </>
-                ) : (
-                  writableCalendars.map((cal) => (
-                    <option key={cal.id} value={cal.id}>{cal.name}</option>
-                  ))
-                )}
-              </select>
-            </div>}
-
             <div className="form-row event-editor-title">
               <label htmlFor="ev-title">{t('createEvent.titleLabel')}</label>
               <input
                 id="ev-title"
+                style={{ borderBottomColor: selectedCalendar?.color ?? 'var(--primary)' }}
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -465,7 +427,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
               {isAllday ? (
                 <>
                   <div className="form-row">
-                    <label htmlFor="ev-start-date">{t('createEvent.start')}</label>
+                    <label htmlFor="ev-start-date"><Clock className="event-editor-row-icon" size={20} aria-hidden="true" />{t('createEvent.start')}</label>
                     <input id="ev-start-date" type="date" value={startDate} onChange={(e) => {
                       const newStartStr = e.target.value;
                       const oldStart = new Date(startDate);
@@ -481,73 +443,43 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
                     }} required />
                   </div>
                   <div className="form-row">
-                    <label htmlFor="ev-end-date">{t('createEvent.end')}</label>
+                    <label htmlFor="ev-end-date"><Clock className="event-editor-row-icon" size={20} aria-hidden="true" />{t('createEvent.end')}</label>
                     <input id="ev-end-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
                   </div>
                 </>
               ) : (
-                <>
-                  <div className="event-datetime-field" role="group" aria-labelledby="ev-start-label">
-                    <span id="ev-start-label" className="event-editor-date-label">{t('createEvent.start')}</span>
-                    <div className="event-datetime-field__controls">
-                      <label htmlFor="ev-start-date-time">
-                        <span>{t('createEvent.date')}</span>
-                        <input
-                          id="ev-start-date-time"
-                          type="date"
-                          value={start.split('T')[0] ?? ''}
-                          onChange={(e) => {
-                            updateStart(`${e.target.value}T${start.split('T')[1] ?? ''}`);
-                            e.currentTarget.blur();
-                            focusTimePicker(startTimeInputRef.current);
-                          }}
-                          required
-                        />
+                <div className="event-editor-time-row">
+                  <Clock className="event-editor-row-icon" size={20} aria-hidden="true" />
+                  <div className="event-editor-time-fields">
+                    <label>
+                      <span>{t('createEvent.date')}</span>
+                      <input type="date" value={start.split('T')[0]} onChange={e => {
+                        updateStart(`${e.target.value}T${start.split('T')[1]}`);
+                        focusTimePicker(startTimeInputRef.current);
+                      }} required />
+                    </label>
+                    <label>
+                      <span>{t('createEvent.start')}</span>
+                      <input ref={startTimeInputRef} type="time" value={start.split('T')[1]} onChange={e => updateStart(`${start.split('T')[0]}T${e.target.value}`)} required />
+                    </label>
+                    <span className="event-editor-time-separator" aria-hidden="true">–</span>
+                    <label>
+                      <span>{t('createEvent.end')}</span>
+                      <input ref={endTimeInputRef} type="time" value={end.split('T')[1]} onChange={e => setEnd(`${end.split('T')[0]}T${e.target.value}`)} required />
+                    </label>
+                    {(showEndDate || start.split('T')[0] !== end.split('T')[0]) ? (
+                      <label className="event-editor-end-date">
+                        <span>{t('createEvent.endDate')}</span>
+                        <input type="date" value={end.split('T')[0]} onChange={e => {
+                          setEnd(`${e.target.value}T${end.split('T')[1]}`);
+                          focusTimePicker(endTimeInputRef.current);
+                        }} required />
                       </label>
-                      <label htmlFor="ev-start-time">
-                        <span>{t('createEvent.time')}</span>
-                        <input
-                          ref={startTimeInputRef}
-                          id="ev-start-time"
-                          type="time"
-                          value={start.split('T')[1] ?? ''}
-                          onChange={(e) => updateStart(`${start.split('T')[0] ?? ''}T${e.target.value}`)}
-                          required
-                        />
-                      </label>
-                    </div>
+                    ) : (
+                      <button type="button" className="event-editor-end-date-toggle" onClick={() => setShowEndDate(true)}>{t('createEvent.differentEndDate')}</button>
+                    )}
                   </div>
-                  <div className="event-datetime-field" role="group" aria-labelledby="ev-end-label">
-                    <span id="ev-end-label" className="event-editor-date-label">{t('createEvent.end')}</span>
-                    <div className="event-datetime-field__controls">
-                      <label htmlFor="ev-end-date-time">
-                        <span>{t('createEvent.date')}</span>
-                        <input
-                          id="ev-end-date-time"
-                          type="date"
-                          value={end.split('T')[0] ?? ''}
-                          onChange={(e) => {
-                            setEnd(`${e.target.value}T${end.split('T')[1] ?? ''}`);
-                            e.currentTarget.blur();
-                            focusTimePicker(endTimeInputRef.current);
-                          }}
-                          required
-                        />
-                      </label>
-                      <label htmlFor="ev-end-time">
-                        <span>{t('createEvent.time')}</span>
-                        <input
-                          ref={endTimeInputRef}
-                          id="ev-end-time"
-                          type="time"
-                          value={end.split('T')[1] ?? ''}
-                          onChange={(e) => setEnd(`${end.split('T')[0] ?? ''}T${e.target.value}`)}
-                          required
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </>
+                </div>
               )}
 
             </div>
@@ -617,6 +549,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
             {!specialGoogleEvent && <div className="form-row event-editor-attendees">
               <label htmlFor="ev-attendees">
+                <Users className="event-editor-row-icon" size={20} aria-hidden="true" />
                 {t('createEvent.attendees')} <span className="event-editor-field-hint">{t('createEvent.optional')}</span>
               </label>
               <AttendeeInput value={attendees} onChange={setAttendees} allEvents={allEvents} />
@@ -639,6 +572,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
             {(!isGoogleCalendar || eventType !== 'birthday') && <div className="form-row event-editor-location">
               <label htmlFor="ev-location">
+                <MapPin className="event-editor-row-icon" size={20} aria-hidden="true" />
                 {t('createEvent.location')} <span className="event-editor-field-hint">{t('createEvent.optional')}</span>
               </label>
               <input
@@ -650,9 +584,10 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
               />
             </div>}
 
-            {(!isGoogleCalendar || eventType !== 'birthday') && <div className="form-row">
+            {(!isGoogleCalendar || eventType !== 'birthday') && <div className="form-row event-editor-description">
               <label htmlFor="ev-desc">
-                {t('createEvent.description')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
+                <AlignLeft className="event-editor-row-icon" size={20} aria-hidden="true" />
+                {t('createEvent.description')}
               </label>
               {isExchangeCalendar ? (
                 <div id="ev-desc" className="calendar-description-editor">
@@ -684,9 +619,51 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
               </label>
             )}
 
+            {!isEditing && writableCalendars.length > 1 && <div className="form-row event-editor-calendar">
+              <label htmlFor="ev-calendar">
+                <CalendarDays className="event-editor-row-icon" size={20} aria-hidden="true" />{t('createEvent.calendar')}</label>
+              <select
+                id="ev-calendar"
+                value={calendarId}
+                onChange={(e) => { setCalendarId(e.target.value); setAvailability(''); setSensitivity(''); setEventType('default'); }}
+                required
+              >
+                {googleCals.length > 0 || nextcloudCals.length > 0 || exchangeCals.length > 0 ? (
+                  <>
+                    {googleCals.length > 0 && (
+                      <optgroup label="Google Agenda">
+                        {googleCals.map((cal) => (
+                          <option key={cal.id} value={cal.id}>{cal.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {nextcloudCals.length > 0 && (
+                      <optgroup label={t('config.nextcloudCalDAV')}>
+                        {nextcloudCals.map((cal) => (
+                          <option key={cal.id} value={cal.id}>{cal.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {exchangeCals.length > 0 && (
+                      <optgroup label="Exchange / Office 365">
+                        {exchangeCals.map((cal) => (
+                          <option key={cal.id} value={cal.id}>{cal.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                ) : (
+                  writableCalendars.map((cal) => (
+                    <option key={cal.id} value={cal.id}>{cal.name}</option>
+                  ))
+                )}
+              </select>
+            </div>}
+
             {tags.length > 0 && (
               <div className="form-row event-editor-tag">
-                <label htmlFor="ev-tag">{t('createEvent.tag', 'Tag / Insight')}</label>
+                <label htmlFor="ev-tag">
+                <Tag className="event-editor-row-icon" size={20} aria-hidden="true" />{t('createEvent.tag', 'Tag / Insight')}</label>
                 <div ref={dropdownRef} style={{ position: 'relative', flex: 1 }}>
                   <div
                     className="custom-select-trigger"

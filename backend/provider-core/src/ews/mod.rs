@@ -434,7 +434,7 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
             None => continue,
         };
 
-        let subject = xml_content(&item_xml, "t:Subject").unwrap_or_default();
+        let subject = xml_decode(&xml_content(&item_xml, "t:Subject").unwrap_or_default());
         let start = xml_content(&item_xml, "t:Start").unwrap_or_default();
         let end = xml_content(&item_xml, "t:End").unwrap_or_default();
         let is_all_day = xml_content(&item_xml, "t:IsAllDayEvent")
@@ -649,9 +649,9 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
 fn xml_decode(s: &str) -> String {
     s.replace("&lt;", "<")
         .replace("&gt;", ">")
-        .replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 #[cfg(test)]
@@ -678,5 +678,18 @@ mod streaming_tests {
         assert!(!contains_mail_change_event(
             "<t:StatusEvent><t:Watermark>x</t:Watermark></t:StatusEvent>"
         ));
+    }
+}
+
+#[cfg(test)]
+mod calendar_title_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_calendar_subject_entities_once_as_plain_text() {
+        let xml = r#"<t:CalendarItem><t:ItemId Id="item" ChangeKey="key"/><t:Subject>R&amp;D &lt;Planning&gt; &quot;Équipe&quot; d&apos;été &amp;quot; &amp;amp;</t:Subject><t:Start>2026-10-19T10:00:00Z</t:Start><t:End>2026-10-19T11:00:00Z</t:End></t:CalendarItem>"#;
+        let events = parse_calendar_events(xml).unwrap();
+        assert_eq!(events[0].subject, "R&D <Planning> \"Équipe\" d'été &quot; &amp;");
+        assert_eq!(xml_decode("R&D, café"), "R&D, café");
     }
 }

@@ -1620,7 +1620,6 @@
 .shared-calendar-item .calendar-item input[type="checkbox"] { display: block !important; position: absolute; width: 1px; height: 1px; opacity: 0; }
 .shared-calendar-item .calendar-item:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 .shared-calendar-item .calendar-edit-input { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; }
-.shared-calendar-group .group-collapse-btn { min-width: 44px; min-height: 44px; }
 .shared-calendar-item .calendar-color-swatch, .shared-calendar-item .calendar-color-picker { width: 44px; height: 44px; }
 .shared-calendar-item .calendar-edit-actions button { min-width: 44px; min-height: 44px; }
 @media (max-width: 600px) {
@@ -1694,3 +1693,48 @@
 @media (max-width: 600px) {
   .event-editor-footer { padding: 12px 14px; }
 }
+
+/* Familiar calendar rows with restrained controls and a prominent title. */
+.event-editor-dialog .event-editor-title input {
+  min-height: 54px;
+  padding: 8px 2px;
+  border: 0;
+  border-bottom: 5px solid var(--primary);
+  border-radius: 0;
+  background: transparent;
+  font-size: calc(28px * var(--font-scale, 1));
+  font-weight: 500;
+}
+.event-editor-dialog .event-editor-title input:focus { outline: none; box-shadow: none; background: var(--bg-hover); }
+.event-editor-row-icon { flex-shrink: 0; color: var(--text-muted); }
+.event-editor-dialog :is(.event-editor-calendar, .event-editor-attendees, .event-editor-location, .event-editor-tag, .event-editor-description) > label,
+.event-editor-date-label,
+.event-editor-dates > .form-row > label { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; position: relative; }
+.event-editor-dialog :is(.event-editor-attendees, .event-editor-location) > label { padding-bottom: 14px; box-sizing: border-box; }
+.event-editor-dialog :is(.event-editor-attendees, .event-editor-location) .event-editor-field-hint { position: absolute; bottom: 0; left: 30px; }
+.event-editor-dialog .event-editor-description { display: grid; grid-template-columns: subgrid; align-items: start; gap: 12px; }
+.event-editor-description > label { min-height: 44px; flex-wrap: wrap; }
+.event-editor-dialog :is(.event-editor-calendar, .event-editor-attendees, .event-editor-location, .event-editor-description) :is(input, select, textarea),
+.event-editor-dates .event-datetime-field__controls input { border: 1px solid transparent; border-radius: 8px; background: var(--bg-hover); }
+.event-editor-dialog :is(.event-editor-calendar, .event-editor-attendees, .event-editor-location, .event-editor-description) :is(input, select, textarea):focus-visible { outline: 2px solid var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent); }
+.event-editor-dialog .event-conference { border-color: transparent; background: var(--bg-hover); }
+@media (max-width: 600px) {
+  .event-editor-dialog .event-editor-title input { font-size: calc(24px * var(--font-scale, 1)); }
+  .event-editor-row-icon { width: 16px; height: 16px; }
+  .event-editor-dialog :is(.event-editor-calendar, .event-editor-attendees, .event-editor-location, .event-editor-tag, .event-editor-description) > label,
+  .event-editor-date-label,
+  .event-editor-dates > .form-row > label { gap: 6px; }
+  .event-editor-dialog :is(.event-editor-attendees, .event-editor-location) .event-editor-field-hint { left: 22px; }
+}
+
+.event-editor-dialog .event-editor-title > label { font-size: calc(18px * var(--font-scale, 1)); }
+.event-editor-time-row { grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.event-editor-time-row > svg { margin-top: 12px; }
+.event-editor-time-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.event-editor-time-fields label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.event-editor-time-fields label > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.event-editor-time-fields input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; padding: 8px; border: 1px solid transparent; border-radius: 8px; background: var(--bg-hover); color: var(--text); font: inherit; font-size: calc(15px * var(--font-scale, 1)); }
+.event-editor-time-fields input:focus-visible { outline: 2px solid var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent); }
+.event-editor-time-separator { color: var(--text-muted); }
+.event-editor-end-date-toggle { min-height: 44px; padding: 4px; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: calc(12px * var(--font-scale, 1)); cursor: pointer; }
+.event-editor-end-date-toggle:focus-visible { outline: 2px solid var(--primary); border-radius: 4px; }

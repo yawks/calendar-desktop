@@ -231,6 +231,8 @@
     }
   },
   "createEvent": {
+    "endDate": "End date",
+    "differentEndDate": "Different end date",
     "moreOptions": "Recurrence, availability and visibility",
     "teamsError": "Could not create the Teams meeting. Check your Teams license and Microsoft account permission, then reconnect the account if needed. You can turn off Teams to create the event without an online meeting.",
     "teamsMeeting": "Add a Teams meeting",

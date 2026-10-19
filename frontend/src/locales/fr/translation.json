@@ -231,6 +231,8 @@
     }
   },
   "createEvent": {
+    "endDate": "Date de fin",
+    "differentEndDate": "Autre date de fin",
     "moreOptions": "Récurrence, disponibilité et visibilité",
     "teamsError": "Impossible de créer la réunion Teams. Vérifiez votre licence Teams et l’autorisation du compte Microsoft, puis reconnectez le compte si nécessaire. Vous pouvez désactiver Teams pour créer l’événement sans réunion en ligne.",
     "teamsMeeting": "Ajouter une réunion Teams",

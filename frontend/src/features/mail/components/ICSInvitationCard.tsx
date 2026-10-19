@@ -497,16 +497,16 @@ export function ICSInvitationCard({
   const { getValidToken: getGoogleToken } = useGoogleAuth();
   const { getValidToken: getExchangeToken } = useExchangeAuth();
 
-  // Writable calendars only (ICS feeds are read-only)
+  // Personal provider calendars only, for both invitation actions and the day preview.
   const writableCalendars = useMemo(
     () => allCalendars.filter(isCalendarWritable),
     [allCalendars],
   );
 
-  // Load events from all providers and combine them
-  const { events: googleEvents, refresh: refreshGoogleEvents } = useGoogleEvents(allCalendars);
-  const { events: ncEvents, refresh: refreshNextcloudEvents } = useNextcloudEvents(allCalendars);
-  const { events: ewsEvents }    = useCalendarEvents(allCalendars);
+  // Load only the calendars eligible for this invitation card.
+  const { events: googleEvents, refresh: refreshGoogleEvents } = useGoogleEvents(writableCalendars);
+  const { events: ncEvents, refresh: refreshNextcloudEvents } = useNextcloudEvents(writableCalendars);
+  const { events: ewsEvents }    = useCalendarEvents(writableCalendars);
   const allEvents = useMemo(
     () => [...googleEvents, ...ncEvents, ...ewsEvents],
     [googleEvents, ncEvents, ewsEvents],
@@ -887,7 +887,7 @@ export function ICSInvitationCard({
       {/* ── Right: day timeline ── */}
       <DayEventsTimeline
         events={dayEvents}
-        calendars={allCalendars}
+        calendars={writableCalendars}
         targetDate={targetDate}
         highlightedEventId={resolveHighlightedId(isCancelled, matchedInSelected?.id, icsData?.isAllday)}
         cancelledEventId={isCancelled ? (matchedInSelected?.id ?? ICS_CANCELLED_ID) : undefined}
