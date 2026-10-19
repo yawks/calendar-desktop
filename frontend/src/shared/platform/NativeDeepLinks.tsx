@@ -9,7 +9,7 @@ import { useLayout } from '../store/LayoutStore';
 import { useTheme } from '../store/ThemeStore';
 import { Archive, ChevronDown, ChevronLeft, ChevronUp, FolderInput, MoreHorizontal, Reply, Trash2 } from 'lucide-react';
 import { ContactAvatar } from '../../features/mail/components/ContactAvatar';
-import { formatDate, senderColor } from '../../features/mail/utils';
+import { decodeHtmlEntities, formatDate, senderColor } from '../../features/mail/utils';
 import { setNotificationOpening } from './notificationOpening';
 import { queryClient } from '../queryClient';
 
@@ -245,7 +245,7 @@ export function NativeDeepLinks() {
     };
   }, [openDeepLink, closeNotification]);
   if (!openingNotification) return null;
-  const sender = openingNotification.sender || '';
+  const sender = decodeHtmlEntities(openingNotification.sender || '');
   const senderAddressMatch = /<([^<>]+)>/.exec(sender);
   const senderEmail = senderAddressMatch?.[1] || sender;
   const senderName = senderAddressMatch ? sender.slice(0, senderAddressMatch.index).trim().replace(/^['"]|['"]$/g, '') : sender;

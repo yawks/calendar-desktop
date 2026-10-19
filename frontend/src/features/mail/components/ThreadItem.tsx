@@ -313,7 +313,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
             ) : (
               <>
                 <span style={{ color: senderColor(thread.from_name || '', isDark) }}>
-                  {thread.from_name}
+                  {decodeHtmlEntities(thread.from_name ?? '')}
                 </span>
                 {thread.message_count > 1 && (
                   <span className="mail-thread-item__count">{thread.message_count}</span>

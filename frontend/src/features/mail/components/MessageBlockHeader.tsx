@@ -16,7 +16,7 @@ import {
 import { MouseEvent, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
-import { formatDate, formatFullDate, formatMailPreview, formatSize, senderColor } from '../utils';
+import { decodeHtmlEntities, formatDate, formatFullDate, formatMailPreview, formatSize, senderColor } from '../utils';
 import { MailMessage, MailRecipient } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import type { MailProvider } from '../providers/MailProvider';
@@ -159,7 +159,7 @@ export function MessageBlockHeader({
   useEffect(() => { if (!expanded) setShowHeaders(false); }, [expanded]);
 
   const sender    = message.from_name ?? message.from_email ?? '?';
-  const fromLabel = message.from_name ?? message.from_email ?? t('mail.unknown', 'Unknown');
+  const fromLabel = decodeHtmlEntities(message.from_name ?? message.from_email ?? t('mail.unknown', 'Unknown'));
   const toLabel   = message.to_recipients.map(r => r.name ?? r.email).join(', ');
   const isMulti   = message.to_recipients.length > 1 || message.cc_recipients.length > 0;
 
