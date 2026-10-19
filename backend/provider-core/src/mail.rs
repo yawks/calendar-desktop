@@ -2354,7 +2354,7 @@ pub async fn mail_get_thread_headers(
     let mut xml = send(&access_token, &ids_xml).await?;
     let mut direct_items = is_draft.unwrap_or(false);
     if needs_thread_headers_fallback(&xml, direct_items) {
-        // A move can invalidate the conversation index while the messages still exist.
+        // Search can find items whose conversation index is empty or invalid after a move.
         let mut folders = find_mail_folder_ids(&access_token).await?;
         for (name, include) in [
             ("deleteditems", include_trash.unwrap_or(false)),
@@ -2465,8 +2465,11 @@ fn needs_thread_headers_fallback(xml: &str, is_draft: bool) -> bool {
         .filter_map(|response| xml_content_ns(response, "m:ResponseCode"))
         .collect();
     !is_draft
-        && codes.iter().any(|code| code == "ErrorItemNotFound")
+        && !codes.is_empty()
         && codes.iter().all(|code| code == "NoError" || code == "ErrorItemNotFound")
+        && (codes.iter().any(|code| code == "ErrorItemNotFound")
+            || (!xml.contains("ResponseClass=\"Error\"")
+                && parse_thread_headers(xml, false).is_empty()))
 }
 
 fn thread_headers_find_request(conversation_id: &str, parent_ids: &str) -> String {
@@ -3305,6 +3308,22 @@ mod outlook_schedule_tests {
     }
 
     #[test]
+    fn empty_successful_conversation_falls_back_without_masking_errors() {
+        let empty = r#"<m:GetConversationItemsResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode><t:Conversation><t:ConversationNodes/></t:Conversation>
+        </m:GetConversationItemsResponseMessage>"#;
+        assert!(needs_thread_headers_fallback(empty, false));
+        assert!(!needs_thread_headers_fallback(empty, true));
+        let populated = empty.replace("<t:ConversationNodes/>", r#"<t:ConversationNodes>
+            <t:ConversationNode><t:Items><t:Message><t:ItemId Id="found"/>
+            <t:Subject>Found</t:Subject></t:Message></t:Items></t:ConversationNode>
+        </t:ConversationNodes>"#);
+        assert!(!needs_thread_headers_fallback(&populated, false));
+        assert!(!needs_thread_headers_fallback("", false));
+        assert!(!needs_thread_headers_fallback(&empty.replace("NoError", "ErrorAccessDenied"), false));
+    }
+
+    #[test]
     fn headers_fallback_does_not_mask_other_errors_or_apply_to_drafts() {
         let missing = "<m:ResponseCode>ErrorItemNotFound</m:ResponseCode>";
         assert!(needs_thread_headers_fallback(missing, false));
@@ -3313,7 +3332,7 @@ mod outlook_schedule_tests {
             "<m:ResponseCode>ErrorAccessDenied</m:ResponseCode>",
             false
         ));
-        assert!(!needs_thread_headers_fallback(
+        assert!(needs_thread_headers_fallback(
             "<m:ResponseCode>NoError</m:ResponseCode>",
             false
         ));

@@ -276,8 +276,8 @@ export function useMailPageLogic() {
     isOptimisticThread ? null : (selectedThread?.conversation_id ?? null),
     allProviders.get(selectedThread?.accountId ?? selectedAccountId) ?? provider,
     selectedFolder,
-    selectedFolder === 'drafts',
-    selectedFolder === 'deleteditems',
+    selectedFolder === 'drafts' && !searchQuery,
+    selectedFolder === 'deleteditems' || !!searchQuery,
   );
 
   // Pending optimistic messages stored in React state (not in RQ cache) so they

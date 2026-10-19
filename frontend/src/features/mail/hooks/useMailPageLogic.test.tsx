@@ -21,6 +21,29 @@ vi.mock('../providers/EwsMailProvider', () => ({ EwsMailProvider: class { provid
 vi.mock('./useMailMutations', () => ({ useMailMutations: () => ({ sendMail: f.send, moveToTrash: f.remove, moveThread: f.move, snoozeThread: f.snooze }) }));
 vi.mock('./useMailQueries', async importOriginal => ({ ...await importOriginal<typeof import('./useMailQueries')>(), useMailFolders: () => f.folderQuery, useAllAccountFolders: () => f.folders, useMailThreads: () => f.query, useAllAccountThreads: () => f.query, useMailConversation: (...args: unknown[]) => { f.conversation(...args); return f.query; }, useMailSearch: () => f.query, useAllAccountSearch: () => f.query, useAllAccountIdentities: () => f.empty }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+for (const folder of ['inbox', 'drafts', 'deleteditems'] as const) {
+  it(`opens search conversations across folders while browsing ${folder}`, async () => {
+    const client = new QueryClient();
+    const root = createRoot(document.createElement('div'));
+    let logic!: ReturnType<typeof useMailPageLogic>;
+    function Harness() { logic = useMailPageLogic(); return null; }
+    try {
+      await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+      await act(async () => logic.selectFolder(folder));
+      await act(async () => logic.handleSearch({ text: 'searched' }));
+      await act(async () => logic.openThread({ conversation_id: 'found', accountId: 'account' } as never));
+      expect(f.conversation.mock.calls.at(-1)).toEqual([
+        'account', 'found', expect.anything(), folder, false, true,
+      ]);
+      await act(async () => logic.handleSearch(null));
+      expect(f.conversation.mock.calls.at(-1)?.slice(4)).toEqual([folder === 'drafts', folder === 'deleteditems']);
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+    }
+  });
+}
+
 it('retires the temporary preview after sending and deletes only the server item', async () => {
   vi.useFakeTimers();
   const client = new QueryClient();
