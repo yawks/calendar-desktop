@@ -365,19 +365,18 @@ export function useMailPageLogic() {
 
     const previousUnreadCount = previousFolderUnreadCountsRef.current.get(countKey);
     previousFolderUnreadCountsRef.current.set(countKey, currentUnreadCount);
-    if (previousUnreadCount === undefined || currentUnreadCount <= previousUnreadCount) return;
+    if (previousUnreadCount === undefined || currentUnreadCount === previousUnreadCount) return;
 
     // Folder metadata can finish polling before the paginated thread query.
-    // A rising unread count means new inbox content is available, so force the
-    // first page fresh instead of leaving the UI parked on an older page/cache.
-    setThreadOffset(0);
+    // Refresh every loaded page: reads in another client can lower the count,
+    // and after pagination only the last page still has an active observer.
+    if (currentUnreadCount > previousUnreadCount) setThreadOffset(0);
     const accountIds = isAllMode
       ? unifiedFolderAccounts.map(account => account.id)
       : [selectedAccountId];
     for (const accountId of accountIds) {
       void queryClient.invalidateQueries({
-        queryKey: [...MAIL_KEYS.threads(accountId, selectedFolder), THREAD_PAGE_SIZE, 0],
-        exact: true,
+        queryKey: MAIL_KEYS.threads(accountId, selectedFolder),
         refetchType: 'all',
       });
     }

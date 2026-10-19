@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { expect, it, vi } from 'vitest';
 import { useMailPageLogic } from './useMailPageLogic';
 import type { ComposerRestoreData } from '../types';
-const f = vi.hoisted(() => ({ accounts: [{ id: 'account', email: 'sender@example.com', displayName: 'Sender' }], empty: [], conversation: vi.fn(), send: vi.fn(), trash: vi.fn(), remove: vi.fn(), move: vi.fn(), snooze: vi.fn(), query: { data: [], errors: [], refetch: vi.fn() }, folders: { allAccountFolders: new Map(), allModeDynamicFolders: [], mergedCounts: {}, errors: [] }, t: (key: string) => key }));
+const f = vi.hoisted(() => ({ accounts: [{ id: 'account', email: 'sender@example.com', displayName: 'Sender' }], empty: [], conversation: vi.fn(), send: vi.fn(), trash: vi.fn(), remove: vi.fn(), move: vi.fn(), snooze: vi.fn(), folderQuery: { data: [] }, query: { data: [], errors: [], refetch: vi.fn() }, folders: { allAccountFolders: new Map(), allModeDynamicFolders: [], mergedCounts: {}, errors: [] }, t: (key: string) => key }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: f.t }) }));
 vi.mock('../../../shared/store/ExchangeAuthStore', () => ({ useExchangeAuth: () => ({ accounts: f.accounts, getValidToken: f.t }) }));
 vi.mock('../../../shared/store/GoogleAuthStore', () => ({ useGoogleAuth: () => ({ accounts: f.empty }) }));
@@ -19,7 +19,7 @@ vi.mock('./useContactSuggestions', () => ({ useContactSuggestions: () => f.empty
 vi.mock('../utils/contactIndex', () => ({ cleanupContactIndex: async () => 0, recordContactObservations: async () => {}, searchContactIndex: async () => [] }));
 vi.mock('../providers/EwsMailProvider', () => ({ EwsMailProvider: class { providerType = 'ews'; capabilities = {}; moveToTrash = f.trash; } }));
 vi.mock('./useMailMutations', () => ({ useMailMutations: () => ({ sendMail: f.send, moveToTrash: f.remove, moveThread: f.move, snoozeThread: f.snooze }) }));
-vi.mock('./useMailQueries', async importOriginal => ({ ...await importOriginal<typeof import('./useMailQueries')>(), useMailFolders: () => f.query, useAllAccountFolders: () => f.folders, useMailThreads: () => f.query, useAllAccountThreads: () => f.query, useMailConversation: (...args: unknown[]) => { f.conversation(...args); return f.query; }, useMailSearch: () => f.query, useAllAccountSearch: () => f.query, useAllAccountIdentities: () => f.empty }));
+vi.mock('./useMailQueries', async importOriginal => ({ ...await importOriginal<typeof import('./useMailQueries')>(), useMailFolders: () => f.folderQuery, useAllAccountFolders: () => f.folders, useMailThreads: () => f.query, useAllAccountThreads: () => f.query, useMailConversation: (...args: unknown[]) => { f.conversation(...args); return f.query; }, useMailSearch: () => f.query, useAllAccountSearch: () => f.query, useAllAccountIdentities: () => f.empty }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 it('retires the temporary preview after sending and deletes only the server item', async () => {
   vi.useFakeTimers();
@@ -224,6 +224,28 @@ for (const outcome of ['failure', 'undo'] as const) {
       await act(async () => root.unmount());
       client.clear();
       vi.useRealTimers();
+    }
+  });
+}
+
+for (const [before, after] of [[2, 1], [1, 2]]) {
+  it(`refreshes all folder pages when unread count changes from ${before} to ${after}`, async () => {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const root = createRoot(document.createElement('div'));
+    function Harness() { useMailPageLogic(); return null; }
+    const original = f.folderQuery.data;
+    try {
+      f.folderQuery.data = [{ folder_id: 'inbox', display_name: 'Inbox', unread_count: before }] as never[];
+      await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+      invalidate.mockClear();
+      f.folderQuery.data = [{ folder_id: 'inbox', display_name: 'Inbox', unread_count: after }] as never[];
+      await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['mail', 'account', 'threads', 'inbox'], refetchType: 'all' });
+    } finally {
+      f.folderQuery.data = original;
+      await act(async () => root.unmount());
+      client.clear();
     }
   });
 }

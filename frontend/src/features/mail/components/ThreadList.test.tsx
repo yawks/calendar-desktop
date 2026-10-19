@@ -101,3 +101,26 @@ describe('ThreadList incoming messages', () => {
     expect(arriving()).toEqual([]);
   });
 });
+
+
+describe('ThreadList unread pagination', () => {
+  it('continues through read-only pages until older unread mail is found', async () => {
+    await render({ filter: 'unread', unreadCount: 1 });
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1);
+    await render({ loadingMore: true });
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1);
+    await render({ threads: threads(100), loadingMore: false });
+    expect(props.onLoadMore).toHaveBeenCalledTimes(2);
+    const rows = threads(101);
+    rows[100].unread_count = 1;
+    await render({ threads: rows });
+    expect(props.onLoadMore).toHaveBeenCalledTimes(2);
+    expect(host.querySelectorAll('[data-thread-id]')).toHaveLength(1);
+    expect(host.querySelector('[data-thread-id="100"]')).not.toBeNull();
+  });
+
+  it('stops at the last page even if the folder counter is stale', async () => {
+    await render({ filter: 'unread', unreadCount: 1, hasMore: false });
+    expect(props.onLoadMore).not.toHaveBeenCalled();
+  });
+});
