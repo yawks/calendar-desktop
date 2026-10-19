@@ -67,6 +67,9 @@ interface Props {
   readonly event: CalendarEvent | null;
   readonly calendar: CalendarConfig | null;
   readonly onClose: () => void;
+  readonly readOnly?: boolean;
+  readonly allowTagEditing?: boolean;
+  readonly anchorElement?: HTMLElement | null;
   readonly onEdit?: () => void;
   readonly onDelete?: () => Promise<void>;
   readonly onCancelEvent?: () => Promise<void>;
@@ -237,7 +240,7 @@ function AttendeeRow({ attendee }: { readonly attendee: Attendee }) {
   );
 }
 
-export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onCancelEvent, onRsvp, isOrganizer, overlayChildren }: Props) {
+export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onCancelEvent, onRsvp, isOrganizer, overlayChildren, readOnly = false, allowTagEditing = !readOnly, anchorElement }: Props) {
   const { t } = useTranslation();
   const { tags, eventTags, setEventTag, removeEventTag } = useTags();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -261,15 +264,47 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (event) {
+      const opener = document.activeElement;
       if (!dialog.open) dialog.showModal();
       setShowDeleteConfirm(false);
       setShowCancelConfirm(false);
       setDeleteError(null);
       setDeleteLoading(false);
+      return () => {
+        dialog.close();
+        if (opener instanceof HTMLElement) opener.focus();
+      };
     } else if (dialog.open) {
       dialog.close();
     }
   }, [event]);
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || !event || !anchorElement) return;
+    const center = () => {
+      const rect = anchorElement.getBoundingClientRect();
+      const width = dialog.offsetWidth;
+      const height = dialog.offsetHeight;
+      const x = (Math.max(0, rect.left) + Math.min(window.innerWidth, rect.right)) / 2;
+      const y = (Math.max(0, rect.top) + Math.min(window.innerHeight, rect.bottom)) / 2;
+      dialog.style.left = `${Math.max(width / 2, Math.min(window.innerWidth - width / 2, x))}px`;
+      dialog.style.top = `${Math.max(height / 2, Math.min(window.innerHeight - height / 2, y))}px`;
+    };
+    center();
+    const observer = new ResizeObserver(center);
+    observer.observe(anchorElement);
+    observer.observe(dialog);
+    window.addEventListener('resize', center);
+    window.addEventListener('scroll', center, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', center);
+      window.removeEventListener('scroll', center, true);
+      dialog.style.removeProperty('left');
+      dialog.style.removeProperty('top');
+    };
+  }, [event, anchorElement]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -362,7 +397,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             >
               <EventMarkers event={event} />{event.title}
             </span>
-            {!calendar?.shared && tags.length > 0 && event && (
+            {allowTagEditing && !calendar?.shared && tags.length > 0 && event && (
               <div style={{ marginLeft: 12 }}>
                 <button
                   ref={tagBtnRef}
@@ -392,7 +427,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                 </button>
               </div>
             )}
-            {!calendar?.shared && showTagDropdown && dropdownPos && createPortal(
+            {allowTagEditing && !calendar?.shared && showTagDropdown && dropdownPos && createPortal(
               <div
                 ref={dropdownRef}
                 className="event-modal-tag-dropdown"
@@ -420,12 +455,12 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
               </div>,
               dialogRef.current ?? document.body
             )}
-            {!calendar?.shared && onEdit && (
+            {!readOnly && !calendar?.shared && onEdit && (
               <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
                 <Pencil size={16} />
               </button>
             )}
-            {!calendar?.shared && onDelete && (
+            {!readOnly && !calendar?.shared && onDelete && (
               <button
                 className="btn-icon modal-close"
                 onClick={() => {
@@ -439,7 +474,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                 <Trash2 size={16} />
               </button>
             )}
-            {!calendar?.shared && onCancelEvent && !event.isCancelled && (
+            {!readOnly && !calendar?.shared && onCancelEvent && !event.isCancelled && (
               <button
                 className="btn-icon modal-close"
                 onClick={() => {
@@ -534,14 +569,14 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
               </div>
             )}
 
-            {!calendar?.shared && !isOrganizer && event.selfRsvpStatus && onRsvp && (
+            {!readOnly && !calendar?.shared && !isOrganizer && event.selfRsvpStatus && onRsvp && (
               <div className="modal-row">
                 <UserCheck size={16} className="modal-icon" style={{ marginTop: 3 }} />
                 <RsvpRow current={event.selfRsvpStatus} onRsvp={onRsvp} />
               </div>
             )}
 
-            {!isOrganizer && event.selfRsvpStatus && !onRsvp && (
+            {!isOrganizer && event.selfRsvpStatus && (readOnly || !onRsvp) && (
               <div className={`modal-row${event.selfRsvpStatus === 'DECLINED' ? ' modal-declined' : event.selfRsvpStatus !== 'ACCEPTED' ? ' modal-tentative' : ''}`}>
                 <UserCheck size={16} className="modal-icon" />
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

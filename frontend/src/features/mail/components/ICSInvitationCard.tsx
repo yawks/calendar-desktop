@@ -19,6 +19,7 @@ import { CALENDAR_KEYS, useCalendarEvents } from '../../calendar/hooks/useCalend
 import { useGoogleEvents, patchGoogleCachedRsvp } from '../../calendar/hooks/useGoogleEvents';
 import { useNextcloudEvents, patchNextcloudCachedRsvp } from '../../calendar/hooks/useNextcloudEvents';
 import { patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
+import EventModal from '../../calendar/components/EventModal';
 import { DayEventsTimeline } from '../../calendar/components/DayEventsTimeline';
 import { respondToGoogleEvent, createEvent as createGoogleEvent } from '../../calendar/utils/googleCalendarApi';
 import { isCalendarWritable } from '../../calendar/utils/sharedCalendars';
@@ -572,6 +573,10 @@ export function ICSInvitationCard({
     return result;
   }, [icsData, allEvents, writableCalIds]);
 
+  const [previewEvent, setPreviewEvent] = useState<CalendarEvent | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setPreviewEvent(null); }, [sourceKey]);
+
   const [userSelectedCalId, setUserSelectedCalId] = useState<string | null>(null);
   // Derived — no state sync needed, avoids extra renders
   const selectedCalId = userSelectedCalId ?? matchedEvent?.calendarId ?? defaultCalendarId;
@@ -635,13 +640,13 @@ export function ICSInvitationCard({
     if (!icsData.isAllday) {
       if (!isReply && !isCancelled && !matchedInSelected && !currentStatus) {
         // REQUEST not yet in calendar and no known response: show a dashed preview
-        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, isAllday: false, category: 'time' as const, selfRsvpStatus: 'NEEDS-ACTION' as const, isUnaccepted: true }];
+        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, location: icsData.location, description: icsData.descriptionHtml || icsData.description, attendees: icsData.attendees, isAllday: false, category: 'time' as const, selfRsvpStatus: 'NEEDS-ACTION' as const, isUnaccepted: true }];
       }
       if (isCancelled && !matchedInSelected) {
         // CANCEL but real event not matched: replace any same-title event with the
         // struck-through ghost so we don't show two blocks side by side.
         const withoutDuplicate = filtered.filter(ev => !titlesMatch(ev.title, icsData.title));
-        return [...withoutDuplicate, { id: ICS_CANCELLED_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, isAllday: false, category: 'time' as const }];
+        return [...withoutDuplicate, { id: ICS_CANCELLED_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, location: icsData.location, description: icsData.descriptionHtml || icsData.description, attendees: icsData.attendees, isAllday: false, category: 'time' as const }];
       }
     }
     return filtered;
@@ -751,7 +756,7 @@ export function ICSInvitationCard({
   const otherAttendees = icsData.attendees.filter(a => !a.isOrganizer);
 
   return (
-    <div className="ics-card">
+    <div className="ics-card" ref={cardRef}>
       {/* ── Left: invitation details ── */}
       <div className="ics-card__main">
         <div className="ics-card__header">
@@ -888,10 +893,19 @@ export function ICSInvitationCard({
       <DayEventsTimeline
         events={dayEvents}
         calendars={writableCalendars}
+        onEventClick={setPreviewEvent}
         targetDate={targetDate}
         highlightedEventId={resolveHighlightedId(isCancelled, matchedInSelected?.id, icsData?.isAllday)}
         cancelledEventId={isCancelled ? (matchedInSelected?.id ?? ICS_CANCELLED_ID) : undefined}
       />
+      {previewEvent && createPortal(<EventModal
+        event={previewEvent}
+        calendar={writableCalendars.find(calendar => calendar.id === previewEvent.calendarId) ?? null}
+        onClose={() => setPreviewEvent(null)}
+        readOnly
+        anchorElement={cardRef.current?.closest<HTMLElement>('.mail-thread-detail')}
+        allowTagEditing={previewEvent.id !== ICS_PREVIEW_ID && previewEvent.id !== ICS_CANCELLED_ID}
+      />, document.body)}
     </div>
   );
 }
