@@ -1738,3 +1738,9 @@
 .event-editor-time-separator { color: var(--text-muted); }
 .event-editor-end-date-toggle { min-height: 44px; padding: 4px; border: 0; background: transparent; color: var(--primary); font: inherit; font-size: calc(12px * var(--font-scale, 1)); cursor: pointer; }
 .event-editor-end-date-toggle:focus-visible { outline: 2px solid var(--primary); border-radius: 4px; }
+
+.event-mail-action { padding: 12px 20px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.event-mail-action .btn-ghost { display: inline-flex; align-items: center; gap: 8px; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-muted); white-space: normal; text-align: left; min-height: 44px; }
+.event-mail-action .btn-ghost:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.event-mail-action__error { margin: 8px 0 0; color: var(--danger); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; }

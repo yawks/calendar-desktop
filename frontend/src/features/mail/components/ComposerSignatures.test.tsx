@@ -146,3 +146,18 @@ it('keeps shared attachments and text available when saving the local draft', as
   await act(async () => root.unmount());
   host.remove();
 });
+
+it.each(['to', 'subject'] as const)('focuses the requested %s field for an event draft', async initialFocus => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const restoreData: ComposerRestoreData = { toRecipients: initialFocus === 'to' ? [] : [{ email: 'host@example.test' }], ccRecipients: [{ email: 'guest@example.test' }], bccRecipients: [], subject: 'Planning', body: '', attachments: [], showCc: true, showBcc: false, isNewMessage: true, replyingToMsg: null, initialFocus };
+  try {
+    await act(async () => root.render(<NewMessageComposer contacts={[]} restoreData={restoreData} fromAccounts={[]} fromAccountId="account" onFromAccountChange={noop} onSend={async () => {}} onCancel={noop} onSaveDraft={noop} />));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(document.activeElement).toBe(host.querySelector(initialFocus === 'to' ? '[data-recipient-field="to"]' : 'input[placeholder="Objet"]'));
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

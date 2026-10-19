@@ -51,7 +51,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
   const [subject, setSubject] = useState(restoreData?.subject ?? '');
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(restoreData?.attachments ?? []);
-  const fieldsModifiedRef = useRef(restoreData?.isShared ?? false);
+  const fieldsModifiedRef = useRef(Boolean(restoreData?.isShared || restoreData?.initialFocus));
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef    = useRef<MailEditorHandle>(null);
@@ -231,7 +231,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
         {/* ── To ── */}
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>
-          <RecipientInput value={toRecipients} onChange={markFieldsModified(setToRecipients)} contacts={contacts} provider={provider} autoFocus={!restoreData} fieldId="to" onDropFromOtherField={handleRecipientDrop('to')} />
+          <RecipientInput value={toRecipients} onChange={markFieldsModified(setToRecipients)} contacts={contacts} provider={provider} autoFocus={!restoreData || restoreData.initialFocus === 'to'} fieldId="to" onDropFromOtherField={handleRecipientDrop('to')} />
           {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
           {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
         </div>
@@ -255,6 +255,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
           <span className="mail-composer__label">{t('mail.subject', 'Objet')}</span>
           <input
             className="mail-composer__input"
+            autoFocus={restoreData?.initialFocus === 'subject'}
             type="text"
             value={subject}
             onChange={e => { fieldsModifiedRef.current = true; setSubject(e.target.value); }}
@@ -279,7 +280,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
         <MailEditor
           ref={editorRef}
           initialHTML={initialHTML}
-          disableAutoFocus={!restoreData}
+          disableAutoFocus={!restoreData || Boolean(restoreData.initialFocus)}
           placeholder={t('mail.bodyPlaceholder', 'Écrivez votre message…')}
           onSend={doSend}
         />

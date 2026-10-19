@@ -4,15 +4,18 @@ import { isDesktopContext, openAppWindow } from './windowService';
 describe('windowService', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('opens and reuses a named browser window on desktop', async () => {
+  it.each(['about:blank', 'https://app.example.test/mail'])('opens or reuses a named browser window without reloading it (%s)', async href => {
     vi.stubGlobal('matchMedia', () => ({ matches: true }));
     const focus = vi.fn();
-    const open = vi.fn(() => ({ focus }));
+    const replace = vi.fn();
+    const open = vi.fn(() => ({ focus, location: { href, replace } }));
     vi.stubGlobal('open', open);
     expect(isDesktopContext()).toBe(true);
     await openAppWindow('/calendar', 'courrier-calendar');
-    expect(open).toHaveBeenCalledWith('/calendar', 'courrier-calendar', 'popup,width=1200,height=800');
+    expect(open).toHaveBeenCalledWith('', 'courrier-calendar', 'popup,width=1200,height=800');
     expect(focus).toHaveBeenCalled();
+    if (href === 'about:blank') expect(replace).toHaveBeenCalledWith('/calendar');
+    else expect(replace).not.toHaveBeenCalled();
   });
 
   it('delegates application windows to Tauri', async () => {

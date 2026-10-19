@@ -1,3 +1,4 @@
+import MailDraftReceiver from './shared/components/MailDraftReceiver';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { QueryPersistenceProvider } from './shared/QueryPersistenceProvider';
 import { OfflineMailProvider } from './shared/store/OfflineMailStore';
@@ -77,8 +78,10 @@ export default function App() {
                         <TagProvider>
                           <BrowserRouter>
                             <NativeDeepLinks />
+                            <MailDraftReceiver />
                             <Routes>
                               <Route path="/" element={isCalendarWindow ? <CalendarWindowView /> : <RootView />} />
+                              <Route path="/mail" element={<RootView />} />
                               <Route path="/calendar" element={<CalendarWindowView />} />
                               <Route path="/config" element={<ConfigPage />} />
                             </Routes>

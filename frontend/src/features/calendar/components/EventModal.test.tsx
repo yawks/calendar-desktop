@@ -6,6 +6,7 @@ import EventModal from './EventModal';
 import i18n from '../../../i18n';
 import type { CalendarConfig, CalendarEvent } from '../../../shared/types';
 const tagging = vi.hoisted(() => ({ setEventTag: vi.fn() }));
+vi.mock('./EventMailAction', () => ({ default: () => null }));
 vi.mock('../store/TagStore', () => ({ useTags: () => ({ tags: [{ id: 'focus', name: 'Focus', color: '#123456' }], eventTags: {}, setEventTag: tagging.setEventTag, removeEventTag: vi.fn() }) }));
 const calendar: CalendarConfig = { id: 'cal', name: 'Personal calendar', color: '#123456', url: '', visible: true, type: 'google' };
 const event: CalendarEvent = { id: 'event', calendarId: 'cal', title: 'R&D planning', start: '2026-10-19T10:00:00Z', end: '2026-10-19T11:00:00Z', isAllday: false, category: 'time', location: 'Meeting room', description: 'Detailed description', selfRsvpStatus: 'NEEDS-ACTION', attendees: [{ email: 'guest@example.test', name: 'Guest', status: 'ACCEPTED' }] };

@@ -20,7 +20,8 @@ export async function openAppWindow(path: string, name: string, title = 'Courrie
     globalThis.location.assign(path);
     return null;
   }
-  const child = globalThis.open(path, name, 'popup,width=1200,height=800');
+  const child = globalThis.open('', name, 'popup,width=1200,height=800');
+  if (child?.location.href === 'about:blank') child.location.replace(path);
   child?.focus();
   return child;
 }

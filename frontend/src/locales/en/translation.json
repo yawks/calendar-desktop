@@ -195,6 +195,13 @@
     "nextMonth": "Next month"
   },
   "eventModal": {
+    "openingMail": "Opening draft…",
+    "mailWindowError": "Unable to transfer the draft. Open and unlock the mail window, then try again.",
+
+    "emailParticipants": "Email participants",
+    "finishCurrentDraft": "Finish the current draft before creating another message.",
+    "mailAccountUnavailable": "The mail account for this calendar is no longer available.",
+
     "edit": "Edit",
     "delete": "Delete",
     "deleteConfirm": "Delete this event?",

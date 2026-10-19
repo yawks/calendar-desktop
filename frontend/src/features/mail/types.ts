@@ -82,6 +82,7 @@ export interface MailFolder {
 }
 
 export interface ComposerRestoreData {
+  initialFocus?: 'to' | 'subject';
   toRecipients: import('./components/RecipientInput').RecipientEntry[];
   ccRecipients: import('./components/RecipientInput').RecipientEntry[];
   bccRecipients: import('./components/RecipientInput').RecipientEntry[];

@@ -462,6 +462,31 @@ export default function MailApp() {
     }
   }, [composing]);
 
+  const handledEventDraftRef = useRef<ComposerRestoreData | null>(null);
+  useEffect(() => {
+    const draft = location.state?.eventDraft as ComposerRestoreData | undefined;
+    if (!draft || handledEventDraftRef.current === draft || !allMailAccounts.length) return;
+    handledEventDraftRef.current = draft;
+    navigate(location.pathname + location.search, { replace: true, state: null });
+    if (composing || replyingTo) {
+      setError(t('eventModal.finishCurrentDraft'));
+      return;
+    }
+    if (!allMailAccounts.some(account => account.id === draft.fromAccountId)) {
+      setError(t('eventModal.mailAccountUnavailable'));
+      return;
+    }
+    sharedDraftActiveRef.current = false;
+    selectAccount(draft.fromAccountId!);
+    setNewRecipientsDraft(draft);
+    setComposingAccountId(draft.fromAccountId!);
+    setSelectedIdentityId('');
+    setSelectedThread(null);
+    setSelectedThreadIds(new Set());
+    pushMobileScreen('composer');
+    setComposing(true);
+  }, [location.state, allMailAccounts]);
+
   const startNewMessage = () => {
     const savedShare = vault.read<ComposerRestoreData | null>(sharedDraftKey, null);
     sharedDraftActiveRef.current = Boolean(savedShare);
@@ -542,8 +567,9 @@ export default function MailApp() {
     };
   }, [allMailAccounts.length, composing, replyingTo, selectedThread?.conversation_id]);
 
-  const composerIdentities = selectedFolderAccountId
-    ? accountIdentities.filter(identity => identity.accountId === selectedFolderAccountId)
+  const composerIdentityAccountId = newRecipientsDraft?.initialFocus ? composingAccountId : selectedFolderAccountId;
+  const composerIdentities = composerIdentityAccountId
+    ? accountIdentities.filter(identity => identity.accountId === composerIdentityAccountId)
     : accountIdentities;
 
   // Pre-select the identity matching the recipients of a message being replied to.

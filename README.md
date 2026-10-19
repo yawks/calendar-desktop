@@ -23,6 +23,8 @@ La découverte respecte les droits accordés par le serveur : Google propose le 
 
 À la création d’un événement Google Agenda ou Exchange/EWS, un interrupteur activé par défaut ajoute respectivement Google Meet ou Microsoft Teams. Le lien Teams est généré par Microsoft Graph et ajouté à la description et aux invitations EWS ; le compte doit disposer d’une licence Teams et du consentement `OnlineMeetings.ReadWrite` (une reconnexion ou l’accord de l’administrateur peut être nécessaire). Si la génération échoue, la création est interrompue et l’erreur s’affiche ; désactiver l’interrupteur permet de créer un événement classique. Le lien est conservé lors des modifications. La réunion Teams est indépendante : sa suppression côté Teams n’est pas synchronisée avec la suppression de l’événement EWS. CalDAV/Nextcloud ne génère pas de conférence ; IMAP/SMTP et JMAP ne proposent pas de calendrier dans Courrier.
 
+Depuis le détail d’un événement, dans le calendrier ou l’aperçu d’une invitation reçue, « Écrire aux participants » ouvre un brouillon avec l’organisateur en destinataire et les autres participants en copie, en excluant vos adresses de comptes configurés. Le compte Gmail ou Exchange lié au calendrier est utilisé ; pour CalDAV et ICS, un compte mail correspondant à l’adresse du calendrier doit être configuré (IMAP/SMTP et JMAP compris). Le focus va au champ À lorsqu’il est vide, sinon à l’objet. L’enregistrement et l’envoi utilisent ensuite le composeur habituel.
+
 ## Développement
 
 ```bash

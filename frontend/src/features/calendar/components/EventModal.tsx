@@ -1,4 +1,5 @@
 import EventMarkers from './EventMarkers';
+import EventMailAction from './EventMailAction';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -634,6 +635,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             )}
 
           </div>
+          {calendar && <EventMailAction event={event} calendar={calendar} onClose={onClose} />}
         </div>
       )}
       {overlayChildren && dialogRef.current && createPortal(overlayChildren, dialogRef.current)}

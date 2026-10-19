@@ -195,6 +195,13 @@
     "nextMonth": "Mois suivant"
   },
   "eventModal": {
+    "openingMail": "Ouverture du brouillon…",
+    "mailWindowError": "Impossible de transmettre le brouillon. Ouvrez et déverrouillez la fenêtre mail, puis réessayez.",
+
+    "emailParticipants": "Écrire aux participants",
+    "finishCurrentDraft": "Terminez le brouillon en cours avant de créer un autre message.",
+    "mailAccountUnavailable": "Le compte mail de ce calendrier n’est plus disponible.",
+
     "edit": "Modifier",
     "delete": "Supprimer",
     "deleteConfirm": "Supprimer cet événement ?",
