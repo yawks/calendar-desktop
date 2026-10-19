@@ -1,4 +1,5 @@
 import { fileService } from '../../../shared/services/fileService';
+import { gmailRequest } from './gmailRequest';
 
 import type { MailAttachment, MailFolder, MailIdentity, MailMessage, MailRecipient, MailSearchQuery, MailThread } from '../types';
 import type { Contact, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
@@ -325,7 +326,7 @@ export class GmailMailProvider implements MailProvider {
 
   private async gFetch<T>(token: string, path: string, options?: RequestInit): Promise<T> {
     const url = path.startsWith('http') ? path : `https://www.googleapis.com/gmail/v1${path}`;
-    const res = await fetch(url, {
+    const res = await gmailRequest(this.userEmail || this.accountId, url, {
       ...options,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -400,8 +401,7 @@ export class GmailMailProvider implements MailProvider {
 
     if (!res.threads?.length) return [];
 
-    // Fetch thread metadata in batches to stay within Gmail's rate limits.
-    // Firing all 50 in parallel triggers 429s; 10 concurrent is safe.
+    // Bound pending work; gFetch also paces requests across batches and instances.
     const CONCURRENCY = 10;
     const results: (MailThread | null)[] = [];
     for (let i = 0; i < res.threads.length; i += CONCURRENCY) {
