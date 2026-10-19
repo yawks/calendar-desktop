@@ -86,6 +86,7 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
     setEvents(results);
     setErrors(newErrors);
     setLoading(false);
+    return results;
   }, [getValidToken]);
 
   const calKey = calendars

@@ -95,6 +95,7 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
     setEvents(results);
     setErrors(newErrors);
     setLoading(false);
+    return results;
   }, []);
 
   const calKey = calendars

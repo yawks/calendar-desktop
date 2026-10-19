@@ -227,6 +227,23 @@
   padding: 10px 12px;
 }
 
+/* Keep form-field padding from hiding the compact toolbar's selected text. */
+.calendar-description-editor .mail-format-toolbar select.mail-format-select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 90px;
+  min-height: 44px;
+  padding: 0 8px;
+  background-image: none;
+  appearance: auto;
+  -webkit-appearance: auto;
+}
+
+.calendar-description-editor .mail-format-select--size {
+  min-width: 64px;
+  max-width: none;
+}
+
 .config-form {
   border: 1px solid var(--border);
   border-radius: 8px;

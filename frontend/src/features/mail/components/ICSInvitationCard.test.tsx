@@ -7,7 +7,7 @@ const fixtures = vi.hoisted(() => ({ calendars: [] as CalendarConfig[], events: 
 vi.mock('../../calendar/store/CalendarStore', () => ({ useCalendars: () => ({ calendars: fixtures.calendars }) }));
 vi.mock('../../../shared/store/GoogleAuthStore', () => ({ useGoogleAuth: () => ({ getValidToken: vi.fn() }) }));
 vi.mock('../../../shared/store/ExchangeAuthStore', () => ({ useExchangeAuth: () => ({ getValidToken: vi.fn() }) }));
-vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
+vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn(), getQueryData: vi.fn() }) }));
 vi.mock('../../calendar/hooks/useGoogleEvents', () => ({ useGoogleEvents: (calendars: CalendarConfig[]) => { fixtures.google(calendars); return { events: fixtures.events.filter(e => calendars.some(c => c.id === e.calendarId && c.type === 'google')), refresh: vi.fn() }; }, patchGoogleCachedRsvp: vi.fn() }));
 vi.mock('../../calendar/hooks/useNextcloudEvents', () => ({ useNextcloudEvents: (calendars: CalendarConfig[]) => { fixtures.nextcloud(calendars); return { events: fixtures.events.filter(e => calendars.some(c => c.id === e.calendarId && c.type === 'nextcloud')), refresh: vi.fn() }; }, patchNextcloudCachedRsvp: vi.fn() }));
 vi.mock('../../calendar/hooks/useCalendarQueries', () => ({ CALENDAR_KEYS: { events: vi.fn() }, useCalendarEvents: (calendars: CalendarConfig[]) => { fixtures.exchange(calendars); return { events: fixtures.events.filter(e => calendars.some(c => c.id === e.calendarId && c.type === 'exchange')) }; } }));
@@ -51,5 +51,19 @@ it('excludes shared calendars from fetching, selection and the day preview for e
     expect(invitationPreview).toBeDefined();
     await act(async () => preview.onEventClick(invitationPreview));
     expect(fixtures.detail).toHaveBeenLastCalledWith(expect.objectContaining({ allowTagEditing: false }));
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it.each(['google', 'exchange', 'nextcloud'] as const)('keeps the preview and rejects an RSVP without creating a replacement on %s', async (type) => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  fixtures.calendars = [{ id: type, type, name: type, url: 'https://calendar.example.test/', color: '#123456', visible: true, ownerEmail: 'me@example.test' }];
+  fixtures.events = [];
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<ICSInvitationCard currentUserEmail="me@example.test" source={{ kind: 'text', icsText: 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:invite\r\nDTSTART:20261019T120000Z\r\nDTEND:20261019T130000Z\r\nSUMMARY:Invitation\r\nEND:VEVENT\r\nEND:VCALENDAR' }} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('.ics-btn--accept')!.click());
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('invitation');
+    expect(fixtures.timeline.mock.calls.at(-1)![0].events).toEqual([expect.objectContaining({ id: '__ics_preview__', title: 'Invitation' })]);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

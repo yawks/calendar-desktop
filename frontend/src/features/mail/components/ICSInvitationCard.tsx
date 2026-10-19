@@ -638,9 +638,9 @@ export function ICSInvitationCard({
       isUnaccepted: currentStatus !== 'ACCEPTED',
     } : ev);
     if (!icsData.isAllday) {
-      if (!isReply && !isCancelled && !matchedInSelected && !currentStatus) {
-        // REQUEST not yet in calendar and no known response: show a dashed preview
-        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, location: icsData.location, description: icsData.descriptionHtml || icsData.description, attendees: icsData.attendees, isAllday: false, category: 'time' as const, selfRsvpStatus: 'NEEDS-ACTION' as const, isUnaccepted: true }];
+      if (!isReply && !isCancelled && !matchedInSelected) {
+        // Keep the invitation visible until the real calendar event is available.
+        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, location: icsData.location, description: icsData.descriptionHtml || icsData.description, attendees: icsData.attendees, isAllday: false, category: 'time' as const, selfRsvpStatus: currentStatus ?? 'NEEDS-ACTION' as const, isUnaccepted: currentStatus !== 'ACCEPTED', isDeclined: currentStatus === 'DECLINED' }];
       }
       if (isCancelled && !matchedInSelected) {
         // CANCEL but real event not matched: replace any same-title event with the
@@ -665,40 +665,42 @@ export function ICSInvitationCard({
     setActionError(null);
     setActionSuccess(null);
     try {
-      if (isInCalendar && matchedInSelected) {
-        await executeRsvp(selectedCal, matchedInSelected, status, getGoogleToken, getExchangeToken);
-        saveStoredRsvp(icsData, status);
-        // Patch the IndexedDB cache so the calendar view reflects the change
-        const { id: eventId, calendarId } = matchedInSelected;
-        if (selectedCal.type === 'exchange') {
-          await patchEWSCachedRsvp(calendarId, eventId, status);
-        } else if (selectedCal.type === 'google') {
-          await patchGoogleCachedRsvp(calendarId, eventId, status);
+      let event = matchedInSelected;
+      if (!event) {
+        // A stale or still-loading cache must never turn an RSVP into a new meeting.
+        let refreshed: CalendarEvent[] = [];
+        if (selectedCal.type === 'google') {
+          refreshed = await refreshGoogleEvents(selectedCal.id) ?? [];
         } else if (selectedCal.type === 'nextcloud') {
-          await patchNextcloudCachedRsvp(calendarId, eventId, status);
-        }
-        const successMsgMap: Record<string, string> = { ACCEPTED: t('invitation.acceptedSuccess'), DECLINED: t('invitation.declinedSuccess'), TENTATIVE: t('invitation.tentativeSuccess') };
-        setActionSuccess(successMsgMap[status] ?? '');
-      } else {
-        // Event not yet in calendar: create it with the given status
-        await addToCalendar(selectedCal, icsData, getGoogleToken, getExchangeToken);
-        saveStoredRsvp(icsData, status);
-        if (selectedCal.type === 'nextcloud') {
-          await refreshNextcloudEvents(selectedCal.id);
-        } else if (selectedCal.type === 'google') {
-          await refreshGoogleEvents(selectedCal.id);
+          refreshed = await refreshNextcloudEvents(selectedCal.id) ?? [];
         } else if (selectedCal.type === 'exchange') {
           await queryClient.invalidateQueries({ queryKey: CALENDAR_KEYS.events(selectedCal.id) });
+          refreshed = queryClient.getQueryData<CalendarEvent[]>(CALENDAR_KEYS.events(selectedCal.id)) ?? [];
         }
-        setActionSuccess(t('invitation.addedSuccess'));
+        event = matchEvent(icsData.title, icsData.start, icsData.end,
+          refreshed.filter(candidate => candidate.calendarId === selectedCal.id));
       }
+      if (!event) throw new Error(t('invitation.notInCalendar'));
+      await executeRsvp(selectedCal, event, status, getGoogleToken, getExchangeToken);
+      saveStoredRsvp(icsData, status);
+      // Patch the IndexedDB cache so the calendar view reflects the change
+      const { id: eventId, calendarId } = event;
+      if (selectedCal.type === 'exchange') {
+        await patchEWSCachedRsvp(calendarId, eventId, status);
+      } else if (selectedCal.type === 'google') {
+        await patchGoogleCachedRsvp(calendarId, eventId, status);
+      } else if (selectedCal.type === 'nextcloud') {
+        await patchNextcloudCachedRsvp(calendarId, eventId, status);
+      }
+      const successMsgMap: Record<string, string> = { ACCEPTED: t('invitation.acceptedSuccess'), DECLINED: t('invitation.declinedSuccess'), TENTATIVE: t('invitation.tentativeSuccess') };
+      setActionSuccess(successMsgMap[status] ?? '');
     } catch (e) {
       setRsvpOverride(prevOverride); // rollback optimistic update
       setActionError(String(e));
     } finally {
       setLoadingAction(null);
     }
-  }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride, t, refreshNextcloudEvents, refreshGoogleEvents, queryClient]);
+  }, [selectedCal, icsData, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride, t, refreshNextcloudEvents, refreshGoogleEvents, queryClient]);
 
   const handleAddToCalendar = useCallback(async () => {
     if (!selectedCal || !icsData) return;
@@ -885,8 +887,8 @@ export function ICSInvitationCard({
           )}
         </div>)}
 
-        {actionError   && <p className="ics-card__feedback ics-card__feedback--error">{actionError}</p>}
-        {actionSuccess && <p className="ics-card__feedback ics-card__feedback--success">{actionSuccess}</p>}
+        {actionError   && <p role="alert" className="ics-card__feedback ics-card__feedback--error">{actionError}</p>}
+        {actionSuccess && <p role="status" className="ics-card__feedback ics-card__feedback--success">{actionSuccess}</p>}
       </div>
 
       {/* ── Right: day timeline ── */}
