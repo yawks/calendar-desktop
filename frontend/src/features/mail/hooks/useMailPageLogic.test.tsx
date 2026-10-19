@@ -232,6 +232,12 @@ for (const [before, after] of [[2, 1], [1, 2]]) {
   it(`refreshes all folder pages when unread count changes from ${before} to ${after}`, async () => {
     const client = new QueryClient();
     const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const loadedPage = ['mail', 'account', 'threads', 'inbox', 50, 0];
+    const restoredPage = ['mail', 'account', 'threads', 'inbox', 50, 50];
+    const listThreads = vi.fn().mockResolvedValue([]);
+    await client.fetchQuery({ queryKey: loadedPage, queryFn: listThreads });
+    client.setQueryData(restoredPage, []);
+    listThreads.mockClear();
     const root = createRoot(document.createElement('div'));
     function Harness() { useMailPageLogic(); return null; }
     const original = f.folderQuery.data;
@@ -241,7 +247,11 @@ for (const [before, after] of [[2, 1], [1, 2]]) {
       invalidate.mockClear();
       f.folderQuery.data = [{ folder_id: 'inbox', display_name: 'Inbox', unread_count: after }] as never[];
       await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['mail', 'account', 'threads', 'inbox'], refetchType: 'all' });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['mail', 'account', 'threads', 'inbox'], refetchType: 'none' });
+      expect(listThreads).toHaveBeenCalledTimes(1);
+      expect(client.getQueryState(loadedPage)?.status).toBe('success');
+      expect(client.getQueryState(restoredPage)?.status).toBe('success');
+      expect(client.getQueryState(restoredPage)?.isInvalidated).toBe(true);
     } finally {
       f.folderQuery.data = original;
       await act(async () => root.unmount());

@@ -154,6 +154,32 @@
   word-break: break-word;
 }
 
+.native-android .event-details-dialog {
+  top: 0 !important;
+  left: 0 !important;
+  transform: none;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--bg);
+}
+.native-android .event-details-dialog > .modal { height: 100%; max-height: none; border-radius: 0; animation: none; }
+.native-android .event-details-dialog .modal-header { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 12px; }
+.native-android .event-details-dialog .modal-title { flex: none; }
+.native-android .event-details-actions { order: -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.native-android .event-details-tags { margin-left: 0; }
+.native-android .event-details-actions > button { min-width: 44px; min-height: 44px; }
+.native-android .event-details-actions .event-modal-tag-button { min-height: 44px; }
+.native-android .event-details-close { margin-left: auto; }
+.native-android .event-details-actions button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.native-android .event-details-dialog .modal-body { flex: 1; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; }
+
 .mail-mobile-back { display: none; }
 .mail-mobile-detail-nav { display: none; }
 .mail-mobile-account-picker { display: none; }

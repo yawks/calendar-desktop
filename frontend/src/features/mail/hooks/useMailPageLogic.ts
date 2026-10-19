@@ -377,7 +377,12 @@ export function useMailPageLogic() {
     for (const accountId of accountIds) {
       void queryClient.invalidateQueries({
         queryKey: MAIL_KEYS.threads(accountId, selectedFolder),
-        refetchType: 'all',
+        refetchType: 'none',
+      });
+      // Restored pages have no queryFn until mounted; keep them stale for reopening.
+      void queryClient.refetchQueries({
+        queryKey: MAIL_KEYS.threads(accountId, selectedFolder),
+        predicate: query => typeof query.options.queryFn === 'function',
       });
     }
   }, [folderUnreadCounts, isAllMode, queryClient, selectedAccountId, selectedFolder, unifiedFolderAccounts]);

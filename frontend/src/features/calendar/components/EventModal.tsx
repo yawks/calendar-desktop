@@ -388,7 +388,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   };
 
   return (
-    <dialog ref={dialogRef} className="modal-dialog">
+    <dialog ref={dialogRef} className="modal-dialog event-details-dialog">
       {event && (
         <div className="modal">
           <div className="modal-header" style={{ background: calendar?.color || '#888' }}>
@@ -398,102 +398,104 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             >
               <EventMarkers event={event} />{event.title}
             </span>
-            {allowTagEditing && !calendar?.shared && tags.length > 0 && event && (
-              <div style={{ marginLeft: 12 }}>
-                <button
-                  ref={tagBtnRef}
-                  type="button"
-                  className="event-modal-tag-button"
-                  onClick={() => {
-                    if (!showTagDropdown && tagBtnRef.current && dialogRef.current) {
-                      const btn = tagBtnRef.current.getBoundingClientRect();
-                      const dlg = dialogRef.current.getBoundingClientRect();
-                      setDropdownPos({ top: btn.bottom - dlg.top + 6, left: btn.left - dlg.left });
-                    }
-                    setShowTagDropdown((prev) => !prev);
-                  }}
-                  aria-label={t('eventModal.selectTag', 'Select tag')}
-                  style={{ minWidth: 100 }}
-                >
-                  <span style={{
-                    width: 10, height: 10, borderRadius: '50%',
-                    backgroundColor: selectedTag?.color ?? 'transparent',
-                    border: selectedTag ? 'none' : '1px solid rgba(255,255,255,0.6)',
-                    flexShrink: 0,
-                  }} />
-                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>
-                    {selectedTag ? selectedTag.name : t('eventModal.noTag', 'No tag')}
-                  </span>
-                  <ChevronDown size={14} />
-                </button>
-              </div>
-            )}
-            {allowTagEditing && !calendar?.shared && showTagDropdown && dropdownPos && createPortal(
-              <div
-                ref={dropdownRef}
-                className="event-modal-tag-dropdown"
-                style={{ position: 'absolute', top: dropdownPos.top, left: dropdownPos.left, zIndex: 99999 }}
-              >
-                <button
-                  type="button"
-                  onClick={() => { if (tagKey) removeEventTag(tagKey); setShowTagDropdown(false); }}
-                  style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer' }}
-                >
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', border: '1px solid var(--border)', display: 'inline-block' }} />
-                  <span>{t('eventModal.noTag', 'No tag')}</span>
-                </button>
-                {tags.map((tag) => (
+            <div className="event-details-actions">
+              {allowTagEditing && !calendar?.shared && tags.length > 0 && event && (
+                <div className="event-details-tags">
                   <button
-                    key={tag.id}
+                    ref={tagBtnRef}
                     type="button"
-                    onClick={() => { if (tagKey) setEventTag(tagKey, tag.id); setShowTagDropdown(false); }}
+                    className="event-modal-tag-button"
+                    onClick={() => {
+                      if (!showTagDropdown && tagBtnRef.current && dialogRef.current) {
+                        const btn = tagBtnRef.current.getBoundingClientRect();
+                        const dlg = dialogRef.current.getBoundingClientRect();
+                        setDropdownPos({ top: btn.bottom - dlg.top + 6, left: btn.left - dlg.left });
+                      }
+                      setShowTagDropdown((prev) => !prev);
+                    }}
+                    aria-label={t('eventModal.selectTag', 'Select tag')}
+                    style={{ minWidth: 100 }}
+                  >
+                    <span style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      backgroundColor: selectedTag?.color ?? 'transparent',
+                      border: selectedTag ? 'none' : '1px solid rgba(255,255,255,0.6)',
+                      flexShrink: 0,
+                    }} />
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>
+                      {selectedTag ? selectedTag.name : t('eventModal.noTag', 'No tag')}
+                    </span>
+                    <ChevronDown size={14} />
+                  </button>
+                </div>
+              )}
+              {allowTagEditing && !calendar?.shared && showTagDropdown && dropdownPos && createPortal(
+                <div
+                  ref={dropdownRef}
+                  className="event-modal-tag-dropdown"
+                  style={{ position: 'absolute', top: dropdownPos.top, left: dropdownPos.left, zIndex: 99999 }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { if (tagKey) removeEventTag(tagKey); setShowTagDropdown(false); }}
                     style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer' }}
                   >
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: tag.color, display: 'inline-block' }} />
-                    <span>{tag.name}</span>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', border: '1px solid var(--border)', display: 'inline-block' }} />
+                    <span>{t('eventModal.noTag', 'No tag')}</span>
                   </button>
-                ))}
-              </div>,
-              dialogRef.current ?? document.body
-            )}
-            {!readOnly && !calendar?.shared && onEdit && (
-              <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
-                <Pencil size={16} />
+                  {tags.map((tag) => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => { if (tagKey) setEventTag(tagKey, tag.id); setShowTagDropdown(false); }}
+                      style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer' }}
+                    >
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: tag.color, display: 'inline-block' }} />
+                      <span>{tag.name}</span>
+                    </button>
+                  ))}
+                </div>,
+                dialogRef.current ?? document.body
+              )}
+              {!readOnly && !calendar?.shared && onEdit && (
+                <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
+                  <Pencil size={16} />
+                </button>
+              )}
+              {!readOnly && !calendar?.shared && onDelete && (
+                <button
+                  className="btn-icon modal-close"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteLoading(false);
+                    if (event.isRecurringInstance) void deleteEvent();
+                    else setShowDeleteConfirm(true);
+                  }}
+                  aria-label={t('eventModal.delete')}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+              {!readOnly && !calendar?.shared && onCancelEvent && !event.isCancelled && (
+                <button
+                  className="btn-icon modal-close"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteError(null);
+                    setDeleteLoading(false);
+                    if (event.isRecurringInstance) void cancelEvent();
+                    else setShowCancelConfirm(true);
+                  }}
+                  aria-label={t('eventModal.cancelEvent')}
+                  title={t('eventModal.cancelEvent')}
+                >
+                  <Ban size={16} />
+                </button>
+              )}
+              <button type="button" className="btn-icon modal-close event-details-close" onClick={onClose} aria-label={t('eventModal.close')} title={t('eventModal.close')}>
+                <X size={18} />
               </button>
-            )}
-            {!readOnly && !calendar?.shared && onDelete && (
-              <button
-                className="btn-icon modal-close"
-                onClick={() => {
-                  setDeleteError(null);
-                  setDeleteLoading(false);
-                  if (event.isRecurringInstance) void deleteEvent();
-                  else setShowDeleteConfirm(true);
-                }}
-                aria-label={t('eventModal.delete')}
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
-            {!readOnly && !calendar?.shared && onCancelEvent && !event.isCancelled && (
-              <button
-                className="btn-icon modal-close"
-                onClick={() => {
-                  setShowDeleteConfirm(false);
-                  setDeleteError(null);
-                  setDeleteLoading(false);
-                  if (event.isRecurringInstance) void cancelEvent();
-                  else setShowCancelConfirm(true);
-                }}
-                aria-label={t('eventModal.cancelEvent')}
-                title={t('eventModal.cancelEvent')}
-              >
-                <Ban size={16} />
-              </button>
-            )}
-            <button className="btn-icon modal-close" onClick={onClose} aria-label={t('eventModal.close')}>
-              <X size={18} />
-            </button>
+            </div>
           </div>
 
           {showDeleteConfirm && (

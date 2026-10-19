@@ -17,7 +17,6 @@ export function eventMarkers(event: Pick<CalendarEvent, 'availability' | 'sensit
   if (event.eventType === 'workingLocation' || event.availability === 'WorkingElsewhere') markers.push('🏠');
   if (event.eventType === 'birthday') markers.push('🎂');
   if (['Free', 'transparent', 'TRANSPARENT'].includes(event.availability ?? '')) markers.push('○');
-  if (event.availability === 'Tentative') markers.push('?');
   return markers.join(' ');
 }
 

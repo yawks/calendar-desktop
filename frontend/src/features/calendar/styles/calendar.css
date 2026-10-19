@@ -872,6 +872,7 @@
 
 .modal-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
@@ -879,7 +880,9 @@
 }
 
 .modal-title {
-  flex: 1;
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: calc(16px * var(--font-scale, 1));
   font-weight: 500;
   color: #fff;
@@ -897,6 +900,9 @@
   background: rgba(255,255,255,0.18) !important;
   color: #fff;
 }
+
+.event-details-actions { display: contents; }
+.event-details-tags { margin-left: 12px; min-width: 0; }
 
 .event-modal-tag-button {
   display: inline-flex;
