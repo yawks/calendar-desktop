@@ -651,6 +651,19 @@
     }
   },
   "settings": {
+    "androidCalendars": {
+      "title": "Android calendars",
+      "hint": "Select calendars to view as read-only in Android calendar apps. They update while Courrier is open and unlocked.",
+      "privacy": "Copies remain accessible outside the vault to apps allowed to read your calendars. A calendar already synced by Android may appear twice.",
+      "removal": "Deselecting a calendar or removing it from Courrier deletes only its Android copy. Available dates match the periods synced by Courrier; recurring events are published as individual occurrences, without extra reminders.",
+      "empty": "Add a calendar in Courrier to display it in Android.",
+      "save": "Apply selection",
+      "refresh": "Refresh",
+      "syncing": "Updating Android copies…",
+      "saved": "Selection applied. Copies follow Courrier synchronizations.",
+      "error": "Unable to update Android copies. Check the Calendar permission in Android settings, then try again.",
+      "sourceError": "Some calendars could not be refreshed. Their latest Android copies are preserved. Check the connection or account, then refresh."
+    },
     "mailContentRules": {
       "title": "Hidden email content",
       "hint": "Hide recurring text in messages and previews across all accounts. Original emails are preserved. Matching tolerates differences in case, whitespace and apostrophes. Paste the complete text without HTML tags. Use * for variable content between fixed text, for example: You don’t often get email from *. Learn why this is important. Rules containing only * are ignored.",

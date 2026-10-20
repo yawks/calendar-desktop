@@ -1,3 +1,4 @@
+import { AndroidCalendarProvider } from './features/calendar/store/AndroidCalendarProvider';
 import MailDraftReceiver from './shared/components/MailDraftReceiver';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { QueryPersistenceProvider } from './shared/QueryPersistenceProvider';
@@ -74,6 +75,7 @@ export default function App() {
                 <JmapAuthProvider>
                   <ImapAuthProvider>
                     <CalendarProvider>
+                      <AndroidCalendarProvider>
                       <CalendarGroupProvider>
                         <TagProvider>
                           <BrowserRouter>
@@ -88,6 +90,7 @@ export default function App() {
                           </BrowserRouter>
                         </TagProvider>
                       </CalendarGroupProvider>
+                      </AndroidCalendarProvider>
                     </CalendarProvider>
                   </ImapAuthProvider>
                 </JmapAuthProvider>

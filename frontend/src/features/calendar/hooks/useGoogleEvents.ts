@@ -22,13 +22,15 @@ function getDateRange() {
   return { timeMin, timeMax };
 }
 
-export function useGoogleEvents(calendars: CalendarConfig[]) {
+export function useGoogleEvents(calendars: CalendarConfig[], onLoaded?: (id: string, events: CalendarEvent[]) => void) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { getValidToken } = useGoogleAuth();
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
 
   const run = useCallback(async (force: boolean, calendarId?: string) => {
     const googleCals = calendarsRef.current.filter((c) =>
@@ -41,7 +43,11 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
     }
 
     // Phase 1: show stale cache immediately (IDB read — very fast, no network)
-    const stale = (await Promise.all(googleCals.map((cal) => cacheGetStale<CalendarEvent[]>(cacheKey(cal.id))))).flat().filter(Boolean) as CalendarEvent[];
+    const stale = (await Promise.all(googleCals.map(async (cal) => {
+      const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id));
+      if (cached) onLoadedRef.current?.(cal.id, cached);
+      return cached;
+    }))).flat().filter(Boolean) as CalendarEvent[];
     if (stale.length > 0) setEvents(stale);
 
     // Phase 2: refresh expired / forced caches
@@ -61,6 +67,7 @@ export function useGoogleEvents(calendars: CalendarConfig[]) {
         if (!token) throw new Error('Token invalide ou expiré. Reconnectez votre compte Google.');
         const fetched = await listEvents(token, cal, timeMin, timeMax);
         await cacheSet(cacheKey(cal.id), fetched);
+        onLoadedRef.current?.(cal.id, fetched);
         return fetched;
       })
     );

@@ -32,7 +32,18 @@ export interface NativeSyncStatus {
 export interface NativeCredentialUpdate { accountId: string; credentialRevision: number; credentialsUpdatedAt: number; credentials: Record<string, unknown> }
 export interface NativeNotificationThread { subject?: string; sender?: string; snippet?: string; receivedAt?: string }
 
+export interface NativeCalendarSnapshot {
+  id: string;
+  name: string;
+  color: string;
+  ownerEmail?: string;
+  // Omitted after a failed/not-yet-completed fetch: preserve the Android copy.
+  events?: Array<{ id: string; title: string; start: string; end: string; isAllday: boolean; location?: string; description?: string; attendees?: import('../types').Attendee[]; selfRsvpStatus?: import('../types').AttendeeStatus }>;
+}
+
 export interface NativePlatform {
+  requestCalendarPermission?(): Promise<boolean>;
+  publishCalendars?(calendars: NativeCalendarSnapshot[]): Promise<void>;
   readonly isNativeAndroid: boolean;
   configureSync(account: NativeSyncAccount): Promise<void>;
   disableSync(accountId: string): Promise<void>;

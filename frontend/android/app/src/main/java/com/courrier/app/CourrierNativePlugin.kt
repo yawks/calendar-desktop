@@ -1,6 +1,7 @@
 package com.courrier.app
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Base64
@@ -20,8 +21,37 @@ import java.util.concurrent.Executors
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
-@CapacitorPlugin(name="CourrierNative",permissions=[Permission(alias="notifications",strings=[Manifest.permission.POST_NOTIFICATIONS])])
+@CapacitorPlugin(name="CourrierNative",permissions=[Permission(alias="notifications",strings=[Manifest.permission.POST_NOTIFICATIONS]), Permission(alias="calendar",strings=[Manifest.permission.READ_CALENDAR,Manifest.permission.WRITE_CALENDAR])])
 class CourrierNativePlugin:Plugin(){
+ private val calendarExecutor = Executors.newSingleThreadExecutor()
+ @PluginMethod fun requestCalendarPermission(call: PluginCall) {
+  if (getPermissionState("calendar") == PermissionState.GRANTED) {
+   call.resolve(JSObject().put("granted", true))
+  } else requestPermissionForAlias("calendar", call, "calendarPermissionResult")
+ }
+ @PermissionCallback private fun calendarPermissionResult(call: PluginCall) {
+  call.resolve(JSObject().put("granted", getPermissionState("calendar") == PermissionState.GRANTED))
+ }
+ @PluginMethod fun publishCalendars(call: PluginCall) {
+  val calendars = call.getArray("calendars") ?: return call.reject("Calendars required")
+  val preferences = context.getSharedPreferences("calendar_mirror", Context.MODE_PRIVATE)
+  if (getPermissionState("calendar") != PermissionState.GRANTED) {
+   if (calendars.length() == 0 && !preferences.getBoolean("hasCopies", false)) return call.resolve()
+   return call.reject("Calendar permission required")
+  }
+  calendarExecutor.execute {
+   try {
+    // Record intent before writing so a partial failure cannot hide copies after permission revocation.
+    if (calendars.length() > 0) preferences.edit().putBoolean("hasCopies", true).apply()
+    CalendarMirror(context).publish(calendars)
+    preferences.edit().putBoolean("hasCopies", calendars.length() > 0).apply()
+    call.resolve()
+   } catch (_: Exception) {
+    // Calendar contents and account credentials must never enter diagnostics.
+    call.reject("Unable to publish Android calendars")
+   }
+  }
+ }
  @PluginMethod fun pendingShare(call:PluginCall) {
   call.resolve(JSObject().put("pending", (activity as MainActivity).sharedIntents.isNotEmpty()))
  }
@@ -81,6 +111,7 @@ class CourrierNativePlugin:Plugin(){
  private val interactiveCommandExecutor:ExecutorService=Executors.newFixedThreadPool(2)
 
  override fun handleOnDestroy(){
+  calendarExecutor.shutdown()
   commandExecutor.shutdownNow()
   interactiveCommandExecutor.shutdownNow()
   super.handleOnDestroy()

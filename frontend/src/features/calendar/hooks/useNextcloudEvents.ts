@@ -37,12 +37,14 @@ async function fetchAndParse(cal: CalendarConfig): Promise<CalendarEvent[]> {
   return parseICS(text, cal);
 }
 
-export function useNextcloudEvents(calendars: CalendarConfig[]) {
+export function useNextcloudEvents(calendars: CalendarConfig[], onLoaded?: (id: string, events: CalendarEvent[]) => void) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
 
   const run = useCallback(async (force: boolean, calendarId?: string) => {
     const toFetch = calendarsRef.current.filter((c) => c.type === 'nextcloud' && c.url);
@@ -53,7 +55,11 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
     }
 
     // Phase 1: show stale cache immediately (IDB read — very fast, no network)
-    const stale = (await Promise.all(toFetch.map((cal) => cacheGetStale<CalendarEvent[]>(cacheKey(cal.id))))).flat().filter(Boolean) as CalendarEvent[];
+    const stale = (await Promise.all(toFetch.map(async (cal) => {
+      const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id));
+      if (cached) onLoadedRef.current?.(cal.id, cached);
+      return cached;
+    }))).flat().filter(Boolean) as CalendarEvent[];
     if (stale.length > 0) setEvents(stale);
 
     // Phase 2: refresh expired / forced caches
@@ -70,6 +76,7 @@ export function useNextcloudEvents(calendars: CalendarConfig[]) {
       toRefresh.map(async (cal) => {
         const parsed = await fetchAndParse(resolveSharedCalDav(cal, calendarsRef.current));
         await cacheSet(cacheKey(cal.id), parsed);
+        onLoadedRef.current?.(cal.id, parsed);
         return parsed;
       })
     );

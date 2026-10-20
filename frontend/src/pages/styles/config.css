@@ -405,3 +405,27 @@
 .config-mail-rules button, .config-mail-rules .preferences-toggle { min-height: 44px; }
 .config-mail-rules button:focus-visible, .config-mail-rules input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 @media (max-width: 600px) { .config-mail-rules .native-settings-actions { align-items: stretch; } .config-mail-rules .native-settings-actions button { flex: 1; } }
+
+.config-android-calendars { min-width: 0; }
+.config-android-calendars__help, .config-android-calendars__status {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.config-android-calendars__status { margin: 12px 0 0; }
+.config-android-calendars__status--error { color: var(--danger); }
+.config-android-calendars__list { display: grid; gap: 8px; margin-bottom: 16px; }
+.config-android-calendars .preferences-toggle { min-width: 0; min-height: 44px; }
+.config-android-calendars .preferences-toggle > span { min-width: 0; overflow-wrap: anywhere; }
+.config-android-calendars small { display: block; color: var(--text-muted); font-size: calc(12px * var(--font-scale, 1)); font-weight: 400; }
+.config-android-calendars .native-settings-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; white-space: normal; }
+.config-android-calendars button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .config-android-calendars { padding: 13px; margin-bottom: 16px; }
+  .config-android-calendars .native-settings-card__header { gap: 10px; }
+  .config-android-calendars .native-settings-card__icon { width: 36px; height: 36px; flex-basis: 36px; }
+  .config-android-calendars .native-settings-actions { align-items: stretch; }
+  .config-android-calendars .native-settings-actions button { flex: 1 1 100%; }
+}

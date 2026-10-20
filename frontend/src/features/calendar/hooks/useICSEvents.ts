@@ -16,12 +16,14 @@ async function fetchAndParse(cal: CalendarConfig): Promise<CalendarEvent[]> {
   return parseICS(text, cal);
 }
 
-export function useICSEvents(calendars: CalendarConfig[]) {
+export function useICSEvents(calendars: CalendarConfig[], onLoaded?: (id: string, events: CalendarEvent[]) => void) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
 
   const run = useCallback(async (force: boolean) => {
     const toFetch = calendarsRef.current.filter((c) => c.url && (!c.type || c.type === 'ics'));
@@ -32,7 +34,11 @@ export function useICSEvents(calendars: CalendarConfig[]) {
     }
 
     // Phase 1: show stale cache immediately (IDB read — very fast, no network)
-    const stale = (await Promise.all(toFetch.map((cal) => cacheGetStale<CalendarEvent[]>(cacheKey(cal.id, cal.ownerEmail))))).flat().filter(Boolean) as CalendarEvent[];
+    const stale = (await Promise.all(toFetch.map(async (cal) => {
+      const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id, cal.ownerEmail));
+      if (cached) onLoadedRef.current?.(cal.id, cached);
+      return cached;
+    }))).flat().filter(Boolean) as CalendarEvent[];
     if (stale.length > 0) setEvents(stale);
 
     // Phase 2: determine which calendars need a network fetch
@@ -49,6 +55,7 @@ export function useICSEvents(calendars: CalendarConfig[]) {
       toRefresh.map(async (cal) => {
         const parsed = await fetchAndParse(cal);
         await cacheSet(cacheKey(cal.id, cal.ownerEmail), parsed);
+        onLoadedRef.current?.(cal.id, parsed);
         return parsed;
       })
     );

@@ -651,6 +651,19 @@
     }
   },
   "settings": {
+    "androidCalendars": {
+      "title": "Calendriers Android",
+      "hint": "Sélectionnez les calendriers à consulter en lecture seule dans les applications de calendrier Android. Ils sont actualisés lorsque Courrier est ouvert et déverrouillé.",
+      "privacy": "Les copies restent accessibles hors du coffre aux applications autorisées à lire vos calendriers. Un calendrier déjà synchronisé par Android pourra apparaître en double.",
+      "removal": "Décocher un calendrier ou le retirer de Courrier supprime uniquement sa copie Android. Les périodes disponibles sont celles synchronisées par Courrier ; les récurrences sont publiées sous forme d’occurrences, sans rappels supplémentaires.",
+      "empty": "Ajoutez un calendrier dans Courrier pour pouvoir l’afficher dans Android.",
+      "save": "Appliquer la sélection",
+      "refresh": "Actualiser",
+      "syncing": "Mise à jour des copies Android…",
+      "saved": "Sélection appliquée. Les copies suivent les synchronisations de Courrier.",
+      "error": "Impossible de mettre à jour les copies Android. Vérifiez l’autorisation Calendrier dans les réglages Android, puis réessayez.",
+      "sourceError": "Certains calendriers n’ont pas pu être actualisés. Leurs dernières copies Android sont conservées. Vérifiez la connexion ou le compte, puis actualisez."
+    },
     "mailContentRules": {
       "title": "Contenus masqués dans les emails",
       "hint": "Masquez un texte récurrent dans les messages et leurs aperçus, pour tous vos comptes. Les emails originaux sont conservés. La casse, les espaces et les apostrophes peuvent varier. Copiez le texte complet, sans les balises HTML. Le joker * remplace une partie variable entre deux textes fixes, par exemple : You don’t often get email from *. Learn why this is important. Une règle composée uniquement de * est ignorée.",

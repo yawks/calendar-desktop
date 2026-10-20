@@ -9,6 +9,8 @@ export interface AndroidShare {
 }
 
 interface CourrierNativePlugin {
+  requestCalendarPermission(): Promise<{ granted: boolean }>;
+  publishCalendars(options: { calendars: import('./types').NativeCalendarSnapshot[] }): Promise<void>;
   acknowledgeShare(options: { id: string }): Promise<void>;
   pendingShare(): Promise<{ pending: boolean }>;
   consumeShare(): Promise<{ share?: AndroidShare }>;
@@ -50,6 +52,8 @@ export const androidShare = {
 const plugin = registerPlugin<CourrierNativePlugin>('CourrierNative');
 
 export const nativeAndroidPlatform: NativePlatform = {
+  requestCalendarPermission: async () => (await plugin.requestCalendarPermission()).granted,
+  publishCalendars: calendars => plugin.publishCalendars({ calendars }),
   isNativeAndroid: Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android',
   configureSync: account => plugin.configureSync(account),
   disableSync: accountId => plugin.disableSync({ accountId }),

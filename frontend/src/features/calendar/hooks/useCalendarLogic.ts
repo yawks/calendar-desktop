@@ -1,3 +1,4 @@
+import { useAndroidCalendars } from '../store/AndroidCalendarProvider';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { CalendarConfig, CalendarEvent, CreateEventPayload, ViewType } from '../../../shared/types';
 import { useCalendars } from '../store/CalendarStore';
@@ -122,10 +123,16 @@ export function useCalendarLogic() {
   const { calendars: realCalendars, toggleCalendar, updateCalendar, reorderCalendars } = useCalendars();
   const { groups, addGroup, removeGroup, updateGroup } = useCalendarGroups();
   const { tags, eventTags, addTag, removeTag, updateTag, setEventTag, removeEventTag } = useTags();
-  const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = useICSEvents(DEMO_MODE ? [] : realCalendars);
-  const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = useGoogleEvents(DEMO_MODE ? [] : realCalendars);
-  const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = useNextcloudEvents(DEMO_MODE ? [] : realCalendars);
-  const { events: ewsEvents, loading: ewsLoading, errors: ewsErrors, refresh: ewsRefresh } = useEWSEvents(DEMO_MODE ? [] : realCalendars);
+  const androidCalendars = useAndroidCalendars();
+  const sourceCalendars = DEMO_MODE || androidCalendars ? [] : realCalendars;
+  const fallbackIcs = useICSEvents(sourceCalendars);
+  const fallbackGoogle = useGoogleEvents(sourceCalendars);
+  const fallbackNextcloud = useNextcloudEvents(sourceCalendars);
+  const fallbackEws = useEWSEvents(sourceCalendars);
+  const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = androidCalendars?.ics ?? fallbackIcs;
+  const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = androidCalendars?.google ?? fallbackGoogle;
+  const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = androidCalendars?.nextcloud ?? fallbackNextcloud;
+  const { events: ewsEvents, loading: ewsLoading, errors: ewsErrors, refresh: ewsRefresh } = androidCalendars?.ews ?? fallbackEws;
   const { getValidToken } = useGoogleAuth();
   const { accounts: exchangeAccounts, getValidToken: getExchangeToken, getRefreshToken: getExchangeRefreshToken } = useExchangeAuth();
   const { resolved: theme } = useTheme();

@@ -2,7 +2,7 @@ import { useQueries } from '@tanstack/react-query';
 import { CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
 import i18n from '../../../i18n';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 
 export const CALENDAR_KEYS = {
@@ -127,7 +127,7 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
 }
 
 // --- MAIN HOOK ---
-export function useCalendarEvents(calendars: CalendarConfig[]) {
+export function useCalendarEvents(calendars: CalendarConfig[], onLoaded?: (id: string, events: CalendarEvent[]) => void) {
   const { getValidToken: getEwsToken } = useExchangeAuth();
 
   const results = useQueries({
@@ -148,6 +148,13 @@ export function useCalendarEvents(calendars: CalendarConfig[]) {
   });
 
   const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  useEffect(() => {
+    results.forEach((result, index) => {
+      if (result.isSuccess && !result.isFetching) onLoaded?.(calendars[index].id, result.data);
+    });
+  // Results are tracked by their update timestamp, not their unstable wrapper.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataTimestamps, onLoaded]);
   const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
   // `isLoading` only covers the first load. Manual refreshes use `isFetching`,
   // which lets the header display progress every time the user clicks Refresh.

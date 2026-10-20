@@ -1,14 +1,14 @@
 import { useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AttendeeStatus, CalendarConfig } from '../../../shared/types';
+import { AttendeeStatus, CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { patchCachedEventRsvp } from '../utils/eventCache';
 import { useCalendarEvents, CALENDAR_KEYS } from './useCalendarQueries';
 
 const CACHE_VERSION = 'ews1';
 
-export function useEWSEvents(calendars: CalendarConfig[]) {
+export function useEWSEvents(calendars: CalendarConfig[], onLoaded?: (id: string, events: CalendarEvent[]) => void) {
   const ewsCals = useMemo(() => calendars.filter(c => c.type === 'exchange'), [calendars]);
-  const { events, isLoading, errors } = useCalendarEvents(ewsCals);
+  const { events, isLoading, errors } = useCalendarEvents(ewsCals, onLoaded);
   const queryClient = useQueryClient();
 
   return useMemo(() => ({

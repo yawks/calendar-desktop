@@ -1,3 +1,4 @@
+import { AndroidCalendarsSection } from './AndroidCalendarsSection';
 import { MailContentRulesSection } from './MailContentRulesSection';
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
@@ -218,6 +219,7 @@ export function PreferencesSection() {
       </section>
 
       <MailContentRulesSection />
+      <AndroidCalendarsSection />
 
       {/* Notifications */}
       <section className="native-settings-card preferences-card">
