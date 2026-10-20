@@ -1750,3 +1750,44 @@
 .event-mail-action .btn-ghost:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 .event-mail-action__error { margin: 8px 0 0; color: var(--danger); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; }
+.caldav-task-metadata {
+  margin: 0;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.modal-dialog.caldav-task-editor { width: 560px; max-width: 94vw; }
+.caldav-task-editor .modal-title { margin: 0; font-size: calc(16px * var(--font-scale, 1)); }
+.caldav-task-editor .modal-header { flex-shrink: 0; background: var(--bg-sidebar); border-bottom: 1px solid var(--border); }
+.caldav-task-editor .caldav-task-editor__form { display: grid; gap: 14px; padding: 20px; min-width: 0; min-height: 0; overflow-y: auto; box-sizing: border-box; border: 0; border-radius: 0; color: var(--text); }
+.caldav-task-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.caldav-task-editor__field { display: grid; gap: 8px; min-width: 0; font-size: calc(13px * var(--font-scale, 1)); font-weight: 600; }
+.caldav-task-editor__field input, .caldav-task-editor__field textarea {
+  width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box;
+  padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--text); font-family: inherit;
+  font-size: calc(14px * var(--font-scale, 1)); font-weight: 400;
+}
+.caldav-task-editor__field textarea { resize: vertical; }
+[data-theme="dark"] .caldav-task-editor__field input { color-scheme: dark; }
+.caldav-task-editor__field input:focus-visible, .caldav-task-editor__field textarea:focus-visible,
+.caldav-task-editor__completed input:focus-visible, .caldav-task-editor__actions button:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+.caldav-task-editor__dates { display: grid; gap: 10px; margin: 0; padding: 12px; min-width: 0; border: 1px solid var(--border); border-radius: 8px; }
+.caldav-task-editor__dates legend { padding: 0 4px; font-size: calc(14px * var(--font-scale, 1)); font-weight: 600; }
+.caldav-task-editor__help { margin: 0; color: var(--text-muted); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; overflow-wrap: anywhere; }
+.caldav-task-editor__completed { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: calc(14px * var(--font-scale, 1)); }
+.caldav-task-editor__completed input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--primary); }
+.caldav-task-editor__error { margin: 0; color: var(--danger); font-size: calc(13px * var(--font-scale, 1)); line-height: 1.45; }
+.caldav-task-editor__actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border); }
+.caldav-task-editor__actions button { min-height: 44px; min-width: 110px; font-size: calc(14px * var(--font-scale, 1)); }
+.native-android .caldav-task-editor__field input, .native-android .caldav-task-editor__actions button { min-height: 48px; }
+@media (max-width: 600px) {
+  .caldav-task-editor .caldav-task-editor__form { padding: 14px; }
+  .caldav-task-editor__grid { grid-template-columns: minmax(0, 1fr); }
+  .caldav-task-editor .caldav-task-editor__actions { flex-direction: column; }
+  .caldav-task-editor__actions button { width: 100%; }
+}

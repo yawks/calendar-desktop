@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CalendarConfig, CalendarEvent, Tag } from '../../../shared/types';
-import { getEventColorStyle, toTUIEvents } from './calendarUtils';
+import { escapeCalendarText, getEventColorStyle, toTUIEvents } from './calendarUtils';
+
+it('escapes remote titles before inserting them into calendar HTML templates', () => {
+  expect(escapeCalendarText('<img src=x onerror="alert(1)"> & \'task\''))
+    .toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &#39;task&#39;');
+});
 
 const calendar: CalendarConfig = {
   id: 'calendar-1',

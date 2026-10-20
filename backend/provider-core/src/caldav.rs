@@ -1,6 +1,18 @@
 //! Read-only DAV discovery, shared by the web adapter and native transports.
 use serde::Deserialize;
 
+pub fn conditional_put(request: reqwest::RequestBuilder, if_match: Option<&str>) -> reqwest::RequestBuilder {
+    match if_match { Some(etag) => request.header(reqwest::header::IF_MATCH, etag), None => request }
+}
+
+pub fn status_request(client: &reqwest::Client, url: reqwest::Url) -> reqwest::RequestBuilder {
+    // DAV collections need not support GET (OpenTodo, among others).
+    client.request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), url)
+        .header("Depth", "0")
+        .header("Content-Type", "application/xml; charset=utf-8")
+        .body(r#"<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>"#)
+}
+
 #[derive(Deserialize)]
 pub struct Query {
     pub url: String,
@@ -32,6 +44,29 @@ pub async fn query(request: Query) -> Result<serde_json::Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conditional_calendar_writes_preserve_the_exact_etag_and_leave_legacy_writes_unconditional() {
+        let client = reqwest::Client::new();
+        let request = conditional_put(client.put("https://example.test/dav/task.ics"), Some("\"version-2\"")).build().unwrap();
+        assert_eq!(request.headers()[reqwest::header::IF_MATCH], "\"version-2\"");
+        let request = conditional_put(client.put("https://example.test/dav/event.ics"), None).build().unwrap();
+        assert!(!request.headers().contains_key(reqwest::header::IF_MATCH));
+    }
+
+    #[test]
+    fn connection_probe_uses_propfind_on_the_exact_dav_url() {
+        let request = status_request(&reqwest::Client::new(), "http://localhost:8080/dav/".parse().unwrap())
+            .basic_auth("user@example.test", Some("test-app-password")).build().unwrap();
+        assert_eq!(request.method().as_str(), "PROPFIND");
+        assert_eq!(request.url().as_str(), "http://localhost:8080/dav/");
+        assert_eq!(request.headers()["depth"], "0");
+        assert_eq!(request.headers()["content-type"], "application/xml; charset=utf-8");
+        assert!(request.headers().contains_key("authorization"));
+        let body = std::str::from_utf8(request.body().unwrap().as_bytes().unwrap()).unwrap();
+        assert!(body.contains("<d:resourcetype/>"));
+        assert!(!body.contains("test-app-password"));
+    }
 
     #[tokio::test]
     async fn discovery_rejects_unsafe_urls_and_write_methods_without_a_request() {

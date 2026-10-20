@@ -15,6 +15,23 @@ beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
 });
+it.each(['fr', 'en'])('keeps CalDAV tasks read-only even when write callbacks are supplied (%s)', async language => {
+  await i18n.changeLanguage(language);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<EventModal event={{ ...event, readOnly: true, isTask: true }} calendar={calendar} onClose={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} onCancelEvent={vi.fn()} onRsvp={vi.fn()} />));
+    expect(host.textContent).toContain(i18n.t('config.caldavTaskReadOnly'));
+    expect(host.querySelector('.lucide-pencil')).toBeNull();
+    expect(host.querySelector(`[aria-label="${i18n.t('eventModal.delete')}"]`)).toBeNull();
+    expect(host.querySelector('.rsvp-trigger-btn')).toBeNull();
+    expect(host.querySelector('.event-modal-tag-button')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 it.each([true, false])('respects explicit read-only mode without changing the calendar app default (readOnly=%s)', async readOnly => {
   const opener = document.createElement('button');
   const host = document.createElement('div');
@@ -35,6 +52,24 @@ it.each([true, false])('respects explicit read-only mode without changing the ca
     host.remove();
     opener.remove();
   }
+});
+
+it('ignores the compatibility click from the touch that opened the dialog but closes on a new backdrop gesture', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const close = vi.fn();
+  try {
+    await act(async () => root.render(<EventModal event={{ ...event, isTask: true, readOnly: true }} calendar={calendar} onClose={close} />));
+    const dialog = host.querySelector('dialog')!;
+    await act(async () => dialog.click());
+    expect(close).not.toHaveBeenCalled();
+    await act(async () => {
+      dialog.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      dialog.click();
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
 it('allows tagging a read-only preview while protecting shared calendars', async () => {

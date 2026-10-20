@@ -2,6 +2,7 @@ import { apiHeaders, apiJson, apiUrl } from './apiRequest';
 import { hasNativeTransport, invokeNative } from './nativeTransport';
 
 type Credentials = { url: string; username: string; password: string };
+export type CalDavResource = { text: string; etag: string | null };
 
 async function request<T>(path: string, body: unknown, method = 'POST'): Promise<T> {
   const response = await fetch(apiUrl(`/api/calendar${path}`), {
@@ -27,13 +28,18 @@ export const calendarApi = {
     if (hasNativeTransport()) return (await invokeNative<{ text: string }>('calendar_caldav_fetch', credentials)).text;
     return (await request<{ text: string }>('/caldav/fetch', credentials)).text;
   },
+  async fetchCalDavResource(credentials: Credentials): Promise<CalDavResource> {
+    if (hasNativeTransport()) return invokeNative<CalDavResource>('calendar_caldav_fetch', credentials);
+    return request<CalDavResource>('/caldav/fetch', credentials);
+  },
   async getCalDavStatus(credentials: Credentials): Promise<number> {
     if (hasNativeTransport()) return (await invokeNative<{ status: number }>('calendar_caldav_status', credentials)).status;
     return (await request<{ status: number }>('/caldav/status', credentials)).status;
   },
-  async putCalDav(credentials: Credentials, icsContent: string): Promise<void> {
-    if (hasNativeTransport()) { await invokeNative('calendar_caldav_put', { ...credentials, icsContent }); return; }
-    await request('/caldav/resource', { ...credentials, icsContent }, 'PUT');
+  async putCalDav(credentials: Credentials, icsContent: string, ifMatch?: string): Promise<void> {
+    const args = { ...credentials, icsContent, ...(ifMatch ? { ifMatch } : {}) };
+    if (hasNativeTransport()) { await invokeNative('calendar_caldav_put', args); return; }
+    await request('/caldav/resource', args, 'PUT');
   },
   async deleteCalDav(credentials: Credentials): Promise<void> {
     if (hasNativeTransport()) { await invokeNative('calendar_caldav_delete', credentials); return; }

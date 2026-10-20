@@ -1,5 +1,10 @@
 import { isFreeEvent } from './eventOptions';
 import { CalendarConfig, CalendarEvent, ViewType, Tag, EventTagMapping } from '../../../shared/types';
+import { canEditCalDavTask } from './caldavTaskApi';
+
+export function escapeCalendarText(text: string): string {
+  return text.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
+}
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
 export function hexToRgba(hex: string, alpha: number): string {
@@ -304,7 +309,7 @@ export function toTUIEvents(events: CalendarEvent[], calendars: CalendarConfig[]
       start: tuiStart,
       end: tuiEnd,
       isAllday: ev.isAllday,
-      isReadOnly: !!cal?.shared,
+      isReadOnly: ev.isTask ? !canEditCalDavTask(ev, cal) : !!cal?.shared || !!cal?.readOnly || !!ev.readOnly,
       category: ev.isAllday ? 'allday' : 'time',
       location: ev.location,
       state: ev.isDeclined || ev.isCancelled || isFreeEvent(ev) ? 'Free' : 'Busy',

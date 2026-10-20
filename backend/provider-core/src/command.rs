@@ -487,6 +487,7 @@ struct HttpPut {
     username: String,
     password: String,
     ics_content: String,
+    if_match: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -637,15 +638,15 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
         }
         "calendar_ics_fetch" => {
             let a: HttpUrl = args(value)?;
-            native_http("GET", a.url, None, None, None).await
+            native_http("GET", a.url, None, None, None, None).await
         }
         "calendar_caldav_fetch" => {
             let a: HttpAuth = args(value)?;
-            native_http("GET", a.url, Some(a.username), Some(a.password), None).await
+            native_http("GET", a.url, Some(a.username), Some(a.password), None, None).await
         }
         "calendar_caldav_status" => {
             let a: HttpAuth = args(value)?;
-            native_http("STATUS", a.url, Some(a.username), Some(a.password), None).await
+            native_http("STATUS", a.url, Some(a.username), Some(a.password), None, None).await
         }
         "calendar_caldav_put" => {
             let a: HttpPut = args(value)?;
@@ -655,12 +656,13 @@ pub async fn dispatch(command: &str, value: Value) -> CommandResult {
                 Some(a.username),
                 Some(a.password),
                 Some(a.ics_content),
+                a.if_match,
             )
             .await
         }
         "calendar_caldav_delete" => {
             let a: HttpAuth = args(value)?;
-            native_http("DELETE", a.url, Some(a.username), Some(a.password), None).await
+            native_http("DELETE", a.url, Some(a.username), Some(a.password), None, None).await
         }
         "config_webdav_fetch" => {
             let a: HttpAuth = args(value)?;
@@ -1313,6 +1315,7 @@ async fn native_http(
     username: Option<String>,
     password: Option<String>,
     body: Option<String>,
+    if_match: Option<String>,
 ) -> CommandResult {
     let url = reqwest::Url::parse(&raw_url).map_err(|error| CommandError {
         code: "invalid_provider_url",
@@ -1335,6 +1338,7 @@ async fn native_http(
             detail: error.to_string(),
         })?;
     let mut request = match method {
+        "STATUS" => crate::caldav::status_request(&client, url),
         "PUT" => client.put(url),
         "DELETE" => client.delete(url),
         _ => client.get(url),
@@ -1354,6 +1358,7 @@ async fn native_http(
             )
             .body(body);
     }
+    let request = crate::caldav::conditional_put(request, if_match.as_deref());
     let response = request.send().await.map_err(|error| CommandError {
         code: "provider_request_failed",
         detail: error.to_string(),
@@ -1369,10 +1374,11 @@ async fn native_http(
         });
     }
     if method == "GET" {
+        let etag = response.headers().get(reqwest::header::ETAG).and_then(|value| value.to_str().ok()).map(str::to_owned);
         return response
             .text()
             .await
-            .map(|text| serde_json::json!({ "text": text }))
+            .map(|text| serde_json::json!({ "text": text, "etag": etag }))
             .map_err(|error| CommandError {
                 code: "provider_request_failed",
                 detail: error.to_string(),

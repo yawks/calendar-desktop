@@ -23,13 +23,15 @@ pub struct AuthRequest { url: String, username: String, password: String }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PutRequest { url: String, username: String, password: String, ics_content: String }
+pub struct PutRequest { url: String, username: String, password: String, ics_content: String, if_match: Option<String> }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigPutRequest { url: String, username: String, password: String, content: String, if_match: Option<String> }
 
 #[derive(Serialize)]
 pub struct TextResponse { text: String }
+#[derive(Serialize)]
+pub struct ResourceResponse { text: String, etag: Option<String> }
 
 #[derive(Serialize)]
 pub struct StatusResponse { status: u16 }
@@ -76,24 +78,26 @@ pub async fn fetch_ics(State(state): State<CalendarHttpState>, Json(body): Json<
     Ok(Json(TextResponse { text: response.text().await.map_err(upstream)? }))
 }
 
-pub async fn fetch_authenticated(State(state): State<CalendarHttpState>, Json(body): Json<AuthRequest>) -> ApiResult<TextResponse> {
+pub async fn fetch_authenticated(State(state): State<CalendarHttpState>, Json(body): Json<AuthRequest>) -> ApiResult<ResourceResponse> {
     let url = state.checked_url(&body.url)?;
     let response = state.client.get(url).basic_auth(body.username, Some(body.password)).send().await.map_err(upstream)?;
     if !response.status().is_success() { return Err(upstream(format!("provider_http_{}", response.status().as_u16()))); }
-    Ok(Json(TextResponse { text: response.text().await.map_err(upstream)? }))
+    let etag = response.headers().get(header::ETAG).and_then(|value| value.to_str().ok()).map(str::to_owned);
+    Ok(Json(ResourceResponse { text: response.text().await.map_err(upstream)?, etag }))
 }
 
 pub async fn status(State(state): State<CalendarHttpState>, Json(body): Json<AuthRequest>) -> ApiResult<StatusResponse> {
     let url = state.checked_url(&body.url)?;
-    let response = state.client.get(url).basic_auth(body.username, Some(body.password)).send().await.map_err(upstream)?;
+    let response = app_lib::caldav::status_request(&state.client, url)
+        .basic_auth(body.username, Some(body.password)).send().await.map_err(upstream)?;
     Ok(Json(StatusResponse { status: response.status().as_u16() }))
 }
 
 pub async fn put(State(state): State<CalendarHttpState>, Json(body): Json<PutRequest>) -> ApiResult<serde_json::Value> {
     let url = state.checked_url(&body.url)?;
-    let response = state.client.put(url).basic_auth(body.username, Some(body.password))
-        .header("content-type", "text/calendar; charset=utf-8").body(body.ics_content)
-        .send().await.map_err(upstream)?;
+    let request = state.client.put(url).basic_auth(body.username, Some(body.password))
+        .header("content-type", "text/calendar; charset=utf-8").body(body.ics_content);
+    let response = app_lib::caldav::conditional_put(request, body.if_match.as_deref()).send().await.map_err(upstream)?;
     if !response.status().is_success() { return Err(upstream(format!("provider_http_{}", response.status().as_u16()))); }
     Ok(Json(serde_json::json!({ "ok": true })))
 }

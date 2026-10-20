@@ -13,6 +13,8 @@ export interface Tag {
 export type EventTagMapping = Record<string, string>;
 
 export interface CalendarConfig {
+  /** Runtime capability for DAV roots and task-only collections. */
+  readOnly?: boolean;
   id: string;
   name: string;
   url: string;
@@ -149,6 +151,20 @@ export interface Attendee {
 }
 
 export interface CalendarEvent {
+  readOnly?: boolean;
+  isTask?: boolean;
+  caldavTask?: {
+    uid: string;
+    resourceUrl: string;
+    etag: string | null;
+    title: string;
+    due?: string;
+    start?: string;
+    dueZone?: string;
+    startZone?: string;
+    project?: string;
+    categories: string[];
+  };
   /** Provider-native values; omitted fields are preserved on update. */
   availability?: string;
   sensitivity?: string;

@@ -21,6 +21,8 @@ import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 import { isOfflineLikeError } from '../../../shared/utils/networkError';
 
 import { isCalendarWritable } from '../utils/sharedCalendars';
+import { canEditCalDavTask, isCalDavTaskConflict, moveCalDavTask } from '../utils/caldavTaskApi';
+import { calDavLoadError } from '../utils/loadCalDavCalendar';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 const CALENDAR_NAVIGATION_KEY = 'courrier-calendar-navigation-v1';
@@ -131,7 +133,7 @@ export function useCalendarLogic() {
   const fallbackEws = useEWSEvents(sourceCalendars);
   const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = androidCalendars?.ics ?? fallbackIcs;
   const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = androidCalendars?.google ?? fallbackGoogle;
-  const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = androidCalendars?.nextcloud ?? fallbackNextcloud;
+  const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh, readOnlyCalendarIds = [] } = androidCalendars?.nextcloud ?? fallbackNextcloud;
   const { events: ewsEvents, loading: ewsLoading, errors: ewsErrors, refresh: ewsRefresh } = androidCalendars?.ews ?? fallbackEws;
   const { getValidToken } = useGoogleAuth();
   const { accounts: exchangeAccounts, getValidToken: getExchangeToken, getRefreshToken: getExchangeRefreshToken } = useExchangeAuth();
@@ -145,7 +147,8 @@ export function useCalendarLogic() {
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const recurringChoiceResolveRef = useRef<((scope: 'this' | 'all' | null) => void) | null>(null);
 
-  const calendars = DEMO_MODE ? DEMO_CALENDARS : realCalendars;
+  const calendars = useMemo(() => DEMO_MODE ? DEMO_CALENDARS : realCalendars.map(cal =>
+    readOnlyCalendarIds.includes(cal.id) ? { ...cal, readOnly: true } : cal), [realCalendars, readOnlyCalendarIds]);
   const allEventsRaw = DEMO_MODE ? DEMO_EVENTS : [...icsEvents, ...googleEvents, ...ncEvents, ...ewsEvents];
   const events = useMemo(() => {
     const serverEvents = allEventsRaw
@@ -187,13 +190,15 @@ export function useCalendarLogic() {
   }, [events, selectedEvent]);
 
   const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ewsLoading);
+  const [taskMoveErrors, setTaskMoveErrors] = useState<Record<string, string>>({});
+  const taskMoves = useRef(new Set<string>());
   const errors = useMemo(() => {
     if (DEMO_MODE) return {};
     return Object.fromEntries(
-      Object.entries({ ...icsErrors, ...googleErrors, ...ncErrors, ...ewsErrors })
+      Object.entries({ ...icsErrors, ...googleErrors, ...ncErrors, ...ewsErrors, ...taskMoveErrors })
         .filter(([, error]) => !isOfflineLikeError(error)),
     );
-  }, [icsErrors, googleErrors, ncErrors, ewsErrors]);
+  }, [icsErrors, googleErrors, ncErrors, ewsErrors, taskMoveErrors]);
   const refresh = useCallback(async () => {
     await Promise.all([
       Promise.resolve(icsRefresh()),
@@ -312,7 +317,7 @@ export function useCalendarLogic() {
 
   const loadEventRecurrence = useCallback(async (event: CalendarEvent): Promise<string | null> => {
     const cal = calendars.find(c => c.id === event.calendarId);
-    if (!cal || !event.sourceId) return null;
+    if (!cal || event.readOnly || !event.sourceId) return null;
     if (cal.type === 'nextcloud') return getNextcloudRecurrence(cal, event.sourceId);
     if (cal.type === 'exchange' && cal.exchangeAccountId) {
       const token = await getExchangeToken(cal.exchangeAccountId);
@@ -330,7 +335,7 @@ export function useCalendarLogic() {
   const handleSaveEvent = useCallback(async (payload: CreateEventPayload, sourceEvent?: CalendarEvent, recurringScope?: 'this' | 'future') => {
     const cal = calendars.find((c) => c.id === payload.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
-    if (!isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
+    if (sourceEvent?.readOnly || sourceEvent?.isTask || !isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     const seriesSourceEvent = recurringScope === 'future' && sourceEvent?.seriesId && cal.type !== 'exchange'
       ? { ...sourceEvent, sourceId: sourceEvent.seriesId }
@@ -443,7 +448,7 @@ export function useCalendarLogic() {
   ) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
-    if (!isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
+    if (event.readOnly || event.isTask || !isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     let rsvpSourceId = event.sourceId;
     let respondSeries = false;
@@ -532,7 +537,7 @@ export function useCalendarLogic() {
     const cal = calendars.find((c) => c.id === event.calendarId);
     console.log('[recurring] handleDeleteEvent cal=', cal?.type, 'event.isRecurringInstance=', event.isRecurringInstance, 'seriesId=', event.seriesId);
     if (!cal) return;
-    if (!isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
+    if (event.readOnly || event.isTask || !isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     let deleteSourceId = event.sourceId;
     let affectedIds = [event.id];
@@ -666,6 +671,7 @@ export function useCalendarLogic() {
   }, [calendars, exchangeAccounts]);
 
   const isEventEditable = useCallback((event: CalendarEvent) => {
+    if (event.readOnly || event.isTask) return false;
     const cal = calendars.find((c) => c.id === event.calendarId);
     if (!cal || !isCalendarWritable(cal)) return false;
     if (cal.type === 'exchange') return isExchangeOrganizer(event);
@@ -678,6 +684,7 @@ export function useCalendarLogic() {
   }, [calendars, isExchangeOrganizer]);
 
   const handleStartEdit = useCallback(async (event: CalendarEvent) => {
+    if (event.readOnly || event.isTask) return;
     setEditEvent(event);
     setSelectedEvent(null);
   }, []);
@@ -686,6 +693,20 @@ export function useCalendarLogic() {
     ({ event, changes }: { event: any; changes: any }) => {
       const originalEvent = events.find((e) => e.id === event.id);
       if (!originalEvent) return;
+      if (originalEvent.isTask) {
+        const cal = calendars.find(candidate => candidate.id === originalEvent.calendarId);
+        if (!cal || !canEditCalDavTask(originalEvent, cal) || !changes.start || taskMoves.current.has(originalEvent.id)) return;
+        const value = changes.start;
+        const target = value instanceof Date ? value : typeof value.toDate === 'function' ? value.toDate() : new Date(String(value));
+        if (Number.isNaN(target.getTime())) return;
+        taskMoves.current.add(originalEvent.id);
+        setTaskMoveErrors(previous => { const next = { ...previous }; delete next[cal.id]; return next; });
+        void moveCalDavTask(originalEvent, cal, target).then(() => ncRefresh(cal.id)).catch(cause => {
+          setTaskMoveErrors(previous => ({ ...previous, [cal.id]: isCalDavTaskConflict(cause) ? i18n.t('caldavTask.moveConflict') : calDavLoadError(cause) }));
+          void ncRefresh(cal.id);
+        }).finally(() => taskMoves.current.delete(originalEvent.id));
+        return;
+      }
       if (!isEventEditable(originalEvent)) return;
 
       const toISO = (d: unknown): string => {
@@ -735,7 +756,7 @@ export function useCalendarLogic() {
         await handleSaveEvent(payload, originalEvent, recurringScope);
       })();
     },
-    [events, isEventEditable, isEventRecurring, askRecurringScope, handleSaveEvent]
+    [events, calendars, ncRefresh, isEventEditable, isEventRecurring, askRecurringScope, handleSaveEvent]
   );
 
   return {
@@ -753,7 +774,7 @@ export function useCalendarLogic() {
     calendars,
     toggleCalendar,
     updateCalendar,
-    reorderCalendars,
+    reorderCalendars: (ordered: CalendarConfig[]) => reorderCalendars(ordered.map(({ readOnly: _readOnly, ...cal }) => cal)),
     groups,
     addGroup,
     removeGroup,

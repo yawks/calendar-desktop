@@ -13,10 +13,12 @@ import SearchModal from './components/SearchModal';
 import SearchResultsView from './components/SearchResultsView';
 import CreateEventModal from './components/CreateEventModal';
 import EventModal from './components/EventModal';
+import CalDavTaskEditModal from './components/CalDavTaskEditModal';
+import { canEditCalDavTask } from './utils/caldavTaskApi';
 import RecurringChoiceModal from './components/RecurringChoiceModal';
 import Sidebar from './components/Sidebar';
 import { useCalendarLogic } from './hooks/useCalendarLogic';
-import { formatDateLabel, DARK_THEME, LIGHT_THEME, toTUIEvents, getViewRange, formatTime } from './utils/calendarUtils';
+import { formatDateLabel, DARK_THEME, LIGHT_THEME, toTUIEvents, escapeCalendarText, getViewRange, formatTime } from './utils/calendarUtils';
 
 import { isCalendarWritable } from './utils/sharedCalendars';
 
@@ -25,6 +27,7 @@ export default function CalendarPage() {
   const [isMobile, setIsMobile] = useState(() => globalThis.matchMedia?.('(max-width: 700px)').matches ?? false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<CalendarEvent | null>(null);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [calendarTransition, setCalendarTransition] = useState<'previous' | 'next' | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -399,7 +402,7 @@ export default function CalendarPage() {
                   ? `<span class="calendar-event-content__tag" style="background:${tagColor}"></span>`
                   : '';
                 return `<div class="calendar-event-content calendar-event-content--time${tagColor ? ' calendar-event-content--tagged' : ''}">
-                  <div class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${eventMarkers(event.raw ?? {})} ${event.title}</div>
+                  <div class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${eventMarkers(event.raw ?? {})} ${escapeCalendarText(String(event.title))}</div>
                   ${timeLabel ? `<div class="calendar-event-content__time">${timeLabel}</div>` : ''}
                   ${dot}
                 </div>`;
@@ -411,7 +414,7 @@ export default function CalendarPage() {
                   ? `<span class="calendar-event-content__tag calendar-event-content__tag--allday" style="background:${tagColor}"></span>`
                   : '';
                 return `<div class="calendar-event-content calendar-event-content--allday">
-                  <span class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${eventMarkers(event.raw ?? {})} ${event.title}</span>${dot}
+                  <span class="calendar-event-content__title${isDeclined ? ' calendar-event-content__title--declined' : ''}">${eventMarkers(event.raw ?? {})} ${escapeCalendarText(String(event.title))}</span>${dot}
                 </div>`;
               },
             }}
@@ -438,6 +441,8 @@ export default function CalendarPage() {
 
       {selectedEvent && (
         <EventModal
+          onEditTask={canEditCalDavTask(selectedEvent, calendars.find(cal => cal.id === selectedEvent.calendarId)) ? () => { setEditingTask(selectedEvent); setSelectedEvent(null); } : undefined}
+          readOnly={selectedEvent.readOnly}
           event={selectedEvent}
           calendar={calendars.find(c => c.id === selectedEvent.calendarId) || null}
           onClose={() => setSelectedEvent(null)}
@@ -462,6 +467,8 @@ export default function CalendarPage() {
           overlayChildren={showRecurringModal ? <RecurringChoiceModal onChoice={handleRecurringModalChoice} /> : null}
         />
       )}
+
+      {editingTask && calendars.find(cal => cal.id === editingTask.calendarId) && <CalDavTaskEditModal event={editingTask} calendar={calendars.find(cal => cal.id === editingTask.calendarId)!} onClose={() => setEditingTask(null)} onSaved={() => { void refresh(); }} />}
 
       {!selectedEvent && showRecurringModal && (
         <RecurringChoiceModal onChoice={handleRecurringModalChoice} />

@@ -99,8 +99,8 @@ describe('shared calendars are read only at the provider boundary', () => {
     await expect(respondToGoogleEvent('token', shared, 'event', 'other@example.com', 'ACCEPTED')).rejects.toThrow();
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it('rejects CalDAV creation, editing, deletion, cancellation and RSVP before any request', async () => {
-    const shared = { ...cal, shared: { ownerEmail: 'other@example.com' } };
+  it.each([{ shared: { ownerEmail: 'other@example.com' } }, { readOnly: true }])('rejects CalDAV creation, editing, deletion, cancellation and RSVP before any request (%j)', async capability => {
+    const shared = { ...cal, ...capability };
     await expect(createNextcloudEvent(shared, payload)).rejects.toThrow();
     await expect(updateNextcloudEvent(shared, 'event', payload)).rejects.toThrow();
     await expect(deleteNextcloudEvent(shared, 'event')).rejects.toThrow();

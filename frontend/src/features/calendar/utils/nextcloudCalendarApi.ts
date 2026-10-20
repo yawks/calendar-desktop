@@ -93,7 +93,7 @@ function eventResourceUrl(cal: CalendarConfig, uid: string): string {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function createNextcloudEvent(cal: CalendarConfig, payload: CreateEventPayload): Promise<string> {
-  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
+  if (cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const uid = crypto.randomUUID();
   const icsContent = buildVCalendar(uid, payload);
   const url = eventResourceUrl(cal, uid);
@@ -113,7 +113,7 @@ export async function updateNextcloudEvent(
   sourceEvent?: CalendarEvent,
   wholeSeries = false,
 ): Promise<void> {
-  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
+  if (sourceEvent?.readOnly || sourceEvent?.isTask || cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const url = eventResourceUrl(cal, uid);
   const credentials = { url, username: cal.nextcloudUsername ?? '', password: cal.nextcloudPassword ?? '' };
   const current = new ICAL.Component(ICAL.parse(await calendarApi.fetchCalDav(credentials)));
@@ -158,7 +158,7 @@ export async function updateNextcloudEvent(
 }
 
 export async function deleteNextcloudEvent(cal: CalendarConfig, uid: string): Promise<void> {
-  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
+  if (cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const url = eventResourceUrl(cal, uid);
   await calendarApi.deleteCalDav({
     url,
@@ -173,7 +173,7 @@ export async function cancelNextcloudEvent(
   event: CalendarEvent,
   wholeSeries: boolean,
 ): Promise<void> {
-  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
+  if (event.readOnly || event.isTask || cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const url = eventResourceUrl(cal, uid);
   const currentIcs = await calendarApi.fetchCalDav({
     url,
@@ -215,7 +215,7 @@ export async function respondToNextcloudEvent(
   newStatus: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
   comment?: string,
 ): Promise<void> {
-  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
+  if (cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const url = eventResourceUrl(cal, uid);
   const currentIcs = await calendarApi.fetchCalDav({
     url,

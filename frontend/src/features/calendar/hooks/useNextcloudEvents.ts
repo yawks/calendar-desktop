@@ -1,45 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AttendeeStatus, CalendarConfig, CalendarEvent } from '../../../shared/types';
-import { davResponses, resolveSharedCalDav } from '../utils/sharedCalendars';
-import { parseICS } from '../utils/parseICS';
+import { resolveSharedCalDav } from '../utils/sharedCalendars';
+import { calDavLoadError, loadCalDavCalendar, type CalDavSnapshot } from '../utils/loadCalDavCalendar';
 import { cacheGetStale, cacheSet, cacheIsFresh, patchCachedEventRsvp } from '../utils/eventCache';
-import { calendarApi } from '../../../shared/api/calendarApi';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v3';
 
 function cacheKey(calId: string) {
   return `nextcloud-events:${CACHE_VERSION}:${calId}`;
 }
 
-function buildExportUrl(calUrl: string): string {
-  const base = calUrl.endsWith('/') ? calUrl : `${calUrl}/`;
-  return `${base}?export`;
-}
-
-async function fetchAndParse(cal: CalendarConfig): Promise<CalendarEvent[]> {
-  if (cal.shared) {
-    const start = new Date(); start.setFullYear(start.getFullYear() - 1);
-    const end = new Date(); end.setFullYear(end.getFullYear() + 2);
-    const compact = (date: Date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-    const xml = await calendarApi.queryCalDav({ url: cal.url, username: cal.nextcloudUsername ?? '', password: cal.nextcloudPassword ?? '' }, 'REPORT', '1',
-      `<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="${compact(start)}" end="${compact(end)}"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>`);
-    return davResponses(xml).flatMap(({ prop }) => {
-      const ics = prop.getElementsByTagNameNS('urn:ietf:params:xml:ns:caldav', 'calendar-data')[0]?.textContent;
-      return ics ? parseICS(ics, cal) : [];
-    });
-  }
-  const text = await calendarApi.fetchCalDav({
-    url: buildExportUrl(cal.url),
-    username: cal.nextcloudUsername ?? '',
-    password: cal.nextcloudPassword ?? '',
-  });
-  return parseICS(text, cal);
-}
-
 export function useNextcloudEvents(calendars: CalendarConfig[], onLoaded?: (id: string, events: CalendarEvent[]) => void) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [readOnlyCalendarIds, setReadOnlyCalendarIds] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
@@ -50,17 +25,23 @@ export function useNextcloudEvents(calendars: CalendarConfig[], onLoaded?: (id: 
     const toFetch = calendarsRef.current.filter((c) => c.type === 'nextcloud' && c.url);
     if (!toFetch.length) {
       setEvents([]);
+      setReadOnlyCalendarIds([]);
       setErrors({});
       return;
     }
 
+    const readOnlyIds = new Set<string>();
     // Phase 1: show stale cache immediately (IDB read — very fast, no network)
     const stale = (await Promise.all(toFetch.map(async (cal) => {
-      const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id));
-      if (cached) onLoadedRef.current?.(cal.id, cached);
-      return cached;
+      const cached = await cacheGetStale<CalDavSnapshot>(cacheKey(cal.id));
+      if (cached) {
+        onLoadedRef.current?.(cal.id, cached.events);
+        if (cached.readOnly) readOnlyIds.add(cal.id);
+      }
+      return cached?.events;
     }))).flat().filter(Boolean) as CalendarEvent[];
     if (stale.length > 0) setEvents(stale);
+    setReadOnlyCalendarIds([...readOnlyIds]);
 
     // Phase 2: refresh expired / forced caches
     const toRefresh = force
@@ -74,10 +55,12 @@ export function useNextcloudEvents(calendars: CalendarConfig[], onLoaded?: (id: 
 
     const settled = await Promise.allSettled(
       toRefresh.map(async (cal) => {
-        const parsed = await fetchAndParse(resolveSharedCalDav(cal, calendarsRef.current));
+        const parsed = await loadCalDavCalendar(resolveSharedCalDav(cal, calendarsRef.current));
         await cacheSet(cacheKey(cal.id), parsed);
-        onLoadedRef.current?.(cal.id, parsed);
-        return parsed;
+        onLoadedRef.current?.(cal.id, parsed.events);
+        if (parsed.readOnly) readOnlyIds.add(cal.id);
+        else readOnlyIds.delete(cal.id);
+        return parsed.events;
       })
     );
 
@@ -88,18 +71,20 @@ export function useNextcloudEvents(calendars: CalendarConfig[], onLoaded?: (id: 
       if (result.status === 'fulfilled') {
         results.push(...result.value);
       } else {
-        newErrors[toRefresh[i].id] = result.reason?.message ?? 'Erreur inconnue';
+        newErrors[toRefresh[i].id] = calDavLoadError(result.reason);
+        results.push(...stale.filter(event => event.calendarId === toRefresh[i].id));
       }
     });
 
     for (const cal of toFetch) {
       if (!refreshedIds.has(cal.id)) {
-        const cached = await cacheGetStale<CalendarEvent[]>(cacheKey(cal.id));
-        if (cached) results.push(...cached);
+        const cached = await cacheGetStale<CalDavSnapshot>(cacheKey(cal.id));
+        if (cached) results.push(...cached.events);
       }
     }
 
     setEvents(results);
+    setReadOnlyCalendarIds([...readOnlyIds]);
     setErrors(newErrors);
     setLoading(false);
     return results;
@@ -119,10 +104,10 @@ export function useNextcloudEvents(calendars: CalendarConfig[], onLoaded?: (id: 
 
   const refresh = useCallback((calendarId?: string) => run(true, calendarId), [run]);
 
-  return { events, loading, errors, refresh };
+  return { events, loading, errors, refresh, readOnlyCalendarIds };
 }
 
 /** Patch a single Nextcloud event's RSVP status in the IndexedDB cache. */
 export function patchNextcloudCachedRsvp(calId: string, eventId: string, status: AttendeeStatus): Promise<void> {
-  return patchCachedEventRsvp(`nextcloud-events:${CACHE_VERSION}:${calId}`, eventId, status);
+  return patchCachedEventRsvp(cacheKey(calId), eventId, status);
 }

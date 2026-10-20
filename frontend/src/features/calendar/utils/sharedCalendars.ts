@@ -7,7 +7,7 @@ import { usableContactName } from '../../mail/utils/contactIndex';
 import { listCalendars } from './googleCalendarApi';
 
 export const OTHER_CALENDARS_GROUP = 'other-calendars';
-export const isCalendarWritable = (cal?: CalendarConfig | null) => !!cal && !cal.shared && ['google', 'exchange', 'nextcloud'].includes(cal.type ?? 'ics');
+export const isCalendarWritable = (cal?: CalendarConfig | null) => !!cal && !cal.shared && !cal.readOnly && ['google', 'exchange', 'nextcloud'].includes(cal.type ?? 'ics');
 export const calendarGroupId = (cal: CalendarConfig) => cal.shared ? OTHER_CALENDARS_GROUP : cal.groupId ?? 'default';
 
 export interface SharedCalendarSource {

@@ -72,6 +72,7 @@ interface Props {
   readonly allowTagEditing?: boolean;
   readonly anchorElement?: HTMLElement | null;
   readonly onEdit?: () => void;
+  readonly onEditTask?: () => void;
   readonly onDelete?: () => Promise<void>;
   readonly onCancelEvent?: () => Promise<void>;
   readonly onRsvp?: (status: RsvpStatus, comment?: string) => Promise<void>;
@@ -241,7 +242,9 @@ function AttendeeRow({ attendee }: { readonly attendee: Attendee }) {
   );
 }
 
-export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onCancelEvent, onRsvp, isOrganizer, overlayChildren, readOnly = false, allowTagEditing = !readOnly, anchorElement }: Props) {
+export default function EventModal({ event, calendar, onClose, onEdit, onEditTask, onDelete, onCancelEvent, onRsvp, isOrganizer, overlayChildren, readOnly = false, allowTagEditing = !readOnly, anchorElement }: Props) {
+  readOnly = readOnly || !!event?.readOnly || !!calendar?.readOnly;
+  allowTagEditing = allowTagEditing && !event?.readOnly && !event?.isTask;
   const { t } = useTranslation();
   const { tags, eventTags, setEventTag, removeEventTag } = useTags();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -312,9 +315,13 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     if (!dialog) return;
 
     const onCancel = () => onClose();
+    let pointerStartedOnBackdrop = false;
+    const onPointerDown = (e: PointerEvent) => { pointerStartedOnBackdrop = e.target === dialog; };
     const onBackdropClick = (e: MouseEvent) => {
       // With showModal(), clicking the backdrop sets e.target to the dialog itself
-      if (e.target !== dialog) return;
+      // Ignore the synthetic click from the touch that just opened the dialog.
+      if (e.target !== dialog || !pointerStartedOnBackdrop) return;
+      pointerStartedOnBackdrop = false;
       if (showTagDropdownRef.current) {
         setShowTagDropdown(false);
       } else {
@@ -323,9 +330,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     };
 
     dialog.addEventListener('cancel', onCancel);
+    dialog.addEventListener('pointerdown', onPointerDown);
     dialog.addEventListener('click', onBackdropClick);
     return () => {
       dialog.removeEventListener('cancel', onCancel);
+      dialog.removeEventListener('pointerdown', onPointerDown);
       dialog.removeEventListener('click', onBackdropClick);
     };
   }, [onClose]);
@@ -457,12 +466,13 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
                 </div>,
                 dialogRef.current ?? document.body
               )}
-              {!readOnly && !calendar?.shared && onEdit && (
+              {event.isTask && !event.readOnly && !calendar?.shared && onEditTask && <button className="btn-icon modal-close" onClick={onEditTask} aria-label={t('caldavTask.edit')} title={t('caldavTask.edit')}><Pencil size={16} /></button>}
+              {!event.isTask && !readOnly && !calendar?.shared && onEdit && (
                 <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
                   <Pencil size={16} />
                 </button>
               )}
-              {!readOnly && !calendar?.shared && onDelete && (
+              {!event.isTask && !readOnly && !calendar?.shared && onDelete && (
                 <button
                   className="btn-icon modal-close"
                   onClick={() => {
@@ -533,7 +543,9 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
           )}
 
           <div className="modal-body">
-            {calendar?.shared && <p className="shared-calendar-help">{t(event.availabilityOnly ? 'sharedCalendars.availabilityOnly' : 'sharedCalendars.readOnly')}</p>}
+            {(calendar?.shared || event.readOnly) && <p className="shared-calendar-help">{t(event.isTask ? 'config.caldavTaskReadOnly' : event.availabilityOnly ? 'sharedCalendars.availabilityOnly' : 'sharedCalendars.readOnly')}</p>}
+            {event.caldavTask?.project && <p className="caldav-task-metadata"><strong>{t('caldavTask.project')}:</strong> {event.caldavTask.project}</p>}
+            {!!event.caldavTask?.categories.length && <p className="caldav-task-metadata"><strong>{t('caldavTask.labels')}:</strong> {event.caldavTask.categories.join(', ')}</p>}
             <div className="modal-row">
               <Clock size={16} className="modal-icon" />
               <span>{formatEventDate(event)}</span>
