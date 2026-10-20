@@ -6,7 +6,7 @@ import { indexedDBPersister, queryClient, shouldPersistQuery, subscribeToQueryPe
 const options = {
   queryClient,
   persister: indexedDBPersister,
-  buster: 'mail-provider-loading-v6',
+  buster: 'mail-calendar-mime-v7',
   dehydrateOptions: {
     shouldDehydrateQuery: (query: Parameters<typeof defaultShouldDehydrateQuery>[0]) =>
       defaultShouldDehydrateQuery(query) && shouldPersistQuery(query.queryKey),

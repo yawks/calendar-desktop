@@ -13,6 +13,14 @@ function event(id: string, start = '10:00', end = '11:30', extra: Partial<Calend
 }
 
 describe('calculateTagInsights', () => {
+  it('excludes tasks from totals, tag durations and event counts even when they carry a tag', () => {
+    const result = calculateTagInsights([
+      event('task', '09:00', '09:30', { isTask: true }),
+      event('tagged-task', '10:00', '11:00', { isTask: true, tagId: 'B' }),
+      event('meeting', '10:00', '11:00', { tagId: 'A' }),
+    ], { task: 'B' }, tags);
+    expect(result).toEqual({ rows: [{ tag: tags[0], durationMs: hour }], totalMs: hour, untaggedMs: 0, eventCount: 1 });
+  });
   it('excludes cancelled, declined and unaccepted events from all durations', () => {
     const excluded: Partial<CalendarEvent>[] = [
       { isCancelled: true }, { isDeclined: true }, { isUnaccepted: true },

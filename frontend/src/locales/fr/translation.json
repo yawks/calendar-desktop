@@ -73,6 +73,8 @@
     ,"restoreFailed": "Impossible de récupérer ou de déchiffrer la configuration. Vérifiez les accès Nextcloud et le mot de passe maître."
   },
   "invitation": {
+    "counter": "Nouvel horaire proposé",
+    "counterHelp": "Ce créneau est une proposition. Pour le retenir, modifiez le rendez-vous dans votre calendrier et envoyez la mise à jour aux participants.",
     "title": "Invitation",
     "cancellation": "Annulation",
     "reply": "Réponse",

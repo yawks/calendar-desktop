@@ -9,7 +9,7 @@ export function calculateTagInsights(
 ) {
   const intervals = events.flatMap((event) => {
     if (calendars?.some(cal => cal.id === event.calendarId && cal.shared)) return [];
-    if (event.isAllday || event.isCancelled || event.isDeclined || event.isUnaccepted
+    if (event.isTask || event.isAllday || event.isCancelled || event.isDeclined || event.isUnaccepted
       || (event.selfRsvpStatus && event.selfRsvpStatus !== 'ACCEPTED')) return [];
     const start = Math.max(Date.parse(event.start), range?.start.getTime() ?? -Infinity);
     const end = Math.min(Date.parse(event.end), range?.end.getTime() ?? Infinity);

@@ -67,3 +67,32 @@ it.each(['google', 'exchange', 'nextcloud'] as const)('keeps the preview and rej
     expect(fixtures.timeline.mock.calls.at(-1)![0].events).toEqual([expect.objectContaining({ id: '__ics_preview__', title: 'Invitation' })]);
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+
+it.each(['google', 'exchange', 'nextcloud'] as const)('shows COUNTER as a proposal without RSVP or duplicate creation on %s', async (type) => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  fixtures.calendars = [{ id: type, type, name: type, url: 'https://calendar.example.test/', color: '#123456', visible: true }];
+  fixtures.events = [];
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const ics = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:COUNTER',
+    'BEGIN:VTIMEZONE', 'TZID:Romance Standard Time',
+    'BEGIN:STANDARD', 'DTSTART:16010101T030000', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10', 'END:STANDARD',
+    'BEGIN:DAYLIGHT', 'DTSTART:16010101T020000', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3', 'END:DAYLIGHT', 'END:VTIMEZONE',
+    'BEGIN:VEVENT', 'UID:proposal', 'SUMMARY:New time proposed: Meeting',
+    'DTSTART;TZID=Romance Standard Time:20261023T100000', 'DTEND;TZID=Romance Standard Time:20261023T110000',
+    'RECURRENCE-ID;TZID=Romance Standard Time:20261023T100000', 'END:VEVENT', 'END:VCALENDAR',
+  ].join('\r\n');
+  try {
+    await act(async () => root.render(<ICSInvitationCard source={{ kind: 'text', icsText: ics }} />));
+    expect(host.querySelector('.ics-card__label')?.textContent).toMatch(/Nouvel horaire proposé|New time proposed/);
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(host.querySelector('.ics-card__actions')).toBeNull();
+    const preview = fixtures.timeline.mock.calls.at(-1)![0];
+    expect(preview.events).toEqual([expect.objectContaining({ start: '2026-10-23T08:00:00.000Z', end: '2026-10-23T09:00:00.000Z' })]);
+    expect(preview.highlightedEventId).toBe('__ics_preview__');
+    await act(async () => root.render(<ICSInvitationCard source={{ kind: 'text', icsText: ics.replace('20261023T110000', '20261023T113000') }} />));
+    expect(fixtures.timeline.mock.calls.at(-1)![0].events[0].end).toBe('2026-10-23T09:30:00.000Z');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});

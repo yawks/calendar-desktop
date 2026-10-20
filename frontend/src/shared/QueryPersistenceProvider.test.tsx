@@ -32,7 +32,7 @@ afterEach(async () => {
 it('restores existing data once under StrictMode before subscribing', async () => {
   const source = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } });
   source.setQueryData(['calendar'], 'cached');
-  const saved = { buster: 'mail-provider-loading-v6', timestamp: Date.now(), clientState: dehydrate(source) };
+  const saved = { buster: 'mail-calendar-mime-v7', timestamp: Date.now(), clientState: dehydrate(source) };
   let finishRestore!: (value: typeof saved) => void;
   vi.mocked(get).mockImplementationOnce(() => new Promise(resolve => { finishRestore = resolve; }));
   await act(async () => root.render(<StrictMode><QueryPersistenceProvider><RestoreStatus /></QueryPersistenceProvider></StrictMode>));
@@ -48,8 +48,8 @@ it('restores existing data once under StrictMode before subscribing', async () =
   source.clear();
 });
 
-it('discards incompatible caches and keeps the application usable', async () => {
-  vi.mocked(get).mockResolvedValueOnce({ buster: 'old', timestamp: Date.now(), clientState: { queries: [], mutations: [] } });
+it('discards message caches created before calendar MIME extraction', async () => {
+  vi.mocked(get).mockResolvedValueOnce({ buster: 'mail-provider-loading-v6', timestamp: Date.now(), clientState: { queries: [], mutations: [] } });
   await act(async () => root.render(<QueryPersistenceProvider><RestoreStatus /></QueryPersistenceProvider>));
   expect(del).toHaveBeenCalledWith('react-query-cache-v2');
   expect(host.textContent).toBe('ready');

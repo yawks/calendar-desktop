@@ -1374,6 +1374,8 @@ impl MailProvider for EwsProvider {
     <t:BodyType>HTML</t:BodyType>
     <t:AdditionalProperties>
       <t:FieldURI FieldURI="message:IsRead"/>
+      <t:FieldURI FieldURI="meeting:ProposedStart"/>
+      <t:FieldURI FieldURI="meeting:ProposedEnd"/>
     </t:AdditionalProperties>
   </m:ItemShape>
   {folders_to_ignore}
@@ -1415,7 +1417,8 @@ impl MailProvider for EwsProvider {
                 for &item_type in ITEM_TYPES {
                     for msg_xml in xml_all_ns(&items_xml, item_type) {
                         if let Some(mut msg) = parse_message(&msg_xml) {
-                            if item_type != "t:Message" {
+                            msg.ics_mime = load_meeting_ics_mime(access_token, &msg.item_id, &msg_xml, item_type).await;
+                            if msg.ics_mime.is_none() && item_type != "t:Message" {
                                 let ics = build_meeting_ics(&msg_xml, item_type);
                                 if ics.is_none() {
                                     eprintln!("[mail] build_meeting_ics returned None for {} (has t:Start={})", item_type, xml_content_ns(&msg_xml, "t:Start").is_some());
@@ -2494,7 +2497,7 @@ pub async fn mail_get_message_content(
     item_id: String,
 ) -> Result<MailMessage, String> {
     let body = format!(
-        r#"<m:GetItem><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:BodyType>HTML</t:BodyType><t:AdditionalProperties><t:FieldURI FieldURI="message:IsRead"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="{item_id}"/></m:ItemIds></m:GetItem>"#
+        r#"<m:GetItem><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:BodyType>HTML</t:BodyType><t:AdditionalProperties><t:FieldURI FieldURI="message:IsRead"/><t:FieldURI FieldURI="meeting:ProposedStart"/><t:FieldURI FieldURI="meeting:ProposedEnd"/></t:AdditionalProperties></m:ItemShape><m:ItemIds><t:ItemId Id="{item_id}"/></m:ItemIds></m:GetItem>"#
     );
     let xml = send(&access_token, &body).await?;
     if xml.contains("ResponseClass=\"Error\"") {
@@ -2508,7 +2511,8 @@ pub async fn mail_get_message_content(
     ] {
         if let Some(msg_xml) = xml_all_ns(&xml, item_type).into_iter().next() {
             if let Some(mut msg) = parse_message(&msg_xml) {
-                if item_type != "t:Message" {
+                msg.ics_mime = load_meeting_ics_mime(&access_token, &msg.item_id, &msg_xml, item_type).await;
+                if msg.ics_mime.is_none() && item_type != "t:Message" {
                     msg.ics_mime = build_meeting_ics(&msg_xml, item_type);
                 }
                 let inline = parse_inline_images(&msg_xml);
@@ -3055,9 +3059,44 @@ fn parse_recipients(msg_xml: &str, tag: &str) -> Vec<MailRecipient> {
 
 // ── ICS / meeting helpers ─────────────────────────────────────────────────────
 
+async fn load_meeting_ics_mime(
+    access_token: &str,
+    item_id: &str,
+    msg_xml: &str,
+    item_type: &str,
+) -> Option<String> {
+    let item_class = xml_content_ns(msg_xml, "t:ItemClass").unwrap_or_default();
+    if item_type == "t:Message" && !item_class.starts_with("IPM.Schedule.Meeting.") {
+        return None;
+    }
+    // Preserve the original scheduling method and recurrence data; EWS projections can omit them.
+    let body = format!(r#"<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:IncludeMimeContent>true</t:IncludeMimeContent></m:ItemShape><m:ItemIds><t:ItemId Id="{}"/></m:ItemIds></m:GetItem>"#, xml_escape(item_id));
+    let xml = send(access_token, &body).await.ok()?;
+    meeting_ics_from_mime(&xml)
+}
+
+fn meeting_ics_from_mime(msg_xml: &str) -> Option<String> {
+    fn calendar_part(mail: &mailparse::ParsedMail<'_>) -> Option<String> {
+        if mail.ctype.mimetype.eq_ignore_ascii_case("text/calendar") {
+            return mail.get_body().ok().filter(|body| !body.trim().is_empty());
+        }
+        mail.subparts.iter().find_map(calendar_part)
+    }
+
+    let encoded = xml_content_ns(msg_xml, "t:MimeContent")?;
+    let compact: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
+    let bytes = BASE64.decode(compact.as_bytes()).ok()?;
+    let mail = mailparse::parse_mail(&bytes).ok()?;
+    calendar_part(&mail)
+}
+
 fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
-    let start_str = xml_content_ns(msg_xml, "t:Start")?;
-    let end_str = xml_content_ns(msg_xml, "t:End")?;
+    let proposed_start = xml_content_ns(msg_xml, "t:ProposedStart");
+    let proposed_end = xml_content_ns(msg_xml, "t:ProposedEnd");
+    let is_counter = item_type == "t:MeetingResponse"
+        && (proposed_start.is_some() || proposed_end.is_some());
+    let start_str = proposed_start.or_else(|| xml_content_ns(msg_xml, "t:Start"))?;
+    let end_str = proposed_end.or_else(|| xml_content_ns(msg_xml, "t:End"))?;
 
     let summary = xml_content_ns(msg_xml, "t:Subject").unwrap_or_default();
     let is_all_day = xml_content_ns(msg_xml, "t:IsAllDayEvent")
@@ -3082,6 +3121,7 @@ fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
 
     let method = match item_type {
         "t:MeetingCancellation" => "CANCEL",
+        "t:MeetingResponse" if is_counter => "COUNTER",
         "t:MeetingResponse" => "REPLY",
         _ => "REQUEST",
     };
@@ -3367,6 +3407,32 @@ mod outlook_schedule_tests {
     fn permanent_delete_does_not_ignore_errors_from_other_operations() {
         let xml = r#"<m:GetConversationItemsResponseMessage ResponseClass="Error"><m:ResponseCode>ErrorItemNotFound</m:ResponseCode></m:GetConversationItemsResponseMessage>"#;
         assert!(check_permanent_delete_response(xml).is_err());
+    }
+
+    #[test]
+    fn original_mime_preserves_counter_even_for_an_ordinary_message() {
+        let ics = "BEGIN:VCALENDAR\r\nMETHOD:COUNTER\r\nBEGIN:VEVENT\r\nUID:proposal\r\nDTSTART:20261023T080000Z\r\nDTEND:20261023T090000Z\r\nRECURRENCE-ID:20261023T080000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let mime = format!("MIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=proposal\r\n\r\n--proposal\r\nContent-Type: text/plain\r\n\r\nPlease move the meeting.\r\n--proposal\r\nContent-Type: text/calendar; charset=utf-8; method=COUNTER\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n--proposal--\r\n", BASE64.encode(ics));
+        for item_type in ["Message", "MeetingResponse"] {
+            let xml = format!("<t:{item_type}><t:MimeContent>\n{}\n</t:MimeContent></t:{item_type}>", BASE64.encode(mime.as_bytes()));
+            assert_eq!(meeting_ics_from_mime(&xml).as_deref(), Some(ics));
+        }
+        assert!(meeting_ics_from_mime("<t:MimeContent>invalid!</t:MimeContent>").is_none());
+        assert!(meeting_ics_from_mime("<t:Message/>").is_none());
+    }
+
+    #[test]
+    fn meeting_response_preserves_proposed_times_without_calendar_start_fields() {
+        let xml = r#"<t:MeetingResponse><t:Subject>New time proposed</t:Subject>
+            <t:ProposedStart>2026-10-23T08:00:00Z</t:ProposedStart>
+            <t:ProposedEnd>2026-10-23T09:00:00Z</t:ProposedEnd>
+        </t:MeetingResponse>"#;
+        let ics = build_meeting_ics(xml, "t:MeetingResponse").unwrap();
+        assert!(ics.contains("METHOD:COUNTER"));
+        assert!(ics.contains("DTSTART:20261023T080000Z"));
+        assert!(ics.contains("DTEND:20261023T090000Z"));
+        let normal = xml.replace("ProposedStart", "Start").replace("ProposedEnd", "End");
+        assert!(build_meeting_ics(&normal, "t:MeetingResponse").unwrap().contains("METHOD:REPLY"));
     }
 
     #[test]

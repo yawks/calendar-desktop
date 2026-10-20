@@ -73,6 +73,8 @@
     ,"restoreFailed": "Unable to retrieve or decrypt the configuration. Check the Nextcloud credentials and master password."
   },
   "invitation": {
+    "counter": "New time proposed",
+    "counterHelp": "This time slot is a proposal. To use it, edit the meeting in your calendar and send the update to the attendees.",
     "title": "Invitation",
     "cancellation": "Cancellation",
     "reply": "Reply",

@@ -418,3 +418,11 @@
     grid-column: 1 / -1;
   }
 }
+
+.ics-card__counter-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
