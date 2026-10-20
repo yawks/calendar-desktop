@@ -343,12 +343,16 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
           {toolbar}
           <div className="mail-thread-list mail-thread-list--loading">
             {Array.from({ length: 12 }, (_, index) => (
-              <div className="mail-thread-list-skeleton" key={index} aria-hidden="true">
+              <div className="mail-thread-item mail-thread-list-skeleton" key={index} aria-hidden="true">
                 <span className="mail-thread-list-skeleton__avatar" />
                 <span className="mail-thread-list-skeleton__content">
-                  <span className="mail-thread-list-skeleton__sender" />
+                  <span className="mail-thread-list-skeleton__top">
+                    <span className="mail-thread-list-skeleton__sender" />
+                    <span className="mail-thread-list-skeleton__date" />
+                  </span>
                   <span className="mail-thread-list-skeleton__subject" />
                   <span className="mail-thread-list-skeleton__preview" />
+                  <span className="mail-thread-list-skeleton__preview mail-thread-list-skeleton__preview--short" />
                 </span>
               </div>
             ))}

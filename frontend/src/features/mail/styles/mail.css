@@ -529,17 +529,22 @@
 }
 .mail-thread-item__snippet-skeleton::before { width: 88%; }
 .mail-thread-item__snippet-skeleton::after { width: 62%; }
-.mail-thread-list-skeleton { display: flex; gap: 12px; min-height: 88px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
-.mail-thread-list-skeleton__avatar { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%; }
-.mail-thread-list-skeleton__content { display: grid; flex: 1; gap: 8px; min-width: 0; }
-.mail-thread-list-skeleton__sender { width: 42%; height: 11px; }
-.mail-thread-list-skeleton__subject { width: 68%; height: 11px; }
-.mail-thread-list-skeleton__preview { width: 88%; height: 10px; }
+.mail-thread-list-skeleton { pointer-events: none; }
+.mail-thread-list-skeleton__avatar { flex: 0 0 34px; width: 34px; height: 34px; margin-top: 1px; border-radius: 50%; }
+.mail-thread-list-skeleton__content { display: grid; flex: 1; gap: calc(6px * var(--font-scale, 1)); min-width: 0; padding-top: 3px; }
+.mail-thread-list-skeleton__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mail-thread-list-skeleton__sender { width: 42%; height: calc(11px * var(--font-scale, 1)); }
+.mail-thread-list-skeleton__date { width: 18%; height: calc(9px * var(--font-scale, 1)); }
+.mail-thread-list-skeleton__subject { width: 68%; height: calc(11px * var(--font-scale, 1)); }
+.mail-thread-list-skeleton__preview { width: 88%; height: calc(8px * var(--font-scale, 1)); }
+.mail-thread-list-skeleton__preview--short { width: 62%; }
 .mail-thread-list-skeleton__sender,
+.mail-thread-list-skeleton__date,
 .mail-thread-list-skeleton__subject,
 .mail-thread-list-skeleton__preview { border-radius: 6px; }
 .mail-thread-list-skeleton__avatar,
 .mail-thread-list-skeleton__sender,
+.mail-thread-list-skeleton__date,
 .mail-thread-list-skeleton__subject,
 .mail-thread-list-skeleton__preview {
   display: block;
