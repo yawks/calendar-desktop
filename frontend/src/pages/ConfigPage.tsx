@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ChevronLeft, Languages, Cloud, Rss, Plus, SlidersHorizontal, Server, Waypoints } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, Bell, Info, Lock, Mail, Sun, Cloud, Rss, Plus, SlidersHorizontal, Server, Waypoints } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCalendars } from '../features/calendar/store/CalendarStore';
 import { useGoogleAuth } from '../shared/store/GoogleAuthStore';
@@ -19,11 +19,14 @@ import { PreferencesSection } from './config/PreferencesSection';
 import { NativeSettingsSection } from '../shared/platform/NativeSettingsSection';
 import { DesktopSyncTestSection } from './config/DesktopSyncTestSection';
 import { SignaturesSection } from './config/SignaturesSection';
-import { SourcesSyncSection } from './config/SourcesSyncSection';
+import { AndroidCalendarsSection } from './config/AndroidCalendarsSection';
+import { MailContentRulesSection } from './config/MailContentRulesSection';
+import { SourcesSyncSection, ContactLogosSection } from './config/SourcesSyncSection';
 import { CalendarItem, GroupSection } from './config/ConfigShared';
 import { useConnectionIssues } from '../shared/store/ConnectionIssueStore';
 
-type SectionType = 'providers' | 'preferences';
+const sectionIds = ['general', 'providers', 'mail', 'sync', 'security', 'about'] as const;
+type SectionType = typeof sectionIds[number];
 
 type EditModalState =
   | { type: 'google'; accountId: string }
@@ -45,7 +48,30 @@ export default function ConfigPage() {
   const connectionIssues = useConnectionIssues();
   const requestedReconnectId = new URLSearchParams(globalThis.location.search).get('reconnect');
 
-  const [activeSection, setActiveSection] = useState<SectionType>('providers');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selected = searchParams.get('section');
+  const activeSection: SectionType = sectionIds.includes(selected as SectionType) ? selected as SectionType : searchParams.has('addSource') || searchParams.has('reconnect') ? 'providers' : 'general';
+  const showDetail = selected !== null || searchParams.has('addSource') || searchParams.has('reconnect');
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const navigationRef = useRef<HTMLElement>(null);
+  const openSection = (id: SectionType) => setSearchParams({ section: id });
+  const closeSection = () => {
+    setSearchParams({}, { replace: true });
+    requestAnimationFrame(() => navigationRef.current?.querySelector<HTMLButtonElement>(`[data-section="${activeSection}"]`)?.focus());
+  };
+  useEffect(() => {
+    if (selected) headingRef.current?.focus();
+  }, [selected]);
+  useEffect(() => {
+    const onBack = (event: Event) => {
+      if (showDetail && matchMedia('(max-width: 767px)').matches && !showNewCalModal && !editModal) {
+        event.preventDefault();
+        closeSection();
+      }
+    };
+    window.addEventListener('courrier:android-back', onBack);
+    return () => window.removeEventListener('courrier:android-back', onBack);
+  });
   const [showNewCalModal, setShowNewCalModal] = useState(
     () => {
       const params = new URLSearchParams(globalThis.location.search);
@@ -71,10 +97,9 @@ export default function ConfigPage() {
     accounts.length > 0 || exchangeAccounts.length > 0 ||
     imapAccounts.length > 0 || jmapAccounts.length > 0 || icsCals.length > 0 || nextcloudCals.length > 0;
 
-  const sections: { id: SectionType; label: string; icon: React.ReactNode }[] = [
-    { id: 'providers', label: t('config.sectProviders'), icon: <SlidersHorizontal size={15} /> },
-    { id: 'preferences', label: t('config.sectPreferences'), icon: <Languages size={15} /> },
-  ];
+  const icons = [<Sun size={20} />, <SlidersHorizontal size={20} />, <Mail size={20} />, <Bell size={20} />, <Lock size={20} />, <Info size={20} />];
+  const sections = sectionIds.map((id, index) => ({ id, label: t(`settings.navigation.${id}.title`), hint: t(`settings.navigation.${id}.hint`), icon: icons[index] }));
+  const currentSection = sections.find(section => section.id === activeSection)!;
 
   const editingGoogleAccount = editModal?.type === 'google'
     ? accounts.find((a) => a.id === (editModal as { type: 'google'; accountId: string }).accountId)
@@ -85,9 +110,15 @@ export default function ConfigPage() {
       <header className="header config-header">
         <Link
           to="/"
+          onClick={event => {
+            if (showDetail && matchMedia('(max-width: 767px)').matches) {
+              event.preventDefault();
+              closeSection();
+            }
+          }}
           className="btn-config btn-config--icon-only config-header-back"
-          aria-label={t('config.backToCalendar')}
-          title={t('config.backToCalendar')}
+          aria-label={t('settings.navigation.back')}
+          title={t('settings.navigation.back')}
         >
           <ChevronLeft size={28} aria-hidden="true" />
         </Link>
@@ -95,30 +126,36 @@ export default function ConfigPage() {
       </header>
 
       <div className="app-body">
-        <div className="config-layout">
+        <div className={`config-layout config-settings${showDetail ? ' config-settings--detail' : ''}`}>
 
           {/* ── Sidebar ── */}
-          <nav className="config-sidebar">
+          <nav ref={navigationRef} className="config-sidebar" aria-label={t('config.pageTitle')}>
             {sections.map((s) => (
               <button
                 key={s.id}
                 type="button"
                 className={`config-sidebar-item${activeSection === s.id ? ' config-sidebar-item--active' : ''}`}
-                onClick={() => setActiveSection(s.id)}
+                data-section={s.id}
+                aria-current={activeSection === s.id ? 'page' : undefined}
+                onClick={() => openSection(s.id)}
               >
                 {s.icon}
-                {s.label}
+                <span className="config-nav-copy"><span>{s.label}</span><small>{s.hint}</small></span>
+                <ChevronRight className="config-nav-chevron" size={18} aria-hidden="true" />
               </button>
             ))}
           </nav>
 
           {/* ── Content ── */}
           <div className="config-content">
+            <div className="config-section-intro">
+              <h2 ref={headingRef} tabIndex={-1}>{currentSection.label}</h2>
+              <p>{currentSection.hint}</p>
+            </div>
 
             {activeSection === 'providers' && (
               <>
                 <div className="config-section-header">
-                  <h2 className="config-section-title">{t('config.sectProviders')}</h2>
                   <button
                     type="button"
                     className="btn-primary"
@@ -130,8 +167,7 @@ export default function ConfigPage() {
                   </button>
                 </div>
 
-                <NativeSettingsSection />
-                <DesktopSyncTestSection />
+
 
                 {!hasAnyProvider && (
                   <div className="empty-state" style={{ marginTop: 32 }}>
@@ -270,20 +306,16 @@ export default function ConfigPage() {
                   </div>
                 )}
 
-                {/* Signatures (sous-section intégrée) */}
-                <SignaturesSection />
-                <SourcesSyncSection />
+                <AndroidCalendarsSection />
               </>
             )}
 
-            {activeSection === 'preferences' && (
-              <>
-                <div className="config-section-header">
-                  <h2 className="config-section-title">{t('config.sectPreferences')}</h2>
-                </div>
-                <PreferencesSection />
-              </>
-            )}
+            {activeSection === 'mail' && <><SignaturesSection /><MailContentRulesSection /><ContactLogosSection /></>}
+            {activeSection === 'sync' && <><PreferencesSection section="sync" /><NativeSettingsSection /><SourcesSyncSection /></>}
+            {activeSection === 'general' && <PreferencesSection section="general" />}
+            {activeSection === 'security' && <PreferencesSection section="security" />}
+            {activeSection === 'about' && <><PreferencesSection section="about" /><DesktopSyncTestSection /></>}
+
 
           </div>
         </div>

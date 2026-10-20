@@ -1,4 +1,5 @@
-import { CalendarClock, ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Settings, CalendarClock, ChevronRight, Clock, FileText, Folder as FolderIcon, Inbox, Pencil, Send, ShieldAlert, Trash2 } from 'lucide-react';
 import { Folder, MailFolder } from '../types';
 import { useEffect, useRef, useState } from 'react';
 
@@ -221,6 +222,7 @@ export function MailSidebar({
 
   return (
     <nav className="mail-sidebar" ref={navRef}>
+      <div className="mobile-drawer-content">
       <button className="mail-compose-btn" onClick={onCompose}>
         <span className="mail-compose-btn__main">
           <Pencil size={17} />
@@ -259,6 +261,11 @@ export function MailSidebar({
           onToggleExpand={handleToggleExpand}
         />
       ))}
+      </div>
+      <Link className="mobile-drawer-settings" to="/config">
+        <Settings size={20} aria-hidden="true" />
+        <span>{t('mail.settings')}</span>
+      </Link>
     </nav>
   );
 }

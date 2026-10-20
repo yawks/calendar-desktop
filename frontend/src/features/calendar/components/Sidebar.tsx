@@ -1,6 +1,7 @@
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import {
-  AlertCircle, Loader2, Pencil, Check, X,
+  Settings, AlertCircle, Loader2, Pencil, Check, X,
   GripVertical, ChevronRight, Plus, Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -495,6 +496,7 @@ export default function Sidebar({
 
   return (
     <aside className="sidebar" style={{ width }}>
+      <div className="mobile-drawer-content">
       <MiniCalendar currentDate={currentDate} onSelectDate={onNavigateToDate} />
 
       <DndContext
@@ -754,6 +756,11 @@ export default function Sidebar({
           {t('sidebar.loading')}
         </div>
       )}
+      </div>
+      <Link className="mobile-drawer-settings" to="/config">
+        <Settings size={20} aria-hidden="true" />
+        <span>{t('mail.settings')}</span>
+      </Link>
     </aside>
   );
 }

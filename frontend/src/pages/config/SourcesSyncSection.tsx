@@ -9,7 +9,6 @@ import { useLogoDevToken } from '../../shared/store/LogoDevTokenStore';
 
 export function SourcesSyncSection() {
   const { t } = useTranslation();
-  const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
   const {
     backupToNextcloud, configSyncSettings, configSyncStatus, configSyncInvitation, configSyncSummary,
     disableConfigSync, resolveConfigSyncConflict,
@@ -92,6 +91,15 @@ export function SourcesSyncSection() {
         </div>}
       </section>
 
+
+    </div>
+  );
+}
+
+export function ContactLogosSection() {
+  const { t } = useTranslation();
+  const { token: logoDevToken, setToken: setLogoDevToken } = useLogoDevToken();
+  return (
       <section className="native-settings-card sources-logo-card">
         <header className="native-settings-card__header">
           <div className="native-settings-card__icon" aria-hidden="true"><Mail size={20} /></div>
@@ -102,6 +110,5 @@ export function SourcesSyncSection() {
           <input id="logo-dev-token" type="password" value={logoDevToken} onChange={event => setLogoDevToken(event.target.value)} placeholder="pk_..." />
         </label>
       </section>
-    </div>
   );
 }

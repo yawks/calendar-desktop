@@ -44,6 +44,16 @@ Si aucun pattern ne convient, créer un composant et des classes sémantiques d�
 - Utiliser les attributs `autocomplete`, `type`, `required`, `disabled` et les contraintes appropriées. Un placeholder ne remplace jamais un libellé.
 - Les secrets sont des champs `password`; une clé de récupération peut être monospace et doit pouvoir être copiée sans être tronquée.
 
+## Listes déroulantes et sélecteurs
+
+- Un sélecteur fermé doit respecter la charte de l’application sur web, Tauri et Android : fond `--bg`, texte `--text`, bordure `--border`, rayon de 8 px et focus visible avec `--primary`. Ne pas laisser apparaître un contrôle brut du navigateur ou du système au milieu de champs stylés.
+- Définir explicitement la typographie du contrôle, indépendamment de celle du label : environ `calc(14px * var(--font-scale, 1))`, graisse normale. Le libellé peut être en semi-gras ; la valeur sélectionnée ne doit pas hériter de cette graisse ni d’une taille de titre.
+- Pour un `select` natif, neutraliser l’apparence du contrôle fermé avec `appearance: none` et `-webkit-appearance: none`, puis afficher un unique chevron cohérent avec les icônes de l’app. Prévoir le padding à droite, sans chevauchement du texte ; l’icône décorative ne capte pas les clics et est masquée aux technologies d’assistance. Éviter les doubles flèches et les indicateurs natifs non maîtrisés.
+- Le contrôle mesure 42 à 44 px au minimum sur desktop et offre une cible tactile d’au moins 48 px sur Android. Vérifier les libellés longs et le zoom du texte sans tronquer la valeur utile.
+- Sur Android, conserver le sélecteur système à l’ouverture d’un `select` natif lorsque cela convient : son dialogue peut suivre les conventions de la plateforme, tandis que le champ fermé reste conforme à la charte de l’app. Sur desktop, une liste personnalisée ouverte reprend les variables de thème, les espacements et les états de sélection de l’app.
+- Réutiliser un composant accessible existant lorsqu’il répond au besoin. Si une liste personnalisée est nécessaire, couvrir son nom accessible, la valeur sélectionnée, les états ouvert/désactivé, les flèches du clavier, Entrée/Espace, Échap et le retour du focus. Un `div` cliquable seul ne remplace pas un sélecteur.
+- Valider les sélecteurs fermés et ouverts, en clair et sombre, au clavier et au toucher. Pour Android, inspecter le rendu réel de la WebView et du dialogue de sélection sur appareil ou émulateur ; une capture du navigateur desktop ne suffit pas.
+
 ## Boutons et actions
 
 - Réutiliser `btn-primary`, `btn-ghost` et les variantes existantes avant de créer un nouveau bouton.

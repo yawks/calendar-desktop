@@ -889,3 +889,37 @@
   from { background-position: 100% 0; }
   to { background-position: -120% 0; }
 }
+
+@media (max-width: 767px) {
+  .config-settings .config-sidebar { width: 100%; flex: 1; padding: 12px; border: 0; flex-direction: column; gap: 6px; overflow-x: hidden; overflow-y: auto; }
+  .config-settings .config-sidebar-item { width: 100%; flex: 0 0 auto; justify-content: flex-start; min-height: 72px; gap: 12px; text-align: left; color: var(--text); background: var(--bg-sidebar); border: 1px solid var(--border); }
+  .config-settings .config-nav-copy { flex: 1; }
+  .config-settings .config-nav-copy small { display: block; margin-top: 5px; font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; color: var(--text-muted); font-weight: 400; }
+  .config-settings .config-nav-chevron { display: block; }
+  .config-settings:not(.config-settings--detail) .config-content, .config-settings--detail .config-sidebar { display: none; }
+  .config-settings .config-content { padding: 14px 12px max(24px, env(safe-area-inset-bottom)); }
+  .config-settings .native-settings-card { margin-bottom: 16px; padding: 13px; }
+  .config-settings .native-settings-card__header { gap: 10px; margin-bottom: 12px; }
+  .config-settings .native-settings-card__icon { width: 36px; height: 36px; flex-basis: 36px; }
+  .config-settings button, .config-settings select, .config-settings input:not([type='checkbox']) { min-height: 48px; }
+  .config-settings .preferences-toggle, .config-settings .offline-mail-toggle { min-height: 48px; }
+}
+@media (max-width: 599px) {
+  .config-settings .native-settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .config-settings .native-settings-actions { align-items: stretch; }
+  .config-settings .native-settings-actions button { flex: 1 1 100%; justify-content: center; white-space: normal; }
+}
+
+@media (max-width: 767px) {
+  .config-layout.config-settings select { min-height: 48px; }
+}
+
+.mobile-drawer-content { display: contents; }
+.mobile-drawer-settings { display: none; }
+@media (max-width: 700px), (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
+  .app-body > .sidebar, .mail-sidebar { overflow: hidden; }
+  .mobile-drawer-content { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; gap: 4px; }
+  .mobile-drawer-settings { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; min-height: 48px; margin-top: auto; padding: 10px 12px; box-sizing: border-box; border-top: 1px solid var(--border); color: var(--text); background: var(--bg-sidebar); text-decoration: none; font-size: calc(14px * var(--font-scale, 1)); }
+  .mobile-drawer-settings:hover { background: var(--bg-hover); }
+  .mobile-drawer-settings:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+}

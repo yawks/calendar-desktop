@@ -822,10 +822,6 @@ export default function MailApp() {
                   <ChartNoAxesCombined size={16} aria-hidden="true" />
                   {t('mail.stats.title')}
                 </button>
-                <Link className="mail-actions-menu__item" to="/config" onClick={() => setMobileMenuOpen(false)}>
-                  <Settings size={16} aria-hidden="true" />
-                  {t('mail.settings')}
-                </Link>
               </div>
             </>
           )}

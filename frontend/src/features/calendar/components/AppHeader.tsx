@@ -132,10 +132,6 @@ export default function AppHeader({
               <CalendarCheck size={16} aria-hidden="true" />
               {t('header.today')}
             </button>
-            <Link role="menuitem" className="mail-actions-menu__item" to="/config" onClick={() => setMobileMenuOpen(false)}>
-              <Settings size={16} aria-hidden="true" />
-              {t('mail.settings')}
-            </Link>
           </div>
         )}
       </div>

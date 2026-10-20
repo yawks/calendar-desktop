@@ -1,8 +1,6 @@
-import { AndroidCalendarsSection } from './AndroidCalendarsSection';
-import { MailContentRulesSection } from './MailContentRulesSection';
 import { useTranslation } from 'react-i18next';
 import { useState } from 'react';
-import { Bell, Check, Columns2, Copy, Database, Fingerprint, Languages, LayoutPanelTop, Lock, Monitor, Moon, Sun, Type } from 'lucide-react';
+import { Bell, Check, Copy, Database, Fingerprint, Info, Lock, Sun } from 'lucide-react';
 import { useFontSize, FontSizePreference } from '../../shared/store/FontSizeStore';
 import { useLanguage } from '../../shared/store/LanguageStore';
 import { LanguagePreference } from '../../i18n';
@@ -11,63 +9,9 @@ import { useTheme, ThemePreference } from '../../shared/store/ThemeStore';
 import { useVault } from '../../shared/security/VaultProvider';
 import { useOfflineMailSettings } from '../../shared/store/OfflineMailStore';
 
+import { isTauriRuntime } from '../../shared/platform/tauriRuntime';
 import { useMailNotificationsSettings } from '../../shared/store/MailNotificationStore';
-function FontSizeOption({ size, active, onClick, label }: { size: FontSizePreference; active: boolean; onClick: () => void; label: string }) {
-  const scale = size === 'small' ? 0.85 : size === 'medium' ? 1 : size === 'intermediate' ? 1.1 : 1.2;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 12,
-        padding: 12,
-        borderRadius: 12,
-        border: `2px solid ${active ? 'var(--color-primary, #1a73e8)' : 'var(--border)'}`,
-        background: active ? 'color-mix(in srgb, var(--color-primary, #1a73e8) 8%, var(--bg))' : 'var(--bg)',
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-        flex: 1,
-        outline: 'none',
-      }}
-      className="font-size-option"
-    >
-      <div style={{
-        width: '100%',
-        height: 70,
-        borderRadius: 8,
-        background: 'var(--bg-hover, #f5f5f5)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        padding: 10,
-        overflow: 'hidden',
-        border: '1px solid var(--border)',
-        position: 'relative',
-      }}>
-        {[0.9, 0.7, 0.8].map((w, i) => (
-          <div
-            key={i}
-            style={{
-              height: `${Math.round(scale * 8)}px`,
-              borderRadius: 3,
-              background: 'var(--text-muted)',
-              width: `${w * 100}%`,
-              opacity: 0.5,
-            }}
-          />
-        ))}
-      </div>
-      <span style={{ fontSize: `${Math.round(scale * 13)}px`, color: active ? 'var(--color-primary, #1a73e8)' : 'var(--text)', fontWeight: active ? 600 : 400 }}>
-        {label}
-      </span>
-    </button>
-  );
-}
-
-export function PreferencesSection() {
+export function PreferencesSection({ section }: { section: 'general' | 'sync' | 'security' | 'about' }) {
   const { t } = useTranslation();
   const { preference, setPreference } = useLanguage();
   const { layout, setLayout } = useLayout();
@@ -127,117 +71,23 @@ export function PreferencesSection() {
     setDiagnosticCopied(true);
   };
 
-  const langOptions: { value: LanguagePreference; label: string; flag: string }[] = [
-    { value: 'system', label: t('settings.language.system'), flag: '🖥' },
-    { value: 'fr', label: t('settings.language.fr'), flag: '🇫🇷' },
-    { value: 'en', label: t('settings.language.en'), flag: '🇬🇧' },
-  ];
-
-  const themeOptions: { value: ThemePreference; label: string; icon: React.ReactNode }[] = [
-    { value: 'system', label: t('settings.theme.system'), icon: <Monitor size={15} /> },
-    { value: 'light', label: t('settings.theme.light'), icon: <Sun size={15} /> },
-    { value: 'dark', label: t('settings.theme.dark'), icon: <Moon size={15} /> },
-  ];
-
-  const layoutOptions: { value: AppLayout; label: string; icon: React.ReactNode }[] = [
-    { value: 'tabbed', label: t('settings.layout.tabbed', 'Onglets'), icon: <LayoutPanelTop size={15} /> },
-    { value: 'windows', label: t('settings.layout.windows', 'Fenêtres séparées'), icon: <Columns2 size={15} /> },
-  ];
-
-  const segmentStyle = {
-    display: 'inline-flex' as const,
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    overflow: 'hidden' as const,
-    background: 'var(--bg-secondary, var(--bg))',
-  };
-
-  const btnStyle = (active: boolean, isFirst: boolean) => ({
-    display: 'flex' as const,
-    alignItems: 'center' as const,
-    gap: 7,
-    padding: '8px 16px',
-    border: 'none',
-    borderLeft: isFirst ? 'none' : '1px solid var(--border)',
-    background: active ? 'var(--color-primary, #1a73e8)' : 'transparent',
-    color: active ? '#fff' : 'var(--text)',
-    fontWeight: active ? 600 : 400,
-    cursor: 'pointer',
-    fontSize: 'calc(14px * var(--font-scale, 1))',
-    transition: 'background 0.15s, color 0.15s',
-  });
-
   return (
-    <div className="preferences-section" style={{ maxWidth: 480 }}>
-
-      {/* Langue */}
-      <section className="native-settings-card preferences-card">
-        <header className="native-settings-card__header preferences-card__header">
-          <div className="native-settings-card__icon" aria-hidden="true"><Languages size={20} /></div>
-          <div><h3>{t('settings.language.sectionTitle')}</h3></div>
-        </header>
-        <div className="preferences-segment" style={segmentStyle}>
-          {langOptions.map((opt, i) => (
-            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setPreference(opt.value)} style={btnStyle(preference === opt.value, i === 0)}>
-              <span style={{ fontSize: 'calc(16px * var(--font-scale, 1))', lineHeight: 1 }}>{opt.flag}</span>
-              {opt.label}
-            </button>
-          ))}
+    <div className="preferences-section">
+      {section === 'general' && <section className="native-settings-card preferences-card">
+        <header className="native-settings-card__header"><div className="native-settings-card__icon" aria-hidden="true"><Sun size={20} /></div><div><h3>{t('settings.navigation.customization')}</h3></div></header>
+        <div className="native-settings-grid">
+          <label className="native-settings-field"><span>{t('settings.language.sectionTitle')}</span><select value={preference} onChange={event => setPreference(event.target.value as LanguagePreference)}>{(['system', 'fr', 'en'] as const).map(value => <option key={value} value={value}>{t(`settings.language.${value}`)}</option>)}</select></label>
+          <label className="native-settings-field"><span>{t('settings.theme.sectionTitle')}</span><select value={themePref} onChange={event => setThemePref(event.target.value as ThemePreference)}>{(['system', 'light', 'dark'] as const).map(value => <option key={value} value={value}>{t(`settings.theme.${value}`)}</option>)}</select></label>
+          <label className="native-settings-field"><span>{t('settings.fontSize.sectionTitle')}</span><select value={fontSize} onChange={event => setFontSize(event.target.value as FontSizePreference)}>{(['small', 'medium', 'intermediate', 'large'] as const).map(value => <option key={value} value={value}>{t(`settings.fontSize.${value}`)}</option>)}</select></label>
+          {isTauriRuntime() && <label className="native-settings-field preferences-layout-section"><span>{t('settings.layout.sectionTitle')}</span><select value={layout} onChange={event => setLayout(event.target.value as AppLayout)}>{(['tabbed', 'windows'] as const).map(value => <option key={value} value={value}>{t(`settings.layout.${value}`)}</option>)}</select><small className="config-setting-help">{t('settings.layout.hint')}</small></label>}
         </div>
-      </section>
-
-      {/* Thème */}
-      <section className="native-settings-card preferences-card">
-        <header className="native-settings-card__header preferences-card__header">
-          <div className="native-settings-card__icon" aria-hidden="true"><Sun size={20} /></div>
-          <div><h3>{t('settings.theme.sectionTitle')}</h3></div>
-        </header>
-        <div className="preferences-segment" style={segmentStyle}>
-          {themeOptions.map((opt, i) => (
-            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setThemePref(opt.value)} style={btnStyle(themePref === opt.value, i === 0)}>
-              {opt.icon}
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* Layout */}
-      <section className="native-settings-card preferences-card preferences-layout-section">
-        <header className="native-settings-card__header">
-          <div className="native-settings-card__icon" aria-hidden="true"><LayoutPanelTop size={20} /></div>
-          <div><h3>{t('settings.layout.sectionTitle', 'Interface')}</h3><p>{t('settings.layout.hint', "Redémarrez l'application pour appliquer le mode Fenêtres séparées.")}</p></div>
-        </header>
-        <div className="preferences-segment" style={segmentStyle}>
-          {layoutOptions.map((opt, i) => (
-            <button className="preferences-segment-button" key={opt.value} type="button" onClick={() => setLayout(opt.value)} style={btnStyle(layout === opt.value, i === 0)}>
-              {opt.icon}
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <MailContentRulesSection />
-      <AndroidCalendarsSection />
-
-      {/* Notifications */}
-      <section className="native-settings-card preferences-card">
+        <p className="config-font-preview">{t('settings.navigation.textPreview')}</p>
+      </section>}
+      {section === 'sync' && <section className="native-settings-card preferences-card">
         <header className="native-settings-card__header"><div className="native-settings-card__icon" aria-hidden="true"><Bell size={20} /></div><div><h3>{t('settings.mailNotifications.sectionTitle')}</h3><p>{notificationPermission === 'denied' ? t('settings.mailNotifications.blocked') : !notificationSupported ? t('settings.mailNotifications.unavailable') : t('settings.mailNotifications.hint')}</p></div></header>
         <label className="preferences-toggle"><input type="checkbox" checked={mailNotifications.enabled} disabled={!notificationSupported || notificationPermission === 'denied'} onChange={event => { if (event.target.checked) void enableNotifications(); else disableNotifications(); }} /><span>{t('settings.mailNotifications.enabled')}</span></label>
-      </section>
-
-      {/* Taille de la police */}
-      <section className="native-settings-card preferences-card">
-        <header className="native-settings-card__header preferences-card__header"><div className="native-settings-card__icon" aria-hidden="true"><Type size={20} /></div><div><h3>{t('settings.fontSize.sectionTitle', 'Taille de la police')}</h3></div></header>
-        <div className="font-size-options" style={{ display: 'flex', gap: 12 }}>
-          <FontSizeOption size="small" label={t('settings.fontSize.small', 'Petite')} active={fontSize === 'small'} onClick={() => setFontSize('small')} />
-          <FontSizeOption size="medium" label={t('settings.fontSize.medium', 'Moyenne')} active={fontSize === 'medium'} onClick={() => setFontSize('medium')} />
-          <FontSizeOption size="intermediate" label={t('settings.fontSize.intermediate', 'Intermédiaire')} active={fontSize === 'intermediate'} onClick={() => setFontSize('intermediate')} />
-          <FontSizeOption size="large" label={t('settings.fontSize.large', 'Grande')} active={fontSize === 'large'} onClick={() => setFontSize('large')} />
-        </div>
-      </section>
-
+      </section>}
+      {section === 'security' && <>
       <section className="native-settings-card offline-mail-card" aria-labelledby="offline-mail-title">
         <header className="native-settings-card__header">
           <div className="native-settings-card__icon" aria-hidden="true"><Database size={20} /></div>
@@ -269,7 +119,7 @@ export function PreferencesSection() {
       <section className="native-settings-card preferences-card">
         <header className="native-settings-card__header"><div className="native-settings-card__icon" aria-hidden="true"><Lock size={20} /></div><div><h3>{t('settings.vault.sectionTitle')}</h3><p>{t('settings.vault.hint')}</p></div></header>
         {biometricAvailable ? <>
-          <div className="vault-settings-actions">
+          <div className="native-settings-actions">
             <button className={biometricEnabled ? 'btn-ghost' : 'btn-primary'} type="button" disabled={biometricBusy} onClick={() => void toggleBiometrics()}>
               <Fingerprint size={16} />
               {t(biometricEnabled ? 'settings.vault.disableBiometrics' : 'settings.vault.enableBiometrics')}
@@ -278,7 +128,7 @@ export function PreferencesSection() {
               <Lock size={16} /> {t('settings.vault.lockNow')}
             </button>
           </div>
-          {biometricDiagnostic && <div className="vault-diagnostic" role="alert">
+          {biometricDiagnostic && <div className="config-security-diagnostic" role="alert">
             <p>{t('settings.vault.biometricError')}</p>
             <pre>{biometricDiagnostic}</pre>
             <button className="btn-ghost" type="button" onClick={() => void copyBiometricDiagnostic()}>
@@ -287,15 +137,16 @@ export function PreferencesSection() {
             </button>
           </div>}
         </> : <>
-          <p style={{ fontSize: 12, opacity: .7 }}>{t('settings.vault.biometricUnavailable')}</p>
+          <p className="config-setting-help">{t('settings.vault.biometricUnavailable')}</p>
           <button className="btn-ghost" type="button" onClick={lock}><Lock size={16} /> {t('settings.vault.lockNow')}</button>
         </>}
       </section>
 
-      <footer className="preferences-build-info">
+      </>}
+      {section === 'about' && <section className="native-settings-card"><header className="native-settings-card__header"><div className="native-settings-card__icon" aria-hidden="true"><Info size={20} /></div><div><h3>{t('settings.navigation.about.title')}</h3></div></header><div className="preferences-build-info">
         <span>{t('settings.buildInfo.date')}: {formattedBuildDate}</span>
         <span>{t('settings.buildInfo.commit')}: <code>{buildCommitId}</code></span>
-      </footer>
+      </div></section>}
 
     </div>
   );

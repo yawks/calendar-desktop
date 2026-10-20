@@ -651,6 +651,35 @@
     }
   },
   "settings": {
+    "navigation": {
+      "back": "Back",
+      "customization": "Customization",
+      "general": {
+        "title": "General and appearance",
+        "hint": "Language, theme, text and layout."
+      },
+      "providers": {
+        "title": "Accounts and calendars",
+        "hint": "Connections, services and default calendar."
+      },
+      "mail": {
+        "title": "Mail",
+        "hint": "Signatures, message content and contact logos."
+      },
+      "sync": {
+        "title": "Notifications and sync",
+        "hint": "Alerts, background delivery and settings sharing."
+      },
+      "security": {
+        "title": "Security and storage",
+        "hint": "Locking, biometrics and offline messages."
+      },
+      "about": {
+        "title": "About and diagnostics",
+        "hint": "Build information and connection tests."
+      },
+      "textPreview": "This is a preview of your chosen text size."
+    },
     "androidCalendars": {
       "title": "Android calendars",
       "hint": "Select calendars to view as read-only in Android calendar apps. They update while Courrier is open and unlocked.",

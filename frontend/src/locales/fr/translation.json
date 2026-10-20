@@ -651,6 +651,35 @@
     }
   },
   "settings": {
+    "navigation": {
+      "back": "Retour",
+      "customization": "Personnalisation",
+      "general": {
+        "title": "Général et apparence",
+        "hint": "Langue, thème, texte et présentation."
+      },
+      "providers": {
+        "title": "Comptes et calendriers",
+        "hint": "Connexions, services et calendrier par défaut."
+      },
+      "mail": {
+        "title": "Courrier",
+        "hint": "Signatures, contenu des messages et logos des contacts."
+      },
+      "sync": {
+        "title": "Notifications et synchronisation",
+        "hint": "Alertes, réception en arrière-plan et partage des paramètres."
+      },
+      "security": {
+        "title": "Sécurité et stockage",
+        "hint": "Verrouillage, biométrie et messages hors connexion."
+      },
+      "about": {
+        "title": "À propos et diagnostics",
+        "hint": "Informations de compilation et tests de connexion."
+      },
+      "textPreview": "Voici un aperçu du texte à la taille choisie."
+    },
     "androidCalendars": {
       "title": "Calendriers Android",
       "hint": "Sélectionnez les calendriers à consulter en lecture seule dans les applications de calendrier Android. Ils sont actualisés lorsque Courrier est ouvert et déverrouillé.",
