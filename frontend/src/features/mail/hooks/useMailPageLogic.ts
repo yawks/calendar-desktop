@@ -19,7 +19,7 @@ import { RecipientEntry } from '../components/RecipientInput';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MAIL_KEYS, useMailFolders, useAllAccountFolders, useMailThreads, useAllAccountThreads, useMailConversation, useMailSearch, useAllAccountSearch, useAllAccountIdentities } from './useMailQueries';
 import { useMailMutations } from './useMailMutations';
-import { useMailThreadReadSync } from './useMailThreadReadSync';
+import { useMailConversationReadSync, useMailThreadReadSync } from './useMailThreadReadSync';
 import { cleanupContactIndex, recordContactObservations, searchContactIndex, type ContactObservation } from '../utils/contactIndex';
 import { useContactBackfill } from './useContactBackfill';
 import { useOfflineMailSync } from './useOfflineMailSync';
@@ -295,6 +295,15 @@ export function useMailPageLogic() {
 
   const messagesLoading = conversationQuery.isLoading;
   const messagesFetching = conversationQuery.isFetching;
+
+  useMailConversationReadSync(
+    selectedThread?.accountId ?? selectedAccountId,
+    selectedFolder,
+    isOptimisticThread ? undefined : selectedThread?.conversation_id,
+    messages,
+    messagesLoading || messagesFetching || !conversationQuery.isSuccess,
+    rawThreads,
+  );
 
   useEffect(() => {
     if (!selectedThread || conversationQuery.isFetching || conversationQuery.isPaused) return;

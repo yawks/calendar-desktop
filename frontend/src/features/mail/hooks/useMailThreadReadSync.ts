@@ -1,6 +1,35 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { Folder, MailThread } from '../types';
+import type { Folder, MailMessage, MailThread } from '../types';
+import { MAIL_KEYS } from './useMailQueries';
+
+export function useMailConversationReadSync(
+  accountId: string,
+  folder: Folder,
+  conversationId: string | undefined,
+  messages: MailMessage[],
+  loading: boolean,
+  rows: MailThread[],
+) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!conversationId || loading || messages.length === 0) return;
+    const unreadCount = messages.filter(message => !message.is_read).length;
+    // Persist the item-level state: EWS conversation aggregates can lag behind it.
+    const update = (previous: MailThread[] | undefined) => previous?.map(thread =>
+      thread.conversation_id === conversationId && thread.unread_count !== unreadCount
+        ? { ...thread, unread_count: unreadCount }
+        : thread,
+    );
+    for (const queryKey of [MAIL_KEYS.threads(accountId, folder), ['mail', accountId, 'search']]) {
+      for (const [key, data] of queryClient.getQueriesData<MailThread[]>({ queryKey })) {
+        if (data?.some(thread => thread.conversation_id === conversationId && thread.unread_count !== unreadCount)) {
+          queryClient.setQueryData<MailThread[]>(key, update);
+        }
+      }
+    }
+  }, [queryClient, accountId, folder, conversationId, messages, loading, rows]);
+}
 
 export function useMailThreadReadSync(
   setThreads: Dispatch<SetStateAction<MailThread[]>>,
