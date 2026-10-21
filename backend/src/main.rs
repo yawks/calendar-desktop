@@ -3,6 +3,7 @@ mod exchange_auth;
 mod exchange_calendar;
 mod google_auth;
 mod mail_commands;
+mod mail_sync;
 
 use axum::{extract::{DefaultBodyLimit, Request}, http::{Method, StatusCode}, middleware::{self, Next}, response::{IntoResponse, Response}, routing::{get, post, put}, Json, Router};
 use serde::Serialize;
@@ -60,8 +61,10 @@ async fn main() {
     let calendar_api = Router::new()
         .route("/ics/fetch", post(calendar_http::fetch_ics))
         .route("/caldav/fetch", post(calendar_http::fetch_authenticated))
+        .route("/caldav/query", post(calendar_http::query))
         .route("/caldav/status", post(calendar_http::status))
         .route("/caldav/resource", put(calendar_http::put).delete(calendar_http::delete))
+        .route("/config", post(calendar_http::config_fetch).put(calendar_http::config_put))
         .with_state(calendar_state);
     let api = Router::new().route("/health", get(health))
         .nest("/calendar", calendar_api)
@@ -69,13 +72,16 @@ async fn main() {
         .route("/auth/exchange/token", post(exchange_auth::poll_device_token))
         .route("/auth/exchange/refresh", post(exchange_auth::refresh))
         .route("/calendar/exchange/events", post(exchange_calendar::create))
+        .route("/calendar/exchange/shared", post(exchange_calendar::shared))
         .route("/calendar/exchange/list", post(exchange_calendar::list))
         .route("/calendar/exchange/free-busy", post(exchange_calendar::free_busy))
+        .route("/calendar/exchange/recurrence", post(exchange_calendar::recurrence))
         .route("/calendar/exchange/update", post(exchange_calendar::update))
         .route("/calendar/exchange/delete", post(exchange_calendar::delete))
         .route("/calendar/exchange/cancel", post(exchange_calendar::cancel))
         .route("/calendar/exchange/respond", post(exchange_calendar::respond))
         .route("/mail/commands/:command", post(mail_commands::dispatch))
+        .route("/mail/sync/detect", post(mail_sync::detect))
         .fallback(api_not_found);
     let google_state = google_auth::GoogleOAuthState::default();
     let google_routes = Router::new().route("/", get(google_auth::start)).route("/configuration", get(google_auth::configuration)).route("/prepare", post(google_auth::prepare)).route("/callback", get(google_auth::callback)).route("/complete.js", get(google_auth::complete_script)).route("/refresh", post(google_auth::refresh)).with_state(google_state);

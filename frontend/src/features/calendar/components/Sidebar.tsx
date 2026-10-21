@@ -1,6 +1,7 @@
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import {
-  AlertCircle, Loader2, Pencil, Check, X,
+  Settings, AlertCircle, Loader2, Pencil, Check, X,
   GripVertical, ChevronRight, Plus, Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +27,9 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { CalendarConfig, CalendarGroup, Tag, CalendarEvent, EventTagMapping } from '../../../shared/types';
+import SharedCalendarModal from './SharedCalendarModal';
+import { useCalendars } from '../store/CalendarStore';
+import { calendarGroupId, OTHER_CALENDARS_GROUP } from '../utils/sharedCalendars';
 import MiniCalendar from './MiniCalendar';
 import TagInsightsView from './TagInsightsView';
 
@@ -82,6 +86,7 @@ function SortableCalendarItem({
   onToggle, error,
 }: CalendarItemProps) {
   const { t } = useTranslation();
+  const { removeCalendar } = useCalendars();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: cal.id });
 
@@ -92,7 +97,7 @@ function SortableCalendarItem({
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className={cal.shared ? 'shared-calendar-item' : undefined}>
       {isEditing ? (
         <div className="calendar-edit-panel">
           <input
@@ -100,6 +105,7 @@ function SortableCalendarItem({
             className="calendar-edit-input"
             value={editName}
             onChange={(e) => onEditNameChange(e.target.value)}
+            aria-label={t('sharedCalendars.calendarName')}
             autoFocus
             onKeyDown={(e) => {
               if (e.key === 'Enter') onSaveEdit();
@@ -113,6 +119,7 @@ function SortableCalendarItem({
                 type="button"
                 className={`calendar-color-swatch${editColor === c ? ' selected' : ''}`}
                 style={{ backgroundColor: c }}
+                aria-label={t('sharedCalendars.useColor', { color: c })}
                 onClick={() => onEditColorChange(c)}
               />
             ))}
@@ -122,13 +129,14 @@ function SortableCalendarItem({
               onChange={(e) => onEditColorChange(e.target.value)}
               className="calendar-color-picker"
               title={t('sidebar.customColor')}
+              aria-label={t('sidebar.customColor')}
             />
           </div>
           <div className="calendar-edit-actions">
-            <button type="button" className="calendar-edit-save" onClick={onSaveEdit} title={t('sidebar.save')}>
+            <button type="button" className="calendar-edit-save" onClick={onSaveEdit} aria-label={t('sidebar.save')} title={t('sidebar.save')}>
               <Check size={13} />
             </button>
-            <button type="button" className="calendar-edit-cancel" onClick={onCancelEdit} title={t('sidebar.cancel')}>
+            <button type="button" className="calendar-edit-cancel" onClick={onCancelEdit} aria-label={t('sidebar.cancel')} title={t('sidebar.cancel')}>
               <X size={13} />
             </button>
           </div>
@@ -161,14 +169,16 @@ function SortableCalendarItem({
             type="button"
             className="calendar-edit-btn"
             onClick={(e) => { e.stopPropagation(); onStartEdit(); }}
+            aria-label={t('sidebar.rename')}
             title={t('sidebar.rename')}
           >
             <Pencil size={12} />
           </button>
+          {cal.shared && <button type="button" className="calendar-edit-btn shared-calendar-remove" title={t('sharedCalendars.remove')} aria-label={t('sharedCalendars.remove')} onClick={() => removeCalendar(cal.id)}><Trash2 size={15} /></button>}
         </div>
       )}
       {error && (
-        <div className="sidebar-error" title={error}>
+        <div className="sidebar-error" title={error} role="alert">
           <AlertCircle size={12} style={{ flexShrink: 0 }} />
           <span>{t('sidebar.loadError')}: {error}</span>
         </div>
@@ -247,11 +257,11 @@ function GroupHeader({ group, isEmpty, onUpdate, onRemove }: GroupHeaderProps) {
           autoFocus
         />
       ) : (
-        <span className="group-name">{group.name}</span>
+        <span className="group-name">{group.id === OTHER_CALENDARS_GROUP ? t('sharedCalendars.group') : group.name}</span>
       )}
 
       <div className="group-header-actions">
-        {!isEditing && (
+        {!isEditing && group.id !== OTHER_CALENDARS_GROUP && (
           <button
             type="button"
             className="group-action-btn"
@@ -261,7 +271,7 @@ function GroupHeader({ group, isEmpty, onUpdate, onRemove }: GroupHeaderProps) {
             <Pencil size={11} />
           </button>
         )}
-        {isEmpty && group.id !== 'default' && (
+        {isEmpty && group.id !== 'default' && group.id !== OTHER_CALENDARS_GROUP && (
           <button
             type="button"
             className="group-action-btn group-delete-btn"
@@ -306,7 +316,7 @@ function GroupSection({
   const isCollapsed = group.collapsed ?? false;
 
   return (
-    <div className="group-section">
+    <div className={`group-section${group.id === OTHER_CALENDARS_GROUP ? ' shared-calendar-group' : ''}`}>
       <GroupHeader
         group={group}
         isEmpty={groupCalendars.length === 0}
@@ -354,6 +364,8 @@ export default function Sidebar({
   loading, errors, width, currentDate, onNavigateToDate,
 }: Props) {
   const { t } = useTranslation();
+
+  const [sharedModalOpen, setSharedModalOpen] = useState(false);
 
   // Calendar edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -446,19 +458,20 @@ export default function Sidebar({
     const activeCal = calendars.find((c) => c.id === activeCalId);
     if (!activeCal) return;
 
-    const sourceGroupId = activeCal.groupId ?? 'default';
+    const sourceGroupId = calendarGroupId(activeCal);
     const isGroupTarget = overId.startsWith('group-');
 
     if (isGroupTarget) {
       const targetGroupId = overId.slice(6);
-      if (targetGroupId === sourceGroupId) return;
+      if (targetGroupId === sourceGroupId || activeCal.shared || targetGroupId === OTHER_CALENDARS_GROUP) return;
       onReorderCalendars(
         calendars.map((c) => (c.id === activeCalId ? { ...c, groupId: targetGroupId } : c))
       );
     } else {
       const overCal = calendars.find((c) => c.id === overId);
       if (!overCal) return;
-      const targetGroupId = overCal.groupId ?? 'default';
+      const targetGroupId = calendarGroupId(overCal);
+      if (sourceGroupId !== targetGroupId && (activeCal.shared || targetGroupId === OTHER_CALENDARS_GROUP)) return;
 
       if (sourceGroupId === targetGroupId) {
         const ai = calendars.findIndex((c) => c.id === activeCalId);
@@ -479,10 +492,11 @@ export default function Sidebar({
   const activeCal = activeId ? calendars.find((c) => c.id === activeId) : null;
 
   const getGroupCalendars = (groupId: string) =>
-    calendars.filter((c) => (c.groupId ?? 'default') === groupId);
+    calendars.filter((c) => calendarGroupId(c) === groupId);
 
   return (
     <aside className="sidebar" style={{ width }}>
+      <div className="mobile-drawer-content">
       <MiniCalendar currentDate={currentDate} onSelectDate={onNavigateToDate} />
 
       <DndContext
@@ -515,6 +529,9 @@ export default function Sidebar({
           {activeCal ? <CalendarDragPreview cal={activeCal} /> : null}
         </DragOverlay>
       </DndContext>
+
+      <button type="button" className="add-group-btn shared-calendar-add" onClick={() => setSharedModalOpen(true)}><Plus size={16} />{t('sharedCalendars.add')}</button>
+      {sharedModalOpen && <SharedCalendarModal onClose={() => setSharedModalOpen(false)} />}
 
       {addingGroup ? (
         <div className="add-group-input-row">
@@ -739,6 +756,11 @@ export default function Sidebar({
           {t('sidebar.loading')}
         </div>
       )}
+      </div>
+      <Link className="mobile-drawer-settings" to="/config">
+        <Settings size={20} aria-hidden="true" />
+        <span>{t('mail.settings')}</span>
+      </Link>
     </aside>
   );
 }

@@ -1,4 +1,4 @@
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, CloudDownload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
@@ -17,6 +17,10 @@ export default function WelcomeScreen() {
         <Link to="/config?addSource=1" className="btn-primary welcome-action">
           {t('welcome.addSource')}
           <ArrowRight size={16} />
+        </Link>
+        <Link to="/config?section=sync" className="btn-ghost welcome-action">
+          <CloudDownload size={16} aria-hidden="true" />
+          {t('settings.configSync.restore')}
         </Link>
       </section>
     </main>

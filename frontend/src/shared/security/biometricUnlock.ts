@@ -1,5 +1,6 @@
 import { del, get, set } from 'idb-keyval';
 import { exportVaultKey, importVaultKey } from './vaultCrypto';
+import { platform } from '../platform';
 
 const STORAGE_KEY = 'courrier-biometric-unlock-v1';
 const AAD = new TextEncoder().encode('courrier-biometric-unlock-v1');
@@ -20,6 +21,13 @@ function toBase64Url(value: ArrayBuffer | Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+function toBase64(value: ArrayBuffer): string {
+  const bytes = new Uint8Array(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 function fromBase64Url(value: string): ArrayBuffer {
@@ -50,10 +58,20 @@ export function biometricApiAvailable(): boolean {
 }
 
 export async function hasBiometricUnlock(): Promise<boolean> {
+  if (platform.isNativeAndroid) return (await platform.biometricStatus()).enabled;
   return !!await get<BiometricRecord>(STORAGE_KEY);
 }
 
+export async function biometricUnlockAvailable(): Promise<boolean> {
+  if (platform.isNativeAndroid) return (await platform.biometricStatus()).available;
+  return biometricApiAvailable();
+}
+
 export async function enableBiometricUnlock(vaultKey: CryptoKey): Promise<void> {
+  if (platform.isNativeAndroid) {
+    await platform.enableBiometricUnlock(toBase64(await exportVaultKey(vaultKey)));
+    return;
+  }
   if (!biometricApiAvailable()) throw new Error('WebAuthn is unavailable');
   const prfSalt = randomBytes(32);
   const userId = randomBytes(32);
@@ -103,6 +121,7 @@ export async function enableBiometricUnlock(vaultKey: CryptoKey): Promise<void> 
 }
 
 export async function unlockWithBiometrics(): Promise<CryptoKey> {
+  if (platform.isNativeAndroid) return importVaultKey(fromBase64Url(await platform.unlockWithBiometrics()));
   const record = await get<BiometricRecord>(STORAGE_KEY);
   if (!record || record.version !== 1) throw new Error('Biometric unlock is not configured');
   const credential = await navigator.credentials.get({ publicKey: {
@@ -124,5 +143,9 @@ export async function unlockWithBiometrics(): Promise<CryptoKey> {
 }
 
 export async function disableBiometricUnlock(): Promise<void> {
+  if (platform.isNativeAndroid) {
+    await platform.disableBiometricUnlock();
+    return;
+  }
   await del(STORAGE_KEY);
 }

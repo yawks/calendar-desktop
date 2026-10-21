@@ -1,3 +1,6 @@
+import { validateEventOptions } from './eventOptions';
+import { t } from 'i18next';
+import { anchorSeriesDates } from './seriesDates';
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../../../shared/types';
 import { calendarApi } from '../../../shared/api/calendarApi';
 
@@ -32,7 +35,9 @@ function toICSDate(iso: string): string {
   return iso.substring(0, 10).replace(/-/g, '');
 }
 
+// shortcut: timed CalDAV series use UTC; add explicit calendar time zones to preserve wall-clock time across DST.
 function buildVCalendar(uid: string, payload: CreateEventPayload): string {
+  validateEventOptions(payload, 'nextcloud');
   const now = toICSDateTime(new Date().toISOString());
 
   const startProp = payload.isAllday
@@ -55,6 +60,9 @@ function buildVCalendar(uid: string, payload: CreateEventPayload): string {
     `SUMMARY:${escapeICS(payload.title)}`,
   ];
 
+  if (payload.sensitivity !== undefined) lines.push(`CLASS:${payload.sensitivity}`);
+  if (payload.availability !== undefined) lines.push(`TRANSP:${payload.availability}`);
+
   if (payload.location?.trim()) {
     lines.push(`LOCATION:${escapeICS(payload.location)}`);
   }
@@ -70,6 +78,7 @@ function buildVCalendar(uid: string, payload: CreateEventPayload): string {
     }
   }
 
+  if (payload.recurrence) lines.push(`RRULE:${payload.recurrence}`);
   lines.push('END:VEVENT', 'END:VCALENDAR');
   return lines.join('\r\n');
 }
@@ -84,11 +93,11 @@ function eventResourceUrl(cal: CalendarConfig, uid: string): string {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function createNextcloudEvent(cal: CalendarConfig, payload: CreateEventPayload): Promise<string> {
+  if (cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const uid = crypto.randomUUID();
   const icsContent = buildVCalendar(uid, payload);
   const url = eventResourceUrl(cal, uid);
 
-  console.debug('[nextcloud] createNextcloudEvent', { url, uid, payload, icsContent });
   await calendarApi.putCalDav({
     url,
     username: cal.nextcloudUsername ?? '',
@@ -101,19 +110,55 @@ export async function updateNextcloudEvent(
   cal: CalendarConfig,
   uid: string,
   payload: CreateEventPayload,
+  sourceEvent?: CalendarEvent,
+  wholeSeries = false,
 ): Promise<void> {
-  const icsContent = buildVCalendar(uid, payload);
+  if (sourceEvent?.readOnly || sourceEvent?.isTask || cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const url = eventResourceUrl(cal, uid);
-
-  console.debug('[nextcloud] updateNextcloudEvent', { url, uid, payload, icsContent });
-  await calendarApi.putCalDav({
-    url,
-    username: cal.nextcloudUsername ?? '',
-    password: cal.nextcloudPassword ?? '',
-  }, icsContent);
+  const credentials = { url, username: cal.nextcloudUsername ?? '', password: cal.nextcloudPassword ?? '' };
+  const current = new ICAL.Component(ICAL.parse(await calendarApi.fetchCalDav(credentials)));
+  const master = current.getAllSubcomponents('vevent').find((event: any) => !event.hasProperty('recurrence-id'));
+  if (!master) throw new Error('VEVENT introuvable');
+  if (wholeSeries && sourceEvent?.isRecurringInstance) {
+    const masterStart = master.getFirstPropertyValue('dtstart');
+    const start = masterStart.isDate ? masterStart.toString().slice(0, 10) : masterStart.toJSDate().toISOString();
+    payload = anchorSeriesDates(payload, sourceEvent.start, start);
+  }
+  const singleOccurrence = sourceEvent?.isRecurringInstance && !wholeSeries;
+  let target = master;
+  if (singleOccurrence) {
+    const recurrenceId = sourceEvent!.isAllday
+      ? ICAL.Time.fromDateString((sourceEvent!.recurrenceId ?? sourceEvent!.start).slice(0, 10))
+      : ICAL.Time.fromJSDate(new Date(sourceEvent!.recurrenceId ?? sourceEvent!.start), true).convertToZone(master.getFirstPropertyValue('dtstart').zone);
+    target = current.getAllSubcomponents('vevent').find((event: any) => {
+      const id = event.getFirstPropertyValue('recurrence-id');
+      return id && id.compare(recurrenceId) === 0;
+    });
+    if (!target) {
+      target = new ICAL.Component(JSON.parse(JSON.stringify(master.toJSON())));
+      for (const name of ['rrule', 'rdate', 'exdate']) target.removeAllProperties(name);
+      target.updatePropertyWithValue('recurrence-id', recurrenceId);
+      current.addSubcomponent(target);
+    }
+  }
+  const replacement = new ICAL.Component(ICAL.parse(buildVCalendar(uid, payload))).getFirstSubcomponent('vevent');
+  for (const name of ['summary', 'dtstart', 'dtend', 'location', 'description', 'attendee']) {
+    target.removeAllProperties(name);
+    for (const property of replacement.getAllProperties(name)) target.addProperty(new ICAL.Property(property.toJSON()));
+  }
+  for (const [field, value] of [['class', payload.sensitivity], ['transp', payload.availability]]) {
+    if (value !== undefined) target.updatePropertyWithValue(field, value);
+  }
+  if (!singleOccurrence && payload.recurrence !== undefined) {
+    master.removeAllProperties('rrule');
+    if (payload.recurrence) master.addPropertyWithValue('rrule', ICAL.Recur.fromString(payload.recurrence));
+  }
+  target.updatePropertyWithValue('sequence', Number(master.getFirstPropertyValue('sequence') ?? 0) + 1);
+  await calendarApi.putCalDav(credentials, current.toString());
 }
 
 export async function deleteNextcloudEvent(cal: CalendarConfig, uid: string): Promise<void> {
+  if (cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const url = eventResourceUrl(cal, uid);
   await calendarApi.deleteCalDav({
     url,
@@ -128,6 +173,7 @@ export async function cancelNextcloudEvent(
   event: CalendarEvent,
   wholeSeries: boolean,
 ): Promise<void> {
+  if (event.readOnly || event.isTask || cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const url = eventResourceUrl(cal, uid);
   const currentIcs = await calendarApi.fetchCalDav({
     url,
@@ -143,7 +189,7 @@ export async function cancelNextcloudEvent(
     master.updatePropertyWithValue('status', 'CANCELLED');
     master.updatePropertyWithValue('sequence', sequence);
   } else {
-    const exception = new ICAL.Component(master.toJSON());
+    const exception = new ICAL.Component(JSON.parse(JSON.stringify(master.toJSON())));
     exception.removeAllProperties('rrule');
     exception.removeAllProperties('rdate');
     exception.updatePropertyWithValue('recurrence-id', ICAL.Time.fromJSDate(new Date(event.start), true));
@@ -169,6 +215,7 @@ export async function respondToNextcloudEvent(
   newStatus: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
   comment?: string,
 ): Promise<void> {
+  if (cal.shared || cal.readOnly) throw new Error(t('sharedCalendars.readOnly'));
   const url = eventResourceUrl(cal, uid);
   const currentIcs = await calendarApi.fetchCalDav({
     url,
@@ -206,4 +253,12 @@ export async function respondToNextcloudEvent(
     username: cal.nextcloudUsername ?? '',
     password: cal.nextcloudPassword ?? '',
   }, comp.toString());
+}
+
+export async function getNextcloudRecurrence(cal: CalendarConfig, uid: string): Promise<string | null> {
+  const content = await calendarApi.fetchCalDav({ url: eventResourceUrl(cal, uid), username: cal.nextcloudUsername ?? '', password: cal.nextcloudPassword ?? '' });
+  const calendar = new ICAL.Component(ICAL.parse(content));
+  const master = calendar.getAllSubcomponents('vevent').find((event: any) => !event.hasProperty('recurrence-id'));
+  if (!master || master.getAllProperties('rrule').length !== 1 || master.hasProperty('rdate')) return null;
+  return master.getFirstPropertyValue('rrule').toString();
 }

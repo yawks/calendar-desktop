@@ -94,7 +94,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Capture initial identity + signature at mount (useMemo has empty deps)
-  const initialIdentityId = selectedIdentityId ?? identities?.[0]?.id ?? '';
+  const initialIdentityId = selectedIdentityId || identities?.[0]?.id || '';
   const initialSignatureRef = useRef(initialIdentityId ? getSignature(initialIdentityId) : '');
   const initialPositionRef  = useRef(signaturePosition);
 
@@ -109,7 +109,7 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
   // Swap signature when the selected identity changes mid-composition
   const prevIdentityIdRef = useRef(initialIdentityId);
   useEffect(() => {
-    const newId = selectedIdentityId ?? identities?.[0]?.id ?? '';
+    const newId = selectedIdentityId || identities?.[0]?.id || '';
     if (newId === prevIdentityIdRef.current) return;
     prevIdentityIdRef.current = newId;
     editorRef.current?.replaceSignatureBlock(getSignature(newId), signaturePosition);
@@ -327,6 +327,12 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(fu
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
             value={subject}
             onChange={e => { fieldsModifiedRef.current = true; setSubject(e.target.value); }}
+            onKeyDown={e => {
+              if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && editorRef.current) {
+                e.preventDefault();
+                editorRef.current.focus();
+              }
+            }}
           />
         </div>
       </div>

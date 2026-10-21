@@ -79,6 +79,11 @@
   line-height: 1.4;
 }
 
+.ics-card__meta-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .ics-card__meta-icon {
   flex-shrink: 0;
   margin-top: 1px;
@@ -184,16 +189,13 @@
 }
 
 .ics-cal-selector__dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  position: fixed;
   z-index: 101;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
   min-width: 200px;
-  max-height: 260px;
   overflow-y: auto;
   padding: 4px;
 }
@@ -356,4 +358,71 @@
 
 .ics-card__description .mail-email-iframe {
   min-height: 40px;
+}
+
+/* On a phone the fixed-width timeline leaves too little room for the event
+   details. Keep both sections readable by placing the timeline underneath. */
+@media (max-width: 680px) {
+  .ics-card {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .ics-card__main {
+    padding: 14px;
+  }
+
+  .ics-card__description {
+    max-height: 240px;
+  }
+
+  .ics-card .det-container {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: min(420px, 52dvh);
+    min-height: 320px;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    padding: 12px 10px;
+  }
+
+  .ics-card .det-date-label {
+    padding-left: 32px;
+  }
+
+  .ics-cal-selector,
+  .ics-cal-selector__btn {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .ics-cal-selector__name {
+    max-width: min(220px, 55vw);
+  }
+}
+
+@media (max-width: 420px) {
+  .ics-card__actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ics-btn {
+    min-height: 40px;
+    padding-inline: 6px;
+    justify-content: center;
+  }
+
+  .ics-btn--add {
+    grid-column: 1 / -1;
+  }
+}
+
+.ics-card__counter-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }

@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import EventMarkers from './EventMarkers';
+import EventMailAction from './EventMailAction';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X, Pencil, Trash2, Clock, MapPin, CalendarDays, FileText,
@@ -66,9 +68,13 @@ interface Props {
   readonly event: CalendarEvent | null;
   readonly calendar: CalendarConfig | null;
   readonly onClose: () => void;
+  readonly readOnly?: boolean;
+  readonly allowTagEditing?: boolean;
+  readonly anchorElement?: HTMLElement | null;
   readonly onEdit?: () => void;
-  readonly onDelete?: (scope?: 'this' | 'all') => Promise<void>;
-  readonly onCancelEvent?: (scope?: 'this' | 'all') => Promise<void>;
+  readonly onEditTask?: () => void;
+  readonly onDelete?: () => Promise<void>;
+  readonly onCancelEvent?: () => Promise<void>;
   readonly onRsvp?: (status: RsvpStatus, comment?: string) => Promise<void>;
   readonly isOrganizer?: boolean;
   readonly overlayChildren?: React.ReactNode;
@@ -87,6 +93,15 @@ function RsvpRow({ current, onRsvp }: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // onRsvp updates the event optimistically as soon as the recurring scope has
+  // been chosen. Do not keep showing the network spinner once that optimistic
+  // status has reached the modal; the request can continue in the background.
+  useEffect(() => {
+    if (!loading || !selected || current !== selected) return;
+    setOpen(false);
+    setComment('');
+  }, [current, loading, selected]);
+
   const RSVP_OPTIONS: { status: RsvpStatus; label: string; icon: React.ReactNode }[] = [
     { status: 'ACCEPTED',  label: t('eventModal.rsvp.ACCEPTED'),  icon: <Check size={13} /> },
     { status: 'TENTATIVE', label: t('eventModal.rsvp.TENTATIVE'), icon: <HelpCircle size={13} /> },
@@ -104,6 +119,7 @@ function RsvpRow({ current, onRsvp }: {
       setOpen(false);
       setComment('');
     } catch (e) {
+      setOpen(true);
       setError(e instanceof Error ? e.message : t('eventModal.rsvp.updateError'));
     } finally {
       setLoading(false);
@@ -226,7 +242,9 @@ function AttendeeRow({ attendee }: { readonly attendee: Attendee }) {
   );
 }
 
-export default function EventModal({ event, calendar, onClose, onEdit, onDelete, onCancelEvent, onRsvp, isOrganizer, overlayChildren }: Props) {
+export default function EventModal({ event, calendar, onClose, onEdit, onEditTask, onDelete, onCancelEvent, onRsvp, isOrganizer, overlayChildren, readOnly = false, allowTagEditing = !readOnly, anchorElement }: Props) {
+  readOnly = readOnly || !!event?.readOnly || !!calendar?.readOnly;
+  allowTagEditing = allowTagEditing && !event?.readOnly && !event?.isTask;
   const { t } = useTranslation();
   const { tags, eventTags, setEventTag, removeEventTag } = useTags();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -246,28 +264,64 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   // Keep ref in sync with state so backdrop handler can read it without stale closure
   useEffect(() => { showTagDropdownRef.current = showTagDropdown; }, [showTagDropdown]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (event) {
+      const opener = document.activeElement;
       if (!dialog.open) dialog.showModal();
       setShowDeleteConfirm(false);
       setShowCancelConfirm(false);
       setDeleteError(null);
       setDeleteLoading(false);
+      return () => {
+        dialog.close();
+        if (opener instanceof HTMLElement) opener.focus();
+      };
     } else if (dialog.open) {
       dialog.close();
     }
   }, [event]);
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || !event || !anchorElement) return;
+    const center = () => {
+      const rect = anchorElement.getBoundingClientRect();
+      const width = dialog.offsetWidth;
+      const height = dialog.offsetHeight;
+      const x = (Math.max(0, rect.left) + Math.min(window.innerWidth, rect.right)) / 2;
+      const y = (Math.max(0, rect.top) + Math.min(window.innerHeight, rect.bottom)) / 2;
+      dialog.style.left = `${Math.max(width / 2, Math.min(window.innerWidth - width / 2, x))}px`;
+      dialog.style.top = `${Math.max(height / 2, Math.min(window.innerHeight - height / 2, y))}px`;
+    };
+    center();
+    const observer = new ResizeObserver(center);
+    observer.observe(anchorElement);
+    observer.observe(dialog);
+    window.addEventListener('resize', center);
+    window.addEventListener('scroll', center, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', center);
+      window.removeEventListener('scroll', center, true);
+      dialog.style.removeProperty('left');
+      dialog.style.removeProperty('top');
+    };
+  }, [event, anchorElement]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
     const onCancel = () => onClose();
+    let pointerStartedOnBackdrop = false;
+    const onPointerDown = (e: PointerEvent) => { pointerStartedOnBackdrop = e.target === dialog; };
     const onBackdropClick = (e: MouseEvent) => {
       // With showModal(), clicking the backdrop sets e.target to the dialog itself
-      if (e.target !== dialog) return;
+      // Ignore the synthetic click from the touch that just opened the dialog.
+      if (e.target !== dialog || !pointerStartedOnBackdrop) return;
+      pointerStartedOnBackdrop = false;
       if (showTagDropdownRef.current) {
         setShowTagDropdown(false);
       } else {
@@ -276,9 +330,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     };
 
     dialog.addEventListener('cancel', onCancel);
+    dialog.addEventListener('pointerdown', onPointerDown);
     dialog.addEventListener('click', onBackdropClick);
     return () => {
       dialog.removeEventListener('cancel', onCancel);
+      dialog.removeEventListener('pointerdown', onPointerDown);
       dialog.removeEventListener('click', onBackdropClick);
     };
   }, [onClose]);
@@ -299,7 +355,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
 
   const tagKey = event ? event.seriesId || event.sourceId || event.id || undefined : undefined;
   if (event) console.log('[TAG] tagKey:', tagKey, '| seriesId:', event.seriesId, '| sourceId:', event.sourceId);
-  const selectedTagId = tagKey ? eventTags[tagKey] : undefined;
+  const selectedTagId = !calendar?.shared && tagKey ? eventTags[tagKey] : undefined;
   const selectedTag = selectedTagId ? tags.find((tag) => tag.id === selectedTagId) : undefined;
   const isPast = event ? new Date(event.end) < new Date() : false;
 
@@ -315,11 +371,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
       })
     : [];
 
-  const deleteEvent = async (scope?: 'this' | 'all') => {
+  const deleteEvent = async () => {
     setDeleteLoading(true);
     onClose();
     try {
-      await onDelete!(scope);
+      await onDelete!();
     } catch (e: unknown) {
       if ((e as any)?.cancelled) setShowDeleteConfirm(false);
       else setDeleteError(e instanceof Error ? e.message : t('eventModal.deleteError'));
@@ -328,11 +384,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
     }
   };
 
-  const cancelEvent = async (scope?: 'this' | 'all') => {
+  const cancelEvent = async () => {
     setDeleteLoading(true);
     onClose();
     try {
-      await onCancelEvent!(scope);
+      await onCancelEvent!();
     } catch (e: unknown) {
       setDeleteError(e instanceof Error ? e.message : t('eventModal.cancelError'));
     } finally {
@@ -341,7 +397,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
   };
 
   return (
-    <dialog ref={dialogRef} className="modal-dialog">
+    <dialog ref={dialogRef} className="modal-dialog event-details-dialog">
       {event && (
         <div className="modal">
           <div className="modal-header" style={{ background: calendar?.color || '#888' }}>
@@ -349,113 +405,116 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
               className="modal-title"
               style={event.isDeclined || event.isCancelled ? { textDecoration: 'line-through' } : undefined}
             >
-              {event.title}
+              <EventMarkers event={event} />{event.title}
             </span>
-            {tags.length > 0 && event && (
-              <div style={{ marginLeft: 12 }}>
-                <button
-                  ref={tagBtnRef}
-                  type="button"
-                  className="event-modal-tag-button"
-                  onClick={() => {
-                    if (!showTagDropdown && tagBtnRef.current && dialogRef.current) {
-                      const btn = tagBtnRef.current.getBoundingClientRect();
-                      const dlg = dialogRef.current.getBoundingClientRect();
-                      setDropdownPos({ top: btn.bottom - dlg.top + 6, left: btn.left - dlg.left });
-                    }
-                    setShowTagDropdown((prev) => !prev);
-                  }}
-                  aria-label={t('eventModal.selectTag', 'Select tag')}
-                  style={{ minWidth: 100 }}
-                >
-                  <span style={{
-                    width: 10, height: 10, borderRadius: '50%',
-                    backgroundColor: selectedTag?.color ?? 'transparent',
-                    border: selectedTag ? 'none' : '1px solid rgba(255,255,255,0.6)',
-                    flexShrink: 0,
-                  }} />
-                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>
-                    {selectedTag ? selectedTag.name : t('eventModal.noTag', 'No tag')}
-                  </span>
-                  <ChevronDown size={14} />
-                </button>
-              </div>
-            )}
-            {showTagDropdown && dropdownPos && createPortal(
-              <div
-                ref={dropdownRef}
-                className="event-modal-tag-dropdown"
-                style={{ position: 'absolute', top: dropdownPos.top, left: dropdownPos.left, zIndex: 99999 }}
-              >
-                <button
-                  type="button"
-                  onClick={() => { if (tagKey) removeEventTag(tagKey); setShowTagDropdown(false); }}
-                  style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer' }}
-                >
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', border: '1px solid var(--border)', display: 'inline-block' }} />
-                  <span>{t('eventModal.noTag', 'No tag')}</span>
-                </button>
-                {tags.map((tag) => (
+            <div className="event-details-actions">
+              {allowTagEditing && !calendar?.shared && tags.length > 0 && event && (
+                <div className="event-details-tags">
                   <button
-                    key={tag.id}
+                    ref={tagBtnRef}
                     type="button"
-                    onClick={() => { if (tagKey) setEventTag(tagKey, tag.id); setShowTagDropdown(false); }}
+                    className="event-modal-tag-button"
+                    onClick={() => {
+                      if (!showTagDropdown && tagBtnRef.current && dialogRef.current) {
+                        const btn = tagBtnRef.current.getBoundingClientRect();
+                        const dlg = dialogRef.current.getBoundingClientRect();
+                        setDropdownPos({ top: btn.bottom - dlg.top + 6, left: btn.left - dlg.left });
+                      }
+                      setShowTagDropdown((prev) => !prev);
+                    }}
+                    aria-label={t('eventModal.selectTag', 'Select tag')}
+                    style={{ minWidth: 100 }}
+                  >
+                    <span style={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      backgroundColor: selectedTag?.color ?? 'transparent',
+                      border: selectedTag ? 'none' : '1px solid rgba(255,255,255,0.6)',
+                      flexShrink: 0,
+                    }} />
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>
+                      {selectedTag ? selectedTag.name : t('eventModal.noTag', 'No tag')}
+                    </span>
+                    <ChevronDown size={14} />
+                  </button>
+                </div>
+              )}
+              {allowTagEditing && !calendar?.shared && showTagDropdown && dropdownPos && createPortal(
+                <div
+                  ref={dropdownRef}
+                  className="event-modal-tag-dropdown"
+                  style={{ position: 'absolute', top: dropdownPos.top, left: dropdownPos.left, zIndex: 99999 }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { if (tagKey) removeEventTag(tagKey); setShowTagDropdown(false); }}
                     style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer' }}
                   >
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: tag.color, display: 'inline-block' }} />
-                    <span>{tag.name}</span>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', border: '1px solid var(--border)', display: 'inline-block' }} />
+                    <span>{t('eventModal.noTag', 'No tag')}</span>
                   </button>
-                ))}
-              </div>,
-              dialogRef.current ?? document.body
-            )}
-            {onEdit && (
-              <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
-                <Pencil size={16} />
+                  {tags.map((tag) => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => { if (tagKey) setEventTag(tagKey, tag.id); setShowTagDropdown(false); }}
+                      style={{ width: '100%', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer' }}
+                    >
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: tag.color, display: 'inline-block' }} />
+                      <span>{tag.name}</span>
+                    </button>
+                  ))}
+                </div>,
+                dialogRef.current ?? document.body
+              )}
+              {event.isTask && !event.readOnly && !calendar?.shared && onEditTask && <button className="btn-icon modal-close" onClick={onEditTask} aria-label={t('caldavTask.edit')} title={t('caldavTask.edit')}><Pencil size={16} /></button>}
+              {!event.isTask && !readOnly && !calendar?.shared && onEdit && (
+                <button className="btn-icon modal-close" onClick={onEdit} aria-label={t('eventModal.edit')}>
+                  <Pencil size={16} />
+                </button>
+              )}
+              {!event.isTask && !readOnly && !calendar?.shared && onDelete && (
+                <button
+                  className="btn-icon modal-close"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteLoading(false);
+                    if (event.isRecurringInstance) void deleteEvent();
+                    else setShowDeleteConfirm(true);
+                  }}
+                  aria-label={t('eventModal.delete')}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+              {!readOnly && !calendar?.shared && onCancelEvent && !event.isCancelled && (
+                <button
+                  className="btn-icon modal-close"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteError(null);
+                    setDeleteLoading(false);
+                    if (event.isRecurringInstance) void cancelEvent();
+                    else setShowCancelConfirm(true);
+                  }}
+                  aria-label={t('eventModal.cancelEvent')}
+                  title={t('eventModal.cancelEvent')}
+                >
+                  <Ban size={16} />
+                </button>
+              )}
+              <button type="button" className="btn-icon modal-close event-details-close" onClick={onClose} aria-label={t('eventModal.close')} title={t('eventModal.close')}>
+                <X size={18} />
               </button>
-            )}
-            {onDelete && (
-              <button
-                className="btn-icon modal-close"
-                onClick={() => { setShowDeleteConfirm(true); setDeleteError(null); setDeleteLoading(false); }}
-                aria-label={t('eventModal.delete')}
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
-            {onCancelEvent && !event.isCancelled && (
-              <button
-                className="btn-icon modal-close"
-                onClick={() => { setShowCancelConfirm(true); setShowDeleteConfirm(false); setDeleteError(null); setDeleteLoading(false); }}
-                aria-label={t('eventModal.cancelEvent')}
-                title={t('eventModal.cancelEvent')}
-              >
-                <Ban size={16} />
-              </button>
-            )}
-            <button className="btn-icon modal-close" onClick={onClose} aria-label={t('eventModal.close')}>
-              <X size={18} />
-            </button>
+            </div>
           </div>
 
           {showDeleteConfirm && (
             <div className="modal-delete-bar">
-              <span>{event.isRecurringInstance ? t('eventModal.deleteRecurringConfirm') : t('eventModal.deleteConfirm')}</span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {event.isRecurringInstance ? (
-                  <>
-                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent('this')}>
-                      {t('eventModal.deleteThisOccurrence')}
-                    </button>
-                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent('all')}>
-                      {t('eventModal.deleteAllOccurrences')}
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent()}>
-                    {t('eventModal.deleteConfirmYes')}
-                  </button>
-                )}
+              <span>{t('eventModal.deleteConfirm')}</span>
+              <div className="modal-delete-bar__actions">
+                <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void deleteEvent()}>
+                  {t('eventModal.deleteConfirmYes')}
+                </button>
                 <button
                   type="button"
                   className="btn-delete-cancel"
@@ -470,22 +529,11 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
 
           {showCancelConfirm && (
             <div className="modal-delete-bar">
-              <span>{event.isRecurringInstance ? t('eventModal.cancelRecurringConfirm') : t('eventModal.cancelConfirm')}</span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {event.isRecurringInstance ? (
-                  <>
-                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent('this')}>
-                      {t('eventModal.cancelThisOccurrence')}
-                    </button>
-                    <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent('all')}>
-                      {t('eventModal.cancelAllOccurrences')}
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent()}>
-                    {t('eventModal.cancelEvent')}
-                  </button>
-                )}
+              <span>{t('eventModal.cancelConfirm')}</span>
+              <div className="modal-delete-bar__actions">
+                <button type="button" className="btn-delete-confirm" disabled={deleteLoading} onClick={() => void cancelEvent()}>
+                  {t('eventModal.cancelEvent')}
+                </button>
                 <button type="button" className="btn-delete-cancel" onClick={() => setShowCancelConfirm(false)}>
                   {t('eventModal.deleteConfirmNo')}
                 </button>
@@ -495,6 +543,9 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
           )}
 
           <div className="modal-body">
+            {(calendar?.shared || event.readOnly) && <p className="shared-calendar-help">{t(event.isTask ? 'config.caldavTaskReadOnly' : event.availabilityOnly ? 'sharedCalendars.availabilityOnly' : 'sharedCalendars.readOnly')}</p>}
+            {event.caldavTask?.project && <p className="caldav-task-metadata"><strong>{t('caldavTask.project')}:</strong> {event.caldavTask.project}</p>}
+            {!!event.caldavTask?.categories.length && <p className="caldav-task-metadata"><strong>{t('caldavTask.labels')}:</strong> {event.caldavTask.categories.join(', ')}</p>}
             <div className="modal-row">
               <Clock size={16} className="modal-icon" />
               <span>{formatEventDate(event)}</span>
@@ -533,14 +584,14 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
               </div>
             )}
 
-            {!isOrganizer && event.selfRsvpStatus && onRsvp && (
+            {!readOnly && !calendar?.shared && !isOrganizer && event.selfRsvpStatus && onRsvp && (
               <div className="modal-row">
                 <UserCheck size={16} className="modal-icon" style={{ marginTop: 3 }} />
                 <RsvpRow current={event.selfRsvpStatus} onRsvp={onRsvp} />
               </div>
             )}
 
-            {!isOrganizer && event.selfRsvpStatus && !onRsvp && (
+            {!isOrganizer && event.selfRsvpStatus && (readOnly || !onRsvp) && (
               <div className={`modal-row${event.selfRsvpStatus === 'DECLINED' ? ' modal-declined' : event.selfRsvpStatus !== 'ACCEPTED' ? ' modal-tentative' : ''}`}>
                 <UserCheck size={16} className="modal-icon" />
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -598,6 +649,7 @@ export default function EventModal({ event, calendar, onClose, onEdit, onDelete,
             )}
 
           </div>
+          {calendar && <EventMailAction event={event} calendar={calendar} onClose={onClose} />}
         </div>
       )}
       {overlayChildren && dialogRef.current && createPortal(overlayChildren, dialogRef.current)}

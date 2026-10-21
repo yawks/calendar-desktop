@@ -1,4 +1,41 @@
 {
+  "eventOptions": {
+  "type": "Event type",
+  "availability": "Availability",
+  "sensitivity": "Visibility",
+  "values": {
+    "Busy": "Busy",
+    "Free": "Free",
+    "Tentative": "Tentative",
+    "OOF": "Out of office",
+    "WorkingElsewhere": "Working elsewhere",
+    "Normal": "Normal",
+    "Personal": "Personal",
+    "Private": "Private",
+    "Confidential": "Confidential",
+    "default": "Default",
+    "public": "Public",
+    "private": "Private",
+    "confidential": "Confidential",
+    "PUBLIC": "Public",
+    "PRIVATE": "Private",
+    "CONFIDENTIAL": "Confidential",
+    "opaque": "Busy",
+    "transparent": "Free",
+    "OPAQUE": "Busy",
+    "TRANSPARENT": "Free",
+    "outOfOffice": "Out of office",
+    "focusTime": "Focus time",
+    "workingLocation": "Working location",
+    "birthday": "Birthday",
+    "fromGmail": "From Gmail"
+  },
+  "googleHelp": "Google special types require a primary calendar and an eligible subscription. Out of office and focus time are created without automatically declining invitations.",
+  "immutableType": "Google does not allow changing an existing event’s type.",
+  "timedOnly": "Google out of office and focus time require start and end times (not all day).",
+  "oneDayOnly": "An all-day working location must last exactly one day. Use the Location field to specify the workplace.",
+  "birthdayOnly": "A birthday must last exactly one full day; it will repeat every year."
+},
   "tabs": {
     "calendar": "Calendar",
     "mail": "Mail"
@@ -19,12 +56,38 @@
     "invalidPassword": "Incorrect password or damaged vault.",
     "creationFailed": "Unable to create the local vault. Check that browser storage is allowed.",
     "biometricFailed": "Biometric unlock failed. Use your master password."
+    ,"restore": "Restore from Nextcloud"
+    ,"restoreDescription": "The QR code unlocks the Nextcloud backup. Now choose a local password to protect Courrier on this device."
+    ,"restoreAction": "Restore configuration"
+    ,"restoreInstead": "Restore from Nextcloud"
+    ,"createInstead": "Create a new configuration"
+    ,"nextcloudUrl": "Nextcloud address"
+    ,"nextcloudUsername": "Nextcloud username"
+    ,"nextcloudPassword": "Nextcloud app password"
+    ,"recoveryKey": "Courrier recovery key"
+    ,"invitation": "Courrier invitation (optional)"
+    ,"scanQr": "Scan QR code"
+    ,"localPassword": "Create this device’s password"
+    ,"localPasswordConfirmation": "Confirm this device’s password"
+    ,"localPasswordNotice": "This new password only protects this device. It may differ from the desktop password and is never uploaded to Nextcloud."
+    ,"restoreFailed": "Unable to retrieve or decrypt the configuration. Check the Nextcloud credentials and master password."
   },
   "invitation": {
+    "counterReplyUnavailable": "The mail account or proposer’s address is unavailable.",
+    "counterDeclined": "Proposal declined. The current meeting is unchanged and the reply has been sent.",
+    "counterDeclineSubject": "Time proposal declined: {{title}}",
+    "counterDeclineBody": "I decline the proposed time. The original meeting is unchanged.",
+    "counterDeclineTitle": "Time proposal declined",
+    "counterDeclineReceived": "The proposal was declined. The original meeting is unchanged.",
+    "counter": "New time proposed",
+    "counterHelp": "Accept applies the proposed time and frees the previous slot. Decline keeps the current meeting and notifies the proposer.",
+    "counterMissing": "The corresponding meeting could not be identified uniquely in this calendar. Refresh your calendar and try again.",
+    "counterAccepted": "Proposal accepted: the meeting has been rescheduled.",
     "title": "Invitation",
     "cancellation": "Cancellation",
     "reply": "Reply",
     "loading": "Loading invitation…",
+    "notInCalendar": "The invitation was not found in this calendar after syncing. Check the selected calendar and try again.",
     "readError": "Unable to read the invitation.",
     "allDay": "All day",
     "cancelled": "Event cancelled",
@@ -76,6 +139,7 @@
     "theme": "Theme: {{preference}}",
     "configCalendars": "Configure",
     "configureBtn": "Calendars",
+    "changeView": "Change view",
     "views": {
       "day": "Day",
       "workweek": "5-day",
@@ -142,17 +206,18 @@
     "nextMonth": "Next month"
   },
   "eventModal": {
+    "openingMail": "Opening draft…",
+    "mailWindowError": "Unable to transfer the draft. Open and unlock the mail window, then try again.",
+
+    "emailParticipants": "Email participants",
+    "finishCurrentDraft": "Finish the current draft before creating another message.",
+    "mailAccountUnavailable": "The mail account for this calendar is no longer available.",
+
     "edit": "Edit",
     "delete": "Delete",
     "deleteConfirm": "Delete this event?",
-    "deleteRecurringConfirm": "What would you like to delete?",
-    "deleteThisOccurrence": "This occurrence",
-    "deleteAllOccurrences": "The entire series",
     "cancelEvent": "Cancel event",
     "cancelConfirm": "Cancel this event and notify the attendees?",
-    "cancelRecurringConfirm": "Which occurrences would you like to cancel?",
-    "cancelThisOccurrence": "This occurrence",
-    "cancelAllOccurrences": "The entire series",
     "cancelError": "Unable to cancel the event.",
     "deleteConfirmYes": "Delete",
     "deleteConfirmNo": "Cancel",
@@ -184,6 +249,12 @@
     }
   },
   "createEvent": {
+    "endDate": "End date",
+    "differentEndDate": "Different end date",
+    "moreOptions": "Recurrence, availability and visibility",
+    "teamsError": "Could not create the Teams meeting. Check your Teams license and Microsoft account permission, then reconnect the account if needed. You can turn off Teams to create the event without an online meeting.",
+    "teamsMeeting": "Add a Teams meeting",
+    "meetMeeting": "Add a Google Meet meeting",
     "titleNew": "New event",
     "titleEdit": "Edit event",
     "close": "Close",
@@ -192,6 +263,8 @@
     "allDay": "All day",
     "start": "Start",
     "end": "End",
+    "date": "Date",
+    "time": "Time",
     "calendar": "Calendar",
     "attendees": "Attendees",
     "optional": "(optional)",
@@ -203,11 +276,39 @@
     "savingEdit": "Saving…",
     "savingNew": "Creating…",
     "cancel": "Cancel",
+    "attendeesVerificationError": "Exchange did not confirm the attendee list. Other changes may have been saved. Reload the event and check its attendees before trying again.",
     "saveError": "Error saving event"
   },
   "attendeeInput": {
     "placeholder": "Name or email…",
     "remove": "Remove {{name}}"
+  },
+  "caldavTask": {
+    "moveConflict": "The task changed on the server. The move was not saved. The calendar will refresh; try again from the latest version.",
+    "edit": "Edit task",
+    "project": "Project / list",
+    "labels": "Server labels",
+    "title": "Title",
+    "description": "Description",
+    "due": "Due",
+    "start": "Start",
+    "date": "Date",
+    "time": "Time (optional)",
+    "timeZone": "Times use the original time zone: {{zone}}. An empty time means a date only.",
+    "localTime": "Task local time. An empty time means a date only.",
+    "complete": "Mark as completed",
+    "completionHelp": "Completing the current due date of a recurring task may reveal its next occurrence. Recurrence, project and labels are preserved.",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "close": "Close",
+    "saved": "Task saved.",
+    "reloaded": "Server version loaded. You can resume editing.",
+    "conflict": "This task has changed on the server. Nothing was saved. Reload replaces your input with the server version; Cancel closes without saving your input.",
+    "reload": "Reload server version",
+    "unavailable": "This task is no longer available or cannot be edited with conflict protection. Refresh the calendar.",
+    "required": "Enter a title and at least one date.",
+    "dateOrder": "Start must be before or equal to the due date."
   },
   "config": {
     "jmapConfiguration": "JMAP configuration",
@@ -226,14 +327,38 @@
     "sectPreferences": "Preferences",
     "newCalendar": "New calendar",
     "connectProvider": "Connect source",
+    "reconnect": "Reconnect",
     "chooseProviderType": "Choose a source to connect:",
     "noProvidersConfigured": "No sources configured. Click \"Connect source\" to begin.",
+    "sourceColumns": {
+      "type": "Type",
+      "account": "Account",
+      "services": "Services",
+      "actions": "Actions"
+    },
+    "sourceTypes": {
+      "google": "Google",
+      "exchange": "Exchange",
+      "imap": "IMAP / SMTP",
+      "jmap": "JMAP",
+      "ics": "ICS / iCal",
+      "nextcloud": "Nextcloud / CalDAV"
+    },
+    "editSource": "Edit source {{source}}",
+    "showSourceDetails": "Show source details",
+    "hideSourceDetails": "Hide source details",
     "cap": {
       "calendar": "Calendar",
       "email": "Email"
     },
     "noCalendarsLinked": "No calendars linked",
     "caldavUrlRequired": "CalDAV URL is required.",
+    "caldavInvalidResponse": "The server did not return a valid CalDAV response.",
+    "caldavNoCollections": "No accessible calendar or task list at this address.",
+    "caldavLoadFailed": "Unable to load the CalDAV calendar. Check the address, connection and access permissions.",
+    "caldavTaskTitle": "📋 {{title}}",
+    "caldavUntitledTask": "Untitled",
+    "caldavTaskReadOnly": "Read-only task. Edit or complete it in its original app.",
     "connectionSuccess": "Connection successful.",
     "invalidCredentials": "Incorrect credentials (401 Unauthorized).",
     "accessForbidden": "Access denied (403 Forbidden).",
@@ -296,6 +421,7 @@
     "add": "Add",
     "oauthCredentials": "OAuth credentials",
     "oauthDescription": "Google OAuth credentials are not configured on the server. The Client ID and Client Secret from your Google Cloud Console project (\"Web application\" type) are required. They will be stored in your encrypted vault.",
+    "oauthNativeDescription": "Enter the Google OAuth credentials for this platform. Authorization opens in the system browser or native Google screen and returns directly to Courrier, without a server.",
     "oauthServerConfigured": "Google OAuth credentials are configured on the server. You can connect directly.",
     "googleClientId": "Google Client ID",
     "googleClientSecret": "Google Client Secret",
@@ -348,10 +474,31 @@
     "invalidToken": "Invalid token. Reconnect your Google account."
   },
   "mail": {
+    "shareReceiveError": "Unable to read shared content. Check file access and the 25 MB total limit, then try again.",
+    "office": {
+      "close": "Close preview",
+      "previous": "Previous page",
+      "next": "Next page",
+      "pages": "Page {{current}} of {{total}}",
+      "zoomOut": "Zoom out",
+      "zoomIn": "Zoom in",
+      "formulas": "Formulas show the results saved in the file, without recalculation.",
+      "loading": "Loading preview…",
+      "ready": "Preview loaded",
+      "error": "Unable to preview this file. You can download the original.",
+      "tooLarge": "Preview is limited to 20 MiB. You can download the original.",
+      "downloadError": "Download failed. Please try again."
+    },
     "selection": { "clear": "Clear selection" },
+    "selectAll": "Select all",
+    "filterAll": "All",
+    "filterUnread": "Unread",
+    "settings": "Settings",
+    "messageUnavailable": "This message is no longer available. It may have been deleted from another client.",
     "backToList": "Back to messages",
     "previousMessage": "Previous message",
     "nextMessage": "Next message",
+    "newMessage": "New message",
     "accounts": "Accounts",
     "folders": {
       "inbox": "Inbox",
@@ -391,6 +538,7 @@
     "savedToDrafts": "Saved to drafts",
     "messageSent": "Message sent",
     "reply": "Reply",
+    "newToSameRecipients": "New message to same recipients",
     "replyAll": "Reply all",
     "forward": "Forward",
     "showOriginalMessage": "Show original message",
@@ -511,6 +659,7 @@
       "preview": "Preview",
       "download": "Download"
     },
+    "moreActions": "More actions",
     "stats": {
       "title": "Mail statistics",
       "loading": "Loading data…",
@@ -545,6 +694,64 @@
     }
   },
   "settings": {
+    "navigation": {
+      "back": "Back",
+      "customization": "Customization",
+      "general": {
+        "title": "General and appearance",
+        "hint": "Language, theme, text and layout."
+      },
+      "providers": {
+        "title": "Accounts and calendars",
+        "hint": "Connections, services and default calendar."
+      },
+      "mail": {
+        "title": "Mail",
+        "hint": "Signatures, message content and contact logos."
+      },
+      "sync": {
+        "title": "Notifications and sync",
+        "hint": "Alerts, background delivery and settings sharing."
+      },
+      "security": {
+        "title": "Security and storage",
+        "hint": "Locking, biometrics and offline messages."
+      },
+      "about": {
+        "title": "About and diagnostics",
+        "hint": "Build information and connection tests."
+      },
+      "textPreview": "This is a preview of your chosen text size."
+    },
+    "androidCalendars": {
+      "title": "Android calendars",
+      "hint": "Select calendars to view as read-only in Android calendar apps. They update while Courrier is open and unlocked.",
+      "privacy": "Copies remain accessible outside the vault to apps allowed to read your calendars. A calendar already synced by Android may appear twice.",
+      "removal": "Deselecting a calendar or removing it from Courrier deletes only its Android copy. Available dates match the periods synced by Courrier; recurring events are published as individual occurrences, without extra reminders.",
+      "empty": "Add a calendar in Courrier to display it in Android.",
+      "save": "Apply selection",
+      "refresh": "Refresh",
+      "syncing": "Updating Android copies…",
+      "saved": "Selection applied. Copies follow Courrier synchronizations.",
+      "error": "Unable to update Android copies. Check the Calendar permission in Android settings, then try again.",
+      "sourceError": "Some calendars could not be refreshed. Their latest Android copies are preserved. Check the connection or account, then refresh."
+    },
+    "mailContentRules": {
+      "title": "Hidden email content",
+      "hint": "Hide recurring text in messages and previews across all accounts. Original emails are preserved. Matching tolerates differences in case, whitespace and apostrophes. Paste the complete text without HTML tags. Use * for variable content between fixed text, for example: You don’t often get email from *. Learn why this is important. Rules containing only * are ignored.",
+      "text": "Text to hide",
+      "add": "Add rule",
+      "save": "Save rule",
+      "cancel": "Cancel",
+      "enabled": "Rule enabled",
+      "edit": "Edit",
+      "delete": "Delete",
+      "empty": "No rules yet.",
+      "sync": "These rules are included in encrypted WebDAV configuration sync. Upload your configuration to share them with your other devices.",
+      "saved": "Rules saved on this device.",
+      "showOriginal": "Show hidden content",
+      "hideOriginal": "Hide again"
+    },
     "language": {
       "sectionTitle": "Language",
       "system": "System",
@@ -579,11 +786,42 @@
       "days_one": "{{count}} day",
       "days_other": "{{count}} days"
     },
-    "mailNotifications": { "sectionTitle": "New email notifications", "enabled": "Show notifications for new incoming emails", "hint": "Notifications are grouped by account to keep them tidy on Android.", "blocked": "Notifications are blocked by your browser or operating system.", "unavailable": "Notifications are not available on this device.", "notificationTitle": "Courrier · {{account}}", "single": "{{sender}} — {{subject}}", "multiple_one": "{{count}} new email", "multiple_other": "{{count}} new emails" },
+    "androidSync": { "title": "Android background sync", "description": "Configure notifications and accounts synced locally while the app is closed.", "syncInterval": "Approximate periodic frequency", "every5m": "Every 5 minutes", "every10m": "Every 10 minutes", "every15m": "About every 15 minutes", "every30m": "About every 30 minutes", "every1h": "About every hour", "modeDisabled": "Disabled", "modeContinuous": "Continuous", "modePeriodic": "Periodic", "modeManual": "Manual", "privacy": "Content while Courrier is locked", "generic": "New email (recommended)", "sender": "Sender only", "senderSubject": "Sender and subject", "accounts": "Synced accounts", "securityHint": "The minimal sync secret is encrypted by Android Keystore without an interactive biometric requirement so background work can run.", "batteryWarning": "{{manufacturer}} may delay delivery while optimizing battery usage.", "batterySettings": "Battery settings", "neverRun": "No native sync recorded", "running": "Sync in progress…", "retrying": "Retrying after error: {{code}}", "failed": "Sync blocked: {{code}}", "lastSuccess": "Last success: {{date}}", "testNow": "Test now", "save": "Save", "saving": "Saving…", "saved": "Changes saved", "saveError": "Unable to save the native configuration." },
+    "desktopSyncTest": { "title": "Sync diagnostics", "description": "Check authentication and Inbox access for each account.", "testNow": "Test" },
+    "mailNotifications": { "sectionTitle": "New email notifications", "enabled": "Show notifications for new incoming emails", "hint": "Each new conversation has its own notification. Android may collect them in an expandable group.", "blocked": "Notifications are blocked by your browser or operating system.", "unavailable": "Notifications are not available on this device.", "notificationTitle": "Courrier · {{account}}", "single": "{{sender}} — {{subject}}", "multiple_one": "{{count}} new email", "multiple_other": "{{count}} new emails", "replyAction": "Reply", "deleteAction": "Delete", "archiveAction": "Archive" },
     "buildInfo": { "date": "Commit date", "commit": "Commit", "unknown": "Unknown" },
     "logoDev": {
       "sectionTitle": "Contact logos",
       "hint": "logo.dev token to display company logos in contact avatars."
+    },
+    "configSync": {
+      "confirmRestore": "Confirm restore",
+      "recoveryHelp": "New backup: leave the key empty and Courrier will create one. To restore: on the device that made the backup, open Settings → Sync and click “Copy recovery key”. Paste it here. This key decrypts the backup; the server password cannot replace it.",
+      "urlHelp": "Currently compatible with Nextcloud: enter your instance’s HTTPS address (e.g. https://cloud.example.com), without /remote.php/dav. Other WebDAV paths are not yet supported.",
+      "credentialsRequired": "Enter the server address, username and password.",
+      "httpsRequired": "Enter a valid HTTPS address without credentials in the URL.",
+      "recoveryRequired": "To restore, paste the backup recovery key. Get it from Settings → Sync on the original device.",
+      "copyRecoveryKey": "Copy recovery key",
+      "restore": "Restore from WebDAV / Nextcloud",
+      "restoreConfirm": "The remote configuration will replace your local sources and settings. Messages and events on the servers will not be deleted. Continue?",
+      "finished": "Operation completed.",
+      "operationError": "Unable to transfer the configuration. Check the address, credentials and recovery key.",
+      "sectionTitle": "WebDAV backup (Nextcloud)",
+      "hint": "Back up or restore your sources and settings via WebDAV / Nextcloud. To restore an existing backup, enter the server credentials and its recovery key.",
+      "backup": "Back up now",
+      "working": "Transferring…",
+      "done": "Configuration backed up to Nextcloud.",
+      "error": "Nextcloud backup failed. Check the address and credentials."
+      ,"generatedAutomatically": "Generated automatically for a new backup"
+      ,"conflict": "The local and Nextcloud configurations have both changed. Choose which one to keep."
+      ,"keepLocal": "Keep local version"
+      ,"keepRemote": "Use Nextcloud version"
+      ,"scanHint": "Scan this code from Courrier mobile to retrieve the Nextcloud address and key."
+      ,"qrAlt": "Courrier configuration transfer QR code"
+      ,"copyInvitation": "Copy invitation"
+      ,"disable": "Disable synchronization"
+      ,"uploadedSummary": "Backup uploaded (revision {{revision}}): Google {{google}}, Exchange {{exchange}}, IMAP {{imap}}, JMAP {{jmap}}."
+      ,"downloadedSummary": "Backup received (revision {{revision}}): Google {{google}}, Exchange {{exchange}}, IMAP {{imap}}, JMAP {{jmap}}."
     },
     "vault": {
       "sectionTitle": "Local vault",
@@ -591,19 +829,102 @@
       "lockNow": "Lock now",
       "enableBiometrics": "Enable biometrics",
       "disableBiometrics": "Disable biometrics",
-      "biometricUnavailable": "Secure biometric unlock is not available in this browser.",
-      "biometricError": "Biometrics could not be enabled on this device or browser.",
+      "biometricUnavailable": "Secure biometric unlock is not available on this device.",
+      "biometricError": "Biometrics could not be enabled on this device.",
       "copyDiagnostic": "Copy diagnostic",
       "diagnosticCopied": "Diagnostic copied"
     }
   },
   "recurringChoice": {
-    "title": "Edit recurring event",
-    "description": "Does this change apply only to this event or to all events in the series?",
-    "thisEvent": "This event",
-    "allEvents": "All events in the series",
+    "title": "Recurring event",
+    "description": "Does this action apply only to this occurrence or to the entire series?",
+    "thisOccurrence": "This occurrence",
+    "entireSeries": "The entire series",
     "saveThisEvent": "Save this occurrence",
-    "saveFutureEvents": "Save all future occurrences",
+    "saveFutureEvents": "Save entire series",
     "cancel": "Cancel"
+  },
+  "recurrence": {
+    "label": "Repeat",
+    "existing": "Current recurrence (keep)",
+    "none": "Does not repeat",
+    "daily": "Every day",
+    "weekly": "Every week on {{day}}",
+    "monthly": "Every month on the {{day}}",
+    "yearly": "Every year on {{date}}",
+    "weekdays": "Every weekday (Monday to Friday)",
+    "custom": "Custom…",
+    "customTitle": "Custom recurrence",
+    "every": "Repeat every",
+    "unit": "Period",
+    "DAILY": "day(s)",
+    "WEEKLY": "week(s)",
+    "MONTHLY": "month(s)",
+    "YEARLY": "year(s)",
+    "onDays": "Repeat on",
+    "ends": "Ends",
+    "never": "Never",
+    "until": "On",
+    "after": "After",
+    "occurrences": "occurrences",
+    "done": "Done",
+    "invalid": "Check the interval, weekdays and recurrence end.",
+    "configured": "Custom recurrence configured.",
+    "seriesHelp": "The current recurrence is preserved unchanged. Choosing a new recurrence replaces it for the entire series, including past occurrences. To edit only this occurrence, keep the current recurrence.",
+    "monthDate": "On day {{date}} of the month",
+    "ordinal1": "first {{day}}",
+    "ordinal2": "second {{day}}",
+    "ordinal3": "third {{day}}",
+    "ordinal4": "fourth {{day}}",
+    "ordinal5": "last {{day}}",
+    "yearlyLimit": "Exchange supports yearly recurrence only every year.",
+    "loading": "Loading recurrence…",
+    "loadError": "Unable to read the current recurrence. It will be preserved unless you replace it.",
+    "summary": "Every {{interval}} {{unit}}",
+    "countSummary": "{{count}} occurrences",
+    "untilSummary": "Until {{date}}",
+    "chooseScope": "Choose whether to save this occurrence or the entire series."
+  },
+  "sharedCalendars": {
+    "add": "Add a shared calendar",
+    "group": "Other calendars",
+    "close": "Close",
+    "description": "Search for a person or enter their email address, then choose accessible calendars. They are displayed read only, without tags or time tracking.",
+    "search": "Name or email address",
+    "suggestions": "Available people and accounts",
+    "searching": "Searching directories…",
+    "discovering": "Finding accessible calendars…",
+    "noSources": "Connect a Google, Exchange or CalDAV account in settings to add a shared calendar.",
+    "emailHelp": "You can enter a complete email address, even without a suggestion, then choose which account to use.",
+    "noMatches": "No matches. Try a complete email address.",
+    "directoryUnavailable": "Directory unavailable for: {{sources}}. For Google, you can enter a complete email address. To search the Workspace directory, reconnect the account and grant directory access; the Google People API must be enabled and your organization must allow directory sharing.",
+    "accessError": "Unable to discover calendars. Check your connection, the address and sharing permissions. The server must allow calendar reading; free/busy access alone is not sufficient. With CalDAV, the directory must also be accessible.",
+    "available": "Accessible calendars — {{person}}",
+    "googleLimit": "Google does not expose another person’s complete calendar list. This list includes their primary calendar, if accessible, plus other shared calendars this Google account already subscribes to. Those calendars may belong to other people.",
+    "discoveryLimit": "The server limited discovery to accessible folders. Other calendars may require additional permissions.",
+    "alreadyAdded": "Already added",
+    "color": "Color",
+    "calendarColor": "Color for {{name}}",
+    "calendarName": "Calendar name",
+    "useColor": "Use color {{color}}",
+    "addSelected": "Add selected calendars",
+    "otherPerson": "Search for another person",
+    "added_one": "{{count}} calendar added.",
+    "added_other": "{{count}} calendars added.",
+    "remove": "Remove this calendar from the view",
+    "readOnly": "Read-only shared calendar: editing, invitation responses and tags are unavailable.",
+    "busy": "Busy",
+    "availabilityCalendar": "Primary calendar — availability",
+    "availabilityOnly": "Availability view: only information permitted by Exchange is shown. Time slots remain visible when the title and location are unavailable.",
+    "ewsErrors": {
+      "access_denied": "Exchange denied access to this person’s calendars. Ask them to share their calendar with your account and grant permission to read events. Directory access or free/busy access alone does not grant this permission.",
+      "folder_not_found": "Exchange cannot open this person’s calendar: the folder was not found or is hidden by sharing permissions. Check the address and ask for sharing that allows reading events.",
+      "mailbox_not_found": "Exchange could not find a mailbox for this address. This contact may be external or may not have an Exchange calendar. Check their email address.",
+      "unauthorized": "The Exchange account connection has expired or is no longer authorized. Reconnect the account in settings, then try again.",
+      "server_busy": "The Exchange server is temporarily busy. Try again shortly.",
+      "request_failed": "Unable to reach the Exchange calendar discovery service. Check your connection and that the Courrier server or native app is up to date, then try again.",
+      "invalid_response": "Exchange returned an unexpected response while discovering calendars. Check that the Courrier server or native app is up to date. If the problem persists, Exchange permissions and its response need to be checked.",
+      "update_required": "Shared calendar discovery is unavailable in this version of the Courrier server or native component. Update it, then try again."
+    }
   }
 }

@@ -105,6 +105,8 @@ export interface MailProvider {
   getMessageContent?(messageId: string, conversationId?: string): Promise<Pick<MailMessage, 'body_html' | 'body_text' | 'ics_mime' | 'attachments' | 'has_attachments'>>;
   /** Return the original RFC 5322/MIME source when supported by the provider. */
   getRawMessageSource?(itemId: string): Promise<string>;
+  /** Import an RFC 5322/MIME message into a folder. Used for cross-account transfers. */
+  importRawMessage?(rawMessage: string, folderId: string): Promise<void>;
   listFolders(): Promise<MailFolder[]>;
   sendMail(params: SendMailParams): Promise<void>;
   getScheduledSend?(emailId: string): Promise<ScheduledSendInfo | null>;

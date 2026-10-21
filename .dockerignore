@@ -2,6 +2,8 @@
 .DS_Store
 frontend/node_modules
 frontend/dist
+frontend/android
+frontend/coverage
 backend/target
 backend/provider-core/target
 **/*.log

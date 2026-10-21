@@ -1,0 +1,315 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
+import { App as CapacitorApp } from '@capacitor/app';
+import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { platform } from '.';
+import { androidShare } from './nativeAndroid';
+import { useLayout } from '../store/LayoutStore';
+import { useTheme } from '../store/ThemeStore';
+import { Archive, ChevronDown, ChevronLeft, ChevronUp, FolderInput, MoreHorizontal, Reply, Trash2 } from 'lucide-react';
+import { ContactAvatar } from '../../features/mail/components/ContactAvatar';
+import { decodeHtmlEntities, formatDate, senderColor } from '../../features/mail/utils';
+import { setNotificationOpening } from './notificationOpening';
+import { queryClient } from '../queryClient';
+
+type OpeningNotification = {
+  url: string;
+  subject?: string;
+  sender?: string;
+  snippet?: string;
+  receivedAt?: string;
+};
+
+export function NativeDeepLinks() {
+  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const { setActiveTab } = useLayout();
+  const { resolved } = useTheme();
+  const activeNotificationUrlRef = useRef<string | null>(null);
+  const notificationPaintPendingRef = useRef(false);
+  const openingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enrichmentTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [openingNotification, setOpeningNotification] = useState<OpeningNotification | null>(null);
+  const closeNotification = useCallback(() => {
+    if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+    if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
+    openingTimeoutRef.current = null;
+    enrichmentTimeoutRef.current = null;
+    setOpeningNotification(null);
+    setNotificationOpening(false);
+    const event = new Event('courrier:android-back', { cancelable: true });
+    if (globalThis.dispatchEvent(event)) navigate('/', { replace: true });
+  }, [navigate]);
+  const openDeepLink = useCallback((url: string) => {
+    const deepLink = new URL(url);
+    const match = /^\/account\/([^/]+)\/conversation\/([^/]+)$/.exec(deepLink.pathname);
+    if (!match || deepLink.hostname !== 'mail') {
+      console.warn('[notification-link] rejected malformed target');
+      void platform.revealNotificationView?.();
+      return;
+    }
+    // Android can deliver the same notification through the launch intent,
+    // appUrlOpen and our retained native intent. Handle it only once until the
+    // app leaves the foreground; otherwise a late retained intent can reopen a
+    // conversation after the user has already navigated elsewhere.
+    if (activeNotificationUrlRef.current === url) {
+      console.info('[notification-link] ignored duplicate target');
+      if (!notificationPaintPendingRef.current) void platform.revealNotificationView?.();
+      return;
+    }
+    activeNotificationUrlRef.current = url;
+    notificationPaintPendingRef.current = true;
+    if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
+    enrichmentTimeoutRef.current = null;
+    // Commit the lightweight cover before notifying stores or navigating, which
+    // can trigger expensive renders of the previous conversation on Android.
+    flushSync(() => setOpeningNotification({
+      url,
+      subject: deepLink.searchParams.get('subject') || undefined,
+      sender: deepLink.searchParams.get('sender') || undefined,
+      snippet: deepLink.searchParams.get('snippet') || undefined,
+      receivedAt: deepLink.searchParams.get('receivedAt') || undefined,
+    }));
+    setNotificationOpening(true);
+    void queryClient.cancelQueries({ queryKey: ['contact-photo'] });
+    if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+    openingTimeoutRef.current = setTimeout(() => {
+      void platform.diagnosticEvent?.('notification-skeleton-timeout');
+      setOpeningNotification(null);
+      setNotificationOpening(false);
+    }, 60_000);
+    console.info('[notification-link] accepted target');
+    const accountId = decodeURIComponent(match[1]);
+    const conversationId = decodeURIComponent(match[2]);
+    const params = new URLSearchParams({
+      account: accountId,
+      conversation: conversationId,
+    });
+    const action = deepLink.searchParams.get('action');
+    if (action) params.set('action', action);
+    for (const name of ['message', 'subject', 'sender', 'snippet', 'receivedAt'] as const) {
+      const value = deepLink.searchParams.get(name);
+      if (value) params.set(name, value);
+    }
+    // Select the target before making any native call. Native mail commands are
+    // serialized on Android, so awaiting metadata here used to leave the
+    // previous conversation visible until an Inbox sync had completed.
+    navigate('/?' + params.toString());
+    setActiveTab('mail');
+
+    void platform.notificationThread?.(accountId, conversationId).then(notificationThread => {
+      if (!notificationThread || activeNotificationUrlRef.current !== url) return;
+      setOpeningNotification(current => current?.url === url ? {
+        ...current,
+        subject: notificationThread.subject || current.subject,
+        sender: notificationThread.sender || current.sender,
+        snippet: notificationThread.snippet || current.snippet,
+        receivedAt: notificationThread.receivedAt || current.receivedAt,
+      } : current);
+      globalThis.dispatchEvent(new CustomEvent('courrier:notification-thread', {
+        detail: { accountId, conversationId, notificationThread },
+      }));
+    }).catch(error => {
+      console.warn('[notification-link] metadata unavailable', error);
+    });
+  }, [navigate, setActiveTab]);
+
+  const openingUrl = openingNotification?.url;
+  useLayoutEffect(() => {
+    if (!openingUrl) return;
+    void platform.diagnosticEvent?.('notification-skeleton-shown');
+    // Schedule the native handoff only once the preview is committed to the DOM.
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        notificationPaintPendingRef.current = false;
+        void platform.revealNotificationView?.();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [openingUrl]);
+
+  useEffect(() => {
+    // Only Android has a retained notification intent to resolve. On desktop
+    // and web, release background enrichment immediately; otherwise snippets
+    // and avatars remain disabled for the whole session.
+    if (!platform.isNativeAndroid) {
+      setNotificationOpening(false);
+      return;
+    }
+    const openShare = () => {
+      void androidShare.pending().then(pending => {
+        if (!pending) return;
+        setActiveTab('mail');
+        navigate('/');
+        globalThis.dispatchEvent(new Event('courrier:share-available'));
+      }).catch(() => {});
+    };
+    openShare();
+    globalThis.addEventListener('courrier:share-ready', openShare);
+    const refreshMail = () => {
+      // Capacitor's WebView does not reliably emit a window focus transition
+      // when the app resumes. In particular, after airplane mode React Query
+      // can otherwise keep rendering a persisted/offline empty Inbox even
+      // though the native worker has already synchronized new mail.
+      void queryClient.invalidateQueries({
+        queryKey: ['mail'],
+        refetchType: 'active',
+      });
+    };
+    const consumeNativeTarget = (releaseIfEmpty = false) => platform.consumeNotificationUrl().then(url => {
+      if (url) void openDeepLink(url);
+      else {
+        // A normal resume must keep the current screen visible, even if a
+        // previous notification intent left the native WebView covered.
+        if (!notificationPaintPendingRef.current) void platform.revealNotificationView?.();
+        if (releaseIfEmpty) setNotificationOpening(false);
+      }
+    });
+    consumeNativeTarget(true);
+    void CapacitorApp.getLaunchUrl().then(result => {
+      if (result?.url) void openDeepLink(result.url);
+    });
+    const listener = CapacitorApp.addListener('appUrlOpen', ({ url }) => openDeepLink(url));
+    const backListener = CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+      const event = new Event('courrier:android-back', { cancelable: true });
+      if (!globalThis.dispatchEvent(event)) {
+        if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+        openingTimeoutRef.current = null;
+        setOpeningNotification(null);
+        setNotificationOpening(false);
+        return;
+      }
+      if (canGoBack) globalThis.history.back();
+      else void CapacitorApp.exitApp();
+    });
+    const stateListener = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) {
+        openShare();
+        void consumeNativeTarget().then(refreshMail);
+      }
+      else {
+        globalThis.dispatchEvent(new Event('courrier:share-save'));
+        activeNotificationUrlRef.current = null;
+      }
+    });
+    // Also cover connectivity returning while Courrier is already visible.
+    globalThis.addEventListener('online', refreshMail);
+    const notificationOpened = (event: Event) => {
+      const url = activeNotificationUrlRef.current;
+      const detail = (event as CustomEvent<{ accountId?: string; conversationId?: string }>).detail;
+      const match = url && /^\/account\/([^/]+)\/conversation\/([^/]+)$/.exec(new URL(url).pathname);
+      // A cached body from the previous conversation must not dismiss the new preview.
+      if (!match || detail?.accountId !== decodeURIComponent(match[1])
+        || detail?.conversationId !== decodeURIComponent(match[2])) return;
+      void platform.diagnosticEvent?.('notification-skeleton-hidden');
+      if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+      openingTimeoutRef.current = null;
+      setOpeningNotification(null);
+      // Keep background avatars/snippets paused briefly after the body appears.
+      // This prevents a burst from the first mail delaying a second notification
+      // opened a few seconds later.
+      if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
+      enrichmentTimeoutRef.current = setTimeout(() => {
+        enrichmentTimeoutRef.current = null;
+        setNotificationOpening(false);
+      }, 15_000);
+    };
+    const notificationUnavailable = (event: Event) => {
+      const detail = (event as CustomEvent<{ accountId: string; conversationId: string }>).detail;
+      const url = activeNotificationUrlRef.current;
+      if (!url || !openingTimeoutRef.current) return;
+      const target = new URL(url);
+      const match = /^\/account\/([^/]+)\/conversation\/([^/]+)$/.exec(target.pathname);
+      if (!match || detail.accountId !== decodeURIComponent(match[1])
+        || detail.conversationId !== decodeURIComponent(match[2])) return;
+      event.preventDefault();
+      closeNotification();
+    };
+    globalThis.addEventListener('courrier:notification-unavailable', notificationUnavailable);
+    globalThis.addEventListener('courrier:notification-opened', notificationOpened);
+    return () => {
+      globalThis.removeEventListener('courrier:notification-unavailable', notificationUnavailable);
+      globalThis.removeEventListener('courrier:notification-opened', notificationOpened);
+      if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+      if (enrichmentTimeoutRef.current) clearTimeout(enrichmentTimeoutRef.current);
+      globalThis.removeEventListener('online', refreshMail);
+      globalThis.removeEventListener('courrier:share-ready', openShare);
+      void listener.then(handle => handle.remove());
+      void backListener.then(handle => handle.remove());
+      void stateListener.then(handle => handle.remove());
+    };
+  }, [openDeepLink, closeNotification]);
+  if (!openingNotification) return null;
+  const sender = decodeHtmlEntities(openingNotification.sender || '');
+  const senderAddressMatch = /<([^<>]+)>/.exec(sender);
+  const senderEmail = senderAddressMatch?.[1] || sender;
+  const senderName = senderAddressMatch ? sender.slice(0, senderAddressMatch.index).trim().replace(/^['"]|['"]$/g, '') : sender;
+  const rawReceivedAt = openingNotification.receivedAt;
+  const receivedAt = rawReceivedAt && /^\d+$/.test(rawReceivedAt)
+    ? new Date(Number(rawReceivedAt)).toISOString()
+    : rawReceivedAt;
+  const deleteFromSkeleton = () => {
+    const deleteUrl = new URL(openingNotification.url);
+    deleteUrl.searchParams.set('action', 'delete');
+    openDeepLink(deleteUrl.toString());
+    // The deletion route now owns the transition to the neighbouring thread;
+    // do not leave an obsolete loading cover in front of it.
+    if (openingTimeoutRef.current) clearTimeout(openingTimeoutRef.current);
+    openingTimeoutRef.current = null;
+    setOpeningNotification(null);
+    setNotificationOpening(false);
+  };
+  return <div className="notification-opening" role="region" aria-busy="true" aria-label="Ouverture du message">
+    <div className="mail-mobile-detail-nav notification-opening__nav">
+      <button type="button" onClick={closeNotification} aria-label={t('mail.backToList')} title={t('mail.backToList')}><ChevronLeft /></button>
+      <div className="mail-mobile-detail-nav__position">Inbox</div>
+      <div className="mail-mobile-detail-nav__arrows">
+        <button type="button" disabled><ChevronUp /></button>
+        <button type="button" disabled><ChevronDown /></button>
+      </div>
+    </div>
+    <div className="mail-thread-detail notification-opening__content">
+      <div className="mail-thread-detail__header">
+        <h2 className="mail-thread-detail__subject">{openingNotification.subject || 'Ouverture du message…'}</h2>
+      </div>
+      <div className="mail-thread-detail__messages">
+        <div className="mail-message-block expanded notification-opening__message">
+          <div className="mail-message-block__header">
+            {sender
+              ? <ContactAvatar email={senderEmail} name={senderName} size={40} className="mail-message-block__avatar" eager />
+              : <div className="notification-opening__avatar" />}
+            <div className="mail-message-block__header-content">
+              <div className="mail-message-block__row1">
+                {sender
+                  ? <span className="mail-message-block__from" style={{ color: senderColor(sender, resolved === 'dark') }}>{sender}</span>
+                  : <div className="notification-opening__line notification-opening__line--sender" />}
+                <span className="mail-message-block__date">{receivedAt ? formatDate(receivedAt) : <i className="notification-opening__date" />}</span>
+              </div>
+              <div className="mail-message-block__row2">
+                <div className="mail-message-block__recipients-preview"><span className="mail-message-block__preview"><span className="mail-message-block__preview-label">à</span> moi</span></div>
+                <button type="button" className="mail-headers-toggle" disabled><ChevronDown size={11} /></button>
+                <button type="button" className="btn-icon--labeled" disabled><Reply size={13} /></button>
+                <button type="button" className="btn-icon--labeled" disabled><MoreHorizontal size={18} /></button>
+              </div>
+            </div>
+          </div>
+          <div className="mail-message-block__body notification-opening__body">
+            {openingNotification.snippet && <p>{openingNotification.snippet}</p>}
+            <div className="mail-message-body-skeleton" aria-hidden="true"><span /><span /><span /></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div className="mail-thread-detail__toolbar notification-opening__toolbar">
+      <div><button type="button" className="mail-detail-action-btn" disabled><FolderInput /><span>Déplacer</span></button></div>
+      <button type="button" className="mail-detail-action-btn mail-detail-action-btn--danger" onClick={deleteFromSkeleton}><Trash2 /><span>Supprimer</span></button>
+      <button type="button" className="mail-detail-action-btn" disabled><Archive /><span>Archiver</span></button>
+      <div><button type="button" className="mail-detail-action-btn" disabled><MoreHorizontal /><span>More</span></button></div>
+    </div>
+  </div>;
+}

@@ -3,20 +3,30 @@ import { MailThread } from '../types';
 import { RefreshCw, SearchX, Inbox, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThreadItem } from './ThreadItem';
+import { Capacitor } from '@capacitor/core';
+
+const PULL_TO_REFRESH_THRESHOLD = 64;
+const PULL_TO_REFRESH_MAX_DISTANCE = 96;
 
 export interface ThreadListProps {
   readonly threads: MailThread[];
   readonly loading: boolean;
   readonly loadingMore: boolean;
   readonly totalCount?: number;
+  /** Complete unread-message count reported by the selected folder. */
+  readonly unreadCount?: number;
   readonly scrollResetKey?: string;
   readonly hasMore?: boolean;
-  readonly onLoadMore?: () => void;
+  /** Returns false when the request cannot be started yet (for example during a refresh). */
+  readonly onLoadMore?: () => boolean | void;
+  readonly onRefresh?: () => Promise<void> | void;
+  readonly refreshing?: boolean;
   readonly selectedId: string | null;
   readonly snoozedMap: Record<string, string>;
   readonly isInSnoozedFolder: boolean;
   readonly isSentFolder?: boolean;
   readonly isInScheduledFolder?: boolean;
+  readonly isInDraftsFolder?: boolean;
   readonly isSearchMode?: boolean;
   readonly draftConversationIds?: Set<string>;
   readonly sourceColor?: string;
@@ -27,6 +37,8 @@ export interface ThreadListProps {
   readonly onToggleSelect: (t: MailThread, range?: MailThread[]) => void;
   readonly onSelectAll: () => void;
   readonly onClearSelection: () => void;
+  readonly filter: 'all' | 'unread';
+  readonly onFilterChange: (filter: 'all' | 'unread') => void;
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
   readonly resolveProvider?: (thread: MailThread) => import('../providers/MailProvider').MailProvider | null;
 }
@@ -38,14 +50,18 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       loading,
       loadingMore,
       totalCount,
+      unreadCount,
       scrollResetKey,
       hasMore = false,
       onLoadMore,
+      onRefresh,
+      refreshing = false,
       selectedId,
       snoozedMap,
       isInSnoozedFolder,
       isSentFolder = false,
       isInScheduledFolder = false,
+      isInDraftsFolder = false,
       isSearchMode = false,
       draftConversationIds,
       sourceColor,
@@ -56,26 +72,59 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       onToggleSelect,
       onSelectAll,
       onClearSelection,
+      filter,
+      onFilterChange,
       provider,
       resolveProvider,
     },
     ref
   ) => {
     const { t } = useTranslation();
-    const [filter, setFilter] = useState<'all' | 'unread'>('all');
     const lastCheckedIdRef = useRef<string | null>(null);
+    const threadVersionsRef = useRef<Map<string, string> | null>(null);
+    const arrivalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [arrivingIds, setArrivingIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
       if (selectedThreadIds.size === 0) lastCheckedIdRef.current = null;
     }, [selectedThreadIds.size]);
+    useEffect(() => {
+      threadVersionsRef.current = null;
+      setArrivingIds(new Set());
+    }, [scrollResetKey]);
+    useEffect(() => () => {
+      if (arrivalTimerRef.current) clearTimeout(arrivalTimerRef.current);
+    }, []);
+    useEffect(() => {
+      if (loading) return;
+      const next = new Map(threads.map(thread => [thread.conversation_id, thread.last_delivery_time]));
+      const previous = threadVersionsRef.current;
+      threadVersionsRef.current = next;
+      if (!previous) return;
+      const latestDelivery = Math.max(0, ...[...previous.values()].map(version => Date.parse(version) || 0));
+      const arriving = new Set([...next].filter(([id, version]) =>
+        Date.parse(version) > (previous.has(id) ? Date.parse(previous.get(id)!) || 0 : latestDelivery)
+      ).map(([id]) => id));
+      if (arriving.size === 0) return;
+      setArrivingIds(arriving);
+      if (arrivalTimerRef.current) clearTimeout(arrivalTimerRef.current);
+      arrivalTimerRef.current = setTimeout(() => setArrivingIds(new Set()), 900);
+    }, [loading, threads]);
     const [filterOpen, setFilterOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
     const loadMoreRequestedRef = useRef(false);
+    const loadedThreadCountRef = useRef(threads.length);
+    const touchStartYRef = useRef<number | null>(null);
+    const pullDistanceRef = useRef(0);
+    const [pullDistance, setPullDistance] = useState(0);
 
     useImperativeHandle(ref, () => containerRef.current!);
 
     useEffect(() => {
       if (containerRef.current) containerRef.current.scrollTop = 0;
+      loadMoreRequestedRef.current = false;
+      loadedThreadCountRef.current = threads.length;
     }, [scrollResetKey]);
 
     useEffect(() => {
@@ -83,19 +132,115 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
       if (!container || !onLoadMore) return;
 
       if (!loadingMore) loadMoreRequestedRef.current = false;
+      // Keep the loaded list filled when deletions or moves remove rows,
+      // even when the user is still above the scroll pagination threshold.
+      loadedThreadCountRef.current = Math.max(loadedThreadCountRef.current, threads.length);
 
       const handleScroll = () => {
         if (!hasMore || loadingMore || loadMoreRequestedRef.current) return;
         const { scrollTop, scrollHeight, clientHeight } = container;
-        if (scrollHeight - scrollTop - clientHeight < 200) {
+        if (threads.length < loadedThreadCountRef.current || scrollHeight - scrollTop - clientHeight < 200) {
           loadMoreRequestedRef.current = true;
-          onLoadMore();
+          const accepted = onLoadMore();
+          // A background refresh can temporarily prevent pagination. Do not
+          // leave the scroll guard latched when no load-more request started.
+          if (accepted === false) loadMoreRequestedRef.current = false;
         }
       };
 
       container.addEventListener('scroll', handleScroll, { passive: true });
+      // Also re-evaluate when fetching/availability changes while the viewport
+      // is already at the bottom and therefore emits no new scroll event.
+      handleScroll();
       return () => container.removeEventListener('scroll', handleScroll);
     }, [onLoadMore, hasMore, loadingMore, threads.length]);
+
+    useEffect(() => {
+      const container = containerRef.current;
+      const sentinel = loadMoreSentinelRef.current;
+      if (!container || !sentinel || !onLoadMore || !hasMore) return;
+
+      const observer = new IntersectionObserver(entries => {
+        if (!entries.some(entry => entry.isIntersecting)
+          || loadingMore
+          || loadMoreRequestedRef.current) return;
+        loadMoreRequestedRef.current = true;
+        const accepted = onLoadMore();
+        if (accepted === false) loadMoreRequestedRef.current = false;
+      }, { root: container, rootMargin: '0px 0px 200px 0px' });
+
+      observer.observe(sentinel);
+      return () => observer.disconnect();
+    }, [hasMore, loadingMore, onLoadMore, scrollResetKey, threads.length]);
+
+    useEffect(() => {
+      const container = containerRef.current;
+      const isMobileLayout = globalThis.matchMedia?.('(max-width: 700px)').matches ?? false;
+      if (!container || !onRefresh || (Capacitor.getPlatform() !== 'android' && !isMobileLayout)) return;
+
+      const handleTouchStart = (event: TouchEvent) => {
+        if (refreshing || container.scrollTop > 0 || event.touches.length !== 1) {
+          touchStartYRef.current = null;
+          return;
+        }
+        touchStartYRef.current = event.touches[0].clientY;
+      };
+
+      const handleTouchMove = (event: TouchEvent) => {
+        if (touchStartYRef.current === null || event.touches.length !== 1) return;
+        const delta = event.touches[0].clientY - touchStartYRef.current;
+        if (delta <= 0 || container.scrollTop > 0) {
+          pullDistanceRef.current = 0;
+          setPullDistance(0);
+          return;
+        }
+        event.preventDefault();
+        const nextDistance = Math.min(PULL_TO_REFRESH_MAX_DISTANCE, delta * 0.5);
+        pullDistanceRef.current = nextDistance;
+        setPullDistance(nextDistance);
+      };
+
+      const resetPull = () => {
+        touchStartYRef.current = null;
+        pullDistanceRef.current = 0;
+        setPullDistance(0);
+      };
+
+      const finishPull = () => {
+        const shouldRefresh = pullDistanceRef.current >= PULL_TO_REFRESH_THRESHOLD && !refreshing;
+        resetPull();
+        if (shouldRefresh) void onRefresh();
+      };
+
+      container.addEventListener('touchstart', handleTouchStart, { passive: true });
+      container.addEventListener('touchmove', handleTouchMove, { passive: false });
+      container.addEventListener('touchend', finishPull);
+      container.addEventListener('touchcancel', resetPull);
+      return () => {
+        container.removeEventListener('touchstart', handleTouchStart);
+        container.removeEventListener('touchmove', handleTouchMove);
+        container.removeEventListener('touchend', finishPull);
+        container.removeEventListener('touchcancel', resetPull);
+      };
+    }, [onRefresh, refreshing]);
+
+    // Android already animates the refresh action in the app header. Keep the
+    // pull affordance while the finger is down, then reclaim its vertical space
+    // as soon as the refresh starts.
+    const showPersistentRefreshIndicator = refreshing && Capacitor.getPlatform() !== 'android';
+    const pullIndicator = ((pullDistance > 0 && !refreshing) || showPersistentRefreshIndicator) && (
+      <div
+        className={'mail-pull-to-refresh' + (refreshing ? ' mail-pull-to-refresh--refreshing' : '')}
+        style={{ height: refreshing ? 42 : pullDistance }}
+        aria-hidden="true"
+      >
+        <RefreshCw
+          size={20}
+          className={refreshing ? 'spin' : ''}
+          style={{ transform: refreshing ? undefined : 'rotate(' + Math.min(180, pullDistance * 2.8) + 'deg)' }}
+        />
+      </div>
+    );
 
     useEffect(() => {
       const el = containerRef.current;
@@ -123,6 +268,26 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     const visibleThreads = (!isSearchMode && filter === 'unread')
       ? threads.filter(t => t.unread_count > 0)
       : threads;
+
+    // The unread filter is applied client-side, while `threads` is paginated.
+    // Keep fetching pages until their unread-message totals account for the
+    // folder count (or the provider tells us there are no more pages). This
+    // prevents an older unread conversation from being hidden merely because
+    // it is not part of the first 50 loaded conversations.
+    const loadedUnreadCount = threads.reduce((total, thread) => total + thread.unread_count, 0);
+    useEffect(() => {
+      if (
+        isSearchMode
+        || filter !== 'unread'
+        || unreadCount === undefined
+        || loadedUnreadCount >= unreadCount
+        || !hasMore
+        || loading
+        || loadingMore
+        || !onLoadMore
+      ) return;
+      onLoadMore();
+    }, [filter, hasMore, isSearchMode, loadedUnreadCount, loading, loadingMore, onLoadMore, unreadCount]);
 
     const toolbar = (
       <div className="mail-thread-toolbar">
@@ -154,13 +319,13 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
                 <div className="mail-actions-menu">
                   <button
                     className={`mail-actions-menu__item${filter === 'all' ? ' mail-actions-menu__item--active' : ''}`}
-                    onClick={() => { setFilter('all'); setFilterOpen(false); }}
+                    onClick={() => { onFilterChange('all'); setFilterOpen(false); }}
                   >
                     {t('mail.filterAll', 'All mail')}
                   </button>
                   <button
                     className={`mail-actions-menu__item${filter === 'unread' ? ' mail-actions-menu__item--active' : ''}`}
-                    onClick={() => { setFilter('unread'); setFilterOpen(false); }}
+                    onClick={() => { onFilterChange('unread'); setFilterOpen(false); }}
                   >
                     {t('mail.filterUnread', 'Unread')}
                   </button>
@@ -175,15 +340,19 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     if (loading) {
       return (
         <div className="mail-thread-list-wrapper">
+          {toolbar}
           <div className="mail-thread-list mail-thread-list--loading">
-            {toolbar}
             {Array.from({ length: 12 }, (_, index) => (
-              <div className="mail-thread-list-skeleton" key={index} aria-hidden="true">
+              <div className="mail-thread-item mail-thread-list-skeleton" key={index} aria-hidden="true">
                 <span className="mail-thread-list-skeleton__avatar" />
                 <span className="mail-thread-list-skeleton__content">
-                  <span className="mail-thread-list-skeleton__sender" />
+                  <span className="mail-thread-list-skeleton__top">
+                    <span className="mail-thread-list-skeleton__sender" />
+                    <span className="mail-thread-list-skeleton__date" />
+                  </span>
                   <span className="mail-thread-list-skeleton__subject" />
                   <span className="mail-thread-list-skeleton__preview" />
+                  <span className="mail-thread-list-skeleton__preview mail-thread-list-skeleton__preview--short" />
                 </span>
               </div>
             ))}
@@ -206,8 +375,9 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
     if (visibleThreads.length === 0) {
       return (
         <div className="mail-thread-list-wrapper">
+          {toolbar}
           <div className="mail-thread-list" ref={containerRef}>
-            {toolbar}
+            {pullIndicator}
             <div className="mail-thread-list--empty">
               {isSearchMode
                 ? <SearchX size={40} strokeWidth={1} style={{ opacity: 0.25 }} />
@@ -226,8 +396,9 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
 
     return (
       <div className="mail-thread-list-wrapper">
+        {toolbar}
         <div className="mail-thread-list" ref={containerRef}>
-          {toolbar}
+          {pullIndicator}
           {selectedThreadIds.size > 0 && (
             <div className="mail-mobile-selection-header">
               <strong>{selectedThreadIds.size} sélectionnée{selectedThreadIds.size > 1 ? "s" : ""}</strong>
@@ -246,9 +417,11 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={isSentFolder}
               isInScheduledFolder={isInScheduledFolder}
+              isInDraftsFolder={isInDraftsFolder}
               hasDraft={draftConversationIds?.has(thread.conversation_id) ?? false}
               sourceColor={sourceColor}
               provider={resolveProvider?.(thread) ?? provider}
+              animateArrival={arrivingIds.has(thread.conversation_id)}
               onSelect={clickedThread => {
                 if (selectedThreadIds.size > 0 && globalThis.matchMedia?.("(max-width: 700px)").matches) {
                   onToggleSelect(clickedThread);
@@ -284,6 +457,7 @@ export const ThreadList = forwardRef<HTMLDivElement, ThreadListProps>(
               <RefreshCw size={18} className="spin" />
             </div>
           )}
+          {hasMore && <div ref={loadMoreSentinelRef} className="mail-thread-list__load-more-sentinel" aria-hidden="true" />}
         </div>
         {countChip}
       </div>

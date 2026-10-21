@@ -1,3 +1,4 @@
+import { declineCounterIcs } from '../utils/declineCounter';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MailMessage, MailAttachment } from '../types';
@@ -7,17 +8,20 @@ import { AttachmentList } from './AttachmentList';
 import { ICSInvitationCard } from './ICSInvitationCard';
 import { useTranslation } from 'react-i18next';
 import { CalendarClock } from 'lucide-react';
+import { platform } from '../../../shared/platform';
+import { useNotificationOpening } from '../../../shared/platform/notificationOpening';
 
 export interface MessageBlockProps {
   readonly message: MailMessage;
   readonly conversationId: string;
   readonly defaultExpanded?: boolean;
+  readonly scrollIntoViewOnMount?: boolean;
   readonly currentUserEmail?: string;
   readonly mailProviderType?: 'gmail' | 'ews';
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
-  readonly onMarkRead?: (msg: MailMessage) => void;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
+  readonly onNewToRecipients?: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
   readonly onTrash: (message: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
@@ -27,6 +31,7 @@ export interface MessageBlockProps {
   readonly loadingAttachmentId?: string | null;
   readonly isInScheduledFolder?: boolean;
   readonly onScheduledSendCanceled?: (message: MailMessage) => void;
+  readonly onBodyReady?: () => void;
 }
 
 function findScrollParent(el: HTMLElement): HTMLElement | null {
@@ -55,18 +60,53 @@ async function decodeInlineImages(html: string): Promise<void> {
 }
 
 export function MessageBlock({
-  message, conversationId, defaultExpanded = false, currentUserEmail, mailProviderType, provider,
-  onMarkRead, onReply, onReplyAll, onForward, onTrash, onToggleRead,
+  message, conversationId, defaultExpanded = false, scrollIntoViewOnMount = false, currentUserEmail, mailProviderType, provider,
+  onReply, onReplyAll, onForward, onNewToRecipients, onTrash, onToggleRead,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
   isInScheduledFolder = false, onScheduledSendCanceled,
+  onBodyReady,
 }: MessageBlockProps) {
   const { t } = useTranslation();
+  const notificationOpening = useNotificationOpening();
   const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [showHiddenContent, setShowHiddenContent] = useState(false);
+  const [hasHiddenContent, setHasHiddenContent] = useState(false);
+  useEffect(() => { setShowHiddenContent(false); }, [message.item_id]);
+  const [bodyReady, setBodyReady] = useState(false);
   const [cancelingScheduled, setCancelingScheduled] = useState(false);
   const [scheduledCanceled, setScheduledCanceled] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
-  const markedRef = useRef(false);
+
+  useEffect(() => {
+    if (bodyReady) onBodyReady?.();
+  }, [bodyReady, onBodyReady]);
+
+  useEffect(() => {
+    setIsExpanded(defaultExpanded);
+  }, [defaultExpanded, message.item_id]);
+
+  useEffect(() => {
+    if (!scrollIntoViewOnMount) return;
+
+    const frame = requestAnimationFrame(() => {
+      const element = blockRef.current;
+      if (!element) return;
+
+      const scrollParent = findScrollParent(element);
+      const elementTop = element.getBoundingClientRect().top;
+      const visibleBottom = scrollParent?.getBoundingClientRect().bottom ?? window.innerHeight;
+
+      // Leave a thread opened near the top untouched. When older collapsed
+      // messages push the first unread header out of view, reveal it below the
+      // sticky toolbar; scroll-margin-top keeps a glimpse of the older stack.
+      if (elementTop >= visibleBottom - 24) {
+        element.scrollIntoView({ block: 'start' });
+      }
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [scrollIntoViewOnMount]);
 
   const contentQuery = useQuery({
     queryKey: ['mail', provider?.accountId, 'message-content', conversationId, message.item_id],
@@ -77,14 +117,49 @@ export function MessageBlock({
     },
     enabled: isExpanded && message.body_loaded === false && !!provider?.getMessageContent,
     staleTime: Infinity,
-    // Keep cached content for immediate paint, but validate it whenever the
-    // message block is mounted again so a partial provider response cannot
-    // poison the cache permanently.
-    refetchOnMount: 'always',
+    gcTime: 24 * 60 * 60 * 1000,
+    // A body is immutable for the lifetime of a message id. Reopening a
+    // conversation must reuse it instead of downloading its body and inline
+    // resources again. The explicit reload button remains available.
+    refetchOnMount: false,
     retry: false,
   });
   const displayedMessage = contentQuery.data ? { ...message, ...contentQuery.data, body_loaded: true } : message;
   const bodyLoading = isExpanded && displayedMessage.body_loaded === false && !contentQuery.isError;
+  useEffect(() => {
+    if ((!onBodyReady && !notificationOpening) || !isExpanded || bodyLoading) return;
+    // Some Android WebView documents never produce a measurable height during
+    // the iframe's first load callback, so EmailHtmlBody cannot emit onReady
+    // even though the fetched body has already been mounted. Keep the precise
+    // callback as the fast path, with a short post-paint guarantee so the
+    // notification cover can never wait for its 60-second safety timeout.
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const timeout = setTimeout(() => {
+          if (onBodyReady) {
+            onBodyReady();
+            return;
+          }
+          // A direct notification thread may not yet carry accountId on its
+          // optimistic MailThread. In that case MailPage cannot attach its
+          // callback even though this is the expanded message whose body has
+          // just rendered. Complete the cover from the leaf that knows the
+          // content is ready instead of waiting for the safety timeout.
+          void platform.diagnosticEvent?.('notification-body-ready-direct');
+          globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened', {
+            detail: { accountId: provider?.accountId, conversationId },
+          }));
+        }, 250);
+        secondFrame = -timeout;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame > 0) cancelAnimationFrame(secondFrame);
+      else if (secondFrame < 0) clearTimeout(-secondFrame);
+    };
+  }, [bodyLoading, isExpanded, notificationOpening, onBodyReady, provider?.accountId, conversationId]);
   const scheduledQuery = useQuery({
     queryKey: ['mail-scheduled-send', provider?.accountId, message.item_id],
     queryFn: () => provider!.getScheduledSend!(message.item_id),
@@ -115,39 +190,59 @@ export function MessageBlock({
     if (result.data) action({ ...message, ...result.data, body_loaded: true });
   };
 
-  useEffect(() => {
-    if (message.is_read || markedRef.current || !isExpanded || !onMarkRead) return;
-    const el = blockRef.current;
-    if (!el) return;
-    const root = findScrollParent(el);
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          observer.disconnect();
-          markedRef.current = true;
-          onMarkRead(message);
-        }
-      },
-      { root, threshold: 0 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExpanded, message.is_read, message.item_id]);
-
   const hasAttachments = displayedMessage.attachments && displayedMessage.attachments.length > 0;
   const icsAttachments = displayedMessage.attachments?.filter(
     att => att.content_type.includes('calendar') || att.name.toLowerCase().endsWith('.ics')
   ) ?? [];
 
+  const handleToggleExpand = () => {
+    if (isExpanded) {
+      setIsExpanded(false);
+      return;
+    }
+
+    setIsExpanded(true);
+    requestAnimationFrame(() => {
+      const element = blockRef.current;
+      if (!element) return;
+      const scrollParent = findScrollParent(element);
+      const visibleTop = scrollParent?.getBoundingClientRect().top ?? 0;
+
+      // A message opened lower in the reading pane should start just below the
+      // sticky toolbar. Leave blocks already positioned there untouched.
+      if (element.getBoundingClientRect().top > visibleTop + 86) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  };
+
+  const onDeclineCounter = provider && displayedMessage.from_email ? async (icsText: string, title: string) => {
+    const reply = declineCounterIcs(icsText, displayedMessage.from_email!, currentUserEmail);
+    const bytes = new TextEncoder().encode(reply);
+    await provider.sendMail({
+      to: [displayedMessage.from_email!],
+      subject: t('invitation.counterDeclineSubject', { title }),
+      bodyHtml: `<p>${t('invitation.counterDeclineBody')}</p>`,
+      attachments: [{
+        name: 'reply.ics', contentType: 'text/calendar; method=DECLINECOUNTER; charset=UTF-8', size: bytes.length,
+        data: btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join('')),
+      }],
+    });
+  } : undefined;
+
+
   return (
-    <div ref={blockRef} className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}`}>
+    <div ref={blockRef} className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}${scrollIntoViewOnMount ? ' mail-message-block--initial-unread' : ''}`}>
       <MessageBlockHeader
+        hasHiddenContent={hasHiddenContent}
+        showHiddenContent={showHiddenContent}
+        onToggleHiddenContent={() => setShowHiddenContent(value => !value)}
         message={message}
         expanded={isExpanded}
-        onToggleExpand={() => setIsExpanded(!isExpanded)}
+        onToggleExpand={handleToggleExpand}
         onReply={() => void withContent(onReply)}
         onReplyAll={() => void withContent(onReplyAll)}
+        onNewToRecipients={onNewToRecipients ? () => void withContent(onNewToRecipients) : undefined}
         onForward={() => void withContent(onForward)}
         onTrash={onTrash}
         onToggleRead={onToggleRead}
@@ -190,6 +285,7 @@ export function MessageBlock({
               mailProviderType={mailProviderType}
               invitationHtml={displayedMessage.body_html}
               invitationText={displayedMessage.body_text}
+              onDeclineCounter={onDeclineCounter}
             />
           ))}
           {displayedMessage.ics_mime && (
@@ -200,13 +296,10 @@ export function MessageBlock({
               mailProviderType={mailProviderType}
               invitationHtml={displayedMessage.body_html}
               invitationText={displayedMessage.body_text}
+              onDeclineCounter={onDeclineCounter}
             />
           )}
-          {bodyLoading ? (
-            <div className="mail-message-body-skeleton" aria-busy="true">
-              <span /><span /><span /><span />
-            </div>
-          ) : contentQuery.isError ? (
+          {contentQuery.isError ? (
             <div className="mail-message-body-error">
               <div>{contentQuery.error instanceof Error ? contentQuery.error.message : String(contentQuery.error)}</div>
               <button type="button" className="mail-message-body-retry" onClick={() => contentQuery.refetch()}>
@@ -215,7 +308,22 @@ export function MessageBlock({
             </div>
           ) : (
             <>
-              <EmailHtmlBody html={displayedMessage.body_html || ''} bodyText={displayedMessage.body_text} />
+              <div className={`mail-email-body-stage${bodyReady ? '' : ' mail-email-body-stage--loading'}`}>
+                {!bodyReady && (
+                  <div className="mail-message-body-skeleton" aria-busy="true">
+                    <span /><span /><span /><span /><span /><span /><span /><span />
+                  </div>
+                )}
+                {!bodyLoading && (
+                  <EmailHtmlBody
+                    showHiddenContent={showHiddenContent}
+                    onHiddenContentChange={setHasHiddenContent}
+                    html={displayedMessage.body_html || ''}
+                    bodyText={displayedMessage.body_text}
+                    onReady={() => setBodyReady(true)}
+                  />
+                )}
+              </div>
               {message.body_loaded === false && contentQuery.data && (
                 <button
                   type="button"

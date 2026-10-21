@@ -1,4 +1,5 @@
 import { fileService } from '../../../shared/services/fileService';
+import { gmailRequest } from './gmailRequest';
 
 import type { MailAttachment, MailFolder, MailIdentity, MailMessage, MailRecipient, MailSearchQuery, MailThread } from '../types';
 import type { Contact, MailItemRef, MailProvider, SaveDraftParams, SendMailParams } from './MailProvider';
@@ -325,7 +326,7 @@ export class GmailMailProvider implements MailProvider {
 
   private async gFetch<T>(token: string, path: string, options?: RequestInit): Promise<T> {
     const url = path.startsWith('http') ? path : `https://www.googleapis.com/gmail/v1${path}`;
-    const res = await fetch(url, {
+    const res = await gmailRequest(this.userEmail || this.accountId, url, {
       ...options,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -400,8 +401,7 @@ export class GmailMailProvider implements MailProvider {
 
     if (!res.threads?.length) return [];
 
-    // Fetch thread metadata in batches to stay within Gmail's rate limits.
-    // Firing all 50 in parallel triggers 429s; 10 concurrent is safe.
+    // Bound pending work; gFetch also paces requests across batches and instances.
     const CONCURRENCY = 10;
     const results: (MailThread | null)[] = [];
     for (let i = 0; i < res.threads.length; i += CONCURRENCY) {
@@ -537,7 +537,7 @@ export class GmailMailProvider implements MailProvider {
     return results.filter((t): t is MailThread => t !== null);
   }
 
-  async getThread(conversationId: string, includeTrash = false, _isDraft = false): Promise<MailMessage[]> {
+  async getThread(conversationId: string, includeTrash = false, isDraft = false): Promise<MailMessage[]> {
     const token = await this.token();
     const thread = await this.gFetch<GmailThread>(
       token,
@@ -551,7 +551,11 @@ export class GmailMailProvider implements MailProvider {
       m => includeTrash || !m.labelIds?.includes('TRASH'),
     );
 
-    return messages.map(m => ({ ...this.parseMessage(m), body_loaded: false }));
+    return Promise.all(messages.map(async message => ({
+      ...this.parseMessage(message),
+      ...(isDraft ? await this.getMessageContent(message.id) : {}),
+      body_loaded: isDraft,
+    })));
   }
 
   async getMessageContent(messageId: string) {
@@ -584,6 +588,16 @@ export class GmailMailProvider implements MailProvider {
     return decodeBase64Url(message.raw);
   }
 
+  async importRawMessage(rawMessage: string, folderId: string): Promise<void> {
+    const token = await this.token();
+    const label = folderToLabel(folderId);
+    if (!label) throw new Error('Ce dossier Gmail ne peut pas recevoir de messages importés.');
+    await this.gPost(token, '/users/me/messages/import?internalDateSource=dateHeader&neverMarkSpam=true', {
+      raw: encodeBase64Url(rawMessage),
+      labelIds: [label],
+    });
+  }
+
   private parseMessage(msg: GmailMessage): MailMessage {
     const headers = msg.payload?.headers ?? [];
     const h = (name: string) => getHeader(headers, name);
@@ -599,9 +613,11 @@ export class GmailMailProvider implements MailProvider {
       from_email: from.email || null,
       to_recipients: parseAddressList(h('To')),
       cc_recipients: parseAddressList(h('Cc')),
+      bcc_recipients: parseAddressList(h('Bcc')),
       body_html: extractBody(msg.payload ?? {}),
       date_time_received: msToIso(msg.internalDate ?? '0'),
       is_read: !msg.labelIds?.includes('UNREAD'),
+      is_draft: msg.labelIds?.includes('DRAFT') ?? false,
       has_attachments: attachments.filter(a => !a.is_inline).length > 0,
       attachments: attachments.filter(a => !a.is_inline),
       size: msg.sizeEstimate,

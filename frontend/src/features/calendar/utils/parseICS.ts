@@ -90,7 +90,10 @@ function buildEvent(
   return {
     id: `${calendar.id}-${icalEvent.uid}-${suffix || start.toString()}`,
     sourceId: icalEvent.uid as string | undefined,
+    icalUid: icalEvent.uid as string | undefined,
     calendarId: calendar.id,
+    sensitivity: icalEvent.component.getFirstPropertyValue('class')?.toUpperCase(),
+    availability: icalEvent.component.getFirstPropertyValue('transp')?.toUpperCase(),
     title: icalEvent.summary || '(sans titre)',
     start: toISO(start),
     end: toISO(end),
@@ -125,7 +128,7 @@ function expandRecurring(
       if (d > rangeEnd) break;
       if (d >= rangeStart) {
         const det = icalEvent.getOccurrenceDetails(next);
-        results.push(buildEvent(det.startDate, det.endDate, det.item, calendar, next.toString(), true));
+        results.push({ ...buildEvent(det.startDate, det.endDate, det.item, calendar, next.toString(), true), recurrenceId: toISO(next) });
       }
       count++;
       next = expand.next();

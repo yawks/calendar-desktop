@@ -1,7 +1,8 @@
+import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
 import { Archive, BellOff, CalendarClock, Check, Clock, Mail as MailIcon, MailOpen, Paperclip, Trash2 } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { decodeHtmlEntities, formatDate, formatMailPreview, formatSnoozeDate, senderColor } from '../utils';
+import { decodeHtmlEntities, formatDate, formatMailPreview, mailPreviewNeedsBody, formatSnoozeDate, senderColor } from '../utils';
 
 import { MailRecipient, MailThread } from '../types';
 import type { MailProvider } from '../providers/MailProvider';
@@ -9,6 +10,7 @@ import { ContactAvatar } from './ContactAvatar';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useTranslation } from 'react-i18next';
+import { useNotificationOpening } from '../../../shared/platform/notificationOpening';
 
 // Loading every visible row at once is especially expensive in the unified
 // view (JMAP needs Thread/get + Email/get). Limit work independently per
@@ -123,24 +125,28 @@ export interface ThreadItemProps {
   readonly isInSnoozedFolder: boolean;
   readonly isSentFolder?: boolean;
   readonly isInScheduledFolder?: boolean;
+  readonly isInDraftsFolder?: boolean;
   readonly hasDraft?: boolean;
   readonly sourceColor?: string;
   readonly provider?: MailProvider | null;
+  readonly animateArrival?: boolean;
   readonly onSelect: (t: MailThread) => void;
   readonly onToggleRead: (t: MailThread) => void;
   readonly onDelete: (t: MailThread) => void;
   readonly onToggleCheck: (t: MailThread, shiftKey: boolean) => void;
 }
 
-export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, isInScheduledFolder = false, hasDraft, sourceColor, provider, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
+export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSnoozedFolder, isSentFolder = false, isInScheduledFolder = false, isInDraftsFolder = false, hasDraft, sourceColor, provider, animateArrival = false, onSelect, onToggleRead, onDelete, onToggleCheck }: ThreadItemProps) {
   const { t } = useTranslation();
   const { preference } = useTheme();
+  const notificationOpening = useNotificationOpening();
   const isDark = preference === 'dark';
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [isHovered, setIsHovered] = useState(false);
   const itemRef = useRef<HTMLDivElement>(null);
   const avatarLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const avatarLongPressHandledRef = useRef(false);
+  const { rules } = useMailContentRules();
   const [snippetNearViewport, setSnippetNearViewport] = useState(false);
 
   const isMobile = () => globalThis.matchMedia?.("(max-width: 700px)").matches ?? false;
@@ -153,7 +159,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
 
   useEffect(() => clearAvatarLongPress, []);
   useEffect(() => {
-    if (thread.snippet || !provider?.getThreadSnippet) return;
+    if (!provider || (thread.snippet && !mailPreviewNeedsBody(thread.snippet, rules))) return;
     const element = itemRef.current;
     if (!element) return;
     const observer = new IntersectionObserver(([entry]) => {
@@ -161,7 +167,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
     }, { rootMargin: '300px 0px' });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [thread.conversation_id, thread.snippet, provider]);
+  }, [thread.conversation_id, thread.snippet, provider, rules]);
   // In unified mode the provider map may be rebuilt briefly while switching
   // source tabs. The thread keeps its account id throughout that transition,
   // so use it to keep observing the same cached preview instead of switching
@@ -177,17 +183,33 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
       provider!.providerType === 'jmap' ? 1 : 3,
       () => provider!.getThreadSnippet!(thread.conversation_id),
     ),
-    enabled: snippetNearViewport && !thread.snippet && !!provider?.getThreadSnippet,
+    enabled: !notificationOpening && snippetNearViewport && !thread.snippet && !!provider?.getThreadSnippet,
     staleTime: Infinity,
     gcTime: Infinity,
     retry: 2,
     retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   const snippet = thread.snippet || snippetQuery.data || '';
+  const needsBodyPreview = useMemo(() => mailPreviewNeedsBody(snippet, rules), [snippet, rules]);
+  const formattedSnippet = useMemo(() => formatMailPreview(snippet, rules), [snippet, rules]);
+  const filteredSnippetQuery = useQuery({
+    queryKey: ['mail-filtered-snippet-v4', snippetAccountId, thread.conversation_id, thread.last_delivery_time, rules, isInDraftsFolder],
+    enabled: !notificationOpening && snippetNearViewport && needsBodyPreview && !!provider,
+    queryFn: () => scheduleSnippet(provider!.accountId, provider!.providerType === 'jmap' ? 1 : 3, async () => {
+      const messages = await provider!.getThread(thread.conversation_id, false, isInDraftsFolder);
+      const latest = [...messages].sort((a, b) => Date.parse(b.date_time_received) - Date.parse(a.date_time_received))[0];
+      if (!latest) return '';
+      const content = latest.body_loaded === false && provider!.getMessageContent
+        ? await provider!.getMessageContent(latest.item_id, thread.conversation_id) : latest;
+      return formatMailPreview(content.body_html || content.body_text || '', rules);
+    }),
+    staleTime: Infinity,
+    retry: 1,
+  });
 
   const showTooltip = (e: React.MouseEvent, text: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top - 30 });
+    setTooltip({ text, x: rect.left + rect.width / 2, y: rect.top });
   };
 
   const isUnread = thread.unread_count > 0;
@@ -226,7 +248,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
   return (
     <div
       ref={itemRef}
-      className={`mail-thread-item ${isSelected ? "selected" : ""} ${isUnread ? "unread" : ""} ${isChecked ? "checked" : ""}`}
+      className={`mail-thread-item ${isSelected ? "selected" : ""} ${isUnread ? "unread" : ""} ${isChecked ? "checked" : ""} ${animateArrival ? "mail-thread-item--arriving" : ""}`}
       onClick={() => {
         if (avatarLongPressHandledRef.current) {
           avatarLongPressHandledRef.current = false;
@@ -291,7 +313,7 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
             ) : (
               <>
                 <span style={{ color: senderColor(thread.from_name || '', isDark) }}>
-                  {thread.from_name}
+                  {decodeHtmlEntities(thread.from_name ?? '')}
                 </span>
                 {thread.message_count > 1 && (
                   <span className="mail-thread-item__count">{thread.message_count}</span>
@@ -324,8 +346,8 @@ export function ThreadItem({ thread, isSelected, isChecked, snoozeUntil, isInSno
             <span className="mail-thread-item__draft-badge">{t('mail.draftBadge', 'Brouillon')}</span>
           )}
           {snippet ? (
-            <span className="mail-thread-item__snippet-text">{formatMailPreview(snippet)}</span>
-          ) : provider?.getThreadSnippet && snippetQuery.isPending ? (
+            <span className="mail-thread-item__snippet-text">{(filteredSnippetQuery.data ?? formattedSnippet)}</span>
+          ) : provider?.getThreadSnippet && snippetQuery.isFetching ? (
             <span className="mail-thread-item__snippet-skeleton" aria-hidden="true" />
           ) : null}
         </div>

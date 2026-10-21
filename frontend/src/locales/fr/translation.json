@@ -1,4 +1,41 @@
 {
+  "eventOptions": {
+  "type": "Type d’évènement",
+  "availability": "Disponibilité",
+  "sensitivity": "Confidentialité",
+  "values": {
+    "Busy": "Occupé",
+    "Free": "Libre",
+    "Tentative": "Provisoire",
+    "OOF": "Absent du bureau",
+    "WorkingElsewhere": "Travaille ailleurs",
+    "Normal": "Normal",
+    "Personal": "Personnel",
+    "Private": "Privé",
+    "Confidential": "Confidentiel",
+    "default": "Par défaut",
+    "public": "Public",
+    "private": "Privé",
+    "confidential": "Confidentiel",
+    "PUBLIC": "Public",
+    "PRIVATE": "Privé",
+    "CONFIDENTIAL": "Confidentiel",
+    "opaque": "Occupé",
+    "transparent": "Libre",
+    "OPAQUE": "Occupé",
+    "TRANSPARENT": "Libre",
+    "outOfOffice": "Absent du bureau",
+    "focusTime": "Concentration",
+    "workingLocation": "Lieu de travail",
+    "birthday": "Anniversaire",
+    "fromGmail": "Issu de Gmail"
+  },
+  "googleHelp": "Les types spéciaux Google sont réservés à l’agenda principal et dépendent de votre abonnement. Absence et concentration sont créées sans refus automatique des invitations.",
+  "immutableType": "Google ne permet pas de changer le type d’un évènement existant.",
+  "timedOnly": "Les absences et périodes de concentration Google nécessitent des heures de début et de fin (pas une journée entière).",
+  "oneDayOnly": "Un lieu de travail sur une journée entière doit durer exactement un jour. Le champ Lieu indique le lieu de travail.",
+  "birthdayOnly": "Un anniversaire doit durer exactement une journée entière ; il sera répété chaque année."
+},
   "tabs": {
     "calendar": "Calendrier",
     "mail": "Mail"
@@ -19,12 +56,38 @@
     "invalidPassword": "Mot de passe incorrect ou coffre endommagé.",
     "creationFailed": "Impossible de créer le coffre local. Vérifiez que le stockage du navigateur est autorisé.",
     "biometricFailed": "Échec du déverrouillage biométrique. Utilisez votre mot de passe maître."
+    ,"restore": "Récupérer depuis Nextcloud"
+    ,"restoreDescription": "Le QR code déverrouille la sauvegarde Nextcloud. Choisissez ensuite un mot de passe local pour protéger Courrier sur cet appareil."
+    ,"restoreAction": "Récupérer la configuration"
+    ,"restoreInstead": "Récupérer depuis Nextcloud"
+    ,"createInstead": "Créer une nouvelle configuration"
+    ,"nextcloudUrl": "Adresse Nextcloud"
+    ,"nextcloudUsername": "Identifiant Nextcloud"
+    ,"nextcloudPassword": "Mot de passe d’application Nextcloud"
+    ,"recoveryKey": "Clé de récupération Courrier"
+    ,"invitation": "Invitation Courrier (facultatif)"
+    ,"scanQr": "Scanner le QR code"
+    ,"localPassword": "Créer le mot de passe de cet appareil"
+    ,"localPasswordConfirmation": "Confirmer le mot de passe de cet appareil"
+    ,"localPasswordNotice": "Ce nouveau mot de passe protège uniquement ce téléphone. Il peut être différent de celui du desktop et ne sera pas envoyé sur Nextcloud."
+    ,"restoreFailed": "Impossible de récupérer ou de déchiffrer la configuration. Vérifiez les accès Nextcloud et le mot de passe maître."
   },
   "invitation": {
+    "counterReplyUnavailable": "Le compte mail ou l’adresse de l’auteur de la proposition est indisponible.",
+    "counterDeclined": "Proposition refusée. Le rendez-vous actuel est conservé et la réponse a été envoyée.",
+    "counterDeclineSubject": "Proposition refusée : {{title}}",
+    "counterDeclineBody": "Je refuse le nouvel horaire proposé. Le rendez-vous initial est conservé.",
+    "counterDeclineTitle": "Proposition d’horaire refusée",
+    "counterDeclineReceived": "La proposition a été refusée. Le rendez-vous initial est conservé.",
+    "counter": "Nouvel horaire proposé",
+    "counterHelp": "Accepter applique le nouvel horaire et libère l’ancien créneau. Refuser conserve le rendez-vous actuel et prévient l’auteur de la proposition.",
+    "counterMissing": "Le rendez-vous correspondant est introuvable ou ambigu dans cet agenda. Actualisez l’agenda avant de réessayer.",
+    "counterAccepted": "Proposition acceptée : le rendez-vous a été déplacé.",
     "title": "Invitation",
     "cancellation": "Annulation",
     "reply": "Réponse",
     "loading": "Chargement de l’invitation…",
+    "notInCalendar": "L’invitation est introuvable dans ce calendrier après synchronisation. Vérifiez le calendrier sélectionné, puis réessayez.",
     "readError": "Impossible de lire l’invitation.",
     "allDay": "Journée entière",
     "cancelled": "Événement annulé",
@@ -76,6 +139,7 @@
     "theme": "Thème : {{preference}}",
     "configCalendars": "Configurer les calendriers",
     "configureBtn": "Configurer",
+    "changeView": "Changer l’affichage",
     "views": {
       "day": "Jour",
       "workweek": "Sem. 5j",
@@ -142,17 +206,18 @@
     "nextMonth": "Mois suivant"
   },
   "eventModal": {
+    "openingMail": "Ouverture du brouillon…",
+    "mailWindowError": "Impossible de transmettre le brouillon. Ouvrez et déverrouillez la fenêtre mail, puis réessayez.",
+
+    "emailParticipants": "Écrire aux participants",
+    "finishCurrentDraft": "Terminez le brouillon en cours avant de créer un autre message.",
+    "mailAccountUnavailable": "Le compte mail de ce calendrier n’est plus disponible.",
+
     "edit": "Modifier",
     "delete": "Supprimer",
     "deleteConfirm": "Supprimer cet événement ?",
-    "deleteRecurringConfirm": "Que souhaitez-vous supprimer ?",
-    "deleteThisOccurrence": "Cette occurrence",
-    "deleteAllOccurrences": "Toute la série",
     "cancelEvent": "Annuler l’événement",
     "cancelConfirm": "Annuler cet événement et prévenir les participants ?",
-    "cancelRecurringConfirm": "Quelles occurrences souhaitez-vous annuler ?",
-    "cancelThisOccurrence": "Cette occurrence",
-    "cancelAllOccurrences": "Toute la série",
     "cancelError": "Impossible d’annuler l’événement.",
     "deleteConfirmYes": "Supprimer",
     "deleteConfirmNo": "Annuler",
@@ -184,6 +249,12 @@
     }
   },
   "createEvent": {
+    "endDate": "Date de fin",
+    "differentEndDate": "Autre date de fin",
+    "moreOptions": "Récurrence, disponibilité et visibilité",
+    "teamsError": "Impossible de créer la réunion Teams. Vérifiez votre licence Teams et l’autorisation du compte Microsoft, puis reconnectez le compte si nécessaire. Vous pouvez désactiver Teams pour créer l’événement sans réunion en ligne.",
+    "teamsMeeting": "Ajouter une réunion Teams",
+    "meetMeeting": "Ajouter une réunion Google Meet",
     "titleNew": "Nouvel événement",
     "titleEdit": "Modifier l'événement",
     "close": "Fermer",
@@ -192,6 +263,8 @@
     "allDay": "Toute la journée",
     "start": "Début",
     "end": "Fin",
+    "date": "Date",
+    "time": "Heure",
     "calendar": "Calendrier",
     "attendees": "Participants",
     "optional": "(optionnel)",
@@ -203,11 +276,39 @@
     "savingEdit": "Sauvegarde…",
     "savingNew": "Création…",
     "cancel": "Annuler",
+    "attendeesVerificationError": "Exchange n’a pas confirmé la liste des participants. Les autres modifications ont peut-être été enregistrées. Rechargez l’événement et vérifiez les participants avant de réessayer.",
     "saveError": "Erreur lors de la sauvegarde"
   },
   "attendeeInput": {
     "placeholder": "Nom ou adresse e-mail…",
     "remove": "Supprimer {{name}}"
+  },
+  "caldavTask": {
+    "moveConflict": "La tâche a changé sur le serveur. Le déplacement n’a pas été enregistré. Le calendrier va être actualisé ; recommencez depuis la nouvelle version.",
+    "edit": "Modifier la tâche",
+    "project": "Projet / liste",
+    "labels": "Labels du serveur",
+    "title": "Titre",
+    "description": "Description",
+    "due": "Échéance",
+    "start": "Début",
+    "date": "Date",
+    "time": "Heure (facultative)",
+    "timeZone": "Heures dans le fuseau d’origine : {{zone}}. Une heure vide signifie une date seule.",
+    "localTime": "Heure locale de la tâche. Une heure vide signifie une date seule.",
+    "complete": "Marquer comme terminée",
+    "completionHelp": "Pour une tâche récurrente, terminer l’échéance actuelle peut faire apparaître la suivante. La récurrence, le projet et les labels sont conservés.",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "cancel": "Annuler",
+    "close": "Fermer",
+    "saved": "Tâche enregistrée.",
+    "reloaded": "Version du serveur chargée. Vous pouvez reprendre la modification.",
+    "conflict": "Cette tâche a changé sur le serveur. Rien n’a été enregistré. Recharger remplace votre saisie par la version du serveur ; Annuler ferme sans enregistrer votre saisie.",
+    "reload": "Recharger la version du serveur",
+    "unavailable": "Cette tâche n’est plus disponible ou ne peut pas être modifiée avec une protection contre les conflits. Actualisez le calendrier.",
+    "required": "Renseignez un titre et au moins une date.",
+    "dateOrder": "Le début doit précéder ou être égal à l’échéance."
   },
   "config": {
     "jmapConfiguration": "Configuration JMAP",
@@ -226,14 +327,38 @@
     "sectPreferences": "Préférences",
     "newCalendar": "Nouveau calendrier",
     "connectProvider": "Connecter une source",
+    "reconnect": "Reconnecter",
     "chooseProviderType": "Choisissez une source à connecter :",
     "noProvidersConfigured": "Aucune source configurée. Cliquez sur « Connecter une source » pour commencer.",
+    "sourceColumns": {
+      "type": "Type",
+      "account": "Compte",
+      "services": "Services",
+      "actions": "Actions"
+    },
+    "sourceTypes": {
+      "google": "Google",
+      "exchange": "Exchange",
+      "imap": "IMAP / SMTP",
+      "jmap": "JMAP",
+      "ics": "ICS / iCal",
+      "nextcloud": "Nextcloud / CalDAV"
+    },
+    "editSource": "Modifier la source {{source}}",
+    "showSourceDetails": "Afficher les détails de la source",
+    "hideSourceDetails": "Masquer les détails de la source",
     "cap": {
       "calendar": "Calendrier",
       "email": "Email"
     },
     "noCalendarsLinked": "Aucun calendrier lié",
     "caldavUrlRequired": "L'URL CalDAV est requise.",
+    "caldavInvalidResponse": "Le serveur n’a pas renvoyé de réponse CalDAV valide.",
+    "caldavNoCollections": "Aucun calendrier ni liste de tâches accessible à cette adresse.",
+    "caldavLoadFailed": "Impossible de charger le calendrier CalDAV. Vérifiez l’adresse, la connexion et les droits d’accès.",
+    "caldavTaskTitle": "📋 {{title}}",
+    "caldavUntitledTask": "Sans titre",
+    "caldavTaskReadOnly": "Tâche en lecture seule. Modifiez-la ou terminez-la dans l’application d’origine.",
     "connectionSuccess": "Connexion réussie.",
     "invalidCredentials": "Identifiants incorrects (401 Unauthorized).",
     "accessForbidden": "Accès refusé (403 Forbidden).",
@@ -296,6 +421,7 @@
     "add": "Ajouter",
     "oauthCredentials": "Identifiants OAuth",
     "oauthDescription": "Les identifiants Google OAuth ne sont pas configurés sur le serveur. Saisissez obligatoirement ceux de votre projet Google Cloud Console (type « Application Web »). Ils seront conservés dans votre coffre chiffré.",
+    "oauthNativeDescription": "Saisissez les identifiants OAuth Google de cette plateforme. L’autorisation s’ouvrira dans le navigateur ou l’écran Google natif et reviendra directement dans Courrier, sans serveur.",
     "oauthServerConfigured": "Les identifiants Google OAuth sont configurés sur le serveur. Vous pouvez vous connecter directement.",
     "googleClientId": "Client ID Google",
     "googleClientSecret": "Client Secret Google",
@@ -348,10 +474,31 @@
     "invalidToken": "Token invalide. Reconnectez votre compte Google."
   },
   "mail": {
+    "shareReceiveError": "Impossible de lire le partage. Vérifiez l’accès aux fichiers et la limite totale de 25 Mo, puis réessayez.",
+    "office": {
+      "close": "Fermer l’aperçu",
+      "previous": "Page précédente",
+      "next": "Page suivante",
+      "pages": "Page {{current}} sur {{total}}",
+      "zoomOut": "Réduire",
+      "zoomIn": "Agrandir",
+      "formulas": "Les formules affichent les résultats enregistrés dans le fichier, sans recalcul.",
+      "loading": "Chargement de l’aperçu…",
+      "ready": "Aperçu chargé",
+      "error": "Impossible d’afficher ce fichier. Vous pouvez télécharger l’original.",
+      "tooLarge": "L’aperçu est limité à 20 Mio. Vous pouvez télécharger l’original.",
+      "downloadError": "Le téléchargement a échoué. Réessayez."
+    },
     "selection": { "clear": "Effacer la sélection" },
+    "selectAll": "Tout sélectionner",
+    "filterAll": "Tous",
+    "filterUnread": "Non lus",
+    "settings": "Paramètres",
+    "messageUnavailable": "Ce message n’est plus disponible. Il a peut-être été supprimé depuis un autre client.",
     "backToList": "Retour aux messages",
     "previousMessage": "Message précédent",
     "nextMessage": "Message suivant",
+    "newMessage": "Nouveau message",
     "accounts": "Comptes",
     "folders": {
       "inbox": "Boîte de réception",
@@ -391,6 +538,7 @@
     "savedToDrafts": "Brouillon enregistré",
     "messageSent": "Message envoyé",
     "reply": "Répondre",
+    "newToSameRecipients": "Nouveau message aux mêmes destinataires",
     "replyAll": "Répondre à tous",
     "forward": "Transférer",
     "showOriginalMessage": "Afficher le message original",
@@ -511,6 +659,7 @@
       "preview": "Aperçu",
       "download": "Télécharger"
     },
+    "moreActions": "Plus d’actions",
     "stats": {
       "title": "Statistiques mail",
       "loading": "Chargement des données…",
@@ -545,6 +694,64 @@
     }
   },
   "settings": {
+    "navigation": {
+      "back": "Retour",
+      "customization": "Personnalisation",
+      "general": {
+        "title": "Général et apparence",
+        "hint": "Langue, thème, texte et présentation."
+      },
+      "providers": {
+        "title": "Comptes et calendriers",
+        "hint": "Connexions, services et calendrier par défaut."
+      },
+      "mail": {
+        "title": "Courrier",
+        "hint": "Signatures, contenu des messages et logos des contacts."
+      },
+      "sync": {
+        "title": "Notifications et synchronisation",
+        "hint": "Alertes, réception en arrière-plan et partage des paramètres."
+      },
+      "security": {
+        "title": "Sécurité et stockage",
+        "hint": "Verrouillage, biométrie et messages hors connexion."
+      },
+      "about": {
+        "title": "À propos et diagnostics",
+        "hint": "Informations de compilation et tests de connexion."
+      },
+      "textPreview": "Voici un aperçu du texte à la taille choisie."
+    },
+    "androidCalendars": {
+      "title": "Calendriers Android",
+      "hint": "Sélectionnez les calendriers à consulter en lecture seule dans les applications de calendrier Android. Ils sont actualisés lorsque Courrier est ouvert et déverrouillé.",
+      "privacy": "Les copies restent accessibles hors du coffre aux applications autorisées à lire vos calendriers. Un calendrier déjà synchronisé par Android pourra apparaître en double.",
+      "removal": "Décocher un calendrier ou le retirer de Courrier supprime uniquement sa copie Android. Les périodes disponibles sont celles synchronisées par Courrier ; les récurrences sont publiées sous forme d’occurrences, sans rappels supplémentaires.",
+      "empty": "Ajoutez un calendrier dans Courrier pour pouvoir l’afficher dans Android.",
+      "save": "Appliquer la sélection",
+      "refresh": "Actualiser",
+      "syncing": "Mise à jour des copies Android…",
+      "saved": "Sélection appliquée. Les copies suivent les synchronisations de Courrier.",
+      "error": "Impossible de mettre à jour les copies Android. Vérifiez l’autorisation Calendrier dans les réglages Android, puis réessayez.",
+      "sourceError": "Certains calendriers n’ont pas pu être actualisés. Leurs dernières copies Android sont conservées. Vérifiez la connexion ou le compte, puis actualisez."
+    },
+    "mailContentRules": {
+      "title": "Contenus masqués dans les emails",
+      "hint": "Masquez un texte récurrent dans les messages et leurs aperçus, pour tous vos comptes. Les emails originaux sont conservés. La casse, les espaces et les apostrophes peuvent varier. Copiez le texte complet, sans les balises HTML. Le joker * remplace une partie variable entre deux textes fixes, par exemple : You don’t often get email from *. Learn why this is important. Une règle composée uniquement de * est ignorée.",
+      "text": "Texte à masquer",
+      "add": "Ajouter la règle",
+      "save": "Enregistrer la règle",
+      "cancel": "Annuler",
+      "enabled": "Règle active",
+      "edit": "Modifier",
+      "delete": "Supprimer",
+      "empty": "Aucune règle pour le moment.",
+      "sync": "Ces règles sont incluses dans la synchronisation chiffrée WebDAV. Utilisez l’envoi de configuration pour les partager avec vos autres appareils.",
+      "saved": "Règles enregistrées sur cet appareil.",
+      "showOriginal": "Afficher le contenu masqué",
+      "hideOriginal": "Masquer à nouveau"
+    },
     "language": {
       "sectionTitle": "Langue",
       "system": "Système",
@@ -579,11 +786,42 @@
       "days_one": "{{count}} jour",
       "days_other": "{{count}} jours"
     },
-    "mailNotifications": { "sectionTitle": "Notifications de nouveaux emails", "enabled": "Afficher une notification pour les nouveaux emails entrants", "hint": "Les notifications sont regroupées par compte pour rester lisibles sur Android.", "blocked": "Les notifications sont bloquées par votre navigateur ou votre système.", "unavailable": "Les notifications ne sont pas disponibles sur cet appareil.", "notificationTitle": "Courrier · {{account}}", "single": "{{sender}} — {{subject}}", "multiple_one": "{{count}} nouvel email", "multiple_other": "{{count}} nouveaux emails" },
+    "androidSync": { "title": "Synchronisation Android en arrière-plan", "description": "Configurez les notifications et les comptes synchronisés localement lorsque l’application est fermée.", "syncInterval": "Fréquence périodique approximative", "every5m": "Toutes les 5 minutes", "every10m": "Toutes les 10 minutes", "every15m": "Environ toutes les 15 minutes", "every30m": "Environ toutes les 30 minutes", "every1h": "Environ toutes les heures", "modeDisabled": "Désactivé", "modeContinuous": "Continu", "modePeriodic": "Périodique", "modeManual": "Manuel", "privacy": "Contenu lorsque Courrier est verrouillé", "generic": "Nouvel email (recommandé)", "sender": "Expéditeur uniquement", "senderSubject": "Expéditeur et sujet", "accounts": "Comptes synchronisés", "securityHint": "Le secret minimal de synchronisation est chiffré par Android Keystore sans biométrie interactive afin que le travail en arrière-plan fonctionne.", "batteryWarning": "{{manufacturer}} peut retarder la réception en optimisant la batterie.", "batterySettings": "Réglages batterie", "neverRun": "Aucune synchronisation native enregistrée", "running": "Synchronisation en cours…", "retrying": "Nouvel essai après l’erreur : {{code}}", "failed": "Synchronisation bloquée : {{code}}", "lastSuccess": "Dernière réussite : {{date}}", "testNow": "Tester maintenant", "save": "Enregistrer", "saving": "Enregistrement…", "saved": "Modifications enregistrées", "saveError": "Impossible d’enregistrer la configuration native." },
+    "desktopSyncTest": { "title": "Diagnostic de synchronisation", "description": "Vérifiez l’authentification et l’accès à la boîte de réception de chaque compte.", "testNow": "Tester" },
+    "mailNotifications": { "sectionTitle": "Notifications de nouveaux emails", "enabled": "Afficher une notification pour les nouveaux emails entrants", "hint": "Chaque nouvelle conversation possède sa notification. Android peut les regrouper dans un ensemble extensible.", "blocked": "Les notifications sont bloquées par votre navigateur ou votre système.", "unavailable": "Les notifications ne sont pas disponibles sur cet appareil.", "notificationTitle": "Courrier · {{account}}", "single": "{{sender}} — {{subject}}", "multiple_one": "{{count}} nouvel email", "multiple_other": "{{count}} nouveaux emails", "replyAction": "Répondre", "deleteAction": "Supprimer", "archiveAction": "Archiver" },
     "buildInfo": { "date": "Date du commit", "commit": "Commit", "unknown": "Inconnue" },
     "logoDev": {
       "sectionTitle": "Logos des contacts",
       "hint": "Token logo.dev pour afficher les logos d'entreprise dans les avatars des contacts."
+    },
+    "configSync": {
+      "confirmRestore": "Confirmer la restauration",
+      "recoveryHelp": "Nouvelle sauvegarde : laissez la clé vide, Courrier en crée une. Pour restaurer : sur l’appareil ayant effectué la sauvegarde, ouvrez Réglages → Synchronisation et cliquez sur « Copier la clé de récupération ». Collez-la ici. Cette clé déchiffre la sauvegarde ; le mot de passe du serveur ne la remplace pas.",
+      "urlHelp": "Actuellement compatible avec Nextcloud : saisissez l’adresse HTTPS de votre instance (ex. https://cloud.example.com), sans ajouter /remote.php/dav. Les autres chemins WebDAV ne sont pas encore pris en charge.",
+      "credentialsRequired": "Renseignez l’adresse du serveur, votre identifiant et votre mot de passe.",
+      "httpsRequired": "Saisissez une adresse HTTPS valide, sans identifiants dans l’URL.",
+      "recoveryRequired": "Pour restaurer, collez la clé de récupération de la sauvegarde. Récupérez-la dans Réglages → Synchronisation sur l’appareil d’origine.",
+      "copyRecoveryKey": "Copier la clé de récupération",
+      "restore": "Récupérer depuis WebDAV / Nextcloud",
+      "restoreConfirm": "La configuration distante remplacera vos sources et réglages locaux. Les messages et événements sur les serveurs ne seront pas supprimés. Continuer ?",
+      "finished": "Opération terminée.",
+      "operationError": "Impossible de transférer la configuration. Vérifiez l’adresse, les identifiants et la clé de récupération.",
+      "sectionTitle": "Sauvegarde WebDAV (Nextcloud)",
+      "hint": "Sauvegardez ou récupérez vos sources et réglages via WebDAV / Nextcloud. Pour récupérer une sauvegarde existante, renseignez les accès du serveur et sa clé de récupération.",
+      "backup": "Sauvegarder maintenant",
+      "working": "Transfert…",
+      "done": "Configuration sauvegardée sur Nextcloud.",
+      "error": "Échec de la sauvegarde Nextcloud. Vérifiez l’adresse et les identifiants."
+      ,"generatedAutomatically": "Générée automatiquement pour une nouvelle sauvegarde"
+      ,"conflict": "La configuration locale et la configuration Nextcloud ont changé. Choisissez celle à conserver."
+      ,"keepLocal": "Conserver la version locale"
+      ,"keepRemote": "Utiliser la version Nextcloud"
+      ,"scanHint": "Scannez ce code depuis Courrier mobile pour récupérer l’adresse Nextcloud et la clé."
+      ,"qrAlt": "QR code de transfert de configuration Courrier"
+      ,"copyInvitation": "Copier l’invitation"
+      ,"disable": "Désactiver la synchronisation"
+      ,"uploadedSummary": "Sauvegarde envoyée (révision {{revision}}) : Google {{google}}, Exchange {{exchange}}, IMAP {{imap}}, JMAP {{jmap}}."
+      ,"downloadedSummary": "Sauvegarde reçue (révision {{revision}}) : Google {{google}}, Exchange {{exchange}}, IMAP {{imap}}, JMAP {{jmap}}."
     },
     "vault": {
       "sectionTitle": "Coffre local",
@@ -591,19 +829,102 @@
       "lockNow": "Verrouiller maintenant",
       "enableBiometrics": "Activer la biométrie",
       "disableBiometrics": "Désactiver la biométrie",
-      "biometricUnavailable": "Le déverrouillage biométrique sécurisé n’est pas disponible dans ce navigateur.",
-      "biometricError": "Impossible d’activer la biométrie sur cet appareil ou ce navigateur.",
+      "biometricUnavailable": "Le déverrouillage biométrique sécurisé n’est pas disponible sur cet appareil.",
+      "biometricError": "Impossible d’activer la biométrie sur cet appareil.",
       "copyDiagnostic": "Copier le diagnostic",
       "diagnosticCopied": "Diagnostic copié"
     }
   },
   "recurringChoice": {
-    "title": "Modifier un événement récurrent",
-    "description": "Cette modification concerne-t-elle uniquement cet événement ou tous les événements de la série ?",
-    "thisEvent": "Cet événement",
-    "allEvents": "Tous les événements de la série",
+    "title": "Événement récurrent",
+    "description": "Cette action concerne-t-elle uniquement cette occurrence ou toute la série ?",
+    "thisOccurrence": "Cette occurrence",
+    "entireSeries": "Toute la série",
     "saveThisEvent": "Enregistrer cette occurrence",
-    "saveFutureEvents": "Enregistrer toutes les occurrences à venir",
+    "saveFutureEvents": "Enregistrer toute la série",
     "cancel": "Annuler"
+  },
+  "recurrence": {
+    "label": "Récurrence",
+    "existing": "Récurrence actuelle (conserver)",
+    "none": "Une seule fois",
+    "daily": "Tous les jours",
+    "weekly": "Toutes les semaines le {{day}}",
+    "monthly": "Tous les mois le {{day}}",
+    "yearly": "Tous les ans le {{date}}",
+    "weekdays": "Du lundi au vendredi",
+    "custom": "Personnaliser…",
+    "customTitle": "Récurrence personnalisée",
+    "every": "Répéter tou(te)s les",
+    "unit": "Période",
+    "DAILY": "jour(s)",
+    "WEEKLY": "semaine(s)",
+    "MONTHLY": "mois",
+    "YEARLY": "an(s)",
+    "onDays": "Répéter le",
+    "ends": "Se termine",
+    "never": "Jamais",
+    "until": "Le",
+    "after": "Après",
+    "occurrences": "occurrences",
+    "done": "Terminé",
+    "invalid": "Vérifiez la fréquence, les jours et la fin de la récurrence.",
+    "configured": "Récurrence personnalisée définie.",
+    "seriesHelp": "La récurrence actuelle est conservée sans changement. Choisir une nouvelle récurrence la remplace pour toute la série, y compris les occurrences passées. Pour modifier uniquement cette occurrence, conservez la récurrence actuelle.",
+    "monthDate": "Le {{date}} du mois",
+    "ordinal1": "premier {{day}}",
+    "ordinal2": "deuxième {{day}}",
+    "ordinal3": "troisième {{day}}",
+    "ordinal4": "quatrième {{day}}",
+    "ordinal5": "dernier {{day}}",
+    "yearlyLimit": "Exchange autorise une répétition annuelle uniquement tous les ans.",
+    "loading": "Chargement de la récurrence…",
+    "loadError": "Impossible de lire la récurrence actuelle. Elle sera conservée si vous ne la remplacez pas.",
+    "summary": "Tous les {{interval}} {{unit}}",
+    "countSummary": "{{count}} occurrences",
+    "untilSummary": "Jusqu’au {{date}}",
+    "chooseScope": "Choisissez si vous souhaitez enregistrer cette occurrence ou toute la série."
+  },
+  "sharedCalendars": {
+    "add": "Ajouter un calendrier partagé",
+    "group": "Autres calendriers",
+    "close": "Fermer",
+    "description": "Recherchez une personne ou saisissez son adresse e-mail, puis choisissez les calendriers accessibles. Ils seront affichés en lecture seule, sans tags ni comptabilisation du temps.",
+    "search": "Nom ou adresse e-mail",
+    "suggestions": "Personnes et comptes disponibles",
+    "searching": "Recherche dans les annuaires…",
+    "discovering": "Recherche des calendriers accessibles…",
+    "noSources": "Connectez un compte Google, Exchange ou CalDAV dans la configuration pour ajouter un calendrier partagé.",
+    "emailHelp": "Vous pouvez saisir une adresse e-mail complète, même sans suggestion, puis choisir le compte à utiliser.",
+    "noMatches": "Aucun résultat. Essayez une adresse e-mail complète.",
+    "directoryUnavailable": "Annuaire indisponible pour : {{sources}}. Pour Google, vous pouvez saisir une adresse e-mail complète. Pour rechercher dans l’annuaire Workspace, reconnectez le compte en autorisant cet accès ; l’API Google People doit être activée et votre organisation doit autoriser le partage de l’annuaire.",
+    "accessError": "Impossible de découvrir les calendriers. Vérifiez votre connexion, l’adresse et les droits de partage. Le serveur doit autoriser la lecture du calendrier ; un accès aux seules disponibilités ne suffit pas. Avec CalDAV, l’annuaire doit également être accessible.",
+    "available": "Calendriers accessibles — {{person}}",
+    "googleLimit": "Google ne donne pas accès à la liste complète des calendriers d’une autre personne. Cette liste propose son calendrier principal, s’il est accessible, ainsi que les autres calendriers partagés auxquels ce compte Google est déjà abonné. Ces derniers peuvent appartenir à d’autres personnes.",
+    "discoveryLimit": "Le serveur a limité la découverte aux dossiers accessibles. D’autres calendriers peuvent nécessiter des droits supplémentaires.",
+    "alreadyAdded": "Déjà ajouté",
+    "color": "Couleur",
+    "calendarColor": "Couleur de {{name}}",
+    "calendarName": "Nom du calendrier",
+    "useColor": "Utiliser la couleur {{color}}",
+    "addSelected": "Ajouter les calendriers sélectionnés",
+    "otherPerson": "Rechercher une autre personne",
+    "added_one": "{{count}} calendrier ajouté.",
+    "added_other": "{{count}} calendriers ajoutés.",
+    "remove": "Retirer ce calendrier de l’affichage",
+    "readOnly": "Calendrier partagé en lecture seule : modification, réponses aux invitations et tags indisponibles.",
+    "busy": "Occupé",
+    "availabilityCalendar": "Calendrier principal — disponibilités",
+    "availabilityOnly": "Affichage des disponibilités : seules les informations autorisées par Exchange sont visibles. Les horaires sont conservés même lorsque le titre et le lieu ne sont pas accessibles.",
+    "ewsErrors": {
+      "access_denied": "Exchange refuse l’accès aux calendriers de cette personne. Demandez-lui de partager son calendrier avec votre compte, avec un droit de lecture des événements. L’accès à l’annuaire ou aux seules disponibilités ne donne pas ce droit.",
+      "folder_not_found": "Exchange ne permet pas d’ouvrir le calendrier de cette personne : le dossier est introuvable ou masqué par les droits de partage. Vérifiez l’adresse et demandez un partage autorisant la lecture des événements.",
+      "mailbox_not_found": "Exchange ne trouve pas de boîte aux lettres pour cette adresse. Ce contact peut être externe ou ne pas posséder de calendrier Exchange. Vérifiez son adresse e-mail.",
+      "unauthorized": "La connexion au compte Exchange a expiré ou n’est plus autorisée. Reconnectez ce compte dans la configuration, puis réessayez.",
+      "server_busy": "Le serveur Exchange est temporairement occupé. Réessayez dans quelques instants.",
+      "request_failed": "Impossible de joindre le service de découverte Exchange. Vérifiez la connexion et que le serveur Courrier ou l’application native dispose de la dernière version, puis réessayez.",
+      "invalid_response": "Exchange a renvoyé une réponse inattendue lors de la découverte des calendriers. Vérifiez que le serveur Courrier ou l’application native est à jour. Si le problème persiste, les droits d’accès et la réponse Exchange doivent être vérifiés.",
+      "update_required": "La découverte des calendriers partagés n’est pas disponible dans cette version du serveur Courrier ou du composant natif. Mettez-le à jour puis réessayez."
+    }
   }
 }

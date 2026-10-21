@@ -69,6 +69,12 @@ export class EwsMailProvider implements MailProvider {
   }
 
   async getThreadCount(folder: string): Promise<number> {
+    // Draft rows are individual items; Exchange conversation operations do not apply.
+    if (folder === 'drafts') {
+      const drafts = (await this.listFolders()).find(folder => folder.folder_id === 'drafts');
+      if (!drafts) throw new Error('EWS drafts folder not found');
+      return drafts.total_count;
+    }
     const accessToken = await this.token();
     return invoke<number>('mail_get_thread_count', { accessToken, folder });
   }
@@ -88,6 +94,16 @@ export class EwsMailProvider implements MailProvider {
 
   async getThread(conversationId: string, includeTrash = false, isDraft = false, includeDrafts = false): Promise<MailMessage[]> {
     const accessToken = await this.token();
+    // The draft editor needs its body and attachments when it mounts.
+    if (isDraft) {
+      const messages = await invoke<MailMessage[]>('mail_get_thread', {
+        accessToken, conversationId, includeTrash, isDraft, includeDrafts,
+      });
+      return messages.map(message => ({ ...message, body_loaded: true }));
+    }
+    // Render the conversation from its lightweight envelopes first. MessageBlock
+    // fetches only the body that is actually expanded, and React Query keeps that
+    // body cached when the conversation is reopened.
     const messages = await invoke<MailMessage[]>('mail_get_thread_headers', {
       accessToken, conversationId, includeTrash, isDraft, includeDrafts,
     });
@@ -109,6 +125,11 @@ export class EwsMailProvider implements MailProvider {
   async getRawMessageSource(itemId: string): Promise<string> {
     const accessToken = await this.token();
     return invoke<string>('mail_get_raw_message', { accessToken, itemId });
+  }
+
+  async importRawMessage(rawMessage: string, folderId: string): Promise<void> {
+    const accessToken = await this.token();
+    return invoke<void>('mail_import_raw_message', { accessToken, rawMessage, folderId });
   }
 
   async listFolders(): Promise<MailFolder[]> {
@@ -151,15 +172,17 @@ export class EwsMailProvider implements MailProvider {
 
   private async collectItemIds(conversationIds: string[], includeTrash = false): Promise<string[]> {
     const CONCURRENCY = 5;
-    const itemIds: string[] = [];
+    const itemIds = new Set<string>();
     for (let i = 0; i < conversationIds.length; i += CONCURRENCY) {
       const batch = conversationIds.slice(i, i + CONCURRENCY);
       const batchMsgs = await Promise.all(
-        batch.map(id => this.getThread(id, includeTrash).catch(() => [])),
+        batch.map(id => this.getThread(id, includeTrash)),
       );
-      for (const msgs of batchMsgs) itemIds.push(...msgs.map(m => m.item_id));
+      for (const msgs of batchMsgs) {
+        for (const message of msgs) itemIds.add(message.item_id);
+      }
     }
-    return itemIds;
+    return [...itemIds];
   }
 
   async bulkMoveToTrash(conversationIds: string[]): Promise<void> {
@@ -216,9 +239,9 @@ export class EwsMailProvider implements MailProvider {
     return invoke('mail_move_to_folder', { accessToken, itemId, folderId });
   }
 
-  async snooze(itemId: string): Promise<string> {
+  async snooze(itemId: string, until?: string): Promise<string> {
     const accessToken = await this.token();
-    return invoke<string>('mail_snooze', { accessToken, itemId });
+    return invoke<string>('mail_snooze', { accessToken, itemId, until });
   }
 
   async getInboxUnread(): Promise<number> {

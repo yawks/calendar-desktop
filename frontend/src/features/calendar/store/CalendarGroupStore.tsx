@@ -1,5 +1,8 @@
 import { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import { useVault } from '../../../shared/security/VaultProvider';
 import { CalendarGroup } from '../../../shared/types';
+
+import { OTHER_CALENDARS_GROUP } from '../utils/sharedCalendars';
 
 const STORAGE_KEY = 'calendar-desktop-groups';
 
@@ -33,32 +36,34 @@ interface CalendarGroupContextValue {
 const CalendarGroupContext = createContext<CalendarGroupContextValue | null>(null);
 
 export function CalendarGroupProvider({ children }: { children: ReactNode }) {
-  const [groups, dispatch] = useReducer(reducer, [], () => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as CalendarGroup[];
-      if (!parsed.find((g) => g.id === 'default')) {
-        return [DEFAULT_GROUP, ...parsed];
-      }
-      return parsed;
-    }
-    return [DEFAULT_GROUP];
+  const vault = useVault();
+  const [storedGroups, dispatch] = useReducer(reducer, [], () => {
+    const saved = vault.read<CalendarGroup[] | null>(STORAGE_KEY, null);
+    const stored = saved === null ? localStorage.getItem(STORAGE_KEY) : null;
+    const parsed = saved ?? (stored ? JSON.parse(stored) as CalendarGroup[] : []);
+    return parsed.some((group) => group.id === 'default') ? parsed : [DEFAULT_GROUP, ...parsed];
   });
 
+  const groups = storedGroups.some(group => group.id === OTHER_CALENDARS_GROUP) ? storedGroups : [...storedGroups, { id: OTHER_CALENDARS_GROUP, name: 'Other calendars' }];
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(groups));
-  }, [groups]);
+    vault.write(STORAGE_KEY, storedGroups);
+    localStorage.removeItem(STORAGE_KEY);
+  }, [storedGroups]);
 
   const addGroup = (name: string) =>
     dispatch({ type: 'ADD', payload: { id: crypto.randomUUID(), name } });
 
   const removeGroup = (id: string) => {
-    if (id === 'default') return;
+    if (id === 'default' || id === OTHER_CALENDARS_GROUP) return;
     dispatch({ type: 'REMOVE', payload: id });
   };
 
-  const updateGroup = (id: string, data: Partial<CalendarGroup>) =>
-    dispatch({ type: 'UPDATE', payload: { id, data } });
+  const updateGroup = (id: string, data: Partial<CalendarGroup>) => {
+    if (id === OTHER_CALENDARS_GROUP && !storedGroups.some(group => group.id === id)) {
+      dispatch({ type: 'ADD', payload: { id, name: 'Other calendars', collapsed: data.collapsed } });
+    } else dispatch({ type: 'UPDATE', payload: { id, data } });
+  };
 
   return (
     <CalendarGroupContext.Provider value={{ groups, addGroup, removeGroup, updateGroup }}>

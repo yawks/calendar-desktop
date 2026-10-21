@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useVault } from '../security/VaultProvider';
 
 export type SignaturePosition = 'bottom' | 'above-quoted';
 
@@ -29,22 +30,35 @@ function loadPosition(): SignaturePosition {
 const SignatureContext = createContext<SignatureState | null>(null);
 
 export function SignatureProvider({ children }: { children: ReactNode }) {
-  const [signatures, setSignatures] = useState<Record<string, string>>(loadSignatures);
-  const [signaturePosition, setSignaturePositionState] = useState<SignaturePosition>(loadPosition);
+  const vault = useVault();
+  const [signatures, setSignatures] = useState<Record<string, string>>(() =>
+    vault.read(STORAGE_KEY_SIGS, loadSignatures()),
+  );
+  const [signaturePosition, setSignaturePositionState] = useState<SignaturePosition>(() =>
+    vault.read(STORAGE_KEY_POS, loadPosition()),
+  );
+
+  useEffect(() => {
+    vault.write(STORAGE_KEY_SIGS, signatures);
+    localStorage.removeItem(STORAGE_KEY_SIGS);
+  }, [signatures]);
+
+  useEffect(() => {
+    vault.write(STORAGE_KEY_POS, signaturePosition);
+    localStorage.removeItem(STORAGE_KEY_POS);
+  }, [signaturePosition]);
 
   const getSignature = useCallback((id: string) => signatures[id] ?? '', [signatures]);
 
   const setSignature = useCallback((id: string, html: string) => {
     setSignatures(prev => {
       const next = { ...prev, [id]: html };
-      localStorage.setItem(STORAGE_KEY_SIGS, JSON.stringify(next));
       return next;
     });
   }, []);
 
   const setSignaturePosition = useCallback((pos: SignaturePosition) => {
     setSignaturePositionState(pos);
-    localStorage.setItem(STORAGE_KEY_POS, pos);
   }, []);
 
   return (

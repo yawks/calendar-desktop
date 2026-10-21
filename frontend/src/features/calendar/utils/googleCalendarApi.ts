@@ -1,3 +1,6 @@
+import { validateEventOptions } from './eventOptions';
+import { t } from 'i18next';
+import { anchorSeriesDates } from './seriesDates';
 import { CalendarEvent, CalendarConfig, CreateEventPayload } from '../../../shared/types';
 
 const BASE = 'https://www.googleapis.com/calendar/v3';
@@ -34,8 +37,13 @@ interface GoogleConferenceEntryPoint {
 }
 
 interface GoogleEvent {
+  iCalUID?: string;
   id: string;
   summary?: string;
+  visibility?: string;
+  transparency?: string;
+  eventType?: string;
+  workingLocationProperties?: { type: string; customLocation?: { label?: string }; officeLocation?: { label?: string } };
   description?: string;
   location?: string;
   start?: GoogleEventDateTime;
@@ -44,6 +52,7 @@ interface GoogleEvent {
   attendees?: GoogleAttendee[];
   organizer?: { email: string; displayName?: string };
   recurringEventId?: string;
+  recurrence?: string[];
   conferenceData?: {
     entryPoints?: GoogleConferenceEntryPoint[];
   };
@@ -117,13 +126,17 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
   return {
     id: `${cal.id}-${gEvent.id}`,
     sourceId: gEvent.id,
+    icalUid: gEvent.iCalUID,
     calendarId: cal.id,
+    sensitivity: gEvent.visibility,
+    availability: gEvent.transparency,
+    eventType: gEvent.eventType,
     title: gEvent.summary ?? '(sans titre)',
     start,
     end,
     isAllday,
     category: isAllday ? 'allday' : 'time',
-    location: gEvent.location,
+    location: gEvent.workingLocationProperties?.customLocation?.label ?? gEvent.workingLocationProperties?.officeLocation?.label ?? gEvent.location,
     description: gEvent.description,
     isCancelled: gEvent.status === 'cancelled',
     isUnaccepted,
@@ -159,8 +172,15 @@ export interface FreeBusyResult {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function listCalendars(token: string): Promise<GoogleCalendarListEntry[]> {
-  const data = await gFetch<{ items: GoogleCalendarListEntry[] }>(token, '/users/me/calendarList');
-  return data.items ?? [];
+  const items: GoogleCalendarListEntry[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ maxResults: '250', ...(pageToken ? { pageToken } : {}) });
+    const data = await gFetch<{ items?: GoogleCalendarListEntry[]; nextPageToken?: string }>(token, `/users/me/calendarList?${params}`);
+    items.push(...(data.items ?? []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return items;
 }
 
 export async function listEvents(
@@ -196,18 +216,22 @@ export async function listEvents(
 }
 
 function buildEventBody(payload: CreateEventPayload): Record<string, unknown> {
+  validateEventOptions(payload, 'google');
   const body: Record<string, unknown> = {
     summary: payload.title,
     location: payload.location ?? null,
     description: payload.description ?? null,
   };
 
+  if (payload.sensitivity !== undefined) body.visibility = payload.sensitivity;
+  if (payload.availability !== undefined) body.transparency = payload.availability;
+
   if (payload.isAllday) {
     body.start = { date: payload.start.slice(0, 10) };
     body.end = { date: payload.end.slice(0, 10) };
   } else {
-    body.start = { dateTime: payload.start };
-    body.end = { dateTime: payload.end };
+    body.start = { dateTime: payload.start, timeZone: payload.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone };
+    body.end = { dateTime: payload.end, timeZone: payload.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone };
   }
 
   if (payload.attendees && payload.attendees.length > 0) {
@@ -218,7 +242,40 @@ function buildEventBody(payload: CreateEventPayload): Record<string, unknown> {
     });
   }
 
+  if (payload.recurrence !== undefined) body.recurrence = payload.recurrence ? [`RRULE:${payload.recurrence}`] : [];
   return body;
+}
+
+function applyGoogleEventType(body: Record<string, unknown>, payload: CreateEventPayload, creating: boolean) {
+  const type = payload.eventType ?? 'default';
+  if (creating) body.eventType = type;
+  if (type === 'outOfOffice' || type === 'focusTime') {
+    if (payload.isAllday) throw new Error(t('eventOptions.timedOnly'));
+    body.transparency = 'opaque';
+    if (creating) body[`${type}Properties`] = { autoDeclineMode: 'declineNone' };
+  }
+  if (type === 'workingLocation') {
+    delete body.location;
+    body.visibility = 'public';
+    body.transparency = 'transparent';
+    if (creating) body.workingLocationProperties = { type: 'customLocation', customLocation: { label: payload.location || payload.title } };
+    if (payload.isAllday && Date.parse(payload.end) - Date.parse(payload.start) !== 86400000) throw new Error(t('eventOptions.oneDayOnly'));
+  }
+  if (type === 'birthday') {
+    if (!payload.isAllday || Date.parse(payload.end) - Date.parse(payload.start) !== 86400000) throw new Error(t('eventOptions.birthdayOnly'));
+    if (creating) {
+      body.birthdayProperties = { type: 'birthday' };
+      body.recurrence = [payload.start.slice(5, 10) === '02-29' ? 'RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1' : 'RRULE:FREQ=YEARLY'];
+    }
+    body.visibility = 'private';
+    for (const key of ['location', 'description', 'attendees']) delete body[key];
+    body.transparency = 'transparent';
+    if (!creating) { delete body.visibility; delete body.transparency; delete body.recurrence; }
+  }
+  if (['outOfOffice', 'focusTime', 'workingLocation', 'birthday'].includes(type)) delete body.attendees;
+  if (type === 'fromGmail') {
+    for (const key of Object.keys(body)) if (!['visibility', 'transparency', 'attendees'].includes(key)) delete body[key];
+  }
 }
 
 export async function createEvent(
@@ -226,10 +283,18 @@ export async function createEvent(
   cal: CalendarConfig,
   payload: CreateEventPayload
 ): Promise<string> {
+  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
-  const res = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events`, {
+  const body = buildEventBody(payload);
+  const type = payload.eventType ?? 'default';
+  applyGoogleEventType(body, payload, true);
+  if (payload.onlineMeeting && type === 'default') {
+    body.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } };
+  }
+  const query = payload.onlineMeeting && type === 'default' ? '?conferenceDataVersion=1' : '';
+  const res = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events${query}`, {
     method: 'POST',
-    body: JSON.stringify(buildEventBody(payload)),
+    body: JSON.stringify(body),
   });
   return res.recurringEventId ?? res.id.split('_')[0];
 }
@@ -238,13 +303,32 @@ export async function updateEvent(
   token: string,
   cal: CalendarConfig,
   sourceId: string,
-  payload: CreateEventPayload
+  payload: CreateEventPayload,
+  originalOccurrenceStart?: string,
+  sendUpdates = false,
 ): Promise<void> {
+  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);
-  await gFetch(token, `/calendars/${calendarId}/events/${eventId}`, {
-    method: 'PUT',
-    body: JSON.stringify(buildEventBody(payload)),
+  if (originalOccurrenceStart) {
+    const master = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events/${eventId}`);
+    const masterStart = master.start?.dateTime ?? master.start?.date;
+    if (!masterStart) throw new Error('Recurring master start missing');
+    payload = anchorSeriesDates(payload, originalOccurrenceStart, masterStart);
+    if (master.start?.timeZone) payload.timeZone = master.start.timeZone;
+  }
+  const body = buildEventBody(payload);
+  applyGoogleEventType(body, payload, false);
+  if (payload.eventType === 'workingLocation') {
+    const current = await gFetch<GoogleEvent>(token, `/calendars/${calendarId}/events/${eventId}`);
+    const label = current.workingLocationProperties?.customLocation?.label ?? current.workingLocationProperties?.officeLocation?.label ?? current.location ?? '';
+    if ((payload.location ?? '') !== label) {
+      body.workingLocationProperties = { type: 'customLocation', customLocation: { label: payload.location || payload.title } };
+    }
+  }
+  await gFetch(token, `/calendars/${calendarId}/events/${eventId}${sendUpdates ? '?sendUpdates=all' : ''}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
   });
 }
 
@@ -254,6 +338,7 @@ export async function deleteGoogleEvent(
   sourceId: string,
   sendUpdates = false,
 ): Promise<void> {
+  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);
   const query = sendUpdates ? '?sendUpdates=all' : '';
@@ -307,6 +392,7 @@ export async function respondToGoogleEvent(
   newStatus: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
   _comment?: string,
 ): Promise<void> {
+  if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
   const eventId = encodeURIComponent(sourceId);
 
@@ -328,4 +414,11 @@ export async function respondToGoogleEvent(
     method: 'PATCH',
     body: JSON.stringify({ attendees: updatedAttendees }),
   });
+}
+
+export async function getGoogleRecurrence(token: string, cal: CalendarConfig, seriesId: string): Promise<string | null> {
+  const event = await gFetch<GoogleEvent>(token, `/calendars/${encodeURIComponent(cal.googleCalendarId ?? 'primary')}/events/${encodeURIComponent(seriesId)}`);
+  if (event.recurrence?.some(line => !line.startsWith('RRULE:'))) return null;
+  const rules = event.recurrence?.filter(line => line.startsWith('RRULE:')) ?? [];
+  return rules.length === 1 ? rules[0].slice(6) : null;
 }

@@ -32,7 +32,7 @@ export interface NewMessageComposerProps {
 
 export interface NewMessageComposerHandle {
   hasChanges: () => boolean;
-  getDraftData: () => { to: string[]; cc: string[]; bcc: string[]; subject: string; bodyHtml: string };
+  getDraftData: () => { to: string[]; cc: string[]; bcc: string[]; subject: string; bodyHtml: string; attachments: ComposerAttachment[] };
 }
 
 export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessageComposerProps>(function NewMessageComposer({
@@ -51,13 +51,13 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
   const [subject, setSubject] = useState(restoreData?.subject ?? '');
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(restoreData?.attachments ?? []);
-  const fieldsModifiedRef = useRef(false);
+  const fieldsModifiedRef = useRef(Boolean(restoreData?.isShared || restoreData?.initialFocus));
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef    = useRef<MailEditorHandle>(null);
 
   // Capture initial identity + signature at mount (useMemo has empty deps)
-  const initialIdentityId = selectedIdentityId ?? identities?.[0]?.id ?? fromAccountId ?? '';
+  const initialIdentityId = selectedIdentityId || identities?.[0]?.id || fromAccountId || '';
   const initialSignatureRef = useRef(initialIdentityId ? getSignature(initialIdentityId) : '');
   const initialPositionRef  = useRef(signaturePosition);
 
@@ -70,7 +70,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
   // Swap signature when the selected identity changes mid-composition
   const prevIdentityIdRef = useRef(initialIdentityId);
   useEffect(() => {
-    const newId = selectedIdentityId ?? identities?.[0]?.id ?? fromAccountId ?? '';
+    const newId = selectedIdentityId || identities?.[0]?.id || fromAccountId || '';
     if (newId === prevIdentityIdRef.current) return;
     prevIdentityIdRef.current = newId;
     editorRef.current?.replaceSignatureBlock(getSignature(newId), signaturePosition);
@@ -87,8 +87,9 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
       bcc: bccRecipients.map(r => r.email),
       subject,
       bodyHtml: editorRef.current?.getHTML() ?? '',
+      attachments,
     }),
-  }), [toRecipients, ccRecipients, bccRecipients, subject]);
+  }), [toRecipients, ccRecipients, bccRecipients, subject, attachments]);
 
   const markFieldsModified = <T,>(setter: React.Dispatch<React.SetStateAction<T>>) =>
     (value: React.SetStateAction<T>) => {
@@ -230,7 +231,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
         {/* ── To ── */}
         <div className="mail-composer__field">
           <span className="mail-composer__label">{t('mail.to', 'À')}</span>
-          <RecipientInput value={toRecipients} onChange={markFieldsModified(setToRecipients)} contacts={contacts} provider={provider} fieldId="to" onDropFromOtherField={handleRecipientDrop('to')} />
+          <RecipientInput value={toRecipients} onChange={markFieldsModified(setToRecipients)} contacts={contacts} provider={provider} autoFocus={!restoreData || restoreData.initialFocus === 'to'} fieldId="to" onDropFromOtherField={handleRecipientDrop('to')} />
           {!showCc  && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowCc(true)}>Cc</button>}
           {!showBcc && <button type="button" className="mail-composer__cc-btn" onClick={() => setShowBcc(true)}>Bcc</button>}
         </div>
@@ -254,9 +255,16 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
           <span className="mail-composer__label">{t('mail.subject', 'Objet')}</span>
           <input
             className="mail-composer__input"
+            autoFocus={restoreData?.initialFocus === 'subject'}
             type="text"
             value={subject}
             onChange={e => { fieldsModifiedRef.current = true; setSubject(e.target.value); }}
+            onKeyDown={e => {
+              if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && editorRef.current) {
+                e.preventDefault();
+                editorRef.current.focus();
+              }
+            }}
             placeholder={t('mail.subjectPlaceholder', 'Objet')}
             spellCheck={false}
           />
@@ -272,6 +280,7 @@ export const NewMessageComposer = forwardRef<NewMessageComposerHandle, NewMessag
         <MailEditor
           ref={editorRef}
           initialHTML={initialHTML}
+          disableAutoFocus={!restoreData || Boolean(restoreData.initialFocus)}
           placeholder={t('mail.bodyPlaceholder', 'Écrivez votre message…')}
           onSend={doSend}
         />

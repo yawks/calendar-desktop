@@ -1,16 +1,27 @@
+import { apiHeaders, apiJson, apiUrl } from './apiRequest';
+import { hasNativeTransport, invokeNative } from './nativeTransport';
+
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`/api/calendar/exchange/${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const payload = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-  if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
-  return payload as T;
+  if (hasNativeTransport()) {
+    const operation = path === 'events' ? 'create' : path === 'free-busy' ? 'free_busy' : path;
+    try {
+      return await invokeNative<T>(`exchange_calendar_${operation}`, body as Record<string, unknown>);
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  const response = await fetch(apiUrl(`/api/calendar/exchange/${path}`), { method: 'POST', credentials: 'same-origin', headers: apiHeaders({ 'content-type': 'application/json' }), body: JSON.stringify(body) });
+  return apiJson<T>(response);
 }
 
 export const exchangeCalendarApi = {
+  shared: (request: Record<string, unknown>): Promise<{ calendars: Array<{ id: string; name: string }>; limitedDiscovery: boolean }> => post('shared', request),
+  recurrence: (request: Record<string, unknown>): Promise<string | null> => post<string | null>('recurrence', request),
   list: <T>(request: Record<string, unknown>): Promise<T> => post<T>('list', request),
   freeBusy: <T>(request: Record<string, unknown>): Promise<T> => post<T>('free-busy', request),
   create: async (request: Record<string, unknown>): Promise<string> => {
-    const result = await post<{ itemId: string; changeKey: string }>('events', request);
-    return `${result.itemId}|${result.changeKey}`;
+    const result = await post<{ itemId?: string; changeKey?: string } | string>('events', request);
+    return typeof result === 'string' ? result : `${result.itemId}|${result.changeKey}`;
   },
   respond: (request: Record<string, unknown>): Promise<void> => post<void>('respond', request),
   update: (request: Record<string, unknown>): Promise<void> => post<void>('update', request),

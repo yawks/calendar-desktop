@@ -64,12 +64,13 @@ export class JmapMailProvider implements MailProvider {
     });
   }
 
-  async getThread(conversationId: string): Promise<MailMessage[]> {
+  async getThread(conversationId: string, _includeTrash = false, isDraft = false): Promise<MailMessage[]> {
     const messages = await invoke<MailMessage[]>('jmap_get_thread', {
-      config: this.rustConfig,
+      // The draft editor needs the body before it mounts to restore its content.
+      config: { ...this.rustConfig, load_message_bodies: isDraft },
       conversationId,
     });
-    return messages.map(message => ({ ...message, body_loaded: false }));
+    return messages.map(message => ({ ...message, body_loaded: isDraft }));
   }
 
   async getMessageContent(messageId: string, conversationId?: string) {
@@ -103,6 +104,14 @@ export class JmapMailProvider implements MailProvider {
     return invoke<string>('jmap_get_raw_message', {
       config: this.rustConfig,
       itemId,
+    });
+  }
+
+  async importRawMessage(rawMessage: string, folderId: string): Promise<void> {
+    return invoke<void>('jmap_import_raw_message', {
+      config: this.rustConfig,
+      rawMessage,
+      folderId,
     });
   }
 

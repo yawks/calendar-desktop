@@ -1,0 +1,131 @@
+# Courrier — règles de contribution
+
+Ce fichier s’applique à tout le dépôt. Toute modification d’interface doit rester visuellement cohérente entre web, desktop Tauri et Android Capacitor.
+
+## Actions de protocole et couverture des providers
+
+- Toute modification relative à une action de protocole doit être réalisée sur l’ensemble des providers disponibles concernés par cette action. Cela couvre notamment l’envoi et la réception de mails, la création, la modification et l’envoi de brouillons, le déplacement vers un dossier, la suppression de messages, ainsi que la création, l’envoi, la modification et la suppression d’évènements.
+- Les providers disponibles à ce jour sont : **Gmail**, **Exchange/EWS**, **IMAP/SMTP**, **JMAP** et **CalDAV/Nextcloud**. Tout nouveau provider doit être inclus dans cette obligation dès son ajout.
+- Avant de modifier une action, identifier ses implémentations dans chaque provider et appliquer le changement à toutes celles qui la prennent en charge. Une correction ou une fonctionnalité ne doit pas rester limitée au seul provider ayant servi à la développer.
+- Vérifier le comportement et les erreurs pour chaque provider concerné, et préciser dans le compte rendu les validations effectuées et celles qui n’ont pas pu l’être. Si une action ne s’applique pas à un provider ou n’est pas prise en charge par son protocole, documenter explicitement cette limite.
+
+## Documentation des fonctionnalités
+
+- Toute nouvelle fonctionnalité suffisamment conséquente pour apporter une nouvelle capacité ou un nouvel usage à l’utilisateur doit être mentionnée dans `README.md`, dans la section pertinente et avec un niveau de détail proportionné à son intérêt.
+- Ne pas documenter dans le README les microfonctionnalités, les ajustements mineurs d’interface (taille d’un élément, couleur, légère réorganisation visuelle, etc.) ni les correctifs. Le README décrit les capacités du produit, pas l’historique des changements.
+
+## Sources de vérité
+
+- Les variables de thème existantes (`--bg`, `--bg-sidebar`, `--bg-hover`, `--text`, `--text-muted`, `--border`, `--primary`, `--danger`, `--shadow`) sont la source de vérité. Ne pas introduire une couleur codée en dur lorsqu’une variable sémantique existe.
+- Les styles d’une page vivent dans sa feuille CSS existante. Pour la configuration, utiliser `frontend/src/pages/styles/config.css`; pour le shell responsive et l’écran de déverrouillage, utiliser `frontend/src/styles/responsive.css`.
+- Prendre `NativeSettingsSection` et les classes `.native-settings-*` comme référence pour une carte de réglages comportant un titre, une description, une grille de champs, des actions et un statut.
+- Prendre les modales de configuration (`NewCalendarModal`, `ImapAccountManageModal`, `JmapAccountManageModal`) comme référence pour les formulaires modaux.
+- Les classes `.vault-*` sont réservées à l’écran plein de création/déverrouillage du coffre et à ses diagnostics. Elles ne doivent pas être réutilisées dans une page de préférences, une modale ou une carte.
+
+## Composition attendue
+
+Avant d’ajouter du JSX, identifier l’un des contextes suivants et reprendre son pattern complet :
+
+1. **Section simple de préférences** : utiliser elle aussi une `.native-settings-card`; l'onglet Préférences ne mélange pas des blocs nus et des cartes.
+2. **Carte de réglages structurée** : `.native-settings-card`, en-tête `.native-settings-card__header`, icône `.native-settings-card__icon`, grille `.native-settings-grid`, champs `.native-settings-field`, actions `.native-settings-actions`.
+3. **Formulaire modal** : `.config-form`, grille de formulaire existante et footer d’actions séparé par une bordure.
+4. **Écran plein sensible** : composants et classes propres à cet écran, comme `.vault-form`; ne pas en extraire un sélecteur contextualisé pour un autre écran.
+
+Si aucun pattern ne convient, créer un composant et des classes sémantiques dédiés dans la feuille CSS de la fonctionnalité. Ne pas assembler une nouvelle interface principalement avec des styles inline.
+
+## Formulaires
+
+- Un champ est composé d’un `label` englobant ou relié par `htmlFor`, d’un libellé visible et du contrôle.
+- Dans une grille, chaque champ doit avoir `min-width: 0`; chaque `input`, `select` ou `textarea` doit avoir `width: 100%` et `box-sizing: border-box`.
+- Les grilles utilisent `grid-template-columns: repeat(2, minmax(0, 1fr))` sur écran large et une seule colonne sur écran étroit.
+- Ne jamais dépendre d’un sélecteur parent absent. Exemple interdit : employer `.vault-fields` hors de `.vault-form` alors que les règles des labels et inputs sont définies par `.vault-form label` et `.vault-form input`.
+- Hauteur cible des contrôles : 42 à 44 px. Rayon courant : 8 px. Padding courant : 9–11 px.
+- L’état focus doit être visible avec `--primary` et un halo `color-mix`, conformément à `.native-settings-field`.
+- Utiliser les attributs `autocomplete`, `type`, `required`, `disabled` et les contraintes appropriées. Un placeholder ne remplace jamais un libellé.
+- Les secrets sont des champs `password`; une clé de récupération peut être monospace et doit pouvoir être copiée sans être tronquée.
+
+## Listes déroulantes et sélecteurs
+
+- Un sélecteur fermé doit respecter la charte de l’application sur web, Tauri et Android : fond `--bg`, texte `--text`, bordure `--border`, rayon de 8 px et focus visible avec `--primary`. Ne pas laisser apparaître un contrôle brut du navigateur ou du système au milieu de champs stylés.
+- Définir explicitement la typographie du contrôle, indépendamment de celle du label : environ `calc(14px * var(--font-scale, 1))`, graisse normale. Le libellé peut être en semi-gras ; la valeur sélectionnée ne doit pas hériter de cette graisse ni d’une taille de titre.
+- Pour un `select` natif, neutraliser l’apparence du contrôle fermé avec `appearance: none` et `-webkit-appearance: none`, puis afficher un unique chevron cohérent avec les icônes de l’app. Prévoir le padding à droite, sans chevauchement du texte ; l’icône décorative ne capte pas les clics et est masquée aux technologies d’assistance. Éviter les doubles flèches et les indicateurs natifs non maîtrisés.
+- Le contrôle mesure 42 à 44 px au minimum sur desktop et offre une cible tactile d’au moins 48 px sur Android. Vérifier les libellés longs et le zoom du texte sans tronquer la valeur utile.
+- Sur Android, conserver le sélecteur système à l’ouverture d’un `select` natif lorsque cela convient : son dialogue peut suivre les conventions de la plateforme, tandis que le champ fermé reste conforme à la charte de l’app. Sur desktop, une liste personnalisée ouverte reprend les variables de thème, les espacements et les états de sélection de l’app.
+- Réutiliser un composant accessible existant lorsqu’il répond au besoin. Si une liste personnalisée est nécessaire, couvrir son nom accessible, la valeur sélectionnée, les états ouvert/désactivé, les flèches du clavier, Entrée/Espace, Échap et le retour du focus. Un `div` cliquable seul ne remplace pas un sélecteur.
+- Valider les sélecteurs fermés et ouverts, en clair et sombre, au clavier et au toucher. Pour Android, inspecter le rendu réel de la WebView et du dialogue de sélection sur appareil ou émulateur ; une capture du navigateur desktop ne suffit pas.
+
+## Boutons et actions
+
+- Réutiliser `btn-primary`, `btn-ghost` et les variantes existantes avant de créer un nouveau bouton.
+- Une zone d’actions est un flex avec retour à la ligne et gap régulier; elle ne doit pas remplir toute la largeur sauf dans une modale ou un écran mobile où cela est intentionnel.
+- L’action principale apparaît en premier. Les actions destructrices ou de déconnexion sont visuellement séparées et ne doivent pas ressembler à l’action principale.
+- Les boutons asynchrones exposent un état occupé, sont désactivés pendant l’opération et conservent une largeur stable autant que possible.
+- Toute icône de bouton est généralement en 15–16 px et accompagnée d’un texte, sauf action universellement compréhensible avec `aria-label` et `title`.
+
+## Typographie et espacements
+
+- Toute taille de texte applicative respecte `var(--font-scale)` via `calc(... * var(--font-scale, 1))`.
+- Titre d’une section de préférences : environ 15–16 px, graisse 600, icône alignée, gap 8 px.
+- Texte d’aide : environ 12 px, `--text-muted`, hauteur de ligne autour de 1.45. Éviter de cumuler une couleur atténuée et une opacité très faible au point de dégrader le contraste.
+- Espacement entre grandes sections : 28 px. Espacement titre/aide/champs : 8–12 px. Gap de grille : 12–14 px.
+- Éviter les marges implicites des éléments HTML : définir les marges des `h*`, `p`, listes et figures dans le composant ou sa classe.
+
+## Responsive et plateformes
+
+- Toute nouvelle grille ou carte doit être testée au minimum à 320 px, 480 px et 1024 px de largeur.
+- Sous 600 px, une grille de formulaire passe sur une colonne et les actions peuvent s’empiler ou occuper toute la largeur.
+- Dans les onglets de réglages, chaque groupe fonctionnel est une carte homogène : même bordure, fond, rayon, en-tête avec `.native-settings-card__icon`, titre et aide éventuelle. Ne pas laisser une section nue entre des cartes.
+- Sur mobile, compacter les cartes avant de supprimer de l'information : padding intérieur cible de 12 à 14 px, espacement entre cartes de 14 à 16 px, icône d'en-tête de 34 à 36 px et gap d'en-tête de 10 à 12 px. Conserver au moins 44 px pour toute cible tactile.
+- Éviter le cumul de marges entre conteneur et carte. Une seule règle doit porter l'espacement vertical entre deux cartes afin de ne pas créer de doubles espaces.
+- Les aperçus décoratifs peuvent être réduits en hauteur sur mobile, mais les libellés, aides, statuts et contrôles ne doivent pas être masqués.
+- Tenir compte des zones sûres mobiles (`env(safe-area-inset-*)`) uniquement au niveau du shell ou des écrans plein format, pas dans chaque carte.
+- Ne pas supposer qu’un desktop possède une caméra ni qu’un mobile possède un clavier physique. Toujours fournir une alternative manuelle au QR ou au scan.
+- Éviter les règles uniquement basées sur le survol : chaque action doit fonctionner au toucher et au clavier.
+
+## États, retours et erreurs
+
+- Chaque opération distante possède les états minimum : repos, chargement, succès, erreur; ajouter conflit lorsque les données sont versionnées.
+- Un succès utilise `role="status"`; une erreur bloquante utilise `role="alert"`.
+- Les messages d’erreur restent près de la zone d’action concernée et ne réutilisent pas une classe d’un autre écran uniquement pour obtenir une couleur rouge.
+- Un conflit doit expliquer les conséquences des deux choix. Aucune fusion, suppression ou écrasement ne doit être silencieux.
+- Ne jamais rendre deux fois le même message d’état.
+
+## Mises à jour optimistes (optimistic UI)
+
+- Pour une action dont le résultat local est prévisible et réversible, mettre à jour immédiatement les éléments visibles concernés, sans attendre la réponse du serveur. Appliquer ce principe de manière cohérente sur web, desktop Tauri et Android Capacitor, pour tous les providers concernés.
+- Mettre à jour l’entité existante et les vues ou caches qui la représentent, sans doublon ni ancien état résiduel. Par exemple, accepter un nouvel horaire retire immédiatement l’ancien créneau de l’aperçu et affiche le même rendez-vous au nouvel horaire avec l’état accepté.
+- Conserver l’état précédent pour pouvoir annuler la mise à jour optimiste en cas d’échec confirmé, sans écraser des changements plus récents. Afficher alors l’erreur près de l’action et permettre une nouvelle tentative.
+- Pendant l’enregistrement, exposer l’état occupé et empêcher les doubles envois. L’affichage optimiste ne vaut pas confirmation de succès : annoncer le succès après confirmation du serveur, puis réconcilier les vues et caches avec les données enregistrées.
+- Si le résultat est incertain ou si le serveur signale un conflit après une possible réussite, relire l’entité distante avant de conclure à un échec. Si l’état demandé est déjà enregistré, confirmer le succès ; sinon, réconcilier l’affichage et présenter l’erreur ou le conflit sans écrasement ni nouvelle tentative automatique aveugle. Une erreur de rafraîchissement après un enregistrement confirmé ne doit pas être présentée comme un échec de l’action.
+- Ne pas appliquer ce mécanisme aveuglément aux actions irréversibles ou dont le résultat ne peut pas être anticipé. Vérifier les chemins succès, échec avec retour arrière, doubles clics et résultat distant incertain, ainsi que l’absence de doublons dans les vues concernées.
+
+## Internationalisation et contenu
+
+- Tout texte visible passe par `react-i18next` et existe au minimum en français et en anglais.
+- Ne pas utiliser un texte anglais comme fallback dans un nouvel écran français. Les fallbacks existants ne sont pas un modèle à reproduire.
+- Les libellés doivent décrire l’action ou la donnée, pas son implémentation technique. Les détails WebDAV, ETag ou chiffrement vont dans l’aide lorsque l’utilisateur en a besoin.
+- Prévoir l’allongement des traductions : pas de largeur fixe pour un libellé ou un bouton contenant du texte.
+
+## Discipline CSS et JSX
+
+- Préférer des classes sémantiques et regroupées par fonctionnalité aux longs objets `style={{ ... }}` répétés.
+- Un style inline est acceptable pour une valeur réellement dynamique; il ne doit pas servir à définir toute la mise en page d’une nouvelle section.
+- Ne pas créer une classe générique à partir d’un seul usage. Préférer un préfixe de fonctionnalité (`config-sync-*`, `native-settings-*`, etc.).
+- Ne pas modifier globalement `input`, `button`, `label` ou `p` pour corriger un écran local.
+- Avant de réutiliser une classe, lire toutes ses règles et ses sélecteurs parents dans les feuilles CSS. La présence du nom de classe dans le JSX ne garantit pas que ses styles descendants s’appliqueront.
+- Extraire un composant lorsque le même groupe titre/aide/champs/actions est utilisé plusieurs fois ou lorsque le JSX devient difficile à relire.
+
+## Validation obligatoire
+
+Avant de considérer une modification UI terminée :
+
+1. lancer `npm run build` dans `frontend`;
+2. vérifier le thème clair et le thème sombre;
+3. vérifier clavier, focus visible et lecture des statuts;
+4. vérifier les largeurs 320, 480 et 1024 px;
+5. vérifier que labels, inputs et boutons ne se chevauchent pas et qu’aucun texte n’est tronqué;
+6. vérifier les traductions française et anglaise;
+7. pour une modification Android, construire l’APK et inspecter l’écran sur un appareil ou émulateur;
+8. pour un écran sensible, confirmer qu’aucun secret n’apparaît dans les logs, URL HTTP, diagnostics ou captures générées automatiquement.
+
+Une capture visuelle ou une inspection sur appareil fait partie de la validation lorsqu’une section est nouvelle ou que sa structure change sensiblement.

@@ -1,6 +1,8 @@
 import { ALL_ACCOUNTS_ID, buildUnreadCounts } from './utils';
+import { App as CapacitorApp } from '@capacitor/app';
 import {
   ChartNoAxesCombined,
+  CheckSquare,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
@@ -9,18 +11,22 @@ import {
   Layers,
   Mail,
   Menu,
+  MoreVertical,
+  Pencil,
   RefreshCw,
   Settings,
   X,
+  TriangleAlert,
 } from 'lucide-react';
-import { MailMessage, MailThread } from './types';
+import { ComposerRestoreData, MailMessage, MailThread } from './types';
+import type { NativeNotificationThread } from '../../shared/platform/types';
 import { NewMessageComposer, NewMessageComposerHandle } from "./components/NewMessageComposer";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import AppViewMenu from '../../shared/components/AppViewMenu';
 import { AttachmentPreviewModal } from "./components/AttachmentPreviewModal";
 import { ComposerAttachment } from './providers/MailProvider';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { MailComposerHandle } from './components/MailComposer';
 import { MailSearchBar } from './components/MailSearchBar';
 import { MailSidebar } from './components/MailSidebar';
@@ -35,16 +41,31 @@ import { useMailPageLogic } from './hooks/useMailPageLogic';
 
 import { useIncomingMailNotifications } from './hooks/useIncomingMailNotifications';
 import { recordUserInitiatedUnread } from './utils/userInitiatedUnread';
+import { mergeSelectedThread } from './utils/selectedThread';
+import { platform } from '../../shared/platform';
+import { androidShare } from '../../shared/platform/nativeAndroid';
+import { sharedMailDraft } from './utils/sharedMailDraft';
+import { useVault } from '../../shared/security/VaultProvider';
+import { useConnectionIssues } from '../../shared/store/ConnectionIssueStore';
+import { useQueryClient } from '@tanstack/react-query';
 export default function MailApp() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const vault = useVault();
+  const sharedDraftKey = 'courrier:android-shared-mail-draft';
+  const sharedDraftActiveRef = useRef(false);
+  const checkedSharedDraftRef = useRef(false);
+  const saveSharedDraftRef = useRef(() => {});
   const {
-    t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder,
+    t, allMailAccounts, selectedAccountId, isAllMode, selectedFolder, selectedFolderAccountId,
     threads, threadsLoading, threadsRefreshing, threadsLoadingMore, threadTotalCount, selectedThread,
-    messages, messagesLoading, replyingTo, replyMode, composing, composingAccountId,
+    messages, messagesLoading, messagesFetching, replyingTo, replyMode, composing, composingAccountId,
     contacts, contactBackfillStatus, error, deleteToast, downloadToast, actionToast,
     selectedThreadIds, composerRestoreData, composingDraftItemId, sidebarCollapsed,
     sidebarWidth, threadListWidth, snoozedMap, isInSnoozedFolder, isInSpamFolder, allFolders,
     allAccountFolders, folderUnreadCounts, allAccountsUnreadCounts, sidebarDynamicFolders, attachmentPreview, loadingAttachmentId,
-    selectAccount, selectFolder, setComposing, setComposingAccountId,
+    selectAccount, selectFolder, adoptNotificationInboxContext, setComposing, setComposingAccountId,
     setError, setDownloadToast, cancelDeletion, reloadThreads,
     openThread, markRead, toggleRead, moveToTrash, handleToggleThreadRead,
     handleDeleteThread, handleDeleteMessage, handleSnooze, handleUnsnooze, handleMove, handleBulkDelete,
@@ -67,8 +88,163 @@ export default function MailApp() {
   const newMessageComposerRef = useRef<NewMessageComposerHandle>(null);
   const [canceledScheduledDraft, setCanceledScheduledDraft] = useState<MailMessage | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<MailMessage | null>(null);
-  const [messageDeleting, setMessageDeleting] = useState(false);
+  const finishNotificationOpening = useCallback(() => {
+    void platform.diagnosticEvent?.('notification-body-ready');
+    globalThis.dispatchEvent(new CustomEvent('courrier:notification-opened', {
+      detail: { accountId: selectedThread?.accountId, conversationId: selectedThread?.conversation_id },
+    }));
+  }, [selectedThread?.accountId, selectedThread?.conversation_id]);
+  const moveSources = useMemo(() => allMailAccounts.map(account => ({
+    accountId: account.id,
+    label: account.name || account.email,
+    color: account.color,
+    folders: allAccountFolders.get(account.id) ?? [],
+    canImport: Boolean(allProviders.get(account.id)?.importRawMessage),
+    canExport: Boolean(allProviders.get(account.id)?.getRawMessageSource),
+  })), [allMailAccounts, allAccountFolders, allProviders]);
+
+  const transferConversations = async (
+    selected: MailThread[], destinationAccountId: string, folderId: string, operation: 'copy' | 'move',
+  ) => {
+    const destination = allProviders.get(destinationAccountId);
+    if (!destination?.importRawMessage) throw new Error(t('mail.transfer.unsupported', 'Cette destination ne prend pas en charge l’import.'));
+    for (const thread of selected) {
+      const sourceAccountId = thread.accountId ?? selectedAccountId;
+      const source = allProviders.get(sourceAccountId);
+      if (!source?.getRawMessageSource) throw new Error(t('mail.transfer.exportUnsupported', 'Cette source ne permet pas d’exporter la conversation.'));
+      const sourceMessages = await source.getThread(thread.conversation_id, true, false, true);
+      for (const message of sourceMessages.filter(item => !item.is_draft)) {
+        const raw = await source.getRawMessageSource(message.item_id);
+        await destination.importRawMessage(raw, folderId);
+      }
+      if (operation === 'move') await source.bulkMoveToTrash([thread.conversation_id]);
+    }
+    if (operation === 'move') {
+      const movedKeys = new Set(selected.map(thread => `${thread.accountId ?? selectedAccountId}:${thread.conversation_id}`));
+      const selectedKey = selectedThread
+        ? `${selectedThread.accountId ?? selectedAccountId}:${selectedThread.conversation_id}`
+        : null;
+      if (selectedKey && movedKeys.has(selectedKey)) {
+        const currentIndex = threads.findIndex(thread => `${thread.accountId ?? selectedAccountId}:${thread.conversation_id}` === selectedKey);
+        const remaining = threads.filter(thread => !movedKeys.has(`${thread.accountId ?? selectedAccountId}:${thread.conversation_id}`));
+        const next = threads.slice(Math.max(0, currentIndex + 1)).find(thread => !movedKeys.has(`${thread.accountId ?? selectedAccountId}:${thread.conversation_id}`))
+          ?? [...threads.slice(0, Math.max(0, currentIndex))].reverse().find(thread => !movedKeys.has(`${thread.accountId ?? selectedAccountId}:${thread.conversation_id}`))
+          ?? remaining[0]
+          ?? null;
+        if (next) openThread(next);
+        else setSelectedThread(null);
+      }
+      setError(null);
+    }
+    setSelectedThreadIds(new Set());
+    setActionToast({ label: operation === 'copy' ? t('mail.transfer.copied', 'Conversation copiée') : t('mail.transfer.moved', 'Conversation déplacée') });
+    setTimeout(() => setActionToast(null), 5000);
+    await reloadThreads();
+  };
+
+  const handleTransfer = (destinationAccountId: string, folderId: string, operation: 'copy' | 'move') => {
+    if (!selectedThread) return;
+    const sourceAccountId = selectedThread.accountId ?? selectedAccountId;
+    if (destinationAccountId === sourceAccountId) return void handleMove(folderId);
+    void transferConversations([selectedThread], destinationAccountId, folderId, operation).catch(error => {
+      console.error('[mail.transfer] Cross-source conversation transfer failed', error);
+      setActionToast({ label: `${t('mail.transfer.failed', 'Transfert impossible')} — ${error instanceof Error ? error.message : String(error)}` });
+      setTimeout(() => setActionToast(null), 8000);
+    });
+  };
+
+  const handleBulkTransfer = (destinationAccountId: string, folderId: string, operation: 'copy' | 'move') => {
+    const selected = threads.filter(thread => selectedThreadIds.has(thread.conversation_id));
+    const sourceAccountId = selected[0]?.accountId ?? selectedAccountId;
+    if (destinationAccountId === sourceAccountId) return void handleBulkMove(folderId);
+    void transferConversations(selected, destinationAccountId, folderId, operation).catch(error => {
+      console.error('[mail.transfer] Cross-source bulk transfer failed', error);
+      setActionToast({ label: `${t('mail.transfer.failed', 'Transfert impossible')} — ${error instanceof Error ? error.message : String(error)}` });
+      setTimeout(() => setActionToast(null), 8000);
+    });
+  };
+  const connectionIssues = useConnectionIssues();
+  const displayedConnectionIssue = connectionIssues.find(issue => issue.message === error) ?? connectionIssues[0];
   const mobileActionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handledNotificationActionRef = useRef<string | null>(null);
+  const deletedConversationIdsRef = useRef(new Set<string>());
+  const undoableDeletedConversationIdRef = useRef<string | null>(null);
+  const [notificationContext, setNotificationContext] = useState<{
+    accountId: string;
+    conversationId: string;
+    messageId?: string;
+    thread: NativeNotificationThread;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    const receiveNotificationThread = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        accountId: string;
+        conversationId: string;
+        notificationThread: NativeNotificationThread;
+      }>).detail;
+      if (!detail) return;
+      const params = new URLSearchParams(globalThis.location.search);
+      const isCurrentTarget = params.get('account') === detail.accountId
+        && params.get('conversation') === detail.conversationId;
+      const isSelectedTarget = selectedThread?.accountId === detail.accountId
+        && selectedThread.conversation_id === detail.conversationId;
+      if (isCurrentTarget || isSelectedTarget) {
+        setNotificationContext(current => ({
+          accountId: detail.accountId,
+          conversationId: detail.conversationId,
+          messageId: current?.accountId === detail.accountId && current.conversationId === detail.conversationId
+            ? current.messageId
+            : undefined,
+          thread: detail.notificationThread,
+        }));
+      }
+    };
+    globalThis.addEventListener('courrier:notification-thread', receiveNotificationThread);
+    return () => globalThis.removeEventListener('courrier:notification-thread', receiveNotificationThread);
+  }, [selectedThread?.accountId, selectedThread?.conversation_id]);
+
+  useEffect(() => {
+    if (!notificationContext || !selectedThread
+      || notificationContext.accountId !== selectedThread.accountId
+      || notificationContext.conversationId !== selectedThread.conversation_id) return;
+    const notificationThread = notificationContext.thread;
+    setSelectedThread(current => {
+      if (!current || current.conversation_id !== selectedThread.conversation_id) return current;
+      if (current.topic && (current.from_name || current.from_email) && current.snippet) return current;
+      return {
+        ...current,
+        topic: current.topic || notificationThread.subject || '',
+        snippet: current.snippet || notificationThread.snippet || '',
+        from_name: current.from_name || notificationThread.sender || null,
+      };
+    });
+  }, [notificationContext, selectedThread, setSelectedThread]);
+
+  // A notification can target a conversation which is not in the currently
+  // loaded inbox page. In that case the deep link first opens a minimal thread
+  // shell; enrich it as soon as the conversation query returns its messages so
+  // the detail header does not stay without subject or sender.
+  useEffect(() => {
+    if (!selectedThread || messagesLoading || messages.length === 0) return;
+    const lastMessage = messages.filter(message => !message.is_draft).slice(-1)[0] ?? messages[messages.length - 1];
+    const unreadCount = messages.filter(message => !message.is_read).length;
+    setSelectedThread(current => {
+      if (!current || current.conversation_id !== selectedThread.conversation_id) return current;
+      const needsIdentityEnrichment = !current.topic || (!current.from_name && !current.from_email);
+      if (!needsIdentityEnrichment && current.unread_count === unreadCount) return current;
+      return {
+        ...current,
+        topic: current.topic || lastMessage.subject,
+        from_name: current.from_name || lastMessage.from_name,
+        from_email: current.from_email || lastMessage.from_email,
+        last_delivery_time: current.last_delivery_time || lastMessage.date_time_received,
+        message_count: messages.length,
+        unread_count: unreadCount,
+        has_attachments: messages.some(message => message.has_attachments),
+      };
+    });
+  }, [messages, messagesLoading, selectedThread, setSelectedThread]);
 
   useEffect(() => () => {
     if (mobileActionToastTimerRef.current) clearTimeout(mobileActionToastTimerRef.current);
@@ -176,9 +352,47 @@ export default function MailApp() {
     globalThis.history.pushState({ ...globalThis.history.state, mailScreen: screen }, '');
   };
 
+  const closeMobileDetail = useCallback(() => {
+    saveSharedDraftRef.current();
+    if (globalThis.history.state?.mailScreen) globalThis.history.back();
+    else {
+      setSelectedThread(null);
+      setComposing(false);
+      setSelectedThreadIds(new Set());
+      setReplyingTo(null);
+    }
+  }, [setComposing, setReplyingTo, setSelectedThread, setSelectedThreadIds]);
+
+  useEffect(() => {
+    if (!platform.isNativeAndroid) return;
+    const handleAndroidBack = (event: Event) => {
+      event.preventDefault();
+      if (selectedThread || composing || new URLSearchParams(location.search).has('conversation')) {
+        if (composing) saveSharedDraftRef.current();
+        setSelectedThread(null);
+        setComposing(false);
+        setSelectedThreadIds(new Set());
+        setReplyingTo(null);
+        // Remove the notification target so it cannot reopen the detail.
+        navigate('/', { replace: true });
+      } else {
+        void CapacitorApp.exitApp();
+      }
+    };
+    globalThis.addEventListener('courrier:android-back', handleAndroidBack);
+    return () => globalThis.removeEventListener('courrier:android-back', handleAndroidBack);
+  }, [selectedThread, composing, location.search, navigate, setSelectedThread, setComposing, setSelectedThreadIds, setReplyingTo]);
+
   useEffect(() => {
     const handleBrowserBack = () => {
       if (!globalThis.matchMedia('(max-width: 700px)').matches) return;
+      if (composing) saveSharedDraftRef.current();
+      const conversationId = new URL(globalThis.location.href).searchParams.get('conversation');
+      if (conversationId && deletedConversationIdsRef.current.has(conversationId)) {
+        // A notification URL can remain one entry behind the current detail.
+        // Never let that stale entry reselect a conversation just deleted.
+        navigate('/', { replace: true });
+      }
       setSelectedThread(null);
       setComposing(false);
       setSelectedThreadIds(new Set());
@@ -186,13 +400,14 @@ export default function MailApp() {
     };
     globalThis.addEventListener('popstate', handleBrowserBack);
     return () => globalThis.removeEventListener('popstate', handleBrowserBack);
-  }, [setComposing, setReplyingTo, setSelectedThread, setSelectedThreadIds]);
+  }, [navigate, setComposing, setReplyingTo, setSelectedThread, setSelectedThreadIds]);
 
   const handleSelectThread = (thread: MailThread) => {
     if (newMessageComposerRef.current) {
       if (newMessageComposerRef.current.hasChanges()) {
         const data = newMessageComposerRef.current.getDraftData();
-        handleSaveDraft(
+        if (sharedDraftActiveRef.current && composing) saveSharedDraftRef.current();
+        else handleSaveDraft(
           composing ? (composingAccountId || selectedAccountId) : selectedThread?.accountId,
           data.to, data.cc, data.bcc, data.subject, data.bodyHtml,
         );
@@ -217,6 +432,8 @@ export default function MailApp() {
   };
 
   const [statsOpen, setStatsOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [threadFilter, setThreadFilter] = useState<'all' | 'unread'>('all');
 
   // Identity selection state remains local to the component for UI control
   const [selectedIdentityId, setSelectedIdentityId] = useState('');
@@ -236,6 +453,125 @@ export default function MailApp() {
     }
   };
 
+  const [newRecipientsDraft, setNewRecipientsDraft] = useState<ComposerRestoreData | null>(null);
+
+  useEffect(() => {
+    if (!composing) setNewRecipientsDraft(null);
+    else if (sharedDraftActiveRef.current) {
+      setNewRecipientsDraft(vault.read<ComposerRestoreData | null>(sharedDraftKey, null));
+    }
+  }, [composing]);
+
+  const handledEventDraftRef = useRef<ComposerRestoreData | null>(null);
+  useEffect(() => {
+    const draft = location.state?.eventDraft as ComposerRestoreData | undefined;
+    if (!draft || handledEventDraftRef.current === draft || !allMailAccounts.length) return;
+    handledEventDraftRef.current = draft;
+    navigate(location.pathname + location.search, { replace: true, state: null });
+    if (composing || replyingTo) {
+      setError(t('eventModal.finishCurrentDraft'));
+      return;
+    }
+    if (!allMailAccounts.some(account => account.id === draft.fromAccountId)) {
+      setError(t('eventModal.mailAccountUnavailable'));
+      return;
+    }
+    sharedDraftActiveRef.current = false;
+    selectAccount(draft.fromAccountId!);
+    setNewRecipientsDraft(draft);
+    setComposingAccountId(draft.fromAccountId!);
+    setSelectedIdentityId('');
+    setSelectedThread(null);
+    setSelectedThreadIds(new Set());
+    pushMobileScreen('composer');
+    setComposing(true);
+  }, [location.state, allMailAccounts]);
+
+  const startNewMessage = () => {
+    const savedShare = vault.read<ComposerRestoreData | null>(sharedDraftKey, null);
+    sharedDraftActiveRef.current = Boolean(savedShare);
+    setNewRecipientsDraft(savedShare);
+    const sourceAccountId = selectedFolderAccountId
+      ?? (!isAllMode ? selectedAccountId : undefined);
+    const sourceIdentities = sourceAccountId
+      ? accountIdentities.filter(identity => identity.accountId === sourceAccountId)
+      : accountIdentities;
+    const primaryIdentity = sourceIdentities.find(identity => !identity.mayDelete) ?? sourceIdentities[0];
+    pushMobileScreen('composer');
+    setComposing(true);
+    setSelectedThread(null);
+    setComposingAccountId(savedShare?.fromAccountId ?? sourceAccountId ?? allMailAccounts[0]?.id ?? '');
+    setSelectedIdentityId(savedShare?.fromIdentityId ?? primaryIdentity?.id ?? '');
+    if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
+  };
+
+  saveSharedDraftRef.current = () => {
+    if (!sharedDraftActiveRef.current || !composing) return;
+    const data = newMessageComposerRef.current?.getDraftData();
+    if (!data) return;
+    vault.write(sharedDraftKey, {
+      ...sharedMailDraft({ subject: data.subject, text: '', attachments: data.attachments }),
+      body: data.bodyHtml,
+      toRecipients: data.to.map(email => ({ email })),
+      ccRecipients: data.cc.map(email => ({ email })),
+      bccRecipients: data.bcc.map(email => ({ email })),
+      showCc: data.cc.length > 0, showBcc: data.bcc.length > 0,
+      fromAccountId: composingAccountId || selectedAccountId,
+      fromIdentityId: selectedIdentityId,
+    });
+  };
+
+  const startNewMessageRef = useRef(startNewMessage);
+  startNewMessageRef.current = startNewMessage;
+  useEffect(() => {
+    const save = () => saveSharedDraftRef.current();
+    globalThis.addEventListener('courrier:share-save', save);
+    return () => globalThis.removeEventListener('courrier:share-save', save);
+  }, []);
+
+  const receivingShareRef = useRef(false);
+  useEffect(() => {
+    if (!platform.isNativeAndroid || !allMailAccounts.length || composing || replyingTo) return;
+    let active = true;
+    const receive = async () => {
+      if (newMessageComposerRef.current || composerRef.current) return;
+      if (receivingShareRef.current) return;
+      receivingShareRef.current = true;
+      try {
+        const savedShare = vault.read<ComposerRestoreData | null>(sharedDraftKey, null);
+        if (savedShare) {
+          if (!checkedSharedDraftRef.current) startNewMessageRef.current();
+          checkedSharedDraftRef.current = true;
+          return;
+        }
+        checkedSharedDraftRef.current = true;
+        const share = await androidShare.consume();
+        if (!share || !active) return;
+        startNewMessageRef.current();
+        const draft = sharedMailDraft(share);
+        sharedDraftActiveRef.current = true;
+        vault.write(sharedDraftKey, draft);
+        void androidShare.acknowledge(share.id).catch(() => setError(t('mail.shareReceiveError')));
+        setNewRecipientsDraft(draft);
+      } catch {
+        setError(t('mail.shareReceiveError'));
+      } finally {
+        receivingShareRef.current = false;
+      }
+    };
+    void receive();
+    globalThis.addEventListener('courrier:share-available', receive);
+    return () => {
+      active = false;
+      globalThis.removeEventListener('courrier:share-available', receive);
+    };
+  }, [allMailAccounts.length, composing, replyingTo, selectedThread?.conversation_id]);
+
+  const composerIdentityAccountId = newRecipientsDraft?.initialFocus ? composingAccountId : selectedFolderAccountId;
+  const composerIdentities = composerIdentityAccountId
+    ? accountIdentities.filter(identity => identity.accountId === composerIdentityAccountId)
+    : accountIdentities;
+
   // Pre-select the identity matching the recipients of a message being replied to.
   // Called synchronously in the reply handlers (same batch as setReplyingTo) so that
   // MailComposer mounts with the correct identity and injects the right signature.
@@ -249,7 +585,154 @@ export default function MailApp() {
     if (match) handleIdentityChange(match.id);
   };
 
-  const displayedThreads = searchQuery ? searchResults : threads;
+  useLayoutEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const accountId = params.get('account');
+    const conversationId = params.get('conversation');
+    const messageId = params.get('message') ?? undefined;
+    const rawAction = params.get('action') ?? 'open';
+    const action = ['open', 'reply', 'delete', 'archive'].includes(rawAction) ? rawAction : 'open';
+    if (!accountId || !conversationId) {
+      handledNotificationActionRef.current = null;
+      return;
+    }
+    console.info('[notification-link] processing action', action);
+
+    const actionKey = accountId + ':' + conversationId + ':' + action;
+    if (handledNotificationActionRef.current === actionKey) return;
+    const listedThread = threads.find(item =>
+      item.conversation_id === conversationId && (item.accountId ?? accountId) === accountId
+    );
+    const notificationThreadFromUrl = {
+      subject: params.get('subject') ?? undefined,
+      sender: params.get('sender') ?? undefined,
+      snippet: params.get('snippet') ?? undefined,
+    };
+    const hasNotificationThreadFromUrl = Object.values(notificationThreadFromUrl).some(Boolean);
+    if (hasNotificationThreadFromUrl || messageId) {
+      setNotificationContext({
+        accountId,
+        conversationId,
+        messageId,
+        thread: notificationThreadFromUrl,
+      });
+    }
+    // Start downloading the exact notified message body immediately, in
+    // parallel with the lightweight conversation-header request. Previously
+    // MessageBlock only started this command after the headers had returned and
+    // the target block had mounted, serializing two network round trips.
+    const notificationProvider = resolveProvider(accountId);
+    if (messageId && notificationProvider?.getMessageContent) {
+      void queryClient.prefetchQuery({
+        queryKey: ['mail', notificationProvider.accountId, 'message-content', conversationId, messageId],
+        queryFn: () => notificationProvider.getMessageContent!(messageId, conversationId),
+        staleTime: Infinity,
+        gcTime: 24 * 60 * 60 * 1000,
+      });
+    }
+    const notificationThread = hasNotificationThreadFromUrl
+      ? notificationThreadFromUrl
+      : notificationContext?.accountId === accountId
+      && notificationContext.conversationId === conversationId
+      ? notificationContext.thread
+      : null;
+
+    if (selectedThread?.conversation_id !== conversationId || (selectedThread.accountId ?? accountId) !== accountId) {
+      console.info('[notification-link] selecting conversation', listedThread ? 'listed' : 'direct');
+      // The notification may target a conversation outside the currently loaded
+      // page (or one removed from the unread list meanwhile). Selecting a minimal
+      // shell lets useMailConversation load it directly from the provider.
+      const thread = listedThread ?? {
+        conversation_id: conversationId,
+        topic: notificationThread?.subject ?? '',
+        snippet: notificationThread?.snippet ?? '',
+        last_delivery_time: '',
+        message_count: 1,
+        unread_count: 1,
+        from_name: notificationThread?.sender ?? null,
+        from_email: null,
+        has_attachments: false,
+        accountId,
+      };
+      pushMobileScreen('detail');
+      openThread(thread);
+      adoptNotificationInboxContext(accountId);
+      return;
+    }
+
+    if (action === 'reply') {
+      if (messagesLoading) {
+        console.info('[notification-link] waiting for messages');
+        return;
+      }
+      const lastMessage = messages.filter(message => !message.is_draft).slice(-1)[0];
+      if (!lastMessage) return;
+      handledNotificationActionRef.current = actionKey;
+      preselectIdentityForMsg(lastMessage);
+      setReplyMode('reply');
+      setReplyingTo(lastMessage);
+      pushMobileScreen('detail');
+      console.info('[notification-link] reply ready');
+    } else {
+      handledNotificationActionRef.current = actionKey;
+      if (action === 'delete') {
+        moveToTrash(conversationId);
+      } else if (action === 'archive') {
+        const archiveFolder = allFolders.find(folder => {
+          const id = folder.folder_id.toLowerCase();
+          const name = folder.display_name.toLowerCase();
+          return id === 'archive' || name === 'archive' || name === 'archives';
+        });
+        void handleMove(archiveFolder?.folder_id ?? 'archive');
+      }
+    }
+
+    void platform.cancelConversationNotifications(accountId, conversationId);
+    console.info('[notification-link] completed');
+    navigate('/', { replace: true });
+  }, [
+    allFolders,
+    adoptNotificationInboxContext,
+    handleMove,
+    location.search,
+    messages,
+    messagesLoading,
+    navigate,
+    notificationContext,
+    openThread,
+    queryClient,
+    resolveProvider,
+    selectedThread?.conversation_id,
+    setReplyMode,
+    setReplyingTo,
+    threads,
+  ]);
+
+  const providerListedThreads = searchQuery ? searchResults : threads;
+  // Conversation aggregates returned by EWS can lag behind item-level IsRead
+  // values. Once the detail is loaded, use those values for the selected row.
+  const selectedUnreadCount = selectedThread && !messagesLoading && messages.length > 0
+    ? messages.filter(message => !message.is_read).length
+    : undefined;
+  const listedThreads = selectedUnreadCount === undefined
+    ? providerListedThreads
+    : providerListedThreads.map(thread =>
+        thread.conversation_id === selectedThread?.conversation_id
+          && (thread.accountId ?? selectedThread.accountId) === selectedThread.accountId
+          && thread.unread_count !== selectedUnreadCount
+          ? { ...thread, unread_count: selectedUnreadCount }
+          : thread
+      );
+  const selectedThreadInFolder = selectedThread
+    ? listedThreads.find(thread => thread.conversation_id === selectedThread.conversation_id)
+    : undefined;
+  useEffect(() => {
+    if (!selectedThreadInFolder || selectedThread === selectedThreadInFolder) return;
+    setSelectedThread(current => mergeSelectedThread(current, selectedThreadInFolder));
+  }, [selectedThread, selectedThreadInFolder, setSelectedThread]);
+  const displayedThreads = selectedThread && !listedThreads.some(thread => thread.conversation_id === selectedThread.conversation_id)
+    ? [selectedThread, ...listedThreads]
+    : listedThreads;
   const selectedThreadIndex = selectedThread
     ? displayedThreads.findIndex(thread => thread.conversation_id === selectedThread.conversation_id)
     : -1;
@@ -267,13 +750,13 @@ export default function MailApp() {
       ?? allFolders.find(folder => folder.folder_id === selectedFolder)?.display_name
       ?? selectedFolder;
   })();
-  const selectedFolderTotal = searchQuery ? displayedThreads.length : threadTotalCount;
+  const selectedFolderTotal = searchQuery ? displayedThreads.length : Math.max(displayedThreads.length, threadTotalCount ?? 0);
 
   return (
     <div className={`mail-app${selectedThread ? ' mail-app--detail-open' : ''}`}>
-      <header className="header">
+      <header className="header app-shell-header app-mobile-header">
         <button
-          className="btn-icon"
+          className="btn-icon app-mobile-header__sidebar"
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           title={sidebarCollapsed ? t('mail.showSidebar', 'Show sidebar') : t('mail.hideSidebar', 'Hide sidebar')}
         >
@@ -281,26 +764,80 @@ export default function MailApp() {
         </button>
         <AppViewMenu current="mail" />
 
-        <div className="header-spacer mail-header-push" />
+        <div className="header-spacer mail-header-push app-mobile-header__spacer" />
         <MailSearchBar activeQuery={searchQuery} onSearch={handleSearch} contacts={contacts} provider={provider} />
         <div className="header-spacer mail-header-gap" />
 
-        <button className="btn-icon" onClick={reloadThreads} disabled={threadsRefreshing}
+        {sidebarCollapsed && (
+          <button
+            className="btn-icon mail-header-desktop-action"
+            onClick={startNewMessage}
+            title={t('mail.newMessage', 'Nouveau message')}
+            aria-label={t('mail.newMessage', 'Nouveau message')}
+          >
+            <Pencil size={20} />
+          </button>
+        )}
+        <button className="btn-icon app-mobile-header__sync" onClick={reloadThreads} disabled={threadsRefreshing}
           title={t('header.refresh', 'Refresh')}>
           <RefreshCw size={18} className={threadsRefreshing ? 'spin' : ''} />
         </button>
-        <button className="btn-icon" onClick={() => setStatsOpen(true)} title={t('mail.stats.title', 'Statistiques mail')}>
+        <button className="btn-icon mail-header-desktop-action" onClick={() => setStatsOpen(true)} title={t('mail.stats.title', 'Statistiques mail')}>
           <ChartNoAxesCombined size={20} />
         </button>
-        <Link to="/config" className="btn-config btn-config--icon-only">
+        <Link
+          to="/config"
+          className="btn-icon mail-header-desktop-action"
+          title={t('header.configCalendars', 'Settings')}
+          aria-label={t('header.configCalendars', 'Settings')}
+        >
           <Settings size={17} />
         </Link>
+        <div className="mail-mobile-more-menu app-mobile-header__more">
+          <button
+            type="button"
+            className="btn-icon"
+            aria-label={t('mail.moreActions')}
+            title={t('mail.moreActions')}
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen(open => !open)}
+          >
+            <MoreVertical size={21} />
+          </button>
+          {mobileMenuOpen && (
+            <>
+              <button type="button" aria-label={t('common.close')} className="mail-thread-toolbar__overlay" onClick={() => setMobileMenuOpen(false)} />
+              <div className="mail-actions-menu mail-mobile-more-menu__content">
+                <button type="button" className="mail-actions-menu__item" onClick={() => { setSelectedThreadIds(new Set(displayedThreads.map(thread => thread.conversation_id))); setMobileMenuOpen(false); }}>
+                  <CheckSquare size={16} aria-hidden="true" />
+                  {t('mail.selectAll')}
+                </button>
+                {!searchQuery && (
+                  <button type="button" className="mail-actions-menu__item" onClick={() => { setThreadFilter(filter => filter === 'unread' ? 'all' : 'unread'); setMobileMenuOpen(false); }}>
+                    <Inbox size={16} aria-hidden="true" />
+                    {threadFilter === 'unread' ? t('mail.filterAll') : t('mail.filterUnread')}
+                  </button>
+                )}
+                <button type="button" className="mail-actions-menu__item" onClick={() => { setStatsOpen(true); setMobileMenuOpen(false); }}>
+                  <ChartNoAxesCombined size={16} aria-hidden="true" />
+                  {t('mail.stats.title')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       {error && (
-        <div className="mail-error-banner">
-          {error}
-          <button className="btn-icon" onClick={() => setError(null)}><X size={14} /></button>
+        <div className="mail-error-banner" role="alert">
+          <TriangleAlert size={16} aria-hidden="true" />
+          <span className="mail-error-banner__message">{error}</span>
+          {displayedConnectionIssue && (
+            <Link className="mail-error-banner__reconnect" to={`/config?reconnect=${encodeURIComponent(displayedConnectionIssue.accountId)}`}>
+              {t('config.reconnect', 'Reconnect')}
+            </Link>
+          )}
+          <button className="btn-icon" onClick={() => setError(null)} aria-label={t('common.close', 'Close')}><X size={14} /></button>
         </div>
       )}
 
@@ -413,13 +950,7 @@ export default function MailApp() {
                     selectFolder(folder, accountId);
                     if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
                   }}
-                  onCompose={() => {
-                    pushMobileScreen('composer');
-                    setComposing(true);
-                    setSelectedThread(null);
-                    setComposingAccountId(isAllMode ? (allMailAccounts[0]?.id ?? '') : selectedAccountId);
-                    if (globalThis.matchMedia('(max-width: 700px)').matches) setSidebarCollapsed(true);
-                  }}
+                  onCompose={startNewMessage}
                   folderUnreadCounts={folderUnreadCounts}
                   dynamicFolders={sidebarDynamicFolders}
                   supportsScheduledSend={isAllMode
@@ -457,15 +988,19 @@ export default function MailApp() {
               loading={searchQuery ? searchLoading : threadsLoading}
               loadingMore={searchQuery ? false : threadsLoadingMore}
               totalCount={searchQuery ? undefined : threadTotalCount}
+              unreadCount={searchQuery ? undefined : folderUnreadCounts[selectedFolder]}
               scrollResetKey={`${selectedAccountId}:${selectedFolder}:${searchQuery ? 'search' : 'threads'}`}
               hasMore={!searchQuery && hasMoreThreads}
               onLoadMore={searchQuery ? undefined : loadMoreThreads}
+              onRefresh={searchQuery ? undefined : reloadThreads}
+              refreshing={!searchQuery && threadsRefreshing}
               isSearchMode={!!searchQuery}
               selectedId={selectedThread?.conversation_id ?? null}
               snoozedMap={snoozedMap}
               isInSnoozedFolder={isInSnoozedFolder}
               isSentFolder={selectedFolder === 'sentitems'}
               isInScheduledFolder={selectedFolder === 'scheduled'}
+              isInDraftsFolder={selectedFolder === 'drafts'}
               draftConversationIds={draftConversationIds}
               sourceColor={allMailAccounts.find(account => account.id === selectedAccountId)?.color}
               onSelect={handleSelectThread}
@@ -487,9 +1022,22 @@ export default function MailApp() {
               }}
               onSelectAll={() => setSelectedThreadIds(new Set(threads.map(t => t.conversation_id)))}
               onClearSelection={() => setSelectedThreadIds(new Set())}
+              filter={threadFilter}
+              onFilterChange={setThreadFilter}
               provider={provider}
               resolveProvider={(thread) => resolveProvider(thread.accountId)}
             />
+            {selectedThreadIds.size === 0 && (
+              <button
+                type="button"
+                className="mail-android-compose-fab"
+                aria-label={t('mail.newMessage', 'Nouveau message')}
+                title={t('mail.newMessage', 'Nouveau message')}
+                onClick={startNewMessage}
+              >
+                <Pencil size={24} aria-hidden="true" />
+              </button>
+            )}
           </div>
           {selectedThreadIds.size > 0 && (
             <MultiSelectionPanel
@@ -512,6 +1060,9 @@ export default function MailApp() {
               onBulkMove={handleMobileBulkMove}
               onBulkToggleRead={handleMobileBulkToggleRead}
               moveFolders={isAllMode ? (allAccountFolders.get(threads.find(thread => selectedThreadIds.has(thread.conversation_id))?.accountId ?? "") ?? allFolders) : allFolders}
+              moveSources={moveSources}
+              moveSourceAccountId={threads.find(thread => selectedThreadIds.has(thread.conversation_id))?.accountId ?? selectedAccountId}
+              onBulkTransfer={handleBulkTransfer}
               supportsSnooze={threads.filter(thread => selectedThreadIds.has(thread.conversation_id)).every(thread => mailCapabilitiesByAccount.get(thread.accountId ?? selectedAccountId)?.snooze === true)}
             />
           )}
@@ -527,16 +1078,13 @@ export default function MailApp() {
                 type="button"
                 className="mail-mobile-detail-nav__back"
                 aria-label={t('mail.backToList')}
-                onClick={() => {
-                  if (globalThis.history.state?.mailScreen) globalThis.history.back();
-                  else { setSelectedThread(null); setComposing(false); setSelectedThreadIds(new Set()); }
-                }}
+                onClick={closeMobileDetail}
               >
                 <ChevronLeft size={30} />
               </button>
               <div className="mail-mobile-detail-nav__position">
                 <strong>{selectedFolderLabel}</strong>
-                {selectedThreadIndex >= 0 && (
+                {selectedThreadInFolder && selectedThreadIndex >= 0 && (
                   <span> · {selectedThreadIndex + 1} / {selectedFolderTotal}</span>
                 )}
               </div>
@@ -544,7 +1092,7 @@ export default function MailApp() {
                 <button
                   type="button"
                   aria-label={t('mail.previousMessage')}
-                  disabled={selectedThreadIndex <= 0}
+                  disabled={!selectedThreadInFolder || selectedThreadIndex <= 0}
                   onClick={() => selectedThreadIndex > 0 && handleSelectThread(displayedThreads[selectedThreadIndex - 1])}
                 >
                   <ChevronUp size={27} />
@@ -552,7 +1100,7 @@ export default function MailApp() {
                 <button
                   type="button"
                   aria-label={t('mail.nextMessage')}
-                  disabled={selectedThreadIndex < 0 || selectedThreadIndex >= displayedThreads.length - 1}
+                  disabled={!selectedThreadInFolder || selectedThreadIndex < 0 || selectedThreadIndex >= displayedThreads.length - 1}
                   onClick={() => selectedThreadIndex >= 0 && selectedThreadIndex < displayedThreads.length - 1 && handleSelectThread(displayedThreads[selectedThreadIndex + 1])}
                 >
                   <ChevronDown size={27} />
@@ -573,6 +1121,9 @@ export default function MailApp() {
                     ? (allAccountFolders.get(threads.find(t => selectedThreadIds.has(t.conversation_id))?.accountId ?? '') ?? allFolders)
                     : allFolders
                 }
+                moveSources={moveSources}
+                moveSourceAccountId={threads.find(t => selectedThreadIds.has(t.conversation_id))?.accountId ?? selectedAccountId}
+                onBulkTransfer={handleBulkTransfer}
                 supportsSnooze={
                   selectedThreadIds.size > 0 && threads
                     .filter(thread => selectedThreadIds.has(thread.conversation_id))
@@ -584,10 +1135,12 @@ export default function MailApp() {
                 ref={newMessageComposerRef}
                 contacts={contacts}
                 provider={composerProvider}
-                restoreData={composerRestoreData}
+                restoreData={newRecipientsDraft ?? composerRestoreData}
                 scheduledSend={mailCapabilitiesByAccount.get(composingAccountId || selectedAccountId)?.scheduledSend}
-                onSend={(to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients, sendAt) =>
-                  scheduleSend(to, cc, bcc, subject, body, {
+                onSend={async (to: string[], cc: string[], bcc: string[], subject: string, body: string, attachments: ComposerAttachment[], fromIdentityId, recipients, sendAt) => {
+                  const isShared = sharedDraftActiveRef.current;
+                  if (isShared) saveSharedDraftRef.current();
+                  await scheduleSend(to, cc, bcc, subject, body, {
                     isNewMessage: true,
                     toRecipients: recipients.to,
                     ccRecipients: recipients.cc,
@@ -600,19 +1153,28 @@ export default function MailApp() {
                     replyingToMsg: null,
                     fromAccountId: composingAccountId || undefined,
                     fromIdentityId,
-                  }, attachments, sendAt)
-                }
-                onCancel={() => { setComposing(false); }}
-                onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) =>
-                  handleSaveDraft(composingAccountId || selectedAccountId, to, cc, bcc, subject, bodyHtml)
-                }
-                onDeleteDraft={composingDraftItemId ? async () => {
-                   setComposing(false);
+                  }, attachments, sendAt, isShared ? () => {
+                    vault.write(sharedDraftKey, null);
+                    sharedDraftActiveRef.current = false;
+                    globalThis.dispatchEvent(new Event('courrier:share-available'));
+                  } : undefined);
+                }}
+                onCancel={() => { saveSharedDraftRef.current(); setComposing(false); }}
+                onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) => {
+                  if (sharedDraftActiveRef.current) saveSharedDraftRef.current();
+                  else handleSaveDraft(composingAccountId || selectedAccountId, to, cc, bcc, subject, bodyHtml);
+                }}
+                onDeleteDraft={sharedDraftActiveRef.current || composingDraftItemId ? () => {
+                  if (sharedDraftActiveRef.current) {
+                    vault.write(sharedDraftKey, null);
+                    sharedDraftActiveRef.current = false;
+                  }
+                  setComposing(false);
                 } : undefined}
                 fromAccounts={isAllMode ? allMailAccounts as any : []}
                 fromAccountId={composingAccountId}
                 onFromAccountChange={setComposingAccountId}
-                identities={accountIdentities}
+                identities={composerIdentities}
                 selectedIdentityId={selectedIdentityId}
                 onIdentityChange={handleIdentityChange}
               />
@@ -621,7 +1183,10 @@ export default function MailApp() {
                 <Inbox size={48} strokeWidth={1} style={{ opacity: 0.2 }} />
                 <p style={{ opacity: 0.4 }}>{t('mail.selectThread', 'Select a conversation')}</p>
               </div>
-            ) : selectedFolder === 'drafts' && !messagesLoading && messages.length > 0 ? (() => {
+            ) : selectedFolder === 'drafts'
+              && !selectedThread.conversation_id.startsWith('__optimistic_thread__')
+              && !messagesLoading
+              && messages.length > 0 ? (() => {
               const listedDraft = messages[messages.length - 1];
               const draft = canceledScheduledDraft?.item_id === listedDraft.item_id
                 ? { ...listedDraft, ...canceledScheduledDraft }
@@ -681,6 +1246,19 @@ export default function MailApp() {
             })() : (
               <ThreadDetail
                 thread={selectedThread}
+                onBack={closeMobileDetail}
+                initiallyExpandedMessageId={
+                  notificationContext
+                    && notificationContext.accountId === selectedThread.accountId
+                    && notificationContext.conversationId === selectedThread.conversation_id
+                    ? notificationContext.messageId
+                    : undefined
+                }
+                onInitialMessageReady={notificationContext
+                  && notificationContext.accountId === selectedThread.accountId
+                  && notificationContext.conversationId === selectedThread.conversation_id
+                  ? finishNotificationOpening
+                  : undefined}
                 sourceLabel={isAllMode ? (() => {
                   const email = allMailAccounts.find(account => account.id === selectedThread.accountId)?.email;
                   if (!email) return undefined;
@@ -692,6 +1270,7 @@ export default function MailApp() {
                   : undefined}
                 messages={messages.filter(m => !m.is_draft)}
                 messagesLoading={messagesLoading}
+                messagesFetching={messagesFetching}
                 replyingTo={replyingTo}
                 contacts={contacts}
                 provider={resolveProvider(selectedThread.accountId)}
@@ -713,6 +1292,23 @@ export default function MailApp() {
                 onGetAttachmentData={getRawAttachmentData}
                 onReply={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('reply'); setReplyingTo(msg); }}
                 onReplyAll={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('replyAll'); setReplyingTo(msg); }}
+                onNewToRecipients={(msg: MailMessage) => {
+                  const sourceAccountId = selectedThread.accountId ?? selectedFolderAccountId ?? selectedAccountId;
+                  startNewMessage();
+                  setComposingAccountId(sourceAccountId);
+                  const identity = accountIdentities.find(i => i.accountId === sourceAccountId && !i.mayDelete)
+                    ?? accountIdentities.find(i => i.accountId === sourceAccountId);
+                  setSelectedIdentityId(identity?.id ?? '');
+                  setNewRecipientsDraft({
+                    toRecipients: msg.to_recipients.map(r => ({ email: r.email, name: r.name ?? undefined })),
+                    ccRecipients: (msg.cc_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
+                    bccRecipients: (msg.bcc_recipients ?? []).map(r => ({ email: r.email, name: r.name ?? undefined })),
+                    subject: '', body: '', attachments: [],
+                    showCc: (msg.cc_recipients ?? []).length > 0,
+                    showBcc: (msg.bcc_recipients ?? []).length > 0,
+                    isNewMessage: true, replyingToMsg: null, fromAccountId: sourceAccountId,
+                  });
+                }}
                 onForward={(msg: MailMessage) => { preselectIdentityForMsg(msg); setReplyMode('forward'); setReplyingTo(msg); }}
                 onToggleRead={toggleRead}
                 replyMode={replyMode}
@@ -726,7 +1322,15 @@ export default function MailApp() {
                 onSaveDraft={(to: string[], cc: string[], bcc: string[], subject: string, bodyHtml: string) =>
                   handleSaveDraft(selectedThread.accountId, to, cc, bcc, subject, bodyHtml, selectedThread.conversation_id)
                 }
-                onDeleteThread={() => handleDeleteThread(selectedThread)}
+                onDeleteThread={() => {
+                  deletedConversationIdsRef.current.add(selectedThread.conversation_id);
+                  undoableDeletedConversationIdRef.current = selectedThread.conversation_id;
+                  const params = new URLSearchParams(globalThis.location.search);
+                  if (params.get('conversation') === selectedThread.conversation_id) {
+                    navigate('/', { replace: true });
+                  }
+                  handleDeleteThread(selectedThread);
+                }}
                 onToggleThreadRead={() => handleToggleThreadRead(selectedThread)}
                 identities={accountIdentities}
                 selectedIdentityId={selectedIdentityId}
@@ -766,20 +1370,21 @@ export default function MailApp() {
                     : allFolders
                 }
                 onMove={handleMove}
+                moveSources={moveSources}
+                moveSourceAccountId={selectedThread.accountId ?? selectedAccountId}
+                onTransfer={handleTransfer}
                 composerRef={composerRef}
               />
             )}
             {messageToDelete && createPortal(
               <DeleteMessageConfirmation
                 permanent={selectedFolder === 'deleteditems'}
-                deleting={messageDeleting}
-                onCancel={() => { if (!messageDeleting) setMessageToDelete(null); }}
+                deleting={false}
+                onCancel={() => setMessageToDelete(null)}
                 onConfirm={() => {
-                  setMessageDeleting(true);
-                  void handleDeleteMessage(messageToDelete)
-                    .then(() => setMessageToDelete(null))
-                    .catch(() => undefined)
-                    .finally(() => setMessageDeleting(false));
+                  const message = messageToDelete;
+                  setMessageToDelete(null);
+                  void handleDeleteMessage(message).catch(() => undefined);
                 }}
               />,
               document.body,
@@ -791,7 +1396,12 @@ export default function MailApp() {
       {deleteToast && createPortal(
         <div className="mail-delete-toast">
           <span>{deleteToast.label}</span>
-          <button className="mail-delete-toast__undo" onClick={cancelDeletion}>
+          <button className="mail-delete-toast__undo" onClick={() => {
+            const conversationId = undoableDeletedConversationIdRef.current;
+            if (conversationId) deletedConversationIdsRef.current.delete(conversationId);
+            undoableDeletedConversationIdRef.current = null;
+            cancelDeletion();
+          }}>
             {t('mail.undo', 'Annuler')}
           </button>
         </div>,
@@ -823,6 +1433,9 @@ export default function MailApp() {
 
       {attachmentPreview && (
         <AttachmentPreviewModal
+          key={attachmentPreview.attachment.attachment_id}
+          loadOffice={attachmentPreview.loadOffice}
+          onDownload={attachmentPreview.download}
           attachment={attachmentPreview.attachment}
           loading={attachmentPreview.loading}
           data={attachmentPreview.data}

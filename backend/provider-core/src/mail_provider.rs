@@ -101,6 +101,39 @@ pub struct ComposerAttachment {
     pub content_id: Option<String>,
 }
 
+/// Normalize search aliases without changing case-sensitive provider folder IDs.
+pub fn search_folder_key(folder: &str) -> &str {
+    match folder.to_ascii_lowercase().as_str() {
+        "inbox" => "inbox",
+        "sent" | "sentitems" => "sentitems",
+        "trash" | "deleteditems" => "deleteditems",
+        "draft" | "drafts" => "drafts",
+        "junk" | "spam" => "spam",
+        _ => folder,
+    }
+}
+
+#[cfg(test)]
+mod search_folder_tests {
+    use super::search_folder_key;
+
+    #[test]
+    fn resolves_aliases_and_preserves_provider_ids() {
+        for (input, expected) in [
+            ("Trash", "deleteditems"),
+            ("TRASH", "deleteditems"),
+            ("DeletedItems", "deleteditems"),
+            ("INBOX", "inbox"),
+            ("Sent", "sentitems"),
+            ("Draft", "drafts"),
+            ("Junk", "spam"),
+            ("AAMkAGCaseSensitiveId", "AAMkAGCaseSensitiveId"),
+        ] {
+            assert_eq!(search_folder_key(input), expected);
+        }
+    }
+}
+
 /// Structured search query forwarded from the TypeScript provider.
 #[derive(Deserialize, Debug)]
 pub struct MailSearchQuery {
@@ -145,9 +178,9 @@ pub struct SendMailParams {
     pub is_forward: Option<bool>,
     /// Sending identity (JMAP only).
     pub identity_id: Option<String>,
-    /// RFC 5322 In-Reply-To value (JMAP only).
+    /// RFC 5322 In-Reply-To value used for threading.
     pub in_reply_to: Option<String>,
-    /// RFC 5322 References chain (JMAP only).
+    /// RFC 5322 References chain used for threading.
     pub references: Option<String>,
     /// Server-side delivery date (RFC 3339), or immediate when omitted.
     pub send_at: Option<String>,
@@ -172,7 +205,11 @@ pub trait MailProvider {
 
     async fn list_folders(&self) -> Result<Vec<MailFolder>, String>;
     async fn get_inbox_unread(&self) -> Result<u32, String>;
-    async fn list_threads(&self, folder: &str, max_count: Option<u32>) -> Result<Vec<MailThread>, String>;
+    async fn list_threads(
+        &self,
+        folder: &str,
+        max_count: Option<u32>,
+    ) -> Result<Vec<MailThread>, String>;
     async fn get_thread(
         &self,
         conversation_id: &str,
@@ -198,7 +235,11 @@ pub trait MailProvider {
 
     // ── Optional (default: not_supported) ─────────────────────────────────────
 
-    async fn search_threads(&self, _query: &MailSearchQuery, _max_count: Option<u32>) -> Result<Vec<MailThread>, String> {
+    async fn search_threads(
+        &self,
+        _query: &MailSearchQuery,
+        _max_count: Option<u32>,
+    ) -> Result<Vec<MailThread>, String> {
         Err("not_supported".to_string())
     }
     async fn save_draft(&self, _params: SaveDraftParams) -> Result<String, String> {
@@ -210,7 +251,11 @@ pub trait MailProvider {
     async fn move_to_folder(&self, _item_id: &str, _folder_id: &str) -> Result<(), String> {
         Err("not_supported".to_string())
     }
-    async fn bulk_move_to_folder(&self, _item_ids: Vec<String>, _folder_id: &str) -> Result<(), String> {
+    async fn bulk_move_to_folder(
+        &self,
+        _item_ids: Vec<String>,
+        _folder_id: &str,
+    ) -> Result<(), String> {
         Err("not_supported".to_string())
     }
     async fn find_or_create_snoozed_folder(&self) -> Result<String, String> {
@@ -222,7 +267,11 @@ pub trait MailProvider {
     async fn list_identities(&self) -> Result<Vec<MailIdentity>, String> {
         Err("not_supported".to_string())
     }
-    async fn search_contacts(&self, _query: &str, _max_count: Option<u32>) -> Result<Vec<Contact>, String> {
+    async fn search_contacts(
+        &self,
+        _query: &str,
+        _max_count: Option<u32>,
+    ) -> Result<Vec<Contact>, String> {
         Err("not_supported".to_string())
     }
     /// Returns the contact photo as a base64-encoded string (JPEG/PNG), or `None` if unavailable.

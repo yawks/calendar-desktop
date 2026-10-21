@@ -107,7 +107,10 @@
   border-radius: 4px;
   padding: 2px 4px;
   overflow: hidden;
-  cursor: default;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  appearance: none;
   border: 1px solid transparent;
   box-sizing: border-box;
   min-height: 18px;
@@ -157,4 +160,11 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+
+.det-event:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent);
+  z-index: 1;
 }

@@ -13,6 +13,8 @@ export interface Tag {
 export type EventTagMapping = Record<string, string>;
 
 export interface CalendarConfig {
+  /** Runtime capability for DAV roots and task-only collections. */
+  readOnly?: boolean;
   id: string;
   name: string;
   url: string;
@@ -35,6 +37,10 @@ export interface CalendarConfig {
   nextcloudPassword?: string;
   /** Reference to ExchangeAccount.id */
   exchangeAccountId?: string;
+  /** Folder selected in a shared Exchange mailbox. */
+  exchangeFolderId?: string;
+  /** Read-only subscription; credentials remain attached to the source account/calendar. */
+  shared?: { ownerEmail: string; sourceCalendarId?: string };
 }
 
 export interface GoogleAccount {
@@ -107,6 +113,15 @@ export interface ExchangeAccount {
 }
 
 export interface CreateEventPayload {
+  /** Provider-native values; omitted fields are preserved on update. */
+  availability?: string;
+  sensitivity?: string;
+  eventType?: string;
+
+  onlineMeeting?: boolean;
+  /** RRULE value; undefined preserves the rule, empty string removes it. */
+  recurrence?: string;
+  timeZone?: string;
   title: string;
   start: string; // ISO 8601
   end: string;   // ISO 8601
@@ -136,6 +151,29 @@ export interface Attendee {
 }
 
 export interface CalendarEvent {
+  /** Stable scheduling identity shared with invitation emails. */
+  icalUid?: string;
+  readOnly?: boolean;
+  isTask?: boolean;
+  caldavTask?: {
+    uid: string;
+    resourceUrl: string;
+    etag: string | null;
+    title: string;
+    due?: string;
+    start?: string;
+    dueZone?: string;
+    startZone?: string;
+    project?: string;
+    categories: string[];
+  };
+  /** Provider-native values; omitted fields are preserved on update. */
+  availability?: string;
+  sensitivity?: string;
+  eventType?: string;
+
+  /** Time slot supplied by the provider availability service, without full event access. */
+  availabilityOnly?: boolean;
   id: string;
   /** Raw provider event ID — used for updates */
   sourceId?: string;
@@ -160,6 +198,8 @@ export interface CalendarEvent {
   seriesId?: string;
   /** True when this event is a specific instance of a recurring series */
   isRecurringInstance?: boolean;
+  /** Original scheduled start, retained when an exception has moved. */
+  recurrenceId?: string;
   /** Tag assigned to this event locally */
   tagId?: string;
 }

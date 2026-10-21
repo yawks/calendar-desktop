@@ -1,6 +1,9 @@
 import { createContext, useContext, useReducer, useEffect, useCallback, useMemo, ReactNode, useRef } from 'react';
 import { GoogleAccount } from '../types';
 import { useVault } from '../security/VaultProvider';
+import { hasNativeTransport, invokeNative } from '../api/nativeTransport';
+import { connectNativeGoogle, usesNativeGoogleAuth } from '../api/nativeGoogleAuth';
+import { clearConnectionIssue } from './ConnectionIssueStore';
 
 const STORAGE_KEY = 'calendar-desktop-google-accounts';
 
@@ -56,11 +59,12 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
   useEffect(() => {
     accountsRef.current = accounts;
     vault.write(STORAGE_KEY, accounts);
-  }, [accounts, vault]);
+  }, [accounts]);
 
   const addAccount = useCallback((account: Omit<GoogleAccount, 'id'>): GoogleAccount => {
     const full: GoogleAccount = { ...account, id: account.email };
     dispatch({ type: 'ADD', payload: full });
+    clearConnectionIssue(full.id);
     return full;
   }, []);
 
@@ -88,13 +92,15 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
 
     const performRefresh = async () => {
         try {
-            const res = await fetch('/auth/google/refresh', {
+            const payload = { refresh_token: account.refreshToken, client_id: account.googleClientId, client_secret: account.googleClientSecret };
+            const refreshed = hasNativeTransport() ? await invokeNative<{ access_token: string; expires_at: number }>('google_auth_refresh', payload) : null;
+            const res = refreshed ? null : await fetch('/auth/google/refresh', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ refresh_token: account.refreshToken, client_id: account.googleClientId, client_secret: account.googleClientSecret }),
+              body: JSON.stringify(payload),
             });
-            if (!res.ok) return null;
-            const { access_token, expires_at } = await res.json() as { access_token: string; expires_at: number };
+            if (res && !res.ok) return null;
+            const { access_token, expires_at } = refreshed ?? await res!.json() as { access_token: string; expires_at: number };
             dispatch({ type: 'UPDATE_TOKEN', payload: { id: accountId, accessToken: access_token, expiresAt: expires_at } });
             return access_token;
         } catch (err) {
@@ -116,6 +122,16 @@ export function GoogleAuthProvider({ children }: { readonly children: ReactNode 
   }, []);
 
   const connectGoogle = useCallback(async (capabilities: ('calendar' | 'email')[] = ['calendar', 'email'], credentials?: { clientId: string; clientSecret: string }): Promise<GoogleAccount | null> => {
+      if (usesNativeGoogleAuth()) {
+        if (!credentials?.clientId || !credentials.clientSecret) return null;
+        try {
+          const account = await connectNativeGoogle(capabilities, credentials);
+          return addAccount({ ...account, googleClientId: credentials.clientId, googleClientSecret: credentials.clientSecret });
+        } catch (error) {
+          console.error('[GoogleAuthStore] native authorization failed', error);
+          throw error;
+        }
+      }
       const width = 500;
       const height = 650;
       const left = Math.round(window.screenX + (window.outerWidth - width) / 2);

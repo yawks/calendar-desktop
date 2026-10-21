@@ -14,9 +14,11 @@ function asBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 function toBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
+  const chunks: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 32768) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 32768)));
+  }
+  return btoa(chunks.join(''));
 }
 
 function fromBase64(value: string): Uint8Array {
@@ -83,6 +85,10 @@ export async function exportVaultKey(key: CryptoKey): Promise<ArrayBuffer> {
 
 export async function importVaultKey(raw: ArrayBuffer): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+}
+
+export async function generateVaultKey(): Promise<CryptoKey> {
+  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
 }
 
 export function vaultSalt(vault: EncryptedVault): Uint8Array {

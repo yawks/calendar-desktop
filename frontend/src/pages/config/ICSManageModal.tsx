@@ -42,7 +42,7 @@ export function ICSManageModal({ calendars, onClose }: {
       className="nc-modal-overlay"
       onClick={(e) => { if (editingId === null && e.target === e.currentTarget) onClose(); }}
     >
-      <div className="nc-modal-box nc-modal-box--wide">
+      <div className="nc-modal-box nc-modal-box--wide ics-manage-modal">
         <div className="nc-modal-header">
           <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Rss size={16} /> ICS / iCal

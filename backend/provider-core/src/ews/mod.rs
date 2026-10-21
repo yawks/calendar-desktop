@@ -1,5 +1,6 @@
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use chrono::Local;
+use std::error::Error;
 
 const CLIENT_ID: &str = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
 const EWS_SCOPE: &str = "https://outlook.office.com/EWS.AccessAsUser.All offline_access";
@@ -7,6 +8,17 @@ const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
 const TOKEN_ENDPOINT: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const DEVICE_CODE_ENDPOINT: &str =
     "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode";
+
+fn request_error(error: reqwest::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
+}
 
 // ── Auth structures ────────────────────────────────────────────────────────────
 
@@ -38,6 +50,9 @@ pub struct EwsAttendee {
 
 #[derive(Serialize, Debug)]
 pub struct EwsEvent {
+    pub uid: Option<String>,
+    pub sensitivity: Option<String>,
+    pub availability: Option<String>,
     pub item_id: String,
     pub change_key: String,
     pub subject: String,
@@ -54,6 +69,7 @@ pub struct EwsEvent {
     /// RecurringMasterId — shared by all occurrences of the same recurring series.
     pub recurring_master_id: Option<String>,
     pub body: Option<String>,
+    pub availability_only: bool,
 }
 
 // ── Auth commands ──────────────────────────────────────────────────────────────
@@ -72,7 +88,7 @@ pub async fn ews_start_device_auth() -> Result<DeviceAuthResponse, String> {
         .body(body)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(request_error)?;
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
 
@@ -111,7 +127,7 @@ pub async fn ews_poll_device_token(device_code: String) -> Result<TokenResponse,
         .body(body)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(request_error)?;
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
 
@@ -143,7 +159,7 @@ pub async fn ews_refresh_access_token(refresh_token: String) -> Result<TokenResp
         .body(body)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(request_error)?;
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
 
@@ -162,6 +178,7 @@ pub async fn ews_refresh_access_token(refresh_token: String) -> Result<TokenResp
     })
 }
 
+pub mod recurrence;
 pub mod calendar;
 pub use calendar::*;
 
@@ -220,13 +237,95 @@ pub(crate) async fn send_ews_request(
     Ok(body)
 }
 
+/// Wait until Exchange reports a mail change through an EWS streaming
+/// subscription. The caller reconciles the mailbox after this returns.
+pub async fn ews_wait_for_change(
+    access_token: String,
+    anchor_mailbox: Option<String>,
+) -> Result<(), String> {
+    let subscribe = r#"<m:Subscribe>
+  <m:StreamingSubscriptionRequest SubscribeToAllFolders="false">
+    <t:FolderIds><t:DistinguishedFolderId Id="inbox"/></t:FolderIds>
+    <t:EventTypes>
+      <t:EventType>NewMailEvent</t:EventType>
+      <t:EventType>CreatedEvent</t:EventType>
+      <t:EventType>ModifiedEvent</t:EventType>
+      <t:EventType>MovedEvent</t:EventType>
+      <t:EventType>DeletedEvent</t:EventType>
+    </t:EventTypes>
+  </m:StreamingSubscriptionRequest>
+</m:Subscribe>"#;
+    let response = send_ews_request(&access_token, subscribe, anchor_mailbox.as_deref()).await?;
+    if response.contains("ResponseClass=\"Error\"") {
+        return Err(xml_content_ns(&response, "m:ResponseCode")
+            .unwrap_or_else(|| "ews_subscribe_failed".to_string()));
+    }
+    let subscription_id = xml_content_ns(&response, "m:SubscriptionId")
+        .ok_or_else(|| "ews_subscription_id_missing".to_string())?;
+    let request_body = format!(
+        r#"<m:GetStreamingEvents>
+  <m:SubscriptionIds><t:SubscriptionId>{}</t:SubscriptionId></m:SubscriptionIds>
+  <m:ConnectionTimeout>30</m:ConnectionTimeout>
+</m:GetStreamingEvents>"#,
+        xml_escape(&subscription_id)
+    );
+    let envelope = soap_envelope(&request_body);
+    let client = reqwest::Client::new();
+    let mut request = client
+        .post(EWS_ENDPOINT)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "text/xml; charset=utf-8");
+    if let Some(mailbox) = anchor_mailbox.as_deref() {
+        request = request.header("X-AnchorMailbox", mailbox);
+    }
+    let response = request.body(envelope).send().await.map_err(request_error)?;
+    let status = response.status();
+    if status.as_u16() == 401 {
+        return Err("ews_unauthorized".to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("EWS HTTP {}", status));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    while let Some(chunk) = stream.next().await {
+        buffer.push_str(&String::from_utf8_lossy(&chunk.map_err(request_error)?));
+        if contains_mail_change_event(&buffer) {
+            return Ok(());
+        }
+        if buffer.contains("ResponseClass=\"Error\"") {
+            return Err(xml_content_ns(&buffer, "m:ResponseCode")
+                .unwrap_or_else(|| "ews_stream_failed".to_string()));
+        }
+        // Status events can keep a connection alive for 30 minutes. Bound the
+        // retained XML while preserving enough tail for a split event tag.
+        if buffer.len() > 65_536 {
+            buffer.drain(..buffer.len() - 4_096);
+        }
+    }
+    Err("ews_stream_closed".to_string())
+}
+
+fn contains_mail_change_event(xml: &str) -> bool {
+    [
+        "NewMailEvent",
+        "CreatedEvent",
+        "ModifiedEvent",
+        "MovedEvent",
+        "DeletedEvent",
+    ]
+    .iter()
+    .any(|event| xml.contains(&format!("<t:{}", event)) || xml.contains(&format!("<{}", event)))
+}
+
 /// Escape XML special characters in a text value.
 pub(crate) fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&apos;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// Extract the text content of the first occurrence of `<tag>…</tag>`.
@@ -244,7 +343,8 @@ pub(crate) fn xml_content(xml: &str, tag: &str) -> Option<String> {
         // The byte right after the tag name must be '>', ' ', '\t', '\n', '\r', or '/'
         // (self-closing tags), but NOT another identifier character.
         match bytes.get(pos + open_prefix.len()) {
-            Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'/') | None => break pos,
+            Some(b'>') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'/')
+            | None => break pos,
             _ => search_from = pos + 1,
         }
     };
@@ -314,8 +414,8 @@ pub(crate) fn xml_all(xml: &str, tag: &str) -> Vec<String> {
 fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
     // Surface EWS-level errors before trying to parse items
     if xml.contains("ResponseClass=\"Error\"") {
-        let msg = xml_content(xml, "m:MessageText")
-            .unwrap_or_else(|| "Unknown EWS error".to_string());
+        let msg =
+            xml_content(xml, "m:MessageText").unwrap_or_else(|| "Unknown EWS error".to_string());
         return Err(msg);
     }
 
@@ -335,7 +435,7 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
             None => continue,
         };
 
-        let subject = xml_content(&item_xml, "t:Subject").unwrap_or_default();
+        let subject = xml_decode(&xml_content(&item_xml, "t:Subject").unwrap_or_default());
         let start = xml_content(&item_xml, "t:Start").unwrap_or_default();
         let end = xml_content(&item_xml, "t:End").unwrap_or_default();
         let is_all_day = xml_content(&item_xml, "t:IsAllDayEvent")
@@ -348,14 +448,14 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
             .map(|v| v == "true")
             .unwrap_or(false);
         let location = xml_content(&item_xml, "t:Location").filter(|s| !s.is_empty());
-        let my_response_type = xml_content(&item_xml, "t:MyResponseType")
-            .unwrap_or_else(|| "Unknown".to_string());
+        let my_response_type =
+            xml_content(&item_xml, "t:MyResponseType").unwrap_or_else(|| "Unknown".to_string());
 
         // CalendarView expands recurring series into occurrences and exceptions.
         let calendar_item_type = xml_content(&item_xml, "t:CalendarItemType").unwrap_or_default();
-        let recurring_master_id =
-            (calendar_item_type == "Occurrence" || calendar_item_type == "Exception")
-                .then(|| item_id.clone());
+        let recurring_master_id = (calendar_item_type == "Occurrence"
+            || calendar_item_type == "Exception")
+            .then(|| item_id.clone());
 
         // recurring_master_id may be enriched later via batch GetItem (CleanGlobalObjectId) if available.
         let recurring_master_id = recurring_master_id;
@@ -377,8 +477,7 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         for list_tag in &["t:RequiredAttendees", "t:OptionalAttendees"] {
             if let Some(list_xml) = xml_content(&item_xml, list_tag) {
                 for att_xml in xml_all(&list_xml, "t:Attendee") {
-                    let routing_type = xml_content(&att_xml, "t:RoutingType")
-                        .unwrap_or_default();
+                    let routing_type = xml_content(&att_xml, "t:RoutingType").unwrap_or_default();
                     let email = if routing_type.eq_ignore_ascii_case("SMTP") {
                         xml_content(&att_xml, "t:EmailAddress").unwrap_or_default()
                     } else {
@@ -397,6 +496,10 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         }
 
         events.push(EwsEvent {
+            uid: xml_content(&item_xml, "t:UID"),
+            sensitivity: xml_content(&item_xml, "t:Sensitivity"),
+            availability: xml_content(&item_xml, "t:LegacyFreeBusyStatus"),
+            availability_only: false,
             item_id,
             change_key,
             subject,
@@ -452,15 +555,20 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
         };
 
         let organizer_xml = xml_content(&item_xml, "t:Organizer");
-        let organizer_name = organizer_xml.as_deref().and_then(|o| xml_content(o, "t:Name")).filter(|s| !s.is_empty());
-        let organizer_email = organizer_xml.as_deref().and_then(|o| xml_content(o, "t:EmailAddress")).filter(|s| !s.is_empty());
+        let organizer_name = organizer_xml
+            .as_deref()
+            .and_then(|o| xml_content(o, "t:Name"))
+            .filter(|s| !s.is_empty());
+        let organizer_email = organizer_xml
+            .as_deref()
+            .and_then(|o| xml_content(o, "t:EmailAddress"))
+            .filter(|s| !s.is_empty());
 
         let mut attendees: Vec<EwsAttendee> = Vec::new();
         for list_tag in &["t:RequiredAttendees", "t:OptionalAttendees"] {
             if let Some(list_xml) = xml_content(&item_xml, list_tag) {
                 for att_xml in xml_all(&list_xml, "t:Attendee") {
-                    let routing_type = xml_content(&att_xml, "t:RoutingType")
-                        .unwrap_or_default();
+                    let routing_type = xml_content(&att_xml, "t:RoutingType").unwrap_or_default();
                     let email = if routing_type.eq_ignore_ascii_case("SMTP") {
                         xml_content(&att_xml, "t:EmailAddress").unwrap_or_default()
                     } else {
@@ -469,7 +577,11 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
                     let name = xml_content(&att_xml, "t:Name").filter(|s| !s.is_empty());
                     let response_type = xml_content(&att_xml, "t:ResponseType")
                         .unwrap_or_else(|| "Unknown".to_string());
-                    attendees.push(EwsAttendee { email, name, response_type });
+                    attendees.push(EwsAttendee {
+                        email,
+                        name,
+                        response_type,
+                    });
                 }
             }
         }
@@ -493,8 +605,13 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
                 let id_element = attachment_xml
                     .find("<t:AttachmentId ")
                     .or_else(|| attachment_xml.find("<AttachmentId "))
-                    .and_then(|start| attachment_xml[start..].find("/>").map(|end| &attachment_xml[start..start + end]));
-                let Some(attachment_id) = id_element.and_then(|element| xml_attr(element, "Id")) else {
+                    .and_then(|start| {
+                        attachment_xml[start..]
+                            .find("/>")
+                            .map(|end| &attachment_xml[start..start + end])
+                    });
+                let Some(attachment_id) = id_element.and_then(|element| xml_attr(element, "Id"))
+                else {
                     continue;
                 };
                 let Some(content_id) = xml_content_ns(&attachment_xml, "t:ContentId") else {
@@ -509,11 +626,23 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
                 if !content_type.to_ascii_lowercase().starts_with("image/") {
                     continue;
                 }
-                inline_images.push(CalendarInlineImage { attachment_id, content_id, content_type });
+                inline_images.push(CalendarInlineImage {
+                    attachment_id,
+                    content_id,
+                    content_type,
+                });
             }
         }
 
-        results.push(GetItemDetail { item_id, organizer_name, organizer_email, attendees, clean_global_object_id, body, inline_images });
+        results.push(GetItemDetail {
+            item_id,
+            organizer_name,
+            organizer_email,
+            attendees,
+            clean_global_object_id,
+            body,
+            inline_images,
+        });
     }
 
     results
@@ -521,8 +650,49 @@ fn parse_get_item_response(xml: &str) -> Vec<GetItemDetail> {
 
 fn xml_decode(s: &str) -> String {
     s.replace("&lt;", "<")
-     .replace("&gt;", ">")
-     .replace("&amp;", "&")
-     .replace("&quot;", "\"")
-     .replace("&apos;", "'")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::contains_mail_change_event;
+
+    #[test]
+    fn mail_events_trigger_reconciliation() {
+        for event in [
+            "NewMailEvent",
+            "CreatedEvent",
+            "ModifiedEvent",
+            "MovedEvent",
+            "DeletedEvent",
+        ] {
+            assert!(contains_mail_change_event(&format!(
+                "<t:{event}><t:ItemId/></t:{event}>"
+            )));
+        }
+    }
+
+    #[test]
+    fn status_events_do_not_trigger_reconciliation() {
+        assert!(!contains_mail_change_event(
+            "<t:StatusEvent><t:Watermark>x</t:Watermark></t:StatusEvent>"
+        ));
+    }
+}
+
+#[cfg(test)]
+mod calendar_title_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_calendar_subject_entities_once_as_plain_text() {
+        let xml = r#"<t:CalendarItem><t:ItemId Id="item" ChangeKey="key"/><t:UID>meeting-uid</t:UID><t:Subject>R&amp;D &lt;Planning&gt; &quot;Équipe&quot; d&apos;été &amp;quot; &amp;amp;</t:Subject><t:Start>2026-10-19T10:00:00Z</t:Start><t:End>2026-10-19T11:00:00Z</t:End></t:CalendarItem>"#;
+        let events = parse_calendar_events(xml).unwrap();
+        assert_eq!(events[0].uid.as_deref(), Some("meeting-uid"));
+        assert_eq!(events[0].subject, "R&D <Planning> \"Équipe\" d'été &quot; &amp;");
+        assert_eq!(xml_decode("R&D, café"), "R&D, café");
+    }
 }

@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { decryptVault, decryptVaultWithKey, encryptVault, exportVaultKey, importVaultKey } from './vaultCrypto';
 
 describe('encrypted vault', () => {
+  it('round-trips a shared attachment across base64 conversion chunks', async () => {
+    const payload = { attachment: 'YXR0YWNobWVudA=='.repeat(10000) };
+    const vault = await encryptVault(payload, 'test password', 10);
+    await expect(decryptVault(vault, 'test password')).resolves.toMatchObject({ payload });
+  });
+
   it('round-trips data and rejects a wrong password', async () => {
     const vault = await encryptVault({ token: 'secret', accounts: [1] }, 'correct horse battery staple', 10);
     expect(JSON.stringify(vault)).not.toContain('secret');

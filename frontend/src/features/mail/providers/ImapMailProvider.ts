@@ -25,7 +25,8 @@ export class ImapMailProvider implements MailProvider {
       spam: 'Junk',
     };
 
-    const key = folder.toLowerCase();
+    const normalized = folder.toLowerCase();
+    const key = normalized === 'trash' ? 'deleteditems' : normalized;
     // Return the mapped folder if found, otherwise return the original (handles dynamic folders)
     return this.folderMapping[key] || staticMap[key] || folder;
   }
@@ -77,7 +78,7 @@ export class ImapMailProvider implements MailProvider {
     });
   }
 
-  async getThread(conversationId: string, _includeTrash?: boolean, _isDraft?: boolean): Promise<MailMessage[]> {
+  async getThread(conversationId: string, _includeTrash?: boolean, isDraft = false): Promise<MailMessage[]> {
     const [folder, uid] = conversationId.split(':');
     const targetFolder = folder || 'INBOX';
     const messages = await invoke<MailMessage[]>('imap_get_thread', {
@@ -85,10 +86,14 @@ export class ImapMailProvider implements MailProvider {
       conversationId: uid,
       folder: targetFolder,
     });
-    return messages.map(m => ({
-      ...m,
-      item_id: `${targetFolder}:${m.item_id}`,
-      body_loaded: false,
+    return Promise.all(messages.map(async message => {
+      const itemId = `${targetFolder}:${message.item_id}`;
+      return {
+        ...message,
+        ...(isDraft ? await this.getMessageContent(itemId) : {}),
+        item_id: itemId,
+        body_loaded: isDraft,
+      };
     }));
   }
 
@@ -135,6 +140,8 @@ export class ImapMailProvider implements MailProvider {
       subject: params.subject,
       bodyHtml: params.bodyHtml,
       attachments: params.attachments,
+      inReplyTo: params.inReplyTo,
+      references: params.references,
     });
   }
 

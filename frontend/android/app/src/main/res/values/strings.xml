@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">Courrier</string>
+    <string name="notification_opening">Opening email…</string>
+    <string name="cancel">Cancel</string>
+    <string name="biometric_enable_title">Enable biometric unlock</string>
+    <string name="biometric_unlock_title">Unlock Courrier</string>
+<string name="notification_channel_mail">New emails</string>
+    <string name="notification_channel_sync">Synchronization</string>
+    <string name="sync_service_title">Courrier synchronization</string>
+    <plurals name="sync_service_accounts"><item quantity="one">Courrier is watching %d account</item><item quantity="other">Courrier is watching %d accounts</item></plurals>
+    <string name="notification_new_mail">New email</string>
+    <string name="notification_action_reply">Reply</string>
+    <string name="notification_action_delete">Delete</string>
+    <string name="notification_action_archive">Archive</string>
+    <string name="notification_action_done">Email %1$s</string>
+    <string name="notification_action_failed">Unable to update email</string>
+    <string name="notification_archived">archived</string>
+    <string name="notification_deleted">deleted</string>
+    <plurals name="notification_new_mail_count">
+        <item quantity="one">%d new email</item>
+        <item quantity="other">%d new emails</item>
+    </plurals>
+</resources>

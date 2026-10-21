@@ -3,8 +3,25 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import './i18n';
 import App from './App';
+import { platform } from './shared/platform';
+import { installDesktopExternalLinkHandler } from './shared/services/fileService';
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+if (platform.isNativeAndroid) {
+  document.documentElement.classList.add('native-android');
+}
+
+installDesktopExternalLinkHandler();
+
+globalThis.addEventListener('error', event => {
+  const detail = event.error instanceof Error ? event.error.stack : undefined;
+  console.error('[GlobalError]', detail ?? event.message, `${event.filename}:${event.lineno}:${event.colno}`);
+});
+globalThis.addEventListener('unhandledrejection', event => {
+  const detail = event.reason instanceof Error ? event.reason.stack : event.reason;
+  console.error('[UnhandledRejection]', detail);
+});
+
+if ('serviceWorker' in navigator && import.meta.env.PROD && !platform.isNativeAndroid) {
   globalThis.addEventListener('load', () => {
     let hadController = Boolean(navigator.serviceWorker.controller);
     navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -23,6 +40,13 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
       })
       .catch(console.error);
   });
+} else if ('serviceWorker' in navigator && platform.isNativeAndroid) {
+  void navigator.serviceWorker.getRegistrations()
+    .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+    .catch(console.error);
+  if ('caches' in globalThis) {
+    void caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key)))).catch(console.error);
+  }
 }
 
 createRoot(document.getElementById('root')!).render(

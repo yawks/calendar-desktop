@@ -82,15 +82,18 @@ export async function patchCachedEventRsvp(
 ): Promise<void> {
   try {
     const db = await openDB();
-    const entry = await new Promise<CacheEntry<import('../../../shared/types').CalendarEvent[]> | undefined>((resolve) => {
+    type Events = import('../../../shared/types').CalendarEvent[];
+    type Value = Events | { events: Events; readOnly: boolean };
+    const entry = await new Promise<CacheEntry<Value> | undefined>((resolve) => {
       const tx = db.transaction(STORE, 'readonly');
       const req = tx.objectStore(STORE).get(key);
-      req.onsuccess = () => resolve(req.result as CacheEntry<import('../../../shared/types').CalendarEvent[]> | undefined);
+      req.onsuccess = () => resolve(req.result as CacheEntry<Value> | undefined);
       req.onerror = () => resolve(undefined);
     });
     if (!entry) return;
 
-    const patched = entry.value.map((ev) => {
+    const events = Array.isArray(entry.value) ? entry.value : entry.value.events;
+    const patched = events.map((ev) => {
       if (ev.id !== eventId) return ev;
       return {
         ...ev,
@@ -102,7 +105,8 @@ export async function patchCachedEventRsvp(
 
     await new Promise<void>((resolve) => {
       const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put({ value: patched, at: entry.at } satisfies CacheEntry<import('../../../shared/types').CalendarEvent[]>, key);
+      const value = Array.isArray(entry.value) ? patched : { ...entry.value, events: patched };
+      tx.objectStore(STORE).put({ value, at: entry.at } satisfies CacheEntry<Value>, key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     });

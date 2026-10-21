@@ -1,3 +1,4 @@
+import { matchCounterProposal } from '../../calendar/utils/counterProposal';
 /**
  * ICSInvitationCard
  *
@@ -7,24 +8,29 @@
  */
 // @ts-ignore – ical.js has no bundled types for v1.x
 import ICAL from 'ical.js';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CalendarCheck, ChevronDown, MapPin, Clock, Users, Check, Minus, X, Plus, Loader2 } from 'lucide-react';
 import { CalendarConfig, CalendarEvent, AttendeeStatus } from '../../../shared/types';
 import { MailAttachment } from '../types';
 import { useCalendars } from '../../calendar/store/CalendarStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
-import { useCalendarEvents } from '../../calendar/hooks/useCalendarQueries';
+import { CALENDAR_KEYS, useCalendarEvents } from '../../calendar/hooks/useCalendarQueries';
 import { useGoogleEvents, patchGoogleCachedRsvp } from '../../calendar/hooks/useGoogleEvents';
 import { useNextcloudEvents, patchNextcloudCachedRsvp } from '../../calendar/hooks/useNextcloudEvents';
 import { patchEWSCachedRsvp } from '../../calendar/hooks/useEWSEvents';
+import EventModal from '../../calendar/components/EventModal';
 import { DayEventsTimeline } from '../../calendar/components/DayEventsTimeline';
-import { respondToGoogleEvent, createEvent as createGoogleEvent } from '../../calendar/utils/googleCalendarApi';
-import { respondToNextcloudEvent, createNextcloudEvent } from '../../calendar/utils/nextcloudCalendarApi';
+import { respondToGoogleEvent, updateEvent as updateGoogleEvent, createEvent as createGoogleEvent } from '../../calendar/utils/googleCalendarApi';
+import { isEventEditable } from '../../calendar/utils/eventPermissions';
+import { isCalendarWritable } from '../../calendar/utils/sharedCalendars';
+import { respondToNextcloudEvent, updateNextcloudEvent, createNextcloudEvent } from '../../calendar/utils/nextcloudCalendarApi';
 import { EmailHtmlBody } from './EmailHtmlBody';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 import './ICSInvitationCard.css';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -140,6 +146,8 @@ interface ICSEventData {
   organizer?: { name: string; email: string };
   attendees: Array<{ name: string; email: string; status: AttendeeStatus; isOrganizer?: boolean }>;
   uid?: string;
+  recurrenceId?: string;
+  relatedItemId?: string;
   method?: string;     // VCALENDAR METHOD property (e.g. "CANCEL", "REQUEST", "REPLY")
 }
 
@@ -156,13 +164,17 @@ function parseRawICS(icsText: string): ICSEventData | null {
       ? String(htmlDescriptionProp.getFirstValue() ?? '')
       : undefined;
 
-    const toISO = (t: unknown): string => {
+    const toISO = (t: unknown, property: string): string => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ict = t as any;
       if (ict?.isDate) {
         const y = ict.year, m = String(ict.month).padStart(2, '0'), d = String(ict.day).padStart(2, '0');
         return `${y}-${m}-${d}T00:00:00`;
       }
+      const tzid = vevent.getFirstProperty(property)?.getParameter('tzid');
+      const zone = tzid && comp.getAllSubcomponents('vtimezone')
+        .find((component: { getFirstPropertyValue: (name: string) => unknown }) => component.getFirstPropertyValue('tzid') === tzid);
+      if (zone) ict.zone = new ICAL.Timezone(zone);
       return ict?.toJSDate?.()?.toISOString?.() ?? '';
     };
 
@@ -193,8 +205,8 @@ function parseRawICS(icsText: string): ICSEventData | null {
 
     return {
       title:    ev.summary    ?? '(sans titre)',
-      start:    toISO(ev.startDate),
-      end:      toISO(ev.endDate),
+      start:    toISO(ev.startDate, 'dtstart'),
+      end:      toISO(ev.endDate, 'dtend'),
       isAllday: ev.startDate?.isDate === true,
       location: ev.location   ?? undefined,
       description: ev.description ?? undefined,
@@ -202,6 +214,8 @@ function parseRawICS(icsText: string): ICSEventData | null {
       organizer: orgEmail ? { name: attendees[0]?.name ?? orgEmail, email: orgEmail } : undefined,
       attendees,
       uid: ev.uid ?? undefined,
+      relatedItemId: vevent.getFirstPropertyValue('x-courrier-ews-item-id') ?? undefined,
+      recurrenceId: vevent.getFirstPropertyValue('recurrence-id') ? toISO(vevent.getFirstPropertyValue('recurrence-id'), 'recurrence-id') : undefined,
       method,
     };
   } catch (e) {
@@ -302,14 +316,53 @@ function CalendarSelector({
   readonly onChange: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const selected = calendars.find(c => c.id === selectedId);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    const positionDropdown = () => {
+      const button = buttonRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      const viewportPadding = 8;
+      const gap = 4;
+      const availableBelow = window.innerHeight - rect.bottom - gap - viewportPadding;
+      const availableAbove = rect.top - gap - viewportPadding;
+      const openAbove = availableBelow < 180 && availableAbove > availableBelow;
+      const maxHeight = Math.max(96, Math.min(260, openAbove ? availableAbove : availableBelow));
+      const width = Math.max(200, rect.width);
+      const left = Math.min(rect.left, window.innerWidth - width - viewportPadding);
+
+      setDropdownStyle({
+        top: openAbove ? undefined : rect.bottom + gap,
+        bottom: openAbove ? window.innerHeight - rect.top + gap : undefined,
+        left: Math.max(viewportPadding, left),
+        width,
+        maxHeight,
+      });
+    };
+
+    positionDropdown();
+    window.addEventListener('resize', positionDropdown);
+    window.addEventListener('scroll', positionDropdown, true);
+    return () => {
+      window.removeEventListener('resize', positionDropdown);
+      window.removeEventListener('scroll', positionDropdown, true);
+    };
+  }, [open]);
 
   return (
     <div className="ics-cal-selector">
       <button
+        ref={buttonRef}
         className="ics-cal-selector__btn"
         onClick={() => setOpen(v => !v)}
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
       >
         {selected && (
           <span className="ics-cal-dot" style={{ background: selected.color }} />
@@ -319,7 +372,7 @@ function CalendarSelector({
         </span>
         <ChevronDown size={13} />
       </button>
-      {open && (
+      {open && createPortal(
         <>
           <button
             type="button"
@@ -328,13 +381,15 @@ function CalendarSelector({
             onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }}
             aria-label="Fermer"
           />
-          <div className="ics-cal-selector__dropdown">
+          <div className="ics-cal-selector__dropdown" role="listbox" style={dropdownStyle}>
             {calendars.map(cal => (
               <button
                 key={cal.id}
                 className={`ics-cal-selector__option${cal.id === selectedId ? ' ics-cal-selector__option--active' : ''}`}
                 onClick={() => { onChange(cal.id); setOpen(false); }}
                 type="button"
+                role="option"
+                aria-selected={cal.id === selectedId}
               >
                 <span className="ics-cal-dot" style={{ background: cal.color }} />
                 <span>{cal.name}</span>
@@ -344,7 +399,8 @@ function CalendarSelector({
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );
@@ -391,13 +447,14 @@ export interface ICSInvitationCardProps {
   /** Resolved message HTML, used when the ICS has no X-ALT-DESC (common with EWS). */
   readonly invitationHtml?: string;
   readonly invitationText?: string;
+  readonly onDeclineCounter?: (icsText: string, title: string) => Promise<void>;
 }
 
 const ICS_PREVIEW_ID   = '__ics_preview__';
 const ICS_CANCELLED_ID = '__ics_cancelled__';
 
 export function ICSInvitationCard({
-  source, currentUserEmail, mailProviderType, invitationHtml, invitationText,
+  source, currentUserEmail, mailProviderType, invitationHtml, invitationText, onDeclineCounter,
 }: ICSInvitationCardProps) {
   const { t, i18n } = useTranslation();
   const translatedStatus = useCallback((status: AttendeeStatus | undefined) =>
@@ -411,7 +468,7 @@ export function ICSInvitationCard({
   // on every render (inline literal), so using `source` directly as an effect
   // dep would re-trigger parsing on every mouse-hover re-render of the parent.
   const sourceKey = source.kind === 'text'
-    ? `text:${source.icsText.slice(0, 128)}`
+    ? `text:${source.icsText}`
     : `att:${source.attachment.attachment_id}`;
 
   // Keep a ref so the effect always calls the latest `getAttachmentData`
@@ -448,19 +505,20 @@ export function ICSInvitationCard({
 
   // ── Calendar + event data ─────────────────────────────────────────────────
   const { calendars: allCalendars } = useCalendars();
+  const queryClient = useQueryClient();
   const { getValidToken: getGoogleToken } = useGoogleAuth();
-  const { getValidToken: getExchangeToken } = useExchangeAuth();
+  const { getValidToken: getExchangeToken, accounts: exchangeAccounts } = useExchangeAuth();
 
-  // Writable calendars only (ICS feeds are read-only)
+  // Personal provider calendars only, for both invitation actions and the day preview.
   const writableCalendars = useMemo(
-    () => allCalendars.filter(c => c.type !== 'ics'),
+    () => allCalendars.filter(isCalendarWritable),
     [allCalendars],
   );
 
-  // Load events from all providers and combine them
-  const { events: googleEvents } = useGoogleEvents(allCalendars);
-  const { events: ncEvents }     = useNextcloudEvents(allCalendars);
-  const { events: ewsEvents }    = useCalendarEvents(allCalendars);
+  // Load only the calendars eligible for this invitation card.
+  const { events: googleEvents, refresh: refreshGoogleEvents } = useGoogleEvents(writableCalendars);
+  const { events: ncEvents, refresh: refreshNextcloudEvents } = useNextcloudEvents(writableCalendars);
+  const { events: ewsEvents }    = useCalendarEvents(writableCalendars);
   const allEvents = useMemo(
     () => [...googleEvents, ...ncEvents, ...ewsEvents],
     [googleEvents, ncEvents, ewsEvents],
@@ -497,6 +555,8 @@ export function ICSInvitationCard({
   const matchedEvent = useMemo(() => {
     if (!icsData) return null;
     const writableEvents = allEvents.filter(ev => writableCalIds.has(ev.calendarId));
+    if (icsData.method === 'COUNTER') return matchCounterProposal(icsData, writableEvents.filter(event =>
+      !!event.sourceId && !event.isCancelled && isEventEditable(event, writableCalendars.find(cal => cal.id === event.calendarId), exchangeAccounts)));
     const result = matchEvent(icsData.title, icsData.start, icsData.end, writableEvents);
 
     // ── Debug matching (remove once resolved) ────────────────────────────────
@@ -524,7 +584,11 @@ export function ICSInvitationCard({
     // ─────────────────────────────────────────────────────────────────────────
 
     return result;
-  }, [icsData, allEvents, writableCalIds]);
+  }, [icsData, allEvents, writableCalIds, writableCalendars, exchangeAccounts]);
+
+  const [previewEvent, setPreviewEvent] = useState<CalendarEvent | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setPreviewEvent(null); }, [sourceKey]);
 
   const [userSelectedCalId, setUserSelectedCalId] = useState<string | null>(null);
   // Derived — no state sync needed, avoids extra renders
@@ -537,9 +601,10 @@ export function ICSInvitationCard({
 
   // Matched event for the selected calendar specifically
   const matchedInSelected = useMemo(() => {
-    if (!matchedEvent || !selectedCal) return null;
-    return matchedEvent.calendarId === selectedCal.id ? matchedEvent : null;
-  }, [matchedEvent, selectedCal]);
+    if (!icsData || !selectedCal) return null;
+    const selectedEvents = allEvents.filter(event => event.calendarId === selectedCal.id);
+    return matchEvent(icsData.title, icsData.start, icsData.end, selectedEvents);
+  }, [icsData, selectedCal, allEvents]);
 
   // RSVP override set by the user in this session; takes priority over localStorage.
   const [rsvpOverride, setRsvpOverride] = useState<AttendeeStatus | undefined>(undefined);
@@ -547,20 +612,34 @@ export function ICSInvitationCard({
   const storedStatus = icsData ? loadStoredRsvp(icsData) : undefined;
 
   const isCancelled = icsData?.method === 'CANCEL';
-  const isReply = icsData?.method === 'REPLY';
-  const replyResponder = isReply ? (icsData?.attendees.find(a => !a.isOrganizer) ?? null) : null;
+  const isCounter = icsData?.method === 'COUNTER';
+  const isDeclineCounter = icsData?.method === 'DECLINECOUNTER';
+  const isReply = icsData?.method === 'REPLY' || isDeclineCounter;
+  const replyResponder = icsData?.method === 'REPLY' ? (icsData?.attendees.find(a => !a.isOrganizer) ?? null) : null;
   // A session override is immediate; otherwise prefer the live calendar event
   // over localStorage, which may contain an older response.
   const liveStatus = matchedInSelected?.selfRsvpStatus;
-  const currentStatus = rsvpOverride
-    ?? (liveStatus && liveStatus !== 'NEEDS-ACTION' ? liveStatus : storedStatus ?? liveStatus);
+  const currentStatus = isCounter ? undefined : rsvpOverride
+    ?? (liveStatus && liveStatus !== 'NEEDS-ACTION'
+      ? liveStatus
+      : matchedInSelected ? storedStatus ?? liveStatus : undefined);
   const previewDescriptionHtml = icsData?.descriptionHtml
-    || (matchedInSelected?.description
+    || (!isCounter && matchedInSelected?.description
       ? invitationDescriptionToHtml(matchedInSelected.description)
       : invitationHtml)
     || (icsData?.description ? escapeInvitationText(icsData.description) : '');
-  const canRsvp = !isCancelled && !isReply && (selectedCal ? supportsRsvp(selectedCal.type) : false);
+  const canRsvp = !isCancelled && !isReply && !isCounter && (selectedCal ? supportsRsvp(selectedCal.type) : false);
   const isInCalendar = matchedInSelected !== null;
+  const counterCandidates = allEvents.filter(event => event.calendarId === selectedCalId
+    && !event.isCancelled && !!event.sourceId
+    && isEventEditable(event, selectedCal ?? undefined, exchangeAccounts));
+  const counterEvent = icsData ? matchCounterProposal(icsData, counterCandidates) : null;
+
+
+  const [loadingAction, setLoadingAction] = useState<'ACCEPTED' | 'DECLINED' | 'TENTATIVE' | 'add' | 'counter' | 'refuseCounter' | null>(null);
+  const [acceptedCounter, setAcceptedCounter] = useState<CalendarEvent | null>(null);
+  const [actionError, setActionError]     = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   // Events for the day timeline
   const targetDate = useMemo(
@@ -574,7 +653,10 @@ export function ICSInvitationCard({
     day.setHours(0, 0, 0, 0);
     const dayEnd = new Date(day);
     dayEnd.setHours(23, 59, 59, 999);
-    const filtered = allEvents.filter(ev => {
+    const timelineEvents = acceptedCounter
+      ? [...allEvents.filter(event => event.id !== acceptedCounter.id), acceptedCounter]
+      : allEvents;
+    const filtered = timelineEvents.filter(ev => {
       const s = new Date(ev.start);
       return s >= day && s <= dayEnd;
     }).map((ev) => ev.id === matchedInSelected?.id && currentStatus ? {
@@ -584,24 +666,28 @@ export function ICSInvitationCard({
       isUnaccepted: currentStatus !== 'ACCEPTED',
     } : ev);
     if (!icsData.isAllday) {
-      if (!isReply && !isCancelled && !matchedInSelected && !currentStatus) {
-        // REQUEST not yet in calendar and no known response: show a dashed preview
-        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, isAllday: false, category: 'time' as const, selfRsvpStatus: 'NEEDS-ACTION' as const, isUnaccepted: true }];
+      if (!isReply && !isCancelled && (isCounter ? !acceptedCounter && !actionSuccess : !matchedInSelected)) {
+        // Keep the invitation visible until the real calendar event is available.
+        return [...filtered, { id: ICS_PREVIEW_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, location: icsData.location, description: icsData.descriptionHtml || icsData.description, attendees: icsData.attendees, isAllday: false, category: 'time' as const, selfRsvpStatus: currentStatus ?? 'NEEDS-ACTION' as const, isUnaccepted: currentStatus !== 'ACCEPTED', isDeclined: currentStatus === 'DECLINED' }];
       }
       if (isCancelled && !matchedInSelected) {
         // CANCEL but real event not matched: replace any same-title event with the
         // struck-through ghost so we don't show two blocks side by side.
         const withoutDuplicate = filtered.filter(ev => !titlesMatch(ev.title, icsData.title));
-        return [...withoutDuplicate, { id: ICS_CANCELLED_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, isAllday: false, category: 'time' as const }];
+        return [...withoutDuplicate, { id: ICS_CANCELLED_ID, calendarId: selectedCalId || '', title: icsData.title, start: icsData.start, end: icsData.end, location: icsData.location, description: icsData.descriptionHtml || icsData.description, attendees: icsData.attendees, isAllday: false, category: 'time' as const }];
       }
     }
     return filtered;
-  }, [allEvents, icsData, matchedInSelected, selectedCalId, currentStatus, isReply, isCancelled]);
+  }, [allEvents, icsData, matchedInSelected, selectedCalId, currentStatus, isReply, isCancelled, isCounter, actionSuccess, acceptedCounter]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
-  const [loadingAction, setLoadingAction] = useState<'ACCEPTED' | 'DECLINED' | 'TENTATIVE' | 'add' | null>(null);
-  const [actionError, setActionError]     = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+
+  useEffect(() => {
+    setActionError(null);
+    setActionSuccess(null);
+    setAcceptedCounter(null);
+  }, [sourceKey, selectedCalId]);
 
   const handleRsvp = useCallback(async (status: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE') => {
     if (!selectedCal || !icsData) return;
@@ -611,33 +697,42 @@ export function ICSInvitationCard({
     setActionError(null);
     setActionSuccess(null);
     try {
-      if (isInCalendar && matchedInSelected) {
-        await executeRsvp(selectedCal, matchedInSelected, status, getGoogleToken, getExchangeToken);
-        saveStoredRsvp(icsData, status);
-        // Patch the IndexedDB cache so the calendar view reflects the change
-        const { id: eventId, calendarId } = matchedInSelected;
-        if (selectedCal.type === 'exchange') {
-          await patchEWSCachedRsvp(calendarId, eventId, status);
-        } else if (selectedCal.type === 'google') {
-          await patchGoogleCachedRsvp(calendarId, eventId, status);
+      let event = matchedInSelected;
+      if (!event) {
+        // A stale or still-loading cache must never turn an RSVP into a new meeting.
+        let refreshed: CalendarEvent[] = [];
+        if (selectedCal.type === 'google') {
+          refreshed = await refreshGoogleEvents(selectedCal.id) ?? [];
         } else if (selectedCal.type === 'nextcloud') {
-          await patchNextcloudCachedRsvp(calendarId, eventId, status);
+          refreshed = await refreshNextcloudEvents(selectedCal.id) ?? [];
+        } else if (selectedCal.type === 'exchange') {
+          await queryClient.invalidateQueries({ queryKey: CALENDAR_KEYS.events(selectedCal.id) });
+          refreshed = queryClient.getQueryData<CalendarEvent[]>(CALENDAR_KEYS.events(selectedCal.id)) ?? [];
         }
-        const successMsgMap: Record<string, string> = { ACCEPTED: t('invitation.acceptedSuccess'), DECLINED: t('invitation.declinedSuccess'), TENTATIVE: t('invitation.tentativeSuccess') };
-        setActionSuccess(successMsgMap[status] ?? '');
-      } else {
-        // Event not yet in calendar: create it with the given status
-        await addToCalendar(selectedCal, icsData, getGoogleToken, getExchangeToken);
-        saveStoredRsvp(icsData, status);
-        setActionSuccess(t('invitation.addedSuccess'));
+        event = matchEvent(icsData.title, icsData.start, icsData.end,
+          refreshed.filter(candidate => candidate.calendarId === selectedCal.id));
       }
+      if (!event) throw new Error(t('invitation.notInCalendar'));
+      await executeRsvp(selectedCal, event, status, getGoogleToken, getExchangeToken);
+      saveStoredRsvp(icsData, status);
+      // Patch the IndexedDB cache so the calendar view reflects the change
+      const { id: eventId, calendarId } = event;
+      if (selectedCal.type === 'exchange') {
+        await patchEWSCachedRsvp(calendarId, eventId, status);
+      } else if (selectedCal.type === 'google') {
+        await patchGoogleCachedRsvp(calendarId, eventId, status);
+      } else if (selectedCal.type === 'nextcloud') {
+        await patchNextcloudCachedRsvp(calendarId, eventId, status);
+      }
+      const successMsgMap: Record<string, string> = { ACCEPTED: t('invitation.acceptedSuccess'), DECLINED: t('invitation.declinedSuccess'), TENTATIVE: t('invitation.tentativeSuccess') };
+      setActionSuccess(successMsgMap[status] ?? '');
     } catch (e) {
       setRsvpOverride(prevOverride); // rollback optimistic update
       setActionError(String(e));
     } finally {
       setLoadingAction(null);
     }
-  }, [selectedCal, icsData, isInCalendar, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride, t]);
+  }, [selectedCal, icsData, matchedInSelected, getGoogleToken, getExchangeToken, rsvpOverride, t, refreshNextcloudEvents, refreshGoogleEvents, queryClient]);
 
   const handleAddToCalendar = useCallback(async () => {
     if (!selectedCal || !icsData) return;
@@ -646,13 +741,100 @@ export function ICSInvitationCard({
     setActionSuccess(null);
     try {
       await addToCalendar(selectedCal, icsData, getGoogleToken, getExchangeToken);
+      if (selectedCal.type === 'nextcloud') {
+        await refreshNextcloudEvents(selectedCal.id);
+      } else if (selectedCal.type === 'google') {
+        await refreshGoogleEvents(selectedCal.id);
+      } else if (selectedCal.type === 'exchange') {
+        await queryClient.invalidateQueries({ queryKey: CALENDAR_KEYS.events(selectedCal.id) });
+      }
       setActionSuccess(t('invitation.addedSuccess'));
     } catch (e) {
       setActionError(String(e));
     } finally {
       setLoadingAction(null);
     }
-  }, [selectedCal, icsData, getGoogleToken, getExchangeToken, t]);
+  }, [selectedCal, icsData, getGoogleToken, getExchangeToken, t, refreshNextcloudEvents, refreshGoogleEvents, queryClient]);
+
+  const counterSaving = useRef(false);
+  const handleAcceptCounter = async () => {
+    if (!selectedCal || !icsData) return;
+    if (!counterEvent?.sourceId) {
+      setActionError(t('invitation.counterMissing'));
+      return;
+    }
+    if (counterSaving.current || loadingAction !== null || acceptedCounter) return;
+    counterSaving.current = true;
+    setAcceptedCounter({ ...counterEvent, start: icsData.start, end: icsData.end, isAllday: icsData.isAllday,
+      selfRsvpStatus: 'ACCEPTED', isUnaccepted: false, isDeclined: false });
+    setLoadingAction('counter');
+    setActionError(null);
+    setActionSuccess(null);
+    let saved = false;
+    try {
+      const payload = {
+        ...counterEvent, start: icsData.start, end: icsData.end, isAllday: icsData.isAllday,
+        attendees: counterEvent.attendees?.filter(a => !a.isOrganizer).map(a => ({ email: a.email, name: a.name })),
+      };
+      if (selectedCal.type === 'google') {
+        const token = selectedCal.googleAccountId && await getGoogleToken(selectedCal.googleAccountId);
+        if (!token) throw new Error(t('calendarPage.invalidToken'));
+        await updateGoogleEvent(token, selectedCal, counterEvent.sourceId, payload, undefined, true);
+      } else if (selectedCal.type === 'nextcloud') {
+        await updateNextcloudEvent(selectedCal, counterEvent.sourceId, payload, counterEvent);
+      } else if (selectedCal.type === 'exchange') {
+        const token = selectedCal.exchangeAccountId && await getExchangeToken(selectedCal.exchangeAccountId);
+        if (!token) throw new Error(t('calendarPage.invalidToken'));
+        const [itemId, changeKey] = counterEvent.sourceId.split('|');
+        try {
+          await exchangeCalendarApi.update({ accessToken: token, itemId, changeKey,
+            title: payload.title, start: payload.start, end: payload.end, isAllDay: payload.isAllday,
+            location: payload.location ?? null, description: payload.description ?? null,
+            attendees: null, updateSeries: false });
+        } catch (error) {
+          if (!String(error).includes('ErrorIrresolvableConflict')) throw error;
+          // A previous save can succeed before a duplicate request reports a stale ChangeKey.
+          await queryClient.refetchQueries({ queryKey: CALENDAR_KEYS.events(selectedCal.id), type: 'active' });
+          const refreshed = queryClient.getQueryData<CalendarEvent[]>(CALENDAR_KEYS.events(selectedCal.id)) ?? [];
+          const current = refreshed.find(event => event.sourceId?.split('|')[0] === itemId);
+          if (!current || Date.parse(current.start) !== Date.parse(payload.start)
+            || Date.parse(current.end) !== Date.parse(payload.end) || current.isAllday !== payload.isAllday) throw error;
+        }
+      }
+      saved = true;
+      setActionSuccess(t('invitation.counterAccepted'));
+      if (selectedCal.type === 'google') await refreshGoogleEvents(selectedCal.id);
+      else if (selectedCal.type === 'nextcloud') await refreshNextcloudEvents(selectedCal.id);
+      else await queryClient.invalidateQueries({ queryKey: CALENDAR_KEYS.events(selectedCal.id) });
+    } catch (e) {
+      if (!saved) {
+        setAcceptedCounter(null);
+        setActionError(String(e));
+      }
+    } finally {
+      counterSaving.current = false;
+      setLoadingAction(null);
+    }
+  };
+
+  const handleDeclineCounter = async () => {
+    if (!icsData || !onDeclineCounter) {
+      setActionError(t('invitation.counterReplyUnavailable'));
+      return;
+    }
+    setLoadingAction('refuseCounter');
+    setActionError(null);
+    try {
+      const src = sourceRef.current;
+      const text = src.kind === 'text' ? src.icsText : decodeBase64Utf8(await src.getAttachmentData(src.attachment));
+      await onDeclineCounter(text, icsData.title);
+      setActionSuccess(t('invitation.counterDeclined'));
+    } catch (error) {
+      setActionError(String(error));
+    } finally {
+      setLoadingAction(null);
+    }
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
@@ -688,17 +870,23 @@ export function ICSInvitationCard({
   const otherAttendees = icsData.attendees.filter(a => !a.isOrganizer);
 
   return (
-    <div className="ics-card">
+    <div className="ics-card" ref={cardRef}>
       {/* ── Left: invitation details ── */}
       <div className="ics-card__main">
         <div className="ics-card__header">
           <CalendarCheck size={18} className="ics-card__icon" />
           <span className="ics-card__label">
-            {t(isCancelled ? 'invitation.cancellation' : isReply ? 'invitation.reply' : 'invitation.title')}
+            {t(isCancelled ? 'invitation.cancellation' : isDeclineCounter ? 'invitation.counterDeclineTitle' : isReply ? 'invitation.reply' : isCounter ? 'invitation.counter' : 'invitation.title')}
           </span>
         </div>
 
         <h3 className="ics-card__title" style={currentStatus === 'DECLINED' || isCancelled ? { textDecoration: 'line-through' } : undefined}>{icsData.title}</h3>
+
+        {isCounter && (
+          <p className="ics-card__counter-help" role="status">{t('invitation.counterHelp')}</p>
+        )}
+
+        {isDeclineCounter && <p className="ics-card__counter-help" role="status">{t('invitation.counterDeclineReceived')}</p>}
 
         {isCancelled && (
           <div className="ics-status ics-status--cancelled">{t('invitation.cancelled')}</div>
@@ -733,6 +921,7 @@ export function ICSInvitationCard({
             <EmailHtmlBody
               html={previewDescriptionHtml}
               bodyText={icsData.description || invitationText}
+              expandFirstQuote
             />
           </div>
         )}
@@ -748,26 +937,46 @@ export function ICSInvitationCard({
         )}
 
         {/* Status badge — hidden for REPLY (responder block takes over) */}
-        {!isReply && currentStatus && (
+        {!isReply && !isCounter && currentStatus && (
           <div className={`ics-status ${statusClass(currentStatus)}`}>
             {translatedStatus(currentStatus)}
           </div>
         )}
 
         {/* Calendar selector — hidden for cancellations and replies */}
-        {!isCancelled && !isReply && writableCalendars.length > 0 && selectedCalId && (
+        {!isCancelled && !isReply && !isCounter && writableCalendars.length > 0 && selectedCalId && (
           <div className="ics-card__cal-row">
             <span className="ics-card__cal-label">{t('invitation.calendar')} :</span>
             <CalendarSelector
               calendars={writableCalendars}
               selectedId={selectedCalId}
-              onChange={id => setUserSelectedCalId(id)}
+              onChange={id => {
+                setUserSelectedCalId(id);
+                setRsvpOverride(undefined);
+                setActionError(null);
+                setActionSuccess(null);
+              }}
             />
           </div>
         )}
 
+        {isCounter && (
+          <div className="ics-card__actions">
+            <button type="button" className="ics-btn ics-btn--accept" onClick={handleAcceptCounter}
+              disabled={loadingAction !== null || actionSuccess !== null} aria-busy={loadingAction === 'counter'}>
+              {loadingAction === 'counter' ? <Loader2 size={13} className="ics-spinner" /> : <Check size={13} />}
+              {t('invitation.accept')}
+            </button>
+            <button type="button" className="ics-btn ics-btn--decline" onClick={handleDeclineCounter}
+              disabled={loadingAction !== null || actionSuccess !== null} aria-busy={loadingAction === 'refuseCounter'}>
+              {loadingAction === 'refuseCounter' ? <Loader2 size={13} className="ics-spinner" /> : <X size={13} />}
+              {t('invitation.decline')}
+            </button>
+          </div>
+        )}
+
         {/* Actions — hidden for cancellations and replies */}
-        {!isCancelled && !isReply && (<div className="ics-card__actions">
+        {!isCancelled && !isReply && !isCounter && (<div className="ics-card__actions">
           {canRsvp ? (
             <>
               <button
@@ -811,18 +1020,27 @@ export function ICSInvitationCard({
           )}
         </div>)}
 
-        {actionError   && <p className="ics-card__feedback ics-card__feedback--error">{actionError}</p>}
-        {actionSuccess && <p className="ics-card__feedback ics-card__feedback--success">{actionSuccess}</p>}
+        {actionError   && <p role="alert" className="ics-card__feedback ics-card__feedback--error">{actionError}</p>}
+        {actionSuccess && <p role="status" className="ics-card__feedback ics-card__feedback--success">{actionSuccess}</p>}
       </div>
 
       {/* ── Right: day timeline ── */}
       <DayEventsTimeline
         events={dayEvents}
-        calendars={allCalendars}
+        calendars={writableCalendars}
+        onEventClick={setPreviewEvent}
         targetDate={targetDate}
-        highlightedEventId={resolveHighlightedId(isCancelled, matchedInSelected?.id, icsData?.isAllday)}
+        highlightedEventId={resolveHighlightedId(isCancelled, isCounter ? acceptedCounter?.id : matchedInSelected?.id, icsData?.isAllday)}
         cancelledEventId={isCancelled ? (matchedInSelected?.id ?? ICS_CANCELLED_ID) : undefined}
       />
+      {previewEvent && createPortal(<EventModal
+        event={previewEvent}
+        calendar={writableCalendars.find(calendar => calendar.id === previewEvent.calendarId) ?? null}
+        onClose={() => setPreviewEvent(null)}
+        readOnly
+        anchorElement={cardRef.current?.closest<HTMLElement>('.mail-thread-detail')}
+        allowTagEditing={previewEvent.id !== ICS_PREVIEW_ID && previewEvent.id !== ICS_CANCELLED_ID}
+      />, document.body)}
     </div>
   );
 }

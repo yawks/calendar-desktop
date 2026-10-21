@@ -290,6 +290,10 @@ pub struct EmailAddress<State = Get> {
     _state: std::marker::PhantomData<State>,
 
     name: Option<String>,
+    // Some servers expose malformed legacy address headers as an object that
+    // contains only `name`. Keep the rest of Email/get usable instead of
+    // rejecting the complete response because of that single address.
+    #[serde(default)]
     email: String,
 }
 
@@ -988,5 +992,18 @@ impl From<Email> for TestEmail {
             preview: email.preview,
             headers: email.headers.into_iter().collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EmailAddress;
+
+    #[test]
+    fn deserializes_legacy_address_without_email() {
+        let address: EmailAddress = serde_json::from_str(r#"{"name":"Legacy sender"}"#).unwrap();
+
+        assert_eq!(address.name.as_deref(), Some("Legacy sender"));
+        assert!(address.email.is_empty());
     }
 }

@@ -1,9 +1,11 @@
 import { CalendarConfig, CalendarEvent, CreateEventPayload } from '../../../shared/types';
-import { ChevronDown, X } from 'lucide-react';
+import { CalendarDays, ChevronDown, Clock, MapPin, Tag, AlignLeft, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import FreeBusyGrid, { FreeBusyRow } from './FreeBusyGrid';
 import { FreeBusyResult, queryFreeBusy } from '../utils/googleCalendarApi';
 
+import { eventMarkers, eventOptions, isFreeEvent } from '../utils/eventOptions';
+import RecurrenceEditor from './RecurrenceEditor';
 import AttendeeInput from './AttendeeInput';
 import { getDefaultCalendarId } from '../store/defaultCalendarStore';
 import { queryEWSFreeBusy } from '../utils/ewsApi';
@@ -22,6 +24,7 @@ interface Props {
   readonly editEvent?: CalendarEvent;
   readonly onSubmit: (payload: CreateEventPayload, scope?: EditRecurringScope) => Promise<void>;
   readonly onClose: () => void;
+  readonly loadRecurrence?: (event: CalendarEvent) => Promise<string | null>;
   /** Required to query freebusy for Google calendars */
   readonly getValidToken?: (accountId: string) => Promise<string | null>;
   /** Required to query freebusy for Exchange calendars (synchronous refresh token getter) */
@@ -42,18 +45,26 @@ function toDateLocal(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose, getValidToken, getExchangeRefreshToken }: Props) {
+export default function CreateEventModal({ initialStart, initialEnd, writableCalendars, allEvents, editEvent, onSubmit, onClose, getValidToken, getExchangeRefreshToken, loadRecurrence }: Props) {
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const descriptionEditorRef = useRef<MailEditorHandle>(null);
+  const startTimeInputRef = useRef<HTMLInputElement>(null);
+  const endTimeInputRef = useRef<HTMLInputElement>(null);
   const isEditing = editEvent != null;
   const { tags, eventTags } = useTags();
 
   const editEventTagKey = editEvent ? editEvent.seriesId ?? editEvent.sourceId : undefined;
   const initialTagId = (editEventTagKey ? eventTags[editEventTagKey] : undefined) ?? editEvent?.tagId;
 
+  const [availability, setAvailability] = useState(editEvent?.availability ?? '');
+  const [sensitivity, setSensitivity] = useState(editEvent?.sensitivity ?? '');
+  const [eventType, setEventType] = useState(editEvent?.eventType ?? 'default');
+  const [onlineMeeting, setOnlineMeeting] = useState(true);
   const [title, setTitle] = useState(editEvent?.title ?? '');
   const [tagId, setTagId] = useState(initialTagId ?? '');
+  const [showOptions, setShowOptions] = useState(false);
+  const [showEndDate, setShowEndDate] = useState(false);
   const [isAllday, setIsAllday] = useState(editEvent?.isAllday ?? false);
   const [start, setStart] = useState(() => toDatetimeLocal(editEvent?.start ?? initialStart));
   const [end, setEnd] = useState(() => toDatetimeLocal(editEvent?.end ?? initialEnd));
@@ -72,10 +83,45 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
       ?.filter((a) => a.email && !a.email.startsWith('/O='))
       .map((a) => ({ email: a.email, name: a.name })) ?? []
   );
+  const [currentRule, setCurrentRule] = useState<string | null>(null);
+  const [recurrenceLoading, setRecurrenceLoading] = useState(false);
+  const [recurrenceError, setRecurrenceError] = useState(false);
+  useEffect(() => {
+    if (!editEvent?.isRecurringInstance || !loadRecurrence) return;
+    let cancelled = false;
+    setRecurrenceLoading(true);
+    loadRecurrence(editEvent).then(rule => { if (!cancelled) setCurrentRule(rule); })
+      .catch(() => { if (!cancelled) setRecurrenceError(true); })
+      .finally(() => { if (!cancelled) setRecurrenceLoading(false); });
+    return () => { cancelled = true; };
+  }, [editEvent, loadRecurrence]);
+  const [editingRecurrence, setEditingRecurrence] = useState(false);
+  const [recurrence, setRecurrence] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const updateStart = (nextStart: string) => {
+    const oldStart = new Date(start);
+    const oldEnd = new Date(end);
+    setStart(nextStart);
+    if (!Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime())) {
+      const nextStartDate = new Date(nextStart);
+      if (!Number.isNaN(nextStartDate.getTime())) {
+        setEnd(toDatetimeLocal(new Date(nextStartDate.getTime() + oldEnd.getTime() - oldStart.getTime()).toISOString()));
+      }
+    }
+  };
+
+  const focusTimePicker = (input: HTMLInputElement | null) => {
+    input?.focus();
+    try {
+      input?.showPicker();
+    } catch {
+      // Some Android WebViews require a direct tap to open the native picker.
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -92,6 +138,17 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   const [freeBusyLoading, setFreeBusyLoading] = useState(false);
 
   const selectedCalendar = writableCalendars.find((c) => c.id === calendarId);
+  const options = eventOptions(selectedCalendar);
+  const specialGoogleEvent = selectedCalendar?.type === 'google' && ['outOfOffice', 'focusTime', 'workingLocation', 'birthday'].includes(eventType);
+  const primaryGoogleCalendar = !selectedCalendar?.googleCalendarId || selectedCalendar.googleCalendarId === 'primary' || (!!selectedCalendar?.ownerEmail && selectedCalendar.googleCalendarId === selectedCalendar.ownerEmail);
+  const googleTypes = ['default', ...(primaryGoogleCalendar ? ['outOfOffice', 'focusTime', 'workingLocation', 'birthday'] : [])];
+  if (!googleTypes.includes(eventType)) googleTypes.push(eventType);
+  const effectiveAvailability = specialGoogleEvent
+    ? (['workingLocation', 'birthday'].includes(eventType) ? 'transparent' : 'opaque')
+    : availability || options.availability[0];
+  const forcedSensitivity = specialGoogleEvent && eventType === 'workingLocation' ? 'public'
+    : specialGoogleEvent && eventType === 'birthday' ? 'private' : undefined;
+  const effectiveSensitivity = forcedSensitivity ?? (sensitivity || options.sensitivity[0]);
   const headerColor = selectedCalendar?.color ?? '#888';
 
   const isGoogleCalendar = selectedCalendar?.type === 'google';
@@ -99,7 +156,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   // Exchange free/busy requires a registered Azure app with Calendars.Read scope;
   // with the public Office client ID (d3590ed6), Graph API access is blocked.
   // But we can use EWS-based free/busy as fallback.
-  const showFreeBusy = (isGoogleCalendar || isExchangeCalendar) && !isAllday && attendees.length > 0;
+  const showFreeBusy = (isGoogleCalendar || isExchangeCalendar) && !specialGoogleEvent && !isAllday && attendees.length > 0;
 
   // "Me" busy slots — computed locally from allEvents so ALL synced calendars are included
   // (Google, ICS, Nextcloud, etc.)
@@ -116,7 +173,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
     const tentative: Array<{ start: Date; end: Date }> = [];
 
     for (const ev of allEvents) {
-      if (ev.isAllday) continue;
+      if (ev.isAllday || isFreeEvent(ev)) continue;
       if (ev.isDeclined) continue;
 
       const evStart = new Date(ev.start);
@@ -125,7 +182,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
       if (evStart >= dayEnd || evEnd <= dayStart) continue;
 
       const slot = { start: evStart, end: evEnd };
-      if (ev.isUnaccepted) {
+      if (ev.isUnaccepted || ev.availability === 'Tentative') {
         tentative.push(slot);
       } else {
         busy.push(slot);
@@ -293,6 +350,8 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
 
   const handleSubmit = async (e: { preventDefault(): void }, scope?: EditRecurringScope) => {
     e.preventDefault();
+    if (editingRecurrence) return;
+    if (editEvent?.isRecurringInstance && scope === undefined) { setError(t('recurrence.chooseScope')); return; }
     if (!title.trim() || !calendarId) return;
 
     const startIso = isAllday ? startDate : new Date(start).toISOString();
@@ -302,6 +361,9 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
     setError('');
     try {
       const payload: CreateEventPayload = {
+        availability: effectiveAvailability,
+        sensitivity: effectiveSensitivity,
+        eventType: isGoogleCalendar ? eventType : undefined,
         title: title || t('createEvent.untitledEvent'),
         start: startIso,
         end: endIso,
@@ -309,13 +371,17 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
         location,
         description: isExchangeCalendar ? descriptionEditorRef.current?.getHTML() ?? description : description,
         calendarId,
-        attendees,
+        onlineMeeting: !isEditing && (isGoogleCalendar || isExchangeCalendar) ? onlineMeeting : undefined,
+        attendees: specialGoogleEvent ? undefined : attendees,
+        recurrence: scope === 'this' ? undefined : recurrence,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         tagId: tagId || null,
       };
       await onSubmit(payload, scope);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('createEvent.saveError'));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message.includes('ews_attendees_verification_failed') ? t('createEvent.attendeesVerificationError') : message.includes('teams_') ? t('createEvent.teamsError') : err instanceof Error ? err.message : t('createEvent.saveError'));
       setSaving(false);
     }
   };
@@ -332,7 +398,7 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
   }
 
   return (
-    <dialog ref={dialogRef} className="modal-dialog modal-dialog--form">
+    <dialog ref={dialogRef} className="modal-dialog modal-dialog--form event-editor-dialog">
       <div className="modal">
         <div className="modal-header" style={{ background: headerColor }}>
           <span className="modal-title">{isEditing ? t('createEvent.titleEdit') : t('createEvent.titleNew')}</span>
@@ -341,260 +407,345 @@ export default function CreateEventModal({ initialStart, initialEnd, writableCal
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="modal-body modal-form">
-          <div className="form-row">
-            <label htmlFor="ev-title">{t('createEvent.titleLabel')}</label>
-            <input
-              id="ev-title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t('createEvent.titlePlaceholder')}
-              autoFocus
-              required
-            />
-          </div>
-
-          <div className="form-row">
-            <label htmlFor="ev-allday" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <form onSubmit={handleSubmit} className="event-editor-form">
+          <div className="modal-body modal-form">
+            <div className="form-row event-editor-title">
+              <label htmlFor="ev-title">{t('createEvent.titleLabel')}</label>
               <input
-                id="ev-allday"
-                type="checkbox"
-                checked={isAllday}
-                onChange={(e) => setIsAllday(e.target.checked)}
+                id="ev-title"
+                style={{ borderBottomColor: selectedCalendar?.color ?? 'var(--primary)' }}
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t('createEvent.titlePlaceholder')}
+                autoFocus
+                required
               />
-              <span>{t('createEvent.allDay')}</span>
-            </label>
-          </div>
+            </div>
 
-          {isAllday ? (
-            <>
-              <div className="form-row">
-                <label htmlFor="ev-start-date">{t('createEvent.start')}</label>
-                <input id="ev-start-date" type="date" value={startDate} onChange={(e) => {
-                  const newStartStr = e.target.value;
-                  const oldStart = new Date(startDate);
-                  const oldEnd = new Date(endDate);
-                  setStartDate(newStartStr);
-                  if (!Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime())) {
-                    const duration = oldEnd.getTime() - oldStart.getTime();
-                    const newStart = new Date(newStartStr);
-                    if (!Number.isNaN(newStart.getTime())) {
-                      setEndDate(toDateLocal(new Date(newStart.getTime() + duration).toISOString()));
-                    }
-                  }
-                }} required />
-              </div>
-              <div className="form-row">
-                <label htmlFor="ev-end-date">{t('createEvent.end')}</label>
-                <input id="ev-end-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="form-row">
-                <label htmlFor="ev-start">{t('createEvent.start')}</label>
-                <input id="ev-start" type="datetime-local" value={start} onChange={(e) => {
-                  const newStartStr = e.target.value;
-                  const oldStart = new Date(start);
-                  const oldEnd = new Date(end);
-                  setStart(newStartStr);
-                  if (!Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime())) {
-                    const duration = oldEnd.getTime() - oldStart.getTime();
-                    const newStart = new Date(newStartStr);
-                    if (!Number.isNaN(newStart.getTime())) {
-                      setEnd(toDatetimeLocal(new Date(newStart.getTime() + duration).toISOString()));
-                    }
-                  }
-                }} required />
-              </div>
-              <div className="form-row">
-                <label htmlFor="ev-end">{t('createEvent.end')}</label>
-                <input id="ev-end" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} required />
-              </div>
-            </>
-          )}
-
-          <div className="form-row">
-            <label htmlFor="ev-calendar">{t('createEvent.calendar')}</label>
-            <select
-              id="ev-calendar"
-              value={calendarId}
-              onChange={(e) => setCalendarId(e.target.value)}
-              disabled={isEditing}
-              required
-            >
-              {googleCals.length > 0 || nextcloudCals.length > 0 || exchangeCals.length > 0 ? (
+            <div className="event-editor-dates">
+              {isAllday ? (
                 <>
-                  {googleCals.length > 0 && (
-                    <optgroup label="Google Agenda">
-                      {googleCals.map((cal) => (
-                        <option key={cal.id} value={cal.id}>{cal.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {nextcloudCals.length > 0 && (
-                    <optgroup label={t('config.nextcloudCalDAV')}>
-                      {nextcloudCals.map((cal) => (
-                        <option key={cal.id} value={cal.id}>{cal.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {exchangeCals.length > 0 && (
-                    <optgroup label="Exchange / Office 365">
-                      {exchangeCals.map((cal) => (
-                        <option key={cal.id} value={cal.id}>{cal.name}</option>
-                      ))}
-                    </optgroup>
-                  )}
+                  <div className="form-row">
+                    <label htmlFor="ev-start-date"><Clock className="event-editor-row-icon" size={20} aria-hidden="true" />{t('createEvent.start')}</label>
+                    <input id="ev-start-date" type="date" value={startDate} onChange={(e) => {
+                      const newStartStr = e.target.value;
+                      const oldStart = new Date(startDate);
+                      const oldEnd = new Date(endDate);
+                      setStartDate(newStartStr);
+                      if (!Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime())) {
+                        const duration = oldEnd.getTime() - oldStart.getTime();
+                        const newStart = new Date(newStartStr);
+                        if (!Number.isNaN(newStart.getTime())) {
+                          setEndDate(toDateLocal(new Date(newStart.getTime() + duration).toISOString()));
+                        }
+                      }
+                    }} required />
+                  </div>
+                  <div className="form-row">
+                    <label htmlFor="ev-end-date"><Clock className="event-editor-row-icon" size={20} aria-hidden="true" />{t('createEvent.end')}</label>
+                    <input id="ev-end-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+                  </div>
                 </>
               ) : (
-                writableCalendars.map((cal) => (
-                  <option key={cal.id} value={cal.id}>{cal.name}</option>
-                ))
-              )}
-            </select>
-          </div>
-
-          {tags.length > 0 && (
-            <div className="form-row">
-              <label htmlFor="ev-tag">{t('createEvent.tag', 'Tag / Insight')}</label>
-              <div ref={dropdownRef} style={{ position: 'relative', flex: 1 }}>
-                <div
-                  className="custom-select-trigger"
-                  onClick={() => setShowTagDropdown((p) => !p)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '8px 12px', border: '1px solid var(--border)',
-                    borderRadius: '4px', cursor: 'pointer'
-                  }}
-                >
-                  <div style={{
-                    width: '12px', height: '12px', borderRadius: '50%',
-                    backgroundColor: tagId ? tags.find(t => t.id === tagId)?.color : 'transparent',
-                    border: tagId ? 'none' : '1px solid var(--border)'
-                  }} />
-                  <span style={{ flex: 1 }}>
-                    {tagId ? tags.find(t => t.id === tagId)?.name : t('createEvent.noTag', 'Aucun tag')}
-                  </span>
-                  <ChevronDown size={14} />
+                <div className="event-editor-time-row">
+                  <Clock className="event-editor-row-icon" size={20} aria-hidden="true" />
+                  <div className="event-editor-time-fields">
+                    <label>
+                      <span>{t('createEvent.date')}</span>
+                      <input type="date" value={start.split('T')[0]} onChange={e => {
+                        updateStart(`${e.target.value}T${start.split('T')[1]}`);
+                        focusTimePicker(startTimeInputRef.current);
+                      }} required />
+                    </label>
+                    <label>
+                      <span>{t('createEvent.start')}</span>
+                      <input ref={startTimeInputRef} type="time" value={start.split('T')[1]} onChange={e => updateStart(`${start.split('T')[0]}T${e.target.value}`)} required />
+                    </label>
+                    <span className="event-editor-time-separator" aria-hidden="true">–</span>
+                    <label>
+                      <span>{t('createEvent.end')}</span>
+                      <input ref={endTimeInputRef} type="time" value={end.split('T')[1]} onChange={e => setEnd(`${end.split('T')[0]}T${e.target.value}`)} required />
+                    </label>
+                    {(showEndDate || start.split('T')[0] !== end.split('T')[0]) ? (
+                      <label className="event-editor-end-date">
+                        <span>{t('createEvent.endDate')}</span>
+                        <input type="date" value={end.split('T')[0]} onChange={e => {
+                          setEnd(`${e.target.value}T${end.split('T')[1]}`);
+                          focusTimePicker(endTimeInputRef.current);
+                        }} required />
+                      </label>
+                    ) : (
+                      <button type="button" className="event-editor-end-date-toggle" onClick={() => setShowEndDate(true)}>{t('createEvent.differentEndDate')}</button>
+                    )}
+                  </div>
                 </div>
-                {showTagDropdown && (
-                  <div className="custom-select-dropdown" style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
-                    background: 'var(--bg)', border: '1px solid var(--border)',
-                    borderRadius: '4px', marginTop: '4px', maxHeight: '200px',
-                    overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                  }}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className="custom-select-option"
-                      onClick={() => { setTagId(''); setShowTagDropdown(false); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { setTagId(''); setShowTagDropdown(false); } }}
-                      style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    >
-                      <div style={{ width: '12px', height: '12px', borderRadius: '50%', border: '1px solid var(--border)' }} />
-                      {t('createEvent.noTag', 'Aucun tag')}
-                    </div>
-                    {tags.map((tag) => (
+              )}
+
+            </div>
+
+            <div className="event-editor-options">
+              <div className="event-editor-options__header">
+                <button type="button" className="event-editor-options__toggle" aria-expanded={showOptions} aria-controls="ev-options" onClick={() => setShowOptions(value => !value)}>
+                  {t('createEvent.moreOptions')}
+                </button>
+                <label htmlFor="ev-allday" className="event-editor-allday">
+                  <input
+                    id="ev-allday"
+                    type="checkbox"
+                    checked={isAllday}
+                    onChange={(e) => setIsAllday(e.target.checked)}
+                  />
+                  <span>{t('createEvent.allDay')}</span>
+                </label>
+              </div>
+              <div id="ev-options" className="event-editor-options__content" hidden={!showOptions}>
+                {eventType !== 'birthday' && <RecurrenceEditor start={isAllday ? startDate : start} allDay={isAllday} existing={!!editEvent?.isRecurringInstance} initialRule={currentRule} value={recurrence} onChange={setRecurrence} disabled={saving || recurrenceLoading} exchange={isExchangeCalendar} onEditingChange={setEditingRecurrence} />}
+
+                {recurrenceLoading && <p className="event-recurrence__help" role="status">{t('recurrence.loading')}</p>}
+                {recurrenceError && <p className="event-recurrence__error" role="alert">{t('recurrence.loadError')}</p>}
+
+                <div className="event-options">
+                  {isGoogleCalendar && (
+                    <label className="form-row" htmlFor="ev-type">
+                      <span>{t('eventOptions.type')}</span>
+                      <select id="ev-type" value={eventType} disabled={saving || isEditing} onChange={e => {
+                        const nextType = e.target.value;
+                        setEventType(nextType);
+                        if (nextType === 'birthday') {
+                          setIsAllday(true);
+                          const nextEnd = new Date(`${startDate}T12:00:00`);
+                          nextEnd.setDate(nextEnd.getDate() + 1);
+                          setEndDate(toDateLocal(nextEnd.toISOString()));
+                          setRecurrence(undefined);
+                        } else if (nextType === 'outOfOffice' || nextType === 'focusTime') setIsAllday(false);
+                      }}>
+                        {googleTypes.map(value => <option key={value} value={value}>{eventMarkers({ eventType: value })}{eventMarkers({ eventType: value }) ? ' ' : ''}{t(`eventOptions.values.${value}`, { defaultValue: value })}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  {options.availability.length > 0 && (
+                    <label className="form-row" htmlFor="ev-availability">
+                      <span>{t('eventOptions.availability')}</span>
+                      <select id="ev-availability" value={effectiveAvailability} disabled={saving || specialGoogleEvent} onChange={e => setAvailability(e.target.value)}>
+                        {options.availability.map(value => <option key={value} value={value}>{eventMarkers({ availability: value })}{eventMarkers({ availability: value }) ? ' ' : ''}{t(`eventOptions.values.${value}`)}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  {options.sensitivity.length > 0 && (
+                    <label className="form-row" htmlFor="ev-sensitivity">
+                      <span>{t('eventOptions.sensitivity')}</span>
+                      <select id="ev-sensitivity" value={effectiveSensitivity} disabled={saving || forcedSensitivity !== undefined} onChange={e => setSensitivity(e.target.value)}>
+                        {options.sensitivity.map(value => <option key={value} value={value}>{eventMarkers({ sensitivity: value })}{eventMarkers({ sensitivity: value }) ? ' ' : ''}{t(`eventOptions.values.${value}`)}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                {isGoogleCalendar && <p className="event-options__help">{t(isEditing ? 'eventOptions.immutableType' : 'eventOptions.googleHelp')}</p>}
+                {specialGoogleEvent && <p className="event-options__help">{t(eventType === 'birthday' ? 'eventOptions.birthdayOnly' : eventType === 'workingLocation' ? 'eventOptions.oneDayOnly' : 'eventOptions.timedOnly')}</p>}
+
+              </div>
+            </div>
+
+            {!specialGoogleEvent && <div className="form-row event-editor-attendees">
+              <label htmlFor="ev-attendees">
+                <Users className="event-editor-row-icon" size={20} aria-hidden="true" />
+                {t('createEvent.attendees')} <span className="event-editor-field-hint">{t('createEvent.optional')}</span>
+              </label>
+              <AttendeeInput value={attendees} onChange={setAttendees} allEvents={allEvents} />
+            </div>}
+
+            {/* Free/busy grid — only for Google calendars with attendees */}
+            {showFreeBusy && freeBusyWindow && (
+              <div className="form-row form-row--freebusy">
+                <FreeBusyGrid
+                  rows={freeBusyRows}
+                  windowStart={freeBusyWindow.windowStart}
+                  windowEnd={freeBusyWindow.windowEnd}
+                  selectedStart={new Date(start)}
+                  selectedEnd={new Date(end)}
+                  loading={freeBusyLoading}
+                  onSelectTime={handleSelectTime}
+                />
+              </div>
+            )}
+
+            {(!isGoogleCalendar || eventType !== 'birthday') && <div className="form-row event-editor-location">
+              <label htmlFor="ev-location">
+                <MapPin className="event-editor-row-icon" size={20} aria-hidden="true" />
+                {t('createEvent.location')} <span className="event-editor-field-hint">{t('createEvent.optional')}</span>
+              </label>
+              <input
+                id="ev-location"
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder={t('createEvent.locationPlaceholder')}
+              />
+            </div>}
+
+            {(!isGoogleCalendar || eventType !== 'birthday') && <div className="form-row event-editor-description">
+              <label htmlFor="ev-desc">
+                <AlignLeft className="event-editor-row-icon" size={20} aria-hidden="true" />
+                {t('createEvent.description')}
+              </label>
+              {isExchangeCalendar ? (
+                <div id="ev-desc" className="calendar-description-editor">
+                  <MailEditor
+                    ref={descriptionEditorRef}
+                    initialHTML={description}
+                    disableAutoFocus
+                    placeholder={t('createEvent.description')}
+                  />
+                </div>
+              ) : (
+                <textarea
+                  id="ev-desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                />
+              )}
+            </div>}
+
+            {!isEditing && !specialGoogleEvent && (isGoogleCalendar || isExchangeCalendar) && (
+              <label className="event-conference" htmlFor="ev-conference">
+                <svg className="event-conference__icon" viewBox="0 0 24 24" aria-hidden="true">
+                  {isExchangeCalendar ? <><circle cx="17" cy="6" r="3" fill="currentColor" /><path d="M12 10h10v7a4 4 0 0 1-8 0" fill="currentColor" /><rect x="1" y="6" width="14" height="15" rx="2" fill="currentColor" /><path d="M4 10h8M8 10v8" stroke="var(--bg)" strokeWidth="2" /></> : <><rect x="2" y="5" width="14" height="14" rx="3" fill="currentColor" /><path d="m16 10 6-4v12l-6-4z" fill="currentColor" /></>}
+                </svg>
+                <span>{t(isExchangeCalendar ? 'createEvent.teamsMeeting' : 'createEvent.meetMeeting')}</span>
+                <input id="ev-conference" type="checkbox" role="switch" checked={onlineMeeting} onChange={e => setOnlineMeeting(e.target.checked)} disabled={saving} />
+                <span className="event-conference__switch" aria-hidden="true" />
+              </label>
+            )}
+
+            {!isEditing && writableCalendars.length > 1 && <div className="form-row event-editor-calendar">
+              <label htmlFor="ev-calendar">
+                <CalendarDays className="event-editor-row-icon" size={20} aria-hidden="true" />{t('createEvent.calendar')}</label>
+              <select
+                id="ev-calendar"
+                value={calendarId}
+                onChange={(e) => { setCalendarId(e.target.value); setAvailability(''); setSensitivity(''); setEventType('default'); }}
+                required
+              >
+                {googleCals.length > 0 || nextcloudCals.length > 0 || exchangeCals.length > 0 ? (
+                  <>
+                    {googleCals.length > 0 && (
+                      <optgroup label="Google Agenda">
+                        {googleCals.map((cal) => (
+                          <option key={cal.id} value={cal.id}>{cal.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {nextcloudCals.length > 0 && (
+                      <optgroup label={t('config.nextcloudCalDAV')}>
+                        {nextcloudCals.map((cal) => (
+                          <option key={cal.id} value={cal.id}>{cal.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {exchangeCals.length > 0 && (
+                      <optgroup label="Exchange / Office 365">
+                        {exchangeCals.map((cal) => (
+                          <option key={cal.id} value={cal.id}>{cal.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                ) : (
+                  writableCalendars.map((cal) => (
+                    <option key={cal.id} value={cal.id}>{cal.name}</option>
+                  ))
+                )}
+              </select>
+            </div>}
+
+            {tags.length > 0 && (
+              <div className="form-row event-editor-tag">
+                <label htmlFor="ev-tag">
+                <Tag className="event-editor-row-icon" size={20} aria-hidden="true" />{t('createEvent.tag', 'Tag / Insight')}</label>
+                <div ref={dropdownRef} style={{ position: 'relative', flex: 1 }}>
+                  <div
+                    className="custom-select-trigger"
+                    onClick={() => setShowTagDropdown((p) => !p)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                      padding: '8px 12px', border: '1px solid var(--border)',
+                      borderRadius: '4px', cursor: 'pointer'
+                    }}
+                  >
+                    <div style={{
+                      width: '12px', height: '12px', borderRadius: '50%',
+                      backgroundColor: tagId ? tags.find(t => t.id === tagId)?.color : 'transparent',
+                      border: tagId ? 'none' : '1px solid var(--border)'
+                    }} />
+                    <span style={{ flex: 1 }}>
+                      {tagId ? tags.find(t => t.id === tagId)?.name : t('createEvent.noTag', 'Aucun tag')}
+                    </span>
+                    <ChevronDown size={14} />
+                  </div>
+                  {showTagDropdown && (
+                    <div className="custom-select-dropdown" style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
+                      background: 'var(--bg)', border: '1px solid var(--border)',
+                      borderRadius: '4px', marginTop: '4px', maxHeight: '200px',
+                      overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                    }}>
                       <div
                         role="button"
                         tabIndex={0}
-                        key={tag.id}
                         className="custom-select-option"
-                        onClick={() => { setTagId(tag.id); setShowTagDropdown(false); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { setTagId(tag.id); setShowTagDropdown(false); } }}
+                        onClick={() => { setTagId(''); setShowTagDropdown(false); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { setTagId(''); setShowTagDropdown(false); } }}
                         style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                       >
-                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: tag.color }} />
-                        {tag.name}
+                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', border: '1px solid var(--border)' }} />
+                        {t('createEvent.noTag', 'Aucun tag')}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {tags.map((tag) => (
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          key={tag.id}
+                          className="custom-select-option"
+                          onClick={() => { setTagId(tag.id); setShowTagDropdown(false); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { setTagId(tag.id); setShowTagDropdown(false); } }}
+                          style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        >
+                          <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: tag.color }} />
+                          {tag.name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-
-          <div className="form-row">
-            <label htmlFor="ev-attendees">
-              {t('createEvent.attendees')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
-            </label>
-            <AttendeeInput value={attendees} onChange={setAttendees} allEvents={allEvents} />
-          </div>
-
-          {/* Free/busy grid — only for Google calendars with attendees */}
-          {showFreeBusy && freeBusyWindow && (
-            <div className="form-row form-row--freebusy">
-              <FreeBusyGrid
-                rows={freeBusyRows}
-                windowStart={freeBusyWindow.windowStart}
-                windowEnd={freeBusyWindow.windowEnd}
-                selectedStart={new Date(start)}
-                selectedEnd={new Date(end)}
-                loading={freeBusyLoading}
-                onSelectTime={handleSelectTime}
-              />
-            </div>
-          )}
-
-          <div className="form-row">
-            <label htmlFor="ev-location">
-              {t('createEvent.location')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
-            </label>
-            <input
-              id="ev-location"
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder={t('createEvent.locationPlaceholder')}
-            />
-          </div>
-
-          <div className="form-row">
-            <label htmlFor="ev-desc">
-              {t('createEvent.description')} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{t('createEvent.optional')}</span>
-            </label>
-            {isExchangeCalendar ? (
-              <div id="ev-desc" className="calendar-description-editor">
-                <MailEditor
-                  ref={descriptionEditorRef}
-                  initialHTML={description}
-                  disableAutoFocus
-                  placeholder={t('createEvent.description')}
-                />
-              </div>
-            ) : (
-              <textarea
-                id="ev-desc"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-              />
             )}
+
           </div>
 
-          {error && (
-            <div style={{ color: 'var(--color-error, #d93025)', fontSize: 'calc(13px * var(--font-scale, 1))' }}>{error}</div>
-          )}
-
-          <div className="config-edit-actions">
-            {isEditing && editEvent?.isRecurringInstance ? (
-              <>
-                <button type="button" className="btn-primary" disabled={saving || !title.trim()} onClick={(e) => void handleSubmit(e, 'this')}>
-                  {saving ? t('createEvent.savingEdit') : t('recurringChoice.saveThisEvent')}
-                </button>
-                <button type="button" className="btn-primary" disabled={saving || !title.trim()} onClick={(e) => void handleSubmit(e, 'future')}>
-                  {saving ? t('createEvent.savingEdit') : t('recurringChoice.saveFutureEvents')}
-                </button>
-              </>
-            ) : (
-              <button type="submit" className="btn-primary" disabled={saving || !title.trim()}>
-                {submitLabel}
-              </button>
+          <div className="event-editor-footer">
+            {error && (
+              <div className="event-recurrence__error" role="alert">{error}</div>
             )}
-            <button type="button" className="btn-cancel" onClick={onClose}>{t('createEvent.cancel')}</button>
+
+            <div className="config-edit-actions">
+              {isEditing && editEvent?.isRecurringInstance ? (
+                <>
+                  <button type="button" className="btn-primary" disabled={saving || editingRecurrence || !title.trim() || recurrence !== undefined} onClick={(e) => { if (e.currentTarget.form?.reportValidity()) void handleSubmit(e, 'this'); }}>
+                    {saving ? t('createEvent.savingEdit') : t('recurringChoice.saveThisEvent')}
+                  </button>
+                  <button type="button" className="btn-primary" disabled={saving || editingRecurrence || !title.trim()} onClick={(e) => { if (e.currentTarget.form?.reportValidity()) void handleSubmit(e, 'future'); }}>
+                    {saving ? t('createEvent.savingEdit') : t('recurringChoice.saveFutureEvents')}
+                  </button>
+                </>
+              ) : (
+                <button type="submit" className="btn-primary" disabled={saving || editingRecurrence || !title.trim()}>
+                  {submitLabel}
+                </button>
+              )}
+              <button type="button" className="btn-cancel" onClick={onClose}>{t('createEvent.cancel')}</button>
+            </div>
           </div>
         </form>
       </div>

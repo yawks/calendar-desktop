@@ -284,7 +284,7 @@ export function MailSearchBar({ activeQuery, onSearch, contacts = [], provider }
   return (
     <div
       ref={containerRef}
-      className={`mail-search-bar${isActive ? ' mail-search-bar--active' : ''}${focused ? ' mail-search-bar--focused' : ''}`}
+      className={`mail-search-bar app-mobile-header__search${isActive ? ' mail-search-bar--active' : ''}${focused ? ' mail-search-bar--focused' : ''}`}
       onClick={() => inputRef.current?.focus()}
     >
       <Search size={14} className="mail-search-bar__icon" />

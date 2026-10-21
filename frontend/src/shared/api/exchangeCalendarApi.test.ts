@@ -1,12 +1,38 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { exchangeCalendarApi } from './exchangeCalendarApi';
+import { hasNativeTransport, invokeNative } from './nativeTransport';
+
+vi.mock('./nativeTransport', () => ({ hasNativeTransport: vi.fn(() => false), invokeNative: vi.fn() }));
 
 describe('exchangeCalendarApi', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.mocked(hasNativeTransport).mockReturnValue(false);
+    vi.mocked(invokeNative).mockReset();
+  });
+
+  it('passes participants through the desktop command and retains native error details', async () => {
+    vi.mocked(hasNativeTransport).mockReturnValue(true);
+    vi.mocked(invokeNative).mockResolvedValueOnce(null);
+    const request = { itemId: 'item', attendees: ['new@example.org'] };
+    await exchangeCalendarApi.update(request);
+    expect(invokeNative).toHaveBeenCalledWith('exchange_calendar_update', request);
+    vi.mocked(invokeNative).mockRejectedValueOnce('EWS update ErrorAccessDenied: denied');
+    await expect(exchangeCalendarApi.update(request)).rejects.toThrow('ErrorAccessDenied');
+    vi.mocked(invokeNative).mockRejectedValueOnce('ews_attendees_verification_failed');
+    await expect(exchangeCalendarApi.update(request)).rejects.toThrow('ews_attendees_verification_failed');
+  });
 
   it('maps the generic event identifier returned by EWS', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ itemId: 'item', changeKey: 'change' }), { status: 200 })));
     await expect(exchangeCalendarApi.create({ title: 'Meeting' })).resolves.toBe('item|change');
+  });
+
+  it('sends edited participants and surfaces Exchange failures', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'ErrorAccessDenied' }), { status: 502 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(exchangeCalendarApi.update({ itemId: 'item', attendees: ['new@example.org'] })).rejects.toThrow('ErrorAccessDenied');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).attendees).toEqual(['new@example.org']);
   });
 
   it('sends RSVP through the same-origin backend', async () => {
@@ -29,4 +55,18 @@ describe('exchangeCalendarApi', () => {
     await exchangeCalendarApi[operation]<Record<string, never>>({});
     expect(fetchMock).toHaveBeenCalledWith(`/api/calendar/exchange/${route}`, expect.anything());
   });
+  it('uses the shared-folder endpoint and passes the selected mailbox and folder to native reads', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ calendars: [], limitedDiscovery: false }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await exchangeCalendarApi.shared({ accessToken: 'token', email: 'other@example.com' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/calendar/exchange/shared', expect.objectContaining({ method: 'POST' }));
+    vi.mocked(hasNativeTransport).mockReturnValue(true);
+    vi.mocked(invokeNative).mockResolvedValue([]);
+    const request = { accessToken: 'token', sharedMailbox: 'other@example.com', folderId: 'shared-folder', start: '2026-10-01', end: '2026-11-01' };
+    await exchangeCalendarApi.list(request);
+    expect(invokeNative).toHaveBeenCalledWith('exchange_calendar_list', request);
+    await exchangeCalendarApi.shared({ accessToken: 'token', email: 'other@example.com' });
+    expect(invokeNative).toHaveBeenCalledWith('exchange_calendar_shared', { accessToken: 'token', email: 'other@example.com' });
+  });
+
 });

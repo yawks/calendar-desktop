@@ -34,6 +34,7 @@ export interface MailMessage {
   from_email: string | null;
   to_recipients: MailRecipient[];
   cc_recipients: MailRecipient[];
+  bcc_recipients?: MailRecipient[];
   body_html: string;
   /** False when only the message envelope/header has been loaded. */
   body_loaded?: boolean;
@@ -81,6 +82,7 @@ export interface MailFolder {
 }
 
 export interface ComposerRestoreData {
+  initialFocus?: 'to' | 'subject';
   toRecipients: import('./components/RecipientInput').RecipientEntry[];
   ccRecipients: import('./components/RecipientInput').RecipientEntry[];
   bccRecipients: import('./components/RecipientInput').RecipientEntry[];
@@ -90,6 +92,8 @@ export interface ComposerRestoreData {
   showCc: boolean;
   showBcc: boolean;
   isNewMessage: boolean;
+  /** Draft received through the Android share sheet and kept in the local vault. */
+  isShared?: boolean;
   isForward?: boolean;
   replyingToMsg: MailMessage | null;
   /** Account to send from (all-accounts mode or explicit override). */

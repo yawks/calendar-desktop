@@ -9,11 +9,12 @@ import {
   MoreHorizontal,
   RefreshCw,
   ShieldAlert,
-  Trash2
+  Trash2,
+  ChevronLeft,
 } from 'lucide-react';
 import { ComposerRestoreData, MailAttachment, MailIdentity, MailMessage, MailThread } from '../types';
 import { MailComposer, MailComposerHandle } from './MailComposer';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { CollapsedMessagesBar } from './CollapsedMessagesBar';
 import { ComposerAttachment } from '../providers/MailProvider';
@@ -26,6 +27,7 @@ export interface ThreadDetailProps {
   readonly thread: MailThread;
   readonly messages: MailMessage[];
   readonly messagesLoading?: boolean;
+  readonly messagesFetching?: boolean;
   readonly replyingTo: MailMessage | null;
   readonly contacts: { email: string; name?: string }[];
   readonly provider?: import('../providers/MailProvider').MailProvider | null;
@@ -39,6 +41,7 @@ export interface ThreadDetailProps {
   readonly onGetAttachmentData: (att: MailAttachment) => Promise<string>;
   readonly onReply: (msg: MailMessage) => void;
   readonly onReplyAll: (msg: MailMessage) => void;
+  readonly onNewToRecipients?: (msg: MailMessage) => void;
   readonly onForward: (msg: MailMessage) => void;
   readonly onToggleRead: (msg: MailMessage) => void;
   readonly replyMode: 'reply' | 'replyAll' | 'forward';
@@ -60,11 +63,17 @@ export interface ThreadDetailProps {
   readonly onUnsnooze: () => void;
   readonly moveFolders: import('../types').MailFolder[];
   readonly onMove: (folderId: string) => void;
+  readonly moveSources?: React.ComponentProps<typeof FolderPickerPopover>['sources'];
+  readonly moveSourceAccountId?: string;
+  readonly onTransfer?: (accountId: string, folderId: string, operation: 'copy' | 'move') => void;
   readonly isInSpamFolder?: boolean;
   readonly onMarkAsSpam?: () => void;
   readonly composerRef?: React.RefObject<MailComposerHandle>;
   readonly sourceLabel?: string;
   readonly sourceColor?: string;
+  readonly initiallyExpandedMessageId?: string;
+  readonly onInitialMessageReady?: () => void;
+  readonly onBack?: () => void;
 }
 
 const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -92,16 +101,16 @@ function computeSnoozeOptions() {
 }
 
 export function ThreadDetail({
-  thread, messages, messagesLoading, replyingTo, contacts, provider, currentUserEmail, mailProviderType,
+  thread, messages, messagesLoading, messagesFetching, replyingTo, contacts, provider, currentUserEmail, mailProviderType,
   identities, selectedIdentityId, onIdentityChange,
   onMarkRead, onTrash,
   onPreviewAttachment, onDownloadAttachment, onGetAttachmentData, loadingAttachmentId,
-  onReply, onReplyAll, onForward, onToggleRead,
+  onReply, onReplyAll, onForward, onNewToRecipients, onToggleRead,
   replyMode, onCancelReply, onSaveDraft, onSend, composerRestoreData,
   onDeleteThread, onToggleThreadRead,
   supportsSnooze, onSnooze, snoozeUntil, isInSnoozedFolder, isInScheduledFolder, onScheduledSendCanceled, onUnsnooze,
-  moveFolders, onMove, isInSpamFolder, onMarkAsSpam, composerRef,
-  sourceLabel, sourceColor,
+  moveFolders, onMove, moveSources, moveSourceAccountId, onTransfer, isInSpamFolder, onMarkAsSpam, composerRef,
+  sourceLabel, sourceColor, initiallyExpandedMessageId, onInitialMessageReady, onBack,
 }: ThreadDetailProps) {
   const { t } = useTranslation();
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -114,9 +123,17 @@ export function ThreadDetail({
   useEffect(() => { setSnoozeBannerDismissed(false); }, [thread.conversation_id]);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
 
-  const handleMarkSingleRead = useCallback((msg: MailMessage) => {
-    onMarkRead([msg]);
-  }, [onMarkRead]);
+  const markedConversationRef = useRef<string | null>(null);
+  useEffect(() => {
+    markedConversationRef.current = null;
+  }, [thread.accountId, thread.conversation_id]);
+  useEffect(() => {
+    if (messagesLoading || messagesFetching || markedConversationRef.current === thread.conversation_id) return;
+    const unread = messages.filter(message => !message.is_read);
+    if (!unread.length) return;
+    markedConversationRef.current = thread.conversation_id;
+    onMarkRead(unread);
+  }, [messages, messagesLoading, messagesFetching, onMarkRead, thread.accountId, thread.conversation_id]);
 
   useEffect(() => {
     if (!replyingTo) return;
@@ -127,7 +144,40 @@ export function ThreadDetail({
     return () => cancelAnimationFrame(raf);
   }, [replyingTo]);
 
-  const [middleExpanded, setMiddleExpanded] = useState(false);
+  const [middleExpandedConversationId, setMiddleExpandedConversationId] = useState<string | null>(null);
+  const middleExpanded = middleExpandedConversationId === thread.conversation_id;
+  const initialMessageRef = useRef<{
+    conversationId: string;
+    targetMessageId?: string;
+    messageId?: string;
+    unreadMessageId?: string;
+    ready: boolean;
+  }>({ conversationId: thread.conversation_id, targetMessageId: initiallyExpandedMessageId, ready: false });
+
+  if (initialMessageRef.current.conversationId !== thread.conversation_id
+    || initialMessageRef.current.targetMessageId !== initiallyExpandedMessageId) {
+    initialMessageRef.current = {
+      conversationId: thread.conversation_id,
+      targetMessageId: initiallyExpandedMessageId,
+      ready: false,
+    };
+  }
+  if (!messagesLoading && messages.length > 0 && !initialMessageRef.current.ready) {
+    const targetedMessage = initiallyExpandedMessageId
+      ? messages.find(message => message.item_id === initiallyExpandedMessageId)
+      : undefined;
+    // Notification aggregate providers cannot expose a stable item id without
+    // another network call. Their notification always represents the newest
+    // unread item in the conversation, so use the last unread envelope.
+    const latestUnreadMessage = messages.slice().reverse().find(message => !message.is_read);
+    initialMessageRef.current = {
+      conversationId: thread.conversation_id,
+      targetMessageId: initiallyExpandedMessageId,
+      messageId: targetedMessage?.item_id ?? latestUnreadMessage?.item_id ?? messages.at(-1)?.item_id,
+      unreadMessageId: targetedMessage?.item_id ?? latestUnreadMessage?.item_id,
+      ready: true,
+    };
+  }
 
   const { laterToday, tomorrowMorning, tomorrowAfternoon, nextWeek } = computeSnoozeOptions();
   const laterTodayLabel = laterToday.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -150,7 +200,8 @@ export function ThreadDetail({
   };
   const isSnoozed = !snoozeBannerDismissed && (isInSnoozedFolder || (!!snoozeUntil && new Date(snoozeUntil) > new Date()));
   const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
-  const initiallyExpandedId = messages.find(message => !message.is_read)?.item_id ?? lastMsg?.item_id;
+  const initiallyExpandedId = initialMessageRef.current.messageId;
+  const initialUnreadId = initialMessageRef.current.unreadMessageId;
 
 
   return (
@@ -284,6 +335,9 @@ export function ThreadDetail({
               <FolderPickerPopover
                 folders={moveFolders}
                 onSelect={folderId => { onMove(folderId); setMoveOpen(false); }}
+                sources={moveSources}
+                currentAccountId={moveSourceAccountId}
+                onSelectDestination={onTransfer ? (accountId, folderId, operation) => { onTransfer(accountId, folderId, operation); setMoveOpen(false); } : undefined}
                 onClose={() => setMoveOpen(false)}
               />
             </>
@@ -325,16 +379,21 @@ export function ThreadDetail({
       </div>
 
       <div className="mail-thread-detail__header">
-        <h2 className="mail-thread-detail__subject">{decodeHtmlEntities(thread.topic) || t('mail.noSubject', "(Pas d'objet)")}</h2>
-        {sourceLabel && (
-          <span
-            className="mail-thread-detail__source"
-            style={{ '--source-color': sourceColor ?? 'var(--primary)' } as React.CSSProperties}
-          >
-            <span className="mail-thread-detail__source-dot" style={{ background: sourceColor }} />
-            {sourceLabel}
-          </span>
-        )}
+        <button type="button" className="mail-thread-detail__header-back" aria-label={t('mail.backToList')} onClick={onBack}>
+          <ChevronLeft size={30} />
+        </button>
+        <div className="mail-thread-detail__header-content">
+          <h2 className="mail-thread-detail__subject">{decodeHtmlEntities(thread.topic) || t('mail.noSubject', "(Pas d'objet)")}</h2>
+          {sourceLabel && (
+            <span
+              className="mail-thread-detail__source"
+              style={{ '--source-color': sourceColor ?? 'var(--primary)' } as React.CSSProperties}
+            >
+              <span className="mail-thread-detail__source-dot" style={{ background: sourceColor }} />
+              {sourceLabel}
+            </span>
+          )}
+        </div>
       </div>
 
       {isSnoozed && (
@@ -361,18 +420,18 @@ export function ThreadDetail({
           <>
             <CollapsedMessagesBar
               messages={messages.slice(0, messages.length - 1)}
-              onExpand={() => setMiddleExpanded(true)}
+              onExpand={() => setMiddleExpandedConversationId(thread.conversation_id)}
             />
             <MessageBlock
               message={messages[messages.length - 1]}
               conversationId={thread.conversation_id}
-            defaultExpanded={messages[messages.length - 1].item_id === initiallyExpandedId}
+              defaultExpanded={messages[messages.length - 1].item_id === initiallyExpandedId}
+              scrollIntoViewOnMount={messages[messages.length - 1].item_id === initialUnreadId}
               currentUserEmail={currentUserEmail}
               mailProviderType={mailProviderType}
               provider={provider}
-              onMarkRead={handleMarkSingleRead}
               onReply={onReply}
-              onReplyAll={onReplyAll}
+              onReplyAll={onReplyAll} onNewToRecipients={onNewToRecipients}
               onForward={onForward}
               onTrash={onTrash}
               onToggleRead={onToggleRead}
@@ -382,6 +441,7 @@ export function ThreadDetail({
               loadingAttachmentId={loadingAttachmentId}
               isInScheduledFolder={isInScheduledFolder}
               onScheduledSendCanceled={onScheduledSendCanceled}
+              onBodyReady={onInitialMessageReady}
             />
           </>
         )}
@@ -391,12 +451,12 @@ export function ThreadDetail({
             message={msg}
             conversationId={thread.conversation_id}
             defaultExpanded={msg.item_id === initiallyExpandedId}
+            scrollIntoViewOnMount={msg.item_id === initialUnreadId}
             currentUserEmail={currentUserEmail}
             mailProviderType={mailProviderType}
             provider={provider}
-            onMarkRead={handleMarkSingleRead}
             onReply={onReply}
-            onReplyAll={onReplyAll}
+            onReplyAll={onReplyAll} onNewToRecipients={onNewToRecipients}
             onForward={onForward}
             onTrash={onTrash}
             onToggleRead={onToggleRead}
@@ -406,6 +466,7 @@ export function ThreadDetail({
             loadingAttachmentId={loadingAttachmentId}
             isInScheduledFolder={isInScheduledFolder}
             onScheduledSendCanceled={onScheduledSendCanceled}
+            onBodyReady={onInitialMessageReady}
           />
         ))}
 

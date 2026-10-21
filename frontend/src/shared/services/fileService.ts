@@ -1,3 +1,6 @@
+import { platform } from '../platform';
+import { getTauriInvoke, isTauriRuntime } from '../platform/tauriRuntime';
+
 export interface PickedFile {
   name: string;
   type: string;
@@ -51,9 +54,39 @@ export function openExternalUrl(rawUrl: string): boolean {
   try {
     const url = new URL(rawUrl, globalThis.location.href);
     if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) return false;
+    if (platform.openExternalUrl) {
+      void platform.openExternalUrl(url.href);
+      return true;
+    }
+    const invoke = getTauriInvoke();
+    if (invoke) {
+      void invoke('open_external_url', { url: url.href }).catch(error => {
+        console.error('[Desktop] Failed to open external URL', error);
+      });
+      return true;
+    }
     globalThis.open(url.href, '_blank', 'noopener,noreferrer');
     return true;
   } catch {
     return false;
   }
+}
+
+export function installDesktopExternalLinkHandler(): () => void {
+  if (!isTauriRuntime()) return () => undefined;
+
+  const handleClick = (event: MouseEvent) => {
+    if (event.defaultPrevented || event.button !== 0) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest<HTMLAnchorElement>('a[href]');
+    if (!anchor || anchor.hasAttribute('download')) return;
+    const url = new URL(anchor.href, globalThis.location.href);
+    if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) return;
+    event.preventDefault();
+    openExternalUrl(url.href);
+  };
+
+  document.addEventListener('click', handleClick);
+  return () => document.removeEventListener('click', handleClick);
 }

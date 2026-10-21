@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useMailContentRules } from '../../../shared/store/MailContentRulesStore';
+import { filterMailHtml, filterMailText } from '../utils/mailContentFilter';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../../shared/store/ThemeStore';
 import { useFontSize } from '../../../shared/store/FontSizeStore';
 import { openExternalUrl } from '../../../shared/services/fileService';
-import { disableSenderDarkModeCss } from '../utils/emailDarkMode';
+import { platform } from '../../../shared/platform';
+import { disableSenderDarkModeCss, protectEmailEmojis } from '../utils/emailDarkMode';
+import { installEmailPinchZoom } from '../utils/emailPinchZoom';
 import { findQuoteMarker, processEmailQuotes } from '../utils/emailQuoteParser';
 
 function parseHexColor(raw: string): [number, number, number] | null {
@@ -11,26 +15,56 @@ function parseHexColor(raw: string): [number, number, number] | null {
   return m ? [Number.parseInt(m[1], 16), Number.parseInt(m[2], 16), Number.parseInt(m[3], 16)] : null;
 }
 
-export function EmailHtmlBody({ html, bodyText }: { readonly html: string; readonly bodyText?: string }) {
+function sanitizeEmailHtml(html: string, isDark: boolean): string {
+  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  parsed.querySelectorAll('script, iframe, frame, object, embed, base, meta[http-equiv="refresh"]').forEach(element => element.remove());
+  parsed.querySelectorAll<HTMLElement>('*').forEach(element => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().toLowerCase();
+      if (name.startsWith('on') || ((name === 'href' || name === 'src') && value.startsWith('javascript:'))) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+  if (isDark) protectEmailEmojis(parsed.body);
+  // Outlook defines paragraph/list spacing in head styles, not always inline.
+  return Array.from(parsed.head.querySelectorAll('style'), style => style.outerHTML).join('') + parsed.body.innerHTML;
+}
+
+export function EmailHtmlBody({ html, bodyText, onReady, expandFirstQuote = false, showHiddenContent = false, onHiddenContentChange }: {
+  readonly html: string;
+  readonly bodyText?: string;
+  readonly onReady?: () => void;
+  readonly expandFirstQuote?: boolean;
+  readonly showHiddenContent?: boolean;
+  readonly onHiddenContentChange?: (hidden: boolean) => void;
+}) {
   const { t } = useTranslation();
+  const { rules } = useMailContentRules();
+  const filtered = useMemo(() => filterMailHtml(html, rules), [html, rules]);
+  const filteredText = useMemo(() => filterMailText(bodyText ?? '', rules), [bodyText, rules]);
+  const hasHiddenContent = filtered.changed || filteredText !== (bodyText ?? '').trim();
+  useEffect(() => { onHiddenContentChange?.(hasHiddenContent); }, [hasHiddenContent, onHiddenContentChange]);
+  const displayText = showHiddenContent ? bodyText : filteredText;
+
   const { resolved } = useTheme();
   const { fontSize } = useFontSize();
   const fontScale = fontSize === 'small' ? 0.85 : fontSize === 'medium' ? 1 : fontSize === 'intermediate' ? 1.1 : 1.2;
   const isDark = resolved === 'dark';
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const pinchCleanupRef = useRef<(() => void) | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const [iframeHeight, setIframeHeight] = useState(200);
 
   const bgRaw = getComputedStyle(document.documentElement).getPropertyValue('--bg');
   const bgParsed = parseHexColor(bgRaw) ?? [28, 30, 32];
   const [bgR, bgG, bgB] = bgParsed;
   const bgCss = `rgb(${bgR}, ${bgG}, ${bgB})`;
 
-  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
-
-  useEffect(() => {
-    setIframeHeight(200);
-  }, [html, bodyText, resolved, fontSize]);
+  useEffect(() => () => {
+    resizeObserverRef.current?.disconnect();
+    pinchCleanupRef.current?.();
+  }, []);
 
   const kr = ((255 + bgR) / 255).toFixed(4);
   const kg = ((255 + bgG) / 255).toFixed(4);
@@ -48,7 +82,8 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   .ew { filter: url(#dm); }
   /* Applying the involutive filter a second time keeps media colours unchanged.
      !important prevents styles embedded by the sender from overriding it. */
-  .ew img, .ew video, .ew canvas, .ew iframe, .ew svg, .ew .qt-toggle {
+  .ew .ew-emoji { display: inline-block; }
+  .ew img, .ew video, .ew canvas, .ew iframe, .ew svg, .ew .qt-toggle, .ew .ew-emoji {
     filter: url(#dm) !important;
   }
   .ew .ew-bg-media-host { isolation: isolate; }
@@ -68,18 +103,82 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
   });
 
   // Detect quote boundary from plain text, then pass the marker to the iframe script.
-  const quoteMarker = bodyText ? findQuoteMarker(bodyText) : null;
+  const quoteMarker = displayText ? findQuoteMarker(displayText) : null;
 
-  const safeHtml = disableSenderDarkModeCss(html)
+  const escapeText = (text: string) => { const el = document.createElement('div'); el.textContent = text; return el.innerHTML; };
+  const safeHtml = sanitizeEmailHtml(disableSenderDarkModeCss(html ? (showHiddenContent ? html : filtered.html) : `<pre>${escapeText(displayText ?? '')}</pre>`), isDark)
     .replaceAll(/\bsrc=["']cid:[^"']*["']/gi, 'src=""');
 
+  // Android WebView can expose the top-level layout viewport to srcdoc media
+  // queries instead of the iframe width. Apply the mobile constraints without
+  // a media query there so fixed-width email templates cannot escape the frame.
+  const responsiveWidthRules = `
+    .ew {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+    }
+    .ew > table {
+      width: 100% !important;
+    }
+    .ew img, .ew video, .ew canvas, .ew svg {
+      max-width: 100% !important;
+      height: auto !important;
+    }
+  `;
+  const responsiveWidthStyle = platform.isNativeAndroid
+    ? responsiveWidthRules
+    : `@media only screen and (max-width: 720px) { ${responsiveWidthRules} }`;
+
   const handleFrameLoad = () => {
+    pinchCleanupRef.current?.();
     const frame = iframeRef.current;
     const doc = frame?.contentDocument;
     if (!frame || !doc?.body || !doc.documentElement) return;
 
     const root = doc.querySelector<HTMLElement>('.ew') ?? doc.body;
-    processEmailQuotes(root, { label: prevMsgLabel, quoteMarker, attributionTemplate });
+    // Quote recognition is an enhancement: malformed or unusually nested
+    // sender HTML must never prevent the iframe from being measured/revealed.
+    // Keep a pristine copy because the transformer mutates the DOM as it goes
+    // and may otherwise leave a partially folded, invisible message behind.
+    const originalHtml = root.innerHTML;
+    try {
+      processEmailQuotes(root, { label: prevMsgLabel, quoteMarker, attributionTemplate, expandFirstQuote });
+    } catch (error) {
+      root.innerHTML = originalHtml;
+      console.error('[EmailHtmlBody] Quote processing failed; displaying original message', error);
+    }
+
+    if (platform.isNativeAndroid) {
+      root.style.setProperty('width', '100%', 'important');
+      root.style.setProperty('max-width', '100%', 'important');
+      root.style.setProperty('min-width', '0', 'important');
+      root.style.setProperty('overflow-x', 'hidden', 'important');
+
+      const reportLayout = () => {
+        const elements = Array.from(root.querySelectorAll<HTMLElement>('*'));
+        const widest = elements.reduce<HTMLElement | null>((current, element) => {
+          if (!current) return element;
+          return element.getBoundingClientRect().width > current.getBoundingClientRect().width ? element : current;
+        }, null);
+        console.info('[EmailHtmlBody:layout]', JSON.stringify({
+          frameClientWidth: frame.clientWidth,
+          frameRectWidth: Math.round(frame.getBoundingClientRect().width),
+          documentClientWidth: doc.documentElement.clientWidth,
+          documentScrollWidth: doc.documentElement.scrollWidth,
+          bodyClientWidth: doc.body.clientWidth,
+          bodyScrollWidth: doc.body.scrollWidth,
+          rootClientWidth: root.clientWidth,
+          rootScrollWidth: root.scrollWidth,
+          widestTag: widest?.tagName ?? null,
+          widestWidth: widest ? Math.round(widest.getBoundingClientRect().width) : null,
+        }));
+      };
+      reportLayout();
+      requestAnimationFrame(() => {
+        reportLayout();
+      });
+    }
 
     if (isDark) {
       doc.querySelectorAll<HTMLElement>('.ew *').forEach(element => {
@@ -101,28 +200,72 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
       });
     }
 
-    const resize = () => {
-      const height = Math.max(
-        doc.body.scrollHeight, doc.body.offsetHeight,
-        doc.documentElement.scrollHeight, doc.documentElement.offsetHeight,
-      );
-      if (height > 0) setIframeHeight(height + 4);
+    const fitToFrameWidth = () => {
+      root.style.removeProperty('zoom');
+      root.style.removeProperty('width');
+      root.style.removeProperty('max-width');
+      const availableWidth = doc.documentElement.clientWidth;
+      const contentWidth = root.scrollWidth;
+      if (availableWidth > 0 && contentWidth > availableWidth + 1) {
+        root.style.setProperty('width', `${contentWidth}px`, 'important');
+        root.style.setProperty('max-width', 'none', 'important');
+        root.style.setProperty('zoom', String(availableWidth / contentWidth), 'important');
+      }
     };
+
+    const resize = (reveal = false) => {
+      // Fixed-width sender templates must fit before their overflow is hidden.
+      fitToFrameWidth();
+      // Document heights include the iframe viewport and would feed its
+      // previous height back into the observer on every measurement.
+      const bounds = root.getBoundingClientRect();
+      const height = Math.ceil(bounds.height + Math.min(0, bounds.top));
+      if (height <= 0) return;
+
+      // Apply the initial measurement directly to the element. Going through
+      // React here lets WebView paint the arbitrary fallback height for one
+      // frame, which makes the message visibly grow after it appears.
+      frame.style.height = `${height + 4}px`;
+      if (reveal) {
+        frame.style.visibility = 'visible';
+        onReady?.();
+      }
+    };
+    if (platform.isNativeAndroid) {
+      pinchCleanupRef.current = installEmailPinchZoom(frame, root, () => resize());
+    }
     resizeObserverRef.current?.disconnect();
-    const observer = new ResizeObserver(resize);
-    observer.observe(doc.body);
-    observer.observe(doc.documentElement);
+    const observer = new ResizeObserver(() => resize());
+    observer.observe(frame);
+    observer.observe(root);
     resizeObserverRef.current = observer;
-    doc.addEventListener('load', resize, true);
-    doc.addEventListener('click', event => {
-      const anchor = (event.target as Element | null)?.closest?.('a');
-      if (!anchor) return;
-      const href = (anchor as HTMLAnchorElement).href;
-      if (!href || href.startsWith('javascript:')) return;
-      event.preventDefault();
-      void openExternalUrl(href);
+    doc.addEventListener('load', () => resize(), true);
+    doc.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
+      const href = anchor.href;
+      if (!href || href.startsWith('javascript:')) {
+        anchor.removeAttribute('href');
+        return;
+      }
+      anchor.removeAttribute('href');
+      anchor.setAttribute('role', 'link');
+      anchor.tabIndex = 0;
+      const openLink = (event: Event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        openExternalUrl(href);
+      };
+      anchor.addEventListener('click', openLink, true);
+      anchor.addEventListener('keydown', event => {
+        if (event.key === 'Enter') openLink(event);
+      }, true);
     });
-    resize();
+    if (platform.isNativeAndroid) {
+      // Android may finish its width-constraining layout on the next frame.
+      // Keep the frame hidden until that final layout has been measured.
+      requestAnimationFrame(() => resize(true));
+    } else {
+      resize(true);
+    }
   };
 
   const srcdoc = `<!DOCTYPE html>
@@ -132,18 +275,20 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
 <meta name="viewport" content="width=device-width">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; overflow: hidden; }
+  html, body { width: 100%; max-width: 100%; margin: 0; padding: 0; overflow: hidden; }
   .ew {
+    width: 100%; max-width: 100%; overflow: hidden;
     padding: 4px 0;
     font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
     font-size: ${14 * fontScale}px; line-height: 1.6;
     color: #202124; background: #fff;
     word-break: break-word; overflow-wrap: anywhere;
   }
-  img { max-width: 100%; height: auto; }
+  img, video, canvas, svg { max-width: 100%; height: auto; }
   a { color: #1a73e8; cursor: pointer; }
   pre, code { white-space: pre-wrap; word-break: break-all; font-size: ${13 * fontScale}px; }
   table { max-width: 100%; }
+  ${responsiveWidthStyle}
   blockquote {
     border-left: 3px solid #dadce0;
     margin: 8px 0; padding-left: 12px; color: #70757a;
@@ -167,15 +312,51 @@ export function EmailHtmlBody({ html, bodyText }: { readonly html: string; reado
 <body>${darkModeSvg}<div class="ew">${safeHtml}</div></body>
 </html>`;
 
+  useEffect(() => {
+    // WebKit/WebView can swallow an exception raised from an iframe load
+    // callback without forwarding it to the parent console. Never let that
+    // leave a successfully loaded message at its initial height of zero.
+    const fallback = window.setTimeout(() => {
+      const frame = iframeRef.current;
+      const doc = frame?.contentDocument;
+      if (!frame || !doc?.body || !doc.documentElement || frame.style.visibility === 'visible') return;
+
+      const root = doc.querySelector<HTMLElement>('.ew') ?? doc.body;
+      // The failed load handler may have stopped after partially folding or
+      // restyling the document. Restore the sanitized source before revealing
+      // it instead of exposing that intermediate DOM.
+      root.innerHTML = safeHtml;
+      if (!(root.textContent ?? '').trim() && displayText?.trim()) {
+        const fallbackText = doc.createElement('pre');
+        fallbackText.style.whiteSpace = 'pre-wrap';
+        fallbackText.style.fontFamily = 'inherit';
+        fallbackText.textContent = displayText;
+        root.replaceChildren(fallbackText);
+      }
+
+      const height = Math.ceil(root.getBoundingClientRect().height);
+      frame.style.height = `${Math.max(height, 24) + 4}px`;
+      frame.style.visibility = 'visible';
+      console.warn('[EmailHtmlBody] Restored and revealed message using the iframe load fallback', {
+        htmlLength: safeHtml.length,
+        textLength: (root.textContent ?? '').trim().length,
+        height,
+      });
+      onReady?.();
+    }, 500);
+
+    return () => window.clearTimeout(fallback);
+  }, [displayText, onReady, safeHtml, srcdoc]);
+
   return (
     <iframe
+      key={srcdoc}
       ref={iframeRef}
       srcDoc={srcdoc}
-      sandbox="allow-same-origin"
+      sandbox="allow-same-origin allow-scripts"
       onLoad={handleFrameLoad}
       className="mail-email-iframe"
       title="email-body"
-      style={{ height: iframeHeight }}
     />
   );
 }

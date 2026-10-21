@@ -13,14 +13,14 @@ export async function openOrFocusWindow(
   _title: string,
   _iconType: 'mail' | 'calendar',
 ) {
-  openAppWindow(url, `courrier-${label}`);
+  await openAppWindow(new URL(url).pathname, `courrier-${label}`, _title);
 }
 
 export default function WindowSwitcher({ target }: Props) {
   const { t } = useTranslation();
   const handleClick = () => {
     const calendar = target === 'calendar';
-    openAppWindow(calendar ? '/calendar' : '/', calendar ? 'courrier-calendar' : 'courrier-mail');
+    void openAppWindow(calendar ? '/calendar' : '/', calendar ? 'courrier-calendar' : 'courrier-main');
   };
 
   return (

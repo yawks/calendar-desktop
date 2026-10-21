@@ -1,11 +1,13 @@
+import { AndroidCalendarProvider } from './features/calendar/store/AndroidCalendarProvider';
+import MailDraftReceiver from './shared/components/MailDraftReceiver';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { QueryPersistenceProvider } from './shared/QueryPersistenceProvider';
 import { OfflineMailProvider } from './shared/store/OfflineMailStore';
 import { MailNotificationProvider } from './shared/store/MailNotificationStore';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { queryClient, indexedDBPersister } from './shared/queryClient';
 import { LayoutProvider, useLayout } from './shared/store/LayoutStore';
 import { FontSizeProvider } from './shared/store/FontSizeStore';
+import { MailContentRulesProvider } from './shared/store/MailContentRulesStore';
 import { SignatureProvider } from './shared/store/SignatureStore';
 
 import { CalendarGroupProvider } from './features/calendar/store/CalendarGroupStore';
@@ -23,17 +25,16 @@ import { TagProvider } from './features/calendar/store/TagStore';
 import { ThemeProvider } from './shared/store/ThemeStore';
 import WelcomeScreen from './shared/components/WelcomeScreen';
 import { useAppCapabilities } from './shared/hooks/useAppCapabilities';
+import { NativeDeepLinks } from './shared/platform/NativeDeepLinks';
 import { VaultProvider } from './shared/security/VaultProvider';
 
 // Fenêtre calendrier secondaire (mode windows uniquement, route /calendar)
 function CalendarWindowView() {
-  const { hasSource, hasCalendar } = useAppCapabilities();
+  const { hasSource } = useAppCapabilities();
 
   if (!hasSource) return <WelcomeScreen />;
 
-  return (
-    hasCalendar ? <CalendarPage /> : <MailApp />
-  );
+  return <CalendarPage />;
 }
 
 function RootView() {
@@ -57,18 +58,16 @@ function RootView() {
 }
 
 export default function App() {
+  const isCalendarWindow = new URLSearchParams(globalThis.location.search).get('window') === 'calendar';
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{ persister: indexedDBPersister, buster: 'mail-provider-loading-v4' }}
-    >
+    <QueryPersistenceProvider>
       <ThemeProvider>
       <OfflineMailProvider>
       <VaultProvider>
         <LanguageProvider>
         <MailNotificationProvider>
           <FontSizeProvider>
-            <SignatureProvider>
+            <MailContentRulesProvider><SignatureProvider>
             <LogoDevTokenProvider>
             <LayoutProvider>
             <GoogleAuthProvider>
@@ -76,17 +75,22 @@ export default function App() {
                 <JmapAuthProvider>
                   <ImapAuthProvider>
                     <CalendarProvider>
+                      <AndroidCalendarProvider>
                       <CalendarGroupProvider>
                         <TagProvider>
                           <BrowserRouter>
+                            <NativeDeepLinks />
+                            <MailDraftReceiver />
                             <Routes>
-                              <Route path="/" element={<RootView />} />
+                              <Route path="/" element={isCalendarWindow ? <CalendarWindowView /> : <RootView />} />
+                              <Route path="/mail" element={<RootView />} />
                               <Route path="/calendar" element={<CalendarWindowView />} />
                               <Route path="/config" element={<ConfigPage />} />
                             </Routes>
                           </BrowserRouter>
                         </TagProvider>
                       </CalendarGroupProvider>
+                      </AndroidCalendarProvider>
                     </CalendarProvider>
                   </ImapAuthProvider>
                 </JmapAuthProvider>
@@ -94,7 +98,7 @@ export default function App() {
             </GoogleAuthProvider>
           </LayoutProvider>
             </LogoDevTokenProvider>
-            </SignatureProvider>
+            </SignatureProvider></MailContentRulesProvider>
           </FontSizeProvider>
         </MailNotificationProvider>
       </LanguageProvider>
@@ -102,6 +106,6 @@ export default function App() {
       </OfflineMailProvider>
       </ThemeProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
-    </PersistQueryClientProvider>
+    </QueryPersistenceProvider>
   );
 }

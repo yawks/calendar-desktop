@@ -1,3 +1,4 @@
+import EventMarkers from './EventMarkers';
 import { useMemo } from 'react';
 import { CalendarEvent, CalendarConfig } from '../../../shared/types';
 import './DayEventsTimeline.css';
@@ -78,10 +79,11 @@ export interface DayEventsTimelineProps {
   /** ID of a calendar event that was cancelled — shown struck-through with danger styling */
   readonly cancelledEventId?: string;
   readonly loading?: boolean;
+  readonly onEventClick?: (event: CalendarEvent) => void;
 }
 
 export function DayEventsTimeline({
-  events, calendars, targetDate, highlightedEventId, cancelledEventId, loading,
+  events, calendars, targetDate, highlightedEventId, cancelledEventId, loading, onEventClick,
 }: DayEventsTimelineProps) {
   const hours = useMemo(() => {
     const h: number[] = [];
@@ -185,8 +187,10 @@ export function DayEventsTimeline({
               const isCancelledEv = ev.id === cancelledEventId;
               const rsvpClass = rsvpStatus ? ` det-event--rsvp-${rsvpStatus.toLowerCase()}` : '';
               return (
-                <div
+                <button
+                  type="button"
                   key={ev.id}
+                  onClick={() => onEventClick?.(ev)}
                   className={`det-event${isHighlighted ? ' det-event--highlighted' : ''}${isCancelledEv ? ' det-event--cancelled' : ''}${rsvpClass}`}
                   title={`${ev.title}\n${new Date(ev.start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} – ${new Date(ev.end).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
                   style={{
@@ -198,8 +202,8 @@ export function DayEventsTimeline({
                     ...(!isCancelledEv && { backgroundColor: bgColor, color: textColor, borderColor: color }),
                   }}
                 >
-                  <span className="det-event-title">{ev.title}</span>
-                </div>
+                  <span className="det-event-title"><EventMarkers event={ev} />{ev.title}</span>
+                </button>
               );
             })}
           </div>

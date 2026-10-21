@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, Mail, Settings2, Star } from 'lucide-react';
+import { CalendarDays, ChevronDown, Mail, Settings2, Star, TriangleAlert } from 'lucide-react';
 import i18n from '../../i18n';
 import { CalendarConfig } from '../../shared/types';
 import { calendarApi } from '../../shared/api/calendarApi';
@@ -134,29 +134,45 @@ export function CalendarItem({ cal, isDefault, onSetDefault }: {
 // ── Group section with hover edit icon ─────────────────────────────────────────
 
 export function GroupSection({
-  title, icon, onEdit, children, caps, color, onColorChange,
+  title, providerLabel, icon, onEdit, children, caps, color, onColorChange, connectionError, onReconnect,
 }: {
   title: string;
+  providerLabel: string;
   icon: React.ReactNode;
   onEdit: () => void;
   children: React.ReactNode;
   caps?: ('calendar' | 'email')[];
   color?: string;
   onColorChange?: (c: string) => void;
+  connectionError?: string;
+  onReconnect?: () => void;
 }) {
   const { t } = useTranslation();
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   return (
-    <div className="config-group">
+    <div className={`config-group${detailsExpanded ? ' config-group--expanded' : ''}`}>
       <div className="config-group-header">
-        <div className="config-group-title" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          {icon}{title}
+        <div className="config-group-provider">
+          <span className="config-group-provider-icon">{icon}</span>
+          <span>{providerLabel}</span>
+        </div>
+        <div className="config-group-title">
+          {title}
+          {connectionError && <TriangleAlert className="config-group-warning" size={16} aria-label={connectionError} />}
+        </div>
+        <div className="config-group-capabilities">
           {caps && caps.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, marginLeft: 2 }}>
+            <div className="config-group-capability-list">
               {caps.map((cap) => <CapBadge key={cap} cap={cap} />)}
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="config-group-actions">
+          {onReconnect && (
+            <button type="button" className="config-group-reconnect-btn" onClick={onReconnect} title={connectionError}>
+              {t('config.reconnect')}
+            </button>
+          )}
           {onColorChange && (
             <label
               title={t('config.accountColor', 'Account color')}
@@ -174,15 +190,26 @@ export function GroupSection({
                 value={color ?? '#888888'}
                 onChange={(e) => onColorChange(e.target.value)}
                 style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
-                tabIndex={-1}
+                aria-label={t('config.accountColor')}
               />
             </label>
           )}
           <button
             type="button"
+            className="config-group-details-btn"
+            onClick={() => setDetailsExpanded((expanded) => !expanded)}
+            title={detailsExpanded ? t('config.hideSourceDetails') : t('config.showSourceDetails')}
+            aria-label={detailsExpanded ? t('config.hideSourceDetails') : t('config.showSourceDetails')}
+            aria-expanded={detailsExpanded}
+          >
+            <ChevronDown size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
             className="config-group-edit-btn"
             onClick={onEdit}
             title={t('config.edit')}
+            aria-label={t('config.editSource', { source: title })}
           >
             <Settings2 size={13} />
           </button>

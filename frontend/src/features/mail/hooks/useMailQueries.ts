@@ -4,6 +4,7 @@ import { Folder, MailSearchQuery, MailThread, MailMessage, MailFolder, MailIdent
 import { buildUnreadCounts, DISPLAY_TO_STATIC } from '../utils';
 import { useMemo, useCallback } from 'react';
 import { getOfflineConversation, getOfflineInboxThreads } from '../utils/offlineMailCache';
+import { platform } from '../../../shared/platform';
 import { isTemporaryMailServiceError } from '../../../shared/utils/networkError';
 
 export const MAIL_KEYS = {
@@ -29,6 +30,8 @@ export function useMailFolders(accountId: string, provider: MailProvider | null)
     },
     enabled: !!provider,
     staleTime: 30 * 1000,
+    // Notification actions update the server outside React's persisted cache.
+    refetchOnMount: platform.isNativeAndroid ? 'always' : true,
     refetchInterval: 60 * 1000,
     retry: retryTemporaryMailFailure,
     retryDelay: temporaryMailRetryDelay,
@@ -60,6 +63,8 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
       },
       enabled: !!acc.provider,
       staleTime: 30 * 1000,
+      // Notification actions update the server outside React's persisted cache.
+      refetchOnMount: platform.isNativeAndroid ? 'always' : true,
       refetchInterval: 60 * 1000,
       retry: retryTemporaryMailFailure,
       retryDelay: temporaryMailRetryDelay,
@@ -83,7 +88,7 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
   const mergedCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     results.forEach((res) => {
-      if (res.data) {
+      if (Array.isArray(res.data)) {
         const c = buildUnreadCounts(res.data);
         for (const [k, v] of Object.entries(c)) {
           counts[k] = (counts[k] ?? 0) + (v as number);
@@ -95,13 +100,13 @@ export function useAllAccountFolders(accounts: { id: string; provider: MailProvi
   }, [dataTimestamps]);
 
   const errors = useMemo(() =>
-    results.map(r => r.error).filter((e): e is Error => !!e),
+    results.flatMap((r, index) => r.error ? [{ accountId: accounts[index].id, error: r.error as Error }] : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [errorTimestamps]);
 
   const allModeDynamicFolders = useMemo(() => {
     return accounts.flatMap((acc, idx) => {
-      const folders = results[idx]?.data ?? [];
+      const folders = Array.isArray(results[idx]?.data) ? results[idx].data : [];
       const color = colorMap.get(acc.id);
       return folders
         .filter(f => {
@@ -131,14 +136,15 @@ export function useMailThreads(accountId: string, folder: Folder, provider: Mail
       try {
         threads = await provider.listThreads(folder, limit, offset);
       } catch (error) {
-        const cached = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(accountId) : null;
-        if (!cached) throw error;
-        threads = cached.slice(0, limit);
+        const fallback = folder === 'inbox' ? await getOfflineInboxThreads(accountId) : null;
+        if (!fallback) throw error;
+        threads = fallback.slice(offset, offset + limit);
       }
       if (folder === 'sentitems') return threads.map(t => ({ ...t, unread_count: 0 }));
       return threads;
     },
     enabled: !!provider,
+    refetchOnMount: platform.isNativeAndroid ? 'always' : true,
     refetchInterval: 60 * 1000,
     retry: retryTemporaryMailFailure,
     retryDelay: temporaryMailRetryDelay,
@@ -160,19 +166,16 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
         try {
           threads = await acc.provider.listThreads(folder, limit, offset);
         } catch (error) {
-          const cached = folder === 'inbox' && offset === 0 ? await getOfflineInboxThreads(acc.id) : null;
-          if (!cached) throw error;
-          threads = cached.slice(0, limit);
+          const fallback = folder === 'inbox' ? await getOfflineInboxThreads(acc.id) : null;
+          if (!fallback) throw error;
+          threads = fallback.slice(offset, offset + limit);
         }
-        return threads.map(t => ({
-          ...t,
-          unread_count: folder === 'sentitems' ? 0 : t.unread_count,
-          accountId: acc.id,
-          accountLabel: acc.label,
-          accountColor: acc.color
-        }));
+        // Keep the shared per-account cache provider-shaped. Unified-view
+        // presentation metadata is added below whenever the cache is read.
+        return threads;
       },
       enabled: enabled && !!acc.provider,
+      refetchOnMount: platform.isNativeAndroid ? 'always' : true,
       refetchInterval: 60 * 1000,
       retry: retryTemporaryMailFailure,
       retryDelay: temporaryMailRetryDelay,
@@ -187,13 +190,22 @@ export function useAllAccountThreads(folder: Folder, accounts: { id: string; pro
 
   const data = useMemo(() => {
     return results
-      .flatMap((r) => (r.data ? r.data : []))
+      .flatMap((result, index) => {
+        const account = accounts[index];
+        return (result.data ?? []).map(thread => ({
+          ...thread,
+          unread_count: folder === 'sentitems' ? 0 : thread.unread_count,
+          accountId: account.id,
+          accountLabel: account.label,
+          accountColor: account.color,
+        }));
+      })
       .sort((a, b) => new Date(b.last_delivery_time).getTime() - new Date(a.last_delivery_time).getTime());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataTimestamps]);
+  }, [dataTimestamps, accounts, folder]);
 
   const errors = useMemo(() =>
-    results.map(r => r.error).filter((e): e is Error => !!e),
+    results.flatMap((r, index) => r.error ? [{ accountId: accounts[index].id, error: r.error as Error }] : []),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [errorTimestamps]);
 
@@ -296,7 +308,7 @@ export function useMailConversation(
   isDraft = false,
   includeTrash = false,
 ) {
-  const { data, isLoading, isFetching, error, refetch } = useQuery({
+  const { data, isLoading, isFetching, isSuccess, isError, isPaused, error, refetch } = useQuery({
     // EWS item and attachment IDs change when an item is moved. Keeping the
     // source and destination folders in one cache entry can therefore replay
     // an invalid ID after an archive/move operation.
@@ -317,18 +329,17 @@ export function useMailConversation(
       }
     },
     enabled: !!provider && !!conversationId,
-    staleTime: 60 * 1000,
-    // A conversation can have been populated from a transient provider
-    // response while switching accounts in the unified view. Keep cached data
-    // for instant paint, but always validate it when the user opens a thread.
-    refetchOnMount: 'always',
+    staleTime: 30 * 1000,
+    // Reuse a recently opened conversation immediately. Once stale, React
+    // Query still paints the cached data first and validates it in background.
+    refetchOnMount: true,
     retry: 2,
     retryDelay: attempt => Math.min(500 * 2 ** attempt, 2_000),
   });
   return useMemo(
-    () => ({ data: data ?? (EMPTY_ARRAY as MailMessage[]), isLoading, isFetching, error, refetch }),
+    () => ({ data: data ?? (EMPTY_ARRAY as MailMessage[]), isLoading, isFetching, isSuccess, isError, isPaused, error, refetch }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, isLoading, isFetching, error],
+    [data, isLoading, isFetching, isSuccess, isError, isPaused, error],
   );
 }
 

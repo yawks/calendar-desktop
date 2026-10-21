@@ -1,7 +1,8 @@
 import { useQueries } from '@tanstack/react-query';
 import { CalendarConfig, CalendarEvent } from '../../../shared/types';
 import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
-import { useMemo } from 'react';
+import i18n from '../../../i18n';
+import { useEffect, useMemo } from 'react';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 
 export const CALENDAR_KEYS = {
@@ -11,6 +12,10 @@ export const CALENDAR_KEYS = {
 
 // --- EWS FETCH ---
 interface EwsEventRaw {
+  uid?: string;
+  availability_only?: boolean;
+  sensitivity?: string;
+  availability?: string;
   item_id: string;
   change_key: string;
   subject: string;
@@ -63,6 +68,8 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
     raw = await exchangeCalendarApi.list<EwsEventRaw[]>({
       accessToken,
       ownerEmail: cal.ownerEmail,
+      folderId: cal.exchangeFolderId,
+      sharedMailbox: cal.shared?.ownerEmail,
       start: start.toISOString(),
       end: end.toISOString(),
     });
@@ -97,11 +104,15 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
     const selfStatus = ewsResponseToRsvp(ev.my_response_type);
     return {
       id: `${cal.id}::${ev.item_id}`,
-      sourceId: `${ev.item_id}|${ev.change_key}`,
+      icalUid: ev.uid,
+      sourceId: ev.availability_only ? undefined : `${ev.item_id}|${ev.change_key}`,
       seriesId: ev.recurring_master_id ?? ev.item_id,
       isRecurringInstance: !!ev.recurring_master_id,
       calendarId: cal.id,
-      title: ev.subject,
+      title: ev.subject || (ev.availability_only ? i18n.t('sharedCalendars.busy') : ''),
+      availabilityOnly: ev.availability_only,
+      sensitivity: ev.sensitivity,
+      availability: ev.availability,
       start: ev.start,
       end: ev.end,
       isAllday: ev.is_all_day,
@@ -118,7 +129,7 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
 }
 
 // --- MAIN HOOK ---
-export function useCalendarEvents(calendars: CalendarConfig[]) {
+export function useCalendarEvents(calendars: CalendarConfig[], onLoaded?: (id: string, events: CalendarEvent[]) => void) {
   const { getValidToken: getEwsToken } = useExchangeAuth();
 
   const results = useQueries({
@@ -139,6 +150,13 @@ export function useCalendarEvents(calendars: CalendarConfig[]) {
   });
 
   const dataTimestamps = results.map(r => r.dataUpdatedAt).join(',');
+  useEffect(() => {
+    results.forEach((result, index) => {
+      if (result.isSuccess && !result.isFetching) onLoaded?.(calendars[index].id, result.data);
+    });
+  // Results are tracked by their update timestamp, not their unstable wrapper.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataTimestamps, onLoaded]);
   const errorTimestamps = results.map(r => r.errorUpdatedAt).join(',');
   // `isLoading` only covers the first load. Manual refreshes use `isFetching`,
   // which lets the header display progress every time the user clicks Refresh.

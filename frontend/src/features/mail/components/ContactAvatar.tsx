@@ -5,6 +5,7 @@ import { useLogoDevToken } from '../../../shared/store/LogoDevTokenStore';
 import type { MailProvider } from '../providers/MailProvider';
 import { avatarColor, initials } from '../utils';
 import { domainLogoUrl, gravatarUrl } from '../utils/gravatar';
+import { useNotificationOpening } from '../../../shared/platform/notificationOpening';
 
 interface ContactAvatarProps {
   readonly email: string;
@@ -12,12 +13,14 @@ interface ContactAvatarProps {
   readonly provider?: Pick<MailProvider, 'accountId' | 'providerType' | 'getContactPhoto'> | null;
   readonly size?: number;
   readonly className?: string;
+  readonly eager?: boolean;
 }
 
-export function ContactAvatar({ email, name, provider, size = 32, className = '' }: ContactAvatarProps) {
+export function ContactAvatar({ email, name, provider, size = 32, className = '', eager = false }: ContactAvatarProps) {
   const [failed, setFailed] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
   const { token: logoDevToken } = useLogoDevToken();
+  const notificationOpening = useNotificationOpening();
   const displayName = name || email;
   const emailKey = email.toLowerCase();
   const nameKey = name?.trim().toLowerCase() || null;
@@ -27,7 +30,7 @@ export function ContactAvatar({ email, name, provider, size = 32, className = ''
     queryKey: ['contact-photo', provider?.accountId, provider?.providerType, emailKey],
     queryFn: () => provider?.getContactPhoto?.(email) ?? Promise.resolve(null),
     staleTime: 10 * 60 * 1000,
-    enabled: hasNativePhotoProvider,
+    enabled: hasNativePhotoProvider && (eager || !notificationOpening),
   });
 
   // Populate a provider-agnostic cache so contexts without a provider (calendar,

@@ -1,3 +1,5 @@
+import { isEventOrganizer, isEventEditable as canEditEvent } from '../utils/eventPermissions';
+import { useAndroidCalendars } from '../store/AndroidCalendarProvider';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { CalendarConfig, CalendarEvent, CreateEventPayload, ViewType } from '../../../shared/types';
 import { useCalendars } from '../store/CalendarStore';
@@ -12,14 +14,44 @@ import { useExchangeAuth } from '../../../shared/store/ExchangeAuthStore';
 import { useGoogleAuth } from '../../../shared/store/GoogleAuthStore';
 import { DEMO_CALENDARS, DEMO_EVENTS } from '../../../demo/demoData';
 import i18n from '../../../i18n';
-import { createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } from '../utils/googleCalendarApi';
-import { createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, cancelNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
+import { getGoogleRecurrence, createEvent, updateEvent, deleteGoogleEvent, respondToGoogleEvent } from '../utils/googleCalendarApi';
+import { getNextcloudRecurrence, createNextcloudEvent, updateNextcloudEvent, deleteNextcloudEvent, cancelNextcloudEvent, respondToNextcloudEvent } from '../utils/nextcloudCalendarApi';
 import { useQueryClient } from '@tanstack/react-query';
 import { CALENDAR_KEYS } from './useCalendarQueries';
 import { exchangeCalendarApi } from '../../../shared/api/exchangeCalendarApi';
 import { isOfflineLikeError } from '../../../shared/utils/networkError';
 
+import { isCalendarWritable } from '../utils/sharedCalendars';
+import { canEditCalDavTask, isCalDavTaskConflict, moveCalDavTask } from '../utils/caldavTaskApi';
+import { calDavLoadError } from '../utils/loadCalDavCalendar';
+
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+const CALENDAR_NAVIGATION_KEY = 'courrier-calendar-navigation-v1';
+const CALENDAR_VIEWS: ViewType[] = ['day', 'workweek', 'week', 'month'];
+
+function loadCalendarNavigation(): { view: ViewType; date: Date } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CALENDAR_NAVIGATION_KEY) ?? '{}') as { view?: string; periodStart?: string };
+    const date = saved.periodStart ? new Date(saved.periodStart) : new Date();
+    return {
+      view: CALENDAR_VIEWS.includes(saved.view as ViewType) ? saved.view as ViewType : 'week',
+      date: Number.isNaN(date.getTime()) ? new Date() : date,
+    };
+  } catch {
+    return { view: 'week', date: new Date() };
+  }
+}
+
+function periodStart(date: Date, view: ViewType): Date {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  if (view === 'month') start.setDate(1);
+  if (view === 'week' || view === 'workweek') {
+    const day = start.getDay();
+    start.setDate(start.getDate() + (day === 0 ? -6 : 1 - day));
+  }
+  return start;
+}
 
 export interface TUICalendarInstance {
   prev(): void;
@@ -37,8 +69,9 @@ export interface CalendarRef {
 export function useCalendarLogic() {
   const calendarRef = useRef<CalendarRef>(null);
   const queryClient = useQueryClient();
-  const [view, setView] = useState<ViewType>('week');
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const initialNavigation = useMemo(loadCalendarNavigation, []);
+  const [view, setView] = useState<ViewType>(initialNavigation.view);
+  const [currentDate, setCurrentDate] = useState(initialNavigation.date);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     localStorage.getItem('sidebar-collapsed') === 'true'
@@ -49,6 +82,13 @@ export function useCalendarLogic() {
   });
   const sidebarWidthRef = useRef(sidebarWidth);
   sidebarWidthRef.current = sidebarWidth;
+
+  useEffect(() => {
+    localStorage.setItem(CALENDAR_NAVIGATION_KEY, JSON.stringify({
+      view,
+      periodStart: periodStart(currentDate, view).toISOString(),
+    }));
+  }, [currentDate, view]);
 
   const handleCollapseToggle = useCallback(() => {
     setSidebarCollapsed((v) => {
@@ -86,10 +126,16 @@ export function useCalendarLogic() {
   const { calendars: realCalendars, toggleCalendar, updateCalendar, reorderCalendars } = useCalendars();
   const { groups, addGroup, removeGroup, updateGroup } = useCalendarGroups();
   const { tags, eventTags, addTag, removeTag, updateTag, setEventTag, removeEventTag } = useTags();
-  const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = useICSEvents(DEMO_MODE ? [] : realCalendars);
-  const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = useGoogleEvents(DEMO_MODE ? [] : realCalendars);
-  const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh } = useNextcloudEvents(DEMO_MODE ? [] : realCalendars);
-  const { events: ewsEvents, loading: ewsLoading, errors: ewsErrors, refresh: ewsRefresh } = useEWSEvents(DEMO_MODE ? [] : realCalendars);
+  const androidCalendars = useAndroidCalendars();
+  const sourceCalendars = DEMO_MODE || androidCalendars ? [] : realCalendars;
+  const fallbackIcs = useICSEvents(sourceCalendars);
+  const fallbackGoogle = useGoogleEvents(sourceCalendars);
+  const fallbackNextcloud = useNextcloudEvents(sourceCalendars);
+  const fallbackEws = useEWSEvents(sourceCalendars);
+  const { events: icsEvents, loading: icsLoading, errors: icsErrors, refresh: icsRefresh } = androidCalendars?.ics ?? fallbackIcs;
+  const { events: googleEvents, loading: googleLoading, errors: googleErrors, refresh: googleRefresh } = androidCalendars?.google ?? fallbackGoogle;
+  const { events: ncEvents, loading: ncLoading, errors: ncErrors, refresh: ncRefresh, readOnlyCalendarIds = [] } = androidCalendars?.nextcloud ?? fallbackNextcloud;
+  const { events: ewsEvents, loading: ewsLoading, errors: ewsErrors, refresh: ewsRefresh } = androidCalendars?.ews ?? fallbackEws;
   const { getValidToken } = useGoogleAuth();
   const { accounts: exchangeAccounts, getValidToken: getExchangeToken, getRefreshToken: getExchangeRefreshToken } = useExchangeAuth();
   const { resolved: theme } = useTheme();
@@ -102,7 +148,8 @@ export function useCalendarLogic() {
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const recurringChoiceResolveRef = useRef<((scope: 'this' | 'all' | null) => void) | null>(null);
 
-  const calendars = DEMO_MODE ? DEMO_CALENDARS : realCalendars;
+  const calendars = useMemo(() => DEMO_MODE ? DEMO_CALENDARS : realCalendars.map(cal =>
+    readOnlyCalendarIds.includes(cal.id) ? { ...cal, readOnly: true } : cal), [realCalendars, readOnlyCalendarIds]);
   const allEventsRaw = DEMO_MODE ? DEMO_EVENTS : [...icsEvents, ...googleEvents, ...ncEvents, ...ewsEvents];
   const events = useMemo(() => {
     const serverEvents = allEventsRaw
@@ -144,13 +191,15 @@ export function useCalendarLogic() {
   }, [events, selectedEvent]);
 
   const loading = DEMO_MODE ? false : (icsLoading || googleLoading || ncLoading || ewsLoading);
+  const [taskMoveErrors, setTaskMoveErrors] = useState<Record<string, string>>({});
+  const taskMoves = useRef(new Set<string>());
   const errors = useMemo(() => {
     if (DEMO_MODE) return {};
     return Object.fromEntries(
-      Object.entries({ ...icsErrors, ...googleErrors, ...ncErrors, ...ewsErrors })
+      Object.entries({ ...icsErrors, ...googleErrors, ...ncErrors, ...ewsErrors, ...taskMoveErrors })
         .filter(([, error]) => !isOfflineLikeError(error)),
     );
-  }, [icsErrors, googleErrors, ncErrors, ewsErrors]);
+  }, [icsErrors, googleErrors, ncErrors, ewsErrors, taskMoveErrors]);
   const refresh = useCallback(async () => {
     await Promise.all([
       Promise.resolve(icsRefresh()),
@@ -199,9 +248,9 @@ export function useCalendarLogic() {
     setTimeout(syncDate, 50);
   }, [syncDate]);
 
-  const saveNextcloudEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
+  const saveNextcloudEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent, wholeSeries = false): Promise<string | undefined> => {
     if (sourceEvent?.sourceId) {
-      await updateNextcloudEvent(cal, sourceEvent.sourceId, payload);
+      await updateNextcloudEvent(cal, sourceEvent.sourceId, payload, sourceEvent, wholeSeries);
       return sourceEvent.seriesId;
     } else {
       return await createNextcloudEvent(cal, payload);
@@ -219,18 +268,29 @@ export function useCalendarLogic() {
         accessToken: token,
         itemId,
         changeKey,
+        availability: payload.availability,
+        sensitivity: payload.sensitivity,
+        eventType: payload.eventType,
         title: payload.title,
         start: payload.start,
         end: payload.end,
         isAllDay: payload.isAllday,
         location: payload.location ?? null,
         description: payload.description ?? null,
+        attendees: attendeeEmails,
+        originalStart: updateSeries ? sourceEvent.start : undefined,
         updateSeries,
+        recurrence: payload.recurrence,
       });
       return sourceEvent.seriesId;
     } else {
       const result = await exchangeCalendarApi.create({
         accessToken: token,
+        onlineMeeting: payload.onlineMeeting,
+        refreshToken: payload.onlineMeeting ? getExchangeRefreshToken(cal.exchangeAccountId) : undefined,
+        availability: payload.availability,
+        sensitivity: payload.sensitivity,
+        eventType: payload.eventType,
         title: payload.title,
         start: payload.start,
         end: payload.end,
@@ -238,34 +298,53 @@ export function useCalendarLogic() {
         location: payload.location ?? null,
         description: payload.description ?? null,
         attendees: attendeeEmails.length > 0 ? attendeeEmails : null,
+        recurrence: payload.recurrence,
       });
       return result.split('|')[0];
     }
-  }, [getExchangeToken]);
+  }, [getExchangeToken, getExchangeRefreshToken]);
 
-  const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent): Promise<string | undefined> => {
+  const saveGoogleEvent = useCallback(async (cal: CalendarConfig, payload: CreateEventPayload, sourceEvent?: CalendarEvent, originalOccurrenceStart?: string): Promise<string | undefined> => {
     if (!cal.googleAccountId) throw new Error('Compte Google introuvable');
     const token = await getValidToken(cal.googleAccountId);
     if (!token) throw new Error('Token invalide. Reconnectez votre compte Google.');
     if (sourceEvent?.sourceId) {
-      await updateEvent(token, cal, sourceEvent.sourceId, payload);
+      await updateEvent(token, cal, sourceEvent.sourceId, payload, originalOccurrenceStart);
       return sourceEvent.seriesId;
     } else {
       return await createEvent(token, cal, payload);
     }
   }, [getValidToken]);
 
+  const loadEventRecurrence = useCallback(async (event: CalendarEvent): Promise<string | null> => {
+    const cal = calendars.find(c => c.id === event.calendarId);
+    if (!cal || event.readOnly || !event.sourceId) return null;
+    if (cal.type === 'nextcloud') return getNextcloudRecurrence(cal, event.sourceId);
+    if (cal.type === 'exchange' && cal.exchangeAccountId) {
+      const token = await getExchangeToken(cal.exchangeAccountId);
+      if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+      return exchangeCalendarApi.recurrence({ accessToken: token, itemId: event.sourceId.split('|')[0] });
+    }
+    if (cal.type === 'google' && cal.googleAccountId && event.seriesId) {
+      const token = await getValidToken(cal.googleAccountId);
+      if (!token) throw new Error(i18n.t('calendarPage.invalidToken'));
+      return getGoogleRecurrence(token, cal, event.seriesId);
+    }
+    return null;
+  }, [calendars, getExchangeToken, getValidToken]);
+
   const handleSaveEvent = useCallback(async (payload: CreateEventPayload, sourceEvent?: CalendarEvent, recurringScope?: 'this' | 'future') => {
     const cal = calendars.find((c) => c.id === payload.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
+    if (sourceEvent?.readOnly || sourceEvent?.isTask || !isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     const seriesSourceEvent = recurringScope === 'future' && sourceEvent?.seriesId && cal.type !== 'exchange'
       ? { ...sourceEvent, sourceId: sourceEvent.seriesId }
       : sourceEvent;
     const doSave = () => {
-      if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, seriesSourceEvent);
+      if (cal.type === 'nextcloud') return saveNextcloudEvent(cal, payload, sourceEvent, recurringScope === 'future');
       if (cal.type === 'exchange') return saveExchangeEvent(cal, payload, sourceEvent, recurringScope === 'future');
-      return saveGoogleEvent(cal, payload, seriesSourceEvent);
+      return saveGoogleEvent(cal, payload, seriesSourceEvent, recurringScope === 'future' ? sourceEvent?.start : undefined);
     };
     const doRefresh = async () => {
       if (cal.type === 'nextcloud') await ncRefresh(cal.id);
@@ -276,6 +355,9 @@ export function useCalendarLogic() {
     if (sourceEvent) {
       const optimistic: CalendarEvent = {
         ...sourceEvent,
+        availability: payload.availability,
+        sensitivity: payload.sensitivity,
+        eventType: payload.eventType,
         title: payload.title,
         start: payload.start,
         end: payload.end,
@@ -305,6 +387,9 @@ export function useCalendarLogic() {
       const optimistic: CalendarEvent = {
         id: tempId,
         calendarId: payload.calendarId,
+        availability: payload.availability,
+        sensitivity: payload.sensitivity,
+        eventType: payload.eventType,
         title: payload.title,
         start: payload.start,
         end: payload.end,
@@ -315,7 +400,7 @@ export function useCalendarLogic() {
         tagId: payload.tagId ?? undefined,
       };
       setOptimisticCreated((prev) => [...prev, optimistic]);
-      console.log('[createEvent] optimistic added', tempId, payload.title);
+      console.log('[createEvent] optimistic added', tempId);
       const cleanup = () => {
         console.log('[createEvent] cleanup – removing optimistic', tempId);
         setOptimisticCreated((prev) => prev.filter((ev) => ev.id !== tempId));
@@ -364,15 +449,18 @@ export function useCalendarLogic() {
   ) => {
     const cal = calendars.find((c) => c.id === event.calendarId);
     if (!cal) throw new Error(i18n.t('calendarPage.calendarNotFound'));
+    if (event.readOnly || event.isTask || !isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     let rsvpSourceId = event.sourceId;
+    let respondSeries = false;
     let affectedIds = [event.id];
 
     if (isEventRecurring(event)) {
       const scope = await askRecurringScope();
       if (scope === null) return;
       if (scope === 'all' && event.seriesId) {
-        rsvpSourceId = event.seriesId;
+        respondSeries = true;
+        if (cal.type !== 'exchange') rsvpSourceId = event.seriesId;
         affectedIds = events.filter((e) => e.seriesId === event.seriesId).map((e) => e.id);
       }
     }
@@ -419,6 +507,7 @@ export function useCalendarLogic() {
           accessToken: token,
           itemId,
           changeKey,
+          respondSeries,
           responseType: status === 'ACCEPTED' ? 'accept' : status === 'DECLINED' ? 'decline' : 'tentative',
           ownerEmail: cal.ownerEmail,
           body: comment ?? null,
@@ -449,6 +538,7 @@ export function useCalendarLogic() {
     const cal = calendars.find((c) => c.id === event.calendarId);
     console.log('[recurring] handleDeleteEvent cal=', cal?.type, 'event.isRecurringInstance=', event.isRecurringInstance, 'seriesId=', event.seriesId);
     if (!cal) return;
+    if (event.readOnly || event.isTask || !isCalendarWritable(cal)) throw new Error(i18n.t('sharedCalendars.readOnly'));
 
     let deleteSourceId = event.sourceId;
     let affectedIds = [event.id];
@@ -569,31 +659,16 @@ export function useCalendarLogic() {
   );
 
   const isExchangeOrganizer = useCallback((event: CalendarEvent) => {
-    const cal = calendars.find((c) => c.id === event.calendarId);
-    if (!cal || cal.type !== 'exchange' || !cal.exchangeAccountId) return false;
-    if (!event.attendees?.length) return true;
-    const account = exchangeAccounts.find((a) => a.id === cal.exchangeAccountId);
-    if (!account) return false;
-    return event.attendees.some((a) => {
-      if (!a.isOrganizer) return false;
-      if (a.email.toLowerCase() === account.email.toLowerCase()) return true;
-      return !!account.displayName && a.name.toLowerCase() === account.displayName.toLowerCase();
-    });
+    const cal = calendars.find(c => c.id === event.calendarId);
+    return !!cal && cal.type === 'exchange' && isEventOrganizer(event, cal, exchangeAccounts);
   }, [calendars, exchangeAccounts]);
 
-  const isEventEditable = useCallback((event: CalendarEvent) => {
-    const cal = calendars.find((c) => c.id === event.calendarId);
-    if (!cal) return false;
-    if (cal.type === 'exchange') return isExchangeOrganizer(event);
-    if (cal.type !== 'google' && cal.type !== 'nextcloud') return false;
-    const attendees = event.attendees;
-    const ownerEmail = cal.ownerEmail?.toLowerCase();
-    return !attendees?.length || !!ownerEmail && attendees.some((a) =>
-      a.isOrganizer && a.email.toLowerCase() === ownerEmail
-    );
-  }, [calendars, isExchangeOrganizer]);
+  const isEventEditable = useCallback((event: CalendarEvent) =>
+    canEditEvent(event, calendars.find(c => c.id === event.calendarId), exchangeAccounts),
+  [calendars, exchangeAccounts]);
 
   const handleStartEdit = useCallback(async (event: CalendarEvent) => {
+    if (event.readOnly || event.isTask) return;
     setEditEvent(event);
     setSelectedEvent(null);
   }, []);
@@ -602,6 +677,20 @@ export function useCalendarLogic() {
     ({ event, changes }: { event: any; changes: any }) => {
       const originalEvent = events.find((e) => e.id === event.id);
       if (!originalEvent) return;
+      if (originalEvent.isTask) {
+        const cal = calendars.find(candidate => candidate.id === originalEvent.calendarId);
+        if (!cal || !canEditCalDavTask(originalEvent, cal) || !changes.start || taskMoves.current.has(originalEvent.id)) return;
+        const value = changes.start;
+        const target = value instanceof Date ? value : typeof value.toDate === 'function' ? value.toDate() : new Date(String(value));
+        if (Number.isNaN(target.getTime())) return;
+        taskMoves.current.add(originalEvent.id);
+        setTaskMoveErrors(previous => { const next = { ...previous }; delete next[cal.id]; return next; });
+        void moveCalDavTask(originalEvent, cal, target).then(() => ncRefresh(cal.id)).catch(cause => {
+          setTaskMoveErrors(previous => ({ ...previous, [cal.id]: isCalDavTaskConflict(cause) ? i18n.t('caldavTask.moveConflict') : calDavLoadError(cause) }));
+          void ncRefresh(cal.id);
+        }).finally(() => taskMoves.current.delete(originalEvent.id));
+        return;
+      }
       if (!isEventEditable(originalEvent)) return;
 
       const toISO = (d: unknown): string => {
@@ -628,6 +717,9 @@ export function useCalendarLogic() {
       }
 
       const payload: CreateEventPayload = {
+        availability: originalEvent.availability,
+        sensitivity: originalEvent.sensitivity,
+        eventType: originalEvent.eventType,
         title: originalEvent.title,
         start: newStart,
         end: newEnd,
@@ -639,18 +731,16 @@ export function useCalendarLogic() {
       };
 
       void (async () => {
-        let sourceEvent = originalEvent;
+        let recurringScope: 'this' | 'future' | undefined;
         if (isEventRecurring(originalEvent)) {
           const scope = await askRecurringScope();
           if (scope === null) return;
-          if (scope === 'all' && originalEvent.seriesId) {
-            sourceEvent = { ...originalEvent, sourceId: originalEvent.seriesId };
-          }
+          recurringScope = scope === 'all' ? 'future' : 'this';
         }
-        await handleSaveEvent(payload, sourceEvent);
+        await handleSaveEvent(payload, originalEvent, recurringScope);
       })();
     },
-    [events, isEventEditable, isEventRecurring, askRecurringScope, handleSaveEvent]
+    [events, calendars, ncRefresh, isEventEditable, isEventRecurring, askRecurringScope, handleSaveEvent]
   );
 
   return {
@@ -668,7 +758,7 @@ export function useCalendarLogic() {
     calendars,
     toggleCalendar,
     updateCalendar,
-    reorderCalendars,
+    reorderCalendars: (ordered: CalendarConfig[]) => reorderCalendars(ordered.map(({ readOnly: _readOnly, ...cal }) => cal)),
     groups,
     addGroup,
     removeGroup,
@@ -697,6 +787,7 @@ export function useCalendarLogic() {
     handleNavigateToDate,
     handleViewChange,
     handleSaveEvent,
+    loadEventRecurrence,
     handleRsvp,
     handleDeleteEvent,
     handleCancelEvent,
