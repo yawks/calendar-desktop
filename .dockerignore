@@ -1,5 +1,9 @@
 .git
 .DS_Store
+build
+dist
+calendar-desktop.xcodeproj
+debug-courrier.keystore
 frontend/node_modules
 frontend/dist
 frontend/android

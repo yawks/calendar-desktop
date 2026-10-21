@@ -6,6 +6,15 @@ Thumbs.db
 .idea/
 *.log
 
+# Root build outputs and obsolete Xcode project
+/build/
+/dist/
+/calendar-desktop.xcodeproj/
+**/xcuserdata/
+
+# Local Android signing key
+/debug-courrier.keystore
+
 # Frontend build / dependencies
 frontend/dist/
 frontend/node_modules/
