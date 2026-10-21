@@ -236,6 +236,7 @@ export function useMailMutations() {
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'thread-count-v2'] });
     },
   });
 
@@ -280,6 +281,7 @@ export function useMailMutations() {
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'thread-count-v2'] });
     },
   });
 
@@ -324,6 +326,7 @@ export function useMailMutations() {
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'thread-count-v2'] });
     },
   });
 
@@ -345,6 +348,7 @@ export function useMailMutations() {
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'thread-count-v2'] });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(variables.accountId, variables.targetFolderId) });
     },
   });
@@ -385,6 +389,7 @@ export function useMailMutations() {
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'thread-count-v2'] });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(variables.accountId, variables.targetFolderId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(variables.accountId, 'snoozed') });
     },
@@ -440,6 +445,7 @@ export function useMailMutations() {
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.unread(variables.accountId) });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.folders(variables.accountId) });
+      queryClient.invalidateQueries({ queryKey: ['mail', variables.accountId, 'thread-count-v2'] });
       queryClient.invalidateQueries({ queryKey: MAIL_KEYS.threads(variables.accountId, 'snoozed') });
     },
   });

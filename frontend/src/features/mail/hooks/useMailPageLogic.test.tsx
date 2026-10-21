@@ -282,3 +282,45 @@ for (const [before, after] of [[2, 1], [1, 2]]) {
     }
   });
 }
+
+for (const operation of ['trash', 'move'] as const) {
+  it(`updates the total immediately for ${operation} and restores it on undo or failure`, async () => {
+    vi.useFakeTimers();
+    const client = new QueryClient();
+    const key = ['mail', 'account', 'thread-count-v2', 'inbox'];
+    client.setQueryData(key, 100);
+    const root = createRoot(document.createElement('div'));
+    let logic!: ReturnType<typeof useMailPageLogic>;
+    function Harness() { logic = useMailPageLogic(); return null; }
+    const perform = operation === 'trash' ? f.remove : f.move;
+    perform.mockReset();
+    const remove = async (id: string) => {
+      await act(async () => logic.setSelectedThread({ conversation_id: id, accountId: 'account' } as never));
+      await act(async () => {
+        if (operation === 'trash') logic.moveToTrash(id);
+        else await logic.handleMove('archive');
+      });
+    };
+    try {
+      await act(async () => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
+      await remove('first');
+      expect(logic.threadTotalCount).toBe(99);
+      await act(async () => logic.cancelDeletion());
+      expect(logic.threadTotalCount).toBe(100);
+      await remove('first');
+      await act(async () => vi.advanceTimersByTimeAsync(5000));
+      const callbacks = perform.mock.calls.at(-1)![1];
+      await remove('second');
+      expect(logic.threadTotalCount).toBe(98);
+      await act(async () => callbacks.onError(new Error('failed')));
+      expect(logic.threadTotalCount).toBe(99);
+      await act(async () => logic.cancelDeletion());
+      expect(logic.threadTotalCount).toBe(100);
+    } finally {
+      await act(async () => root.unmount());
+      client.clear();
+      perform.mockReset();
+      vi.useRealTimers();
+    }
+  });
+}
