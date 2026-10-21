@@ -101,6 +101,39 @@ pub struct ComposerAttachment {
     pub content_id: Option<String>,
 }
 
+/// Normalize search aliases without changing case-sensitive provider folder IDs.
+pub fn search_folder_key(folder: &str) -> &str {
+    match folder.to_ascii_lowercase().as_str() {
+        "inbox" => "inbox",
+        "sent" | "sentitems" => "sentitems",
+        "trash" | "deleteditems" => "deleteditems",
+        "draft" | "drafts" => "drafts",
+        "junk" | "spam" => "spam",
+        _ => folder,
+    }
+}
+
+#[cfg(test)]
+mod search_folder_tests {
+    use super::search_folder_key;
+
+    #[test]
+    fn resolves_aliases_and_preserves_provider_ids() {
+        for (input, expected) in [
+            ("Trash", "deleteditems"),
+            ("TRASH", "deleteditems"),
+            ("DeletedItems", "deleteditems"),
+            ("INBOX", "inbox"),
+            ("Sent", "sentitems"),
+            ("Draft", "drafts"),
+            ("Junk", "spam"),
+            ("AAMkAGCaseSensitiveId", "AAMkAGCaseSensitiveId"),
+        ] {
+            assert_eq!(search_folder_key(input), expected);
+        }
+    }
+}
+
 /// Structured search query forwarded from the TypeScript provider.
 #[derive(Deserialize, Debug)]
 pub struct MailSearchQuery {

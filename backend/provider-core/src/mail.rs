@@ -5,8 +5,8 @@ use base64::{
 
 use crate::ews::{xml_all_ns, xml_attr, xml_content_ns};
 use crate::mail_provider::{
-    ComposerAttachment, MailAttachment, MailFolder, MailIdentity, MailItemRef, MailMessage,
-    MailProvider, MailRecipient, MailSearchQuery, MailThread, SaveDraftParams, SendMailParams,
+    search_folder_key, ComposerAttachment, MailAttachment, MailFolder, MailIdentity, MailItemRef,
+    MailMessage, MailProvider, MailRecipient, MailSearchQuery, MailThread, SaveDraftParams, SendMailParams,
 };
 
 const EWS_ENDPOINT: &str = "https://outlook.office365.com/EWS/Exchange.asmx";
@@ -46,6 +46,16 @@ impl EwsProvider {
             user_email,
             list_offset,
         }
+    }
+}
+
+fn search_folder_xml(folder: &str) -> String {
+    match search_folder_key(folder) {
+        id @ ("inbox" | "sentitems" | "deleteditems" | "drafts" | "junkemail") => {
+            format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, id)
+        }
+        "spam" => r#"<t:DistinguishedFolderId Id="junkemail"/>"#.to_string(),
+        id => format!(r#"<t:FolderId Id="{}"/>"#, xml_escape(id)),
     }
 }
 
@@ -1150,12 +1160,7 @@ impl MailProvider for EwsProvider {
         eprintln!("[mail_search_threads] AQS query: {:?}", aqs_query);
 
         let folder_id_xmls: Vec<String> = if let Some(f) = &query.folder {
-            vec![match f.as_str() {
-                "inbox" | "sentitems" | "deleteditems" | "drafts" => {
-                    format!(r#"<t:DistinguishedFolderId Id="{}"/>"#, f)
-                }
-                id => format!(r#"<t:FolderId Id="{}"/>"#, id),
-            }]
+            vec![search_folder_xml(f)]
         } else {
             let discovered = find_all_mail_folder_ids(access_token).await;
             eprintln!(
@@ -1230,9 +1235,10 @@ impl MailProvider for EwsProvider {
                     );
                     match send(&token, &soap_body).await {
                         Ok(xml) if !xml.contains("ResponseClass=\"Error\"") => {
-                            search_xml_to_rows(&xml)
+                            Ok(search_xml_to_rows(&xml))
                         }
-                        _ => vec![],
+                        Ok(xml) => Err(ews_err(&xml, "Exchange search failed")),
+                        Err(error) => Err(error),
                     }
                 })
             })
@@ -1240,9 +1246,7 @@ impl MailProvider for EwsProvider {
 
         let mut all_rows: Vec<Row> = Vec::new();
         for handle in handles {
-            if let Ok(rows) = handle.await {
-                all_rows.extend(rows);
-            }
+            all_rows.extend(handle.await.map_err(|error| error.to_string())??);
         }
 
         all_rows.sort_by(|a, b| b.2.cmp(&a.2));
@@ -3272,6 +3276,20 @@ fn xml_unescape_body(raw: &str) -> String {
 
 #[cfg(test)]
 mod outlook_schedule_tests {
+    #[test]
+    fn search_resolves_trash_as_distinguished_folder_and_escapes_custom_ids() {
+        for folder in ["Trash", "trash", "TRASH", "deleteditems"] {
+            assert_eq!(
+                super::search_folder_xml(folder),
+                r#"<t:DistinguishedFolderId Id="deleteditems"/>"#
+            );
+        }
+        assert_eq!(
+            super::search_folder_xml("Custom&Id"),
+            r#"<t:FolderId Id="Custom&amp;Id"/>"#
+        );
+    }
+
     #[test]
     fn response_draft_preserves_reference_and_selected_recipients() {
         let mut params = super::SendMailParams {

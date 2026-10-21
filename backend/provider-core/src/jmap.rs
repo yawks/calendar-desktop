@@ -1686,6 +1686,12 @@ impl MailProvider for JmapProvider {
         let count = max_count.unwrap_or(50);
 
         let mut filters: Vec<EmailFilter> = Vec::new();
+        if let Some(folder) = &query.folder {
+            let folder_ids = get_folder_ids(&self.state, &client, &self.config).await?;
+            let key = search_folder_key(folder);
+            let mailbox_id = folder_ids.get(key).map(String::as_str).unwrap_or(key);
+            filters.push(EmailFilter::in_mailbox(mailbox_id));
+        }
         if let Some(ref from) = query.from {
             filters.push(EmailFilter::from(from.clone()));
         }

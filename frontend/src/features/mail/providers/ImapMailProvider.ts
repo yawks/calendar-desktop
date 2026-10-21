@@ -25,7 +25,8 @@ export class ImapMailProvider implements MailProvider {
       spam: 'Junk',
     };
 
-    const key = folder.toLowerCase();
+    const normalized = folder.toLowerCase();
+    const key = normalized === 'trash' ? 'deleteditems' : normalized;
     // Return the mapped folder if found, otherwise return the original (handles dynamic folders)
     return this.folderMapping[key] || staticMap[key] || folder;
   }
