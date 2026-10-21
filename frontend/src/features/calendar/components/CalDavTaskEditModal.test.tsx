@@ -8,7 +8,7 @@ import i18n from '../../../i18n';
 import type { CalendarConfig, CalendarEvent } from '../../../shared/types';
 vi.mock('../utils/caldavTaskApi', async importOriginal => ({ ...await importOriginal<typeof import('../utils/caldavTaskApi')>(), reloadCalDavTask: vi.fn(), updateCalDavTask: vi.fn() }));
 const calendar: CalendarConfig = { id: 'cal', name: 'OpenTodo', type: 'nextcloud', url: 'https://calendar.test/dav/', visible: true, color: '#123456', readOnly: true };
-const event: CalendarEvent = { id: 'task', calendarId: 'cal', title: 'Task: Original', start: '2026-10-22T00:00:00', end: '2026-10-23T00:00:00', isAllday: true, category: 'allday', isTask: true, readOnly: false,
+const event: CalendarEvent = { id: 'task', calendarId: 'cal', title: '📋 Original', start: '2026-10-22T00:00:00', end: '2026-10-23T00:00:00', isAllday: true, category: 'allday', isTask: true, readOnly: false,
   caldavTask: { uid: 'task', resourceUrl: `${calendar.url}project/custom.ics`, etag: '"v1"', title: 'Original', due: '2026-10-22', project: 'Project Alpha', categories: ['Urgent', 'Client'] } };
 beforeEach(() => {
   vi.resetAllMocks();

@@ -90,6 +90,15 @@ Si aucun pattern ne convient, créer un composant et des classes sémantiques d�
 - Un conflit doit expliquer les conséquences des deux choix. Aucune fusion, suppression ou écrasement ne doit être silencieux.
 - Ne jamais rendre deux fois le même message d’état.
 
+## Mises à jour optimistes (optimistic UI)
+
+- Pour une action dont le résultat local est prévisible et réversible, mettre à jour immédiatement les éléments visibles concernés, sans attendre la réponse du serveur. Appliquer ce principe de manière cohérente sur web, desktop Tauri et Android Capacitor, pour tous les providers concernés.
+- Mettre à jour l’entité existante et les vues ou caches qui la représentent, sans doublon ni ancien état résiduel. Par exemple, accepter un nouvel horaire retire immédiatement l’ancien créneau de l’aperçu et affiche le même rendez-vous au nouvel horaire avec l’état accepté.
+- Conserver l’état précédent pour pouvoir annuler la mise à jour optimiste en cas d’échec confirmé, sans écraser des changements plus récents. Afficher alors l’erreur près de l’action et permettre une nouvelle tentative.
+- Pendant l’enregistrement, exposer l’état occupé et empêcher les doubles envois. L’affichage optimiste ne vaut pas confirmation de succès : annoncer le succès après confirmation du serveur, puis réconcilier les vues et caches avec les données enregistrées.
+- Si le résultat est incertain ou si le serveur signale un conflit après une possible réussite, relire l’entité distante avant de conclure à un échec. Si l’état demandé est déjà enregistré, confirmer le succès ; sinon, réconcilier l’affichage et présenter l’erreur ou le conflit sans écrasement ni nouvelle tentative automatique aveugle. Une erreur de rafraîchissement après un enregistrement confirmé ne doit pas être présentée comme un échec de l’action.
+- Ne pas appliquer ce mécanisme aveuglément aux actions irréversibles ou dont le résultat ne peut pas être anticipé. Vérifier les chemins succès, échec avec retour arrière, doubles clics et résultat distant incertain, ainsi que l’absence de doublons dans les vues concernées.
+
 ## Internationalisation et contenu
 
 - Tout texte visible passe par `react-i18next` et existe au minimum en français et en anglais.

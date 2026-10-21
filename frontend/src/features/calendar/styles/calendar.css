@@ -1752,6 +1752,7 @@
 .event-mail-action__error { margin: 8px 0 0; color: var(--danger); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.45; }
 .caldav-task-metadata {
   margin: 0;
+  color: var(--text);
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1.45;
   overflow-wrap: anywhere;

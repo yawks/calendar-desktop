@@ -80,6 +80,7 @@ interface VaultContextValue {
   enableBiometrics(): Promise<void>;
   disableBiometrics(): Promise<void>;
   backupToNextcloud(location: NextcloudConfigLocation): Promise<void>;
+  restoreFromNextcloud(location: NextcloudConfigLocation): Promise<void>;
   configSyncSettings: ConfigSyncSettings | null;
   configSyncStatus: ConfigSyncStatus;
   configSyncInvitation: string | null;
@@ -393,10 +394,8 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     payloadRef.current = next; setPayload(next); setConfigSyncSettings(null); setConfigSyncStatus('disabled'); persist(next, [CONFIG_SYNC_KEY]);
   }, [persist]);
 
-  const resolveConfigSyncConflict = useCallback(async (strategy: 'local' | 'remote') => {
-    const sync = configSyncSettings;
-    if (!sync) throw new Error('Config sync is disabled');
-    if (strategy === 'local') { await pushConfiguration(sync, sync.etag, sync.revision, true); return; }
+  const restoreFromNextcloud = useCallback(async (location: NextcloudConfigLocation) => {
+    const sync = { ...location, enabled: true };
     const remote = await fetchRemoteVault(sync);
     if (!remote.document || !sync.recoveryKey) throw new Error('Remote configuration unavailable');
     const remotePayload = await decryptVaultWithKey<VaultPayload>(remote.document.vault, await importVaultKey(recoveryKeyToBytes(sync.recoveryKey)));
@@ -408,7 +407,14 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     resetMailNavigationAfterConfigReplacement();
     payloadRef.current = next; setPayload(next); setConfigSyncSettings(nextSync); setContentRevision(revision => revision + 1); persist(next, [...PORTABLE_CONFIG_KEYS, CONFIG_SYNC_KEY]); setConfigSyncStatus('synced');
     await writeQueue.current;
-  }, [configSyncSettings, persist, pushConfiguration]);
+  }, [persist]);
+
+  const resolveConfigSyncConflict = useCallback(async (strategy: 'local' | 'remote') => {
+    const sync = configSyncSettings;
+    if (!sync) throw new Error('Config sync is disabled');
+    if (strategy === 'local') { await pushConfiguration(sync, sync.etag, sync.revision, true); return; }
+    await restoreFromNextcloud(sync);
+  }, [configSyncSettings, pushConfiguration, restoreFromNextcloud]);
 
   useEffect(() => {
     const sync = configSyncSettings;
@@ -501,13 +507,14 @@ export function VaultProvider({ children }: Readonly<{ children: ReactNode }>) {
     enableBiometrics,
     disableBiometrics,
     backupToNextcloud,
+    restoreFromNextcloud,
     configSyncSettings,
     configSyncStatus,
     configSyncInvitation,
     configSyncSummary,
     disableConfigSync,
     resolveConfigSyncConflict,
-  }), [read, write, lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics, backupToNextcloud, configSyncSettings, configSyncStatus, configSyncInvitation, configSyncSummary, disableConfigSync, resolveConfigSyncConflict]);
+  }), [read, write, lock, biometricAvailable, biometricEnabled, enableBiometrics, disableBiometrics, backupToNextcloud, restoreFromNextcloud, configSyncSettings, configSyncStatus, configSyncInvitation, configSyncSummary, disableConfigSync, resolveConfigSyncConflict]);
 
   if (stored === undefined || !desktopSessionChecked) return <VaultLoading />;
   if (!payload) return <VaultScreen exists={stored !== null} busy={busy} error={error} biometricEnabled={biometricEnabled} onSubmit={submit} onBiometricUnlock={biometricUnlock} onRestore={restore} />;

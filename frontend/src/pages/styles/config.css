@@ -483,3 +483,10 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 .config-layout.config-settings select:disabled { cursor: default; opacity: .6; }
+
+.config-sync-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.45;
+}

@@ -37,6 +37,7 @@ interface GoogleConferenceEntryPoint {
 }
 
 interface GoogleEvent {
+  iCalUID?: string;
   id: string;
   summary?: string;
   visibility?: string;
@@ -125,6 +126,7 @@ function googleEventToCalendarEvent(gEvent: GoogleEvent, cal: CalendarConfig, ow
   return {
     id: `${cal.id}-${gEvent.id}`,
     sourceId: gEvent.id,
+    icalUid: gEvent.iCalUID,
     calendarId: cal.id,
     sensitivity: gEvent.visibility,
     availability: gEvent.transparency,
@@ -303,6 +305,7 @@ export async function updateEvent(
   sourceId: string,
   payload: CreateEventPayload,
   originalOccurrenceStart?: string,
+  sendUpdates = false,
 ): Promise<void> {
   if (cal.shared) throw new Error(t('sharedCalendars.readOnly'));
   const calendarId = encodeURIComponent(cal.googleCalendarId ?? 'primary');
@@ -323,7 +326,7 @@ export async function updateEvent(
       body.workingLocationProperties = { type: 'customLocation', customLocation: { label: payload.location || payload.title } };
     }
   }
-  await gFetch(token, `/calendars/${calendarId}/events/${eventId}`, {
+  await gFetch(token, `/calendars/${calendarId}/events/${eventId}${sendUpdates ? '?sendUpdates=all' : ''}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });

@@ -3110,14 +3110,14 @@ fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
         }
     });
 
-    let uid = {
+    let uid = xml_content_ns(msg_xml, "t:UID").unwrap_or_else(|| {
         let id_elem = msg_xml
             .find("<t:ItemId ")
             .and_then(|s| msg_xml[s..].find("/>").map(|e| &msg_xml[s..s + e]));
         id_elem
             .and_then(|e| xml_attr(e, "Id"))
             .unwrap_or_else(|| "unknown".to_string())
-    };
+    });
 
     let method = match item_type {
         "t:MeetingCancellation" => "CANCEL",
@@ -3166,6 +3166,14 @@ fn build_meeting_ics(msg_xml: &str, item_type: &str) -> Option<String> {
         dtstart,
         dtend,
     ];
+    let associated_id = ["t:AssociatedCalendarItemId", "AssociatedCalendarItemId"].iter().find_map(|tag| {
+        let start = msg_xml.find(&format!("<{tag} "))?;
+        let element = msg_xml[start..].split('>').next()?;
+        xml_attr(element, "Id")
+    });
+    if let Some(id) = associated_id {
+        lines.push(format!("X-COURRIER-EWS-ITEM-ID:{}", ics_escape_value(&id)));
+    }
     if !org_email.is_empty() {
         lines.push(format!(
             "ORGANIZER;CN={}:mailto:{}",
@@ -3423,12 +3431,14 @@ mod outlook_schedule_tests {
 
     #[test]
     fn meeting_response_preserves_proposed_times_without_calendar_start_fields() {
-        let xml = r#"<t:MeetingResponse><t:Subject>New time proposed</t:Subject>
+        let xml = r#"<t:MeetingResponse><t:AssociatedCalendarItemId Id="calendar-id"/><t:UID>meeting-uid</t:UID><t:Subject>New time proposed</t:Subject>
             <t:ProposedStart>2026-10-23T08:00:00Z</t:ProposedStart>
             <t:ProposedEnd>2026-10-23T09:00:00Z</t:ProposedEnd>
         </t:MeetingResponse>"#;
         let ics = build_meeting_ics(xml, "t:MeetingResponse").unwrap();
         assert!(ics.contains("METHOD:COUNTER"));
+        assert!(ics.contains("UID:meeting-uid"));
+        assert!(ics.contains("X-COURRIER-EWS-ITEM-ID:calendar-id"));
         assert!(ics.contains("DTSTART:20261023T080000Z"));
         assert!(ics.contains("DTEND:20261023T090000Z"));
         let normal = xml.replace("ProposedStart", "Start").replace("ProposedEnd", "End");

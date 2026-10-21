@@ -7,6 +7,7 @@ import type { MailProvider } from '../providers/MailProvider';
 import { useProviderContactSearch } from '../hooks/useContactSuggestions';
 import { ContactDropdown } from './ContactDropdown';
 import { usableContactName } from '../utils/contactIndex';
+import { decodeHtmlEntities } from '../utils';
 
 export interface RecipientEntry {
   email: string;
@@ -299,7 +300,7 @@ export function RecipientInput({ value, onChange, contacts, provider, autoFocus,
               onClick={() => editChip(r)}
               title={r.name ? r.email : undefined}
             >
-              {r.name ?? r.email}
+              {r.name ? decodeHtmlEntities(r.name) : r.email}
             </button>
             <button
               type="button"

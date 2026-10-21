@@ -1,3 +1,4 @@
+import { declineCounterIcs } from '../utils/declineCounter';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MailMessage, MailAttachment } from '../types';
@@ -215,6 +216,21 @@ export function MessageBlock({
     });
   };
 
+  const onDeclineCounter = provider && displayedMessage.from_email ? async (icsText: string, title: string) => {
+    const reply = declineCounterIcs(icsText, displayedMessage.from_email!, currentUserEmail);
+    const bytes = new TextEncoder().encode(reply);
+    await provider.sendMail({
+      to: [displayedMessage.from_email!],
+      subject: t('invitation.counterDeclineSubject', { title }),
+      bodyHtml: `<p>${t('invitation.counterDeclineBody')}</p>`,
+      attachments: [{
+        name: 'reply.ics', contentType: 'text/calendar; method=DECLINECOUNTER; charset=UTF-8', size: bytes.length,
+        data: btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join('')),
+      }],
+    });
+  } : undefined;
+
+
   return (
     <div ref={blockRef} className={`mail-message-block${isExpanded ? ' expanded' : ''}${message.is_read ? '' : ' unread'}${scrollIntoViewOnMount ? ' mail-message-block--initial-unread' : ''}`}>
       <MessageBlockHeader
@@ -269,6 +285,7 @@ export function MessageBlock({
               mailProviderType={mailProviderType}
               invitationHtml={displayedMessage.body_html}
               invitationText={displayedMessage.body_text}
+              onDeclineCounter={onDeclineCounter}
             />
           ))}
           {displayedMessage.ics_mime && (
@@ -279,6 +296,7 @@ export function MessageBlock({
               mailProviderType={mailProviderType}
               invitationHtml={displayedMessage.body_html}
               invitationText={displayedMessage.body_text}
+              onDeclineCounter={onDeclineCounter}
             />
           )}
           {contentQuery.isError ? (

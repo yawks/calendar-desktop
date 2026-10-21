@@ -50,6 +50,7 @@ pub struct EwsAttendee {
 
 #[derive(Serialize, Debug)]
 pub struct EwsEvent {
+    pub uid: Option<String>,
     pub sensitivity: Option<String>,
     pub availability: Option<String>,
     pub item_id: String,
@@ -495,6 +496,7 @@ fn parse_calendar_events(xml: &str) -> Result<Vec<EwsEvent>, String> {
         }
 
         events.push(EwsEvent {
+            uid: xml_content(&item_xml, "t:UID"),
             sensitivity: xml_content(&item_xml, "t:Sensitivity"),
             availability: xml_content(&item_xml, "t:LegacyFreeBusyStatus"),
             availability_only: false,
@@ -687,8 +689,9 @@ mod calendar_title_tests {
 
     #[test]
     fn decodes_calendar_subject_entities_once_as_plain_text() {
-        let xml = r#"<t:CalendarItem><t:ItemId Id="item" ChangeKey="key"/><t:Subject>R&amp;D &lt;Planning&gt; &quot;Équipe&quot; d&apos;été &amp;quot; &amp;amp;</t:Subject><t:Start>2026-10-19T10:00:00Z</t:Start><t:End>2026-10-19T11:00:00Z</t:End></t:CalendarItem>"#;
+        let xml = r#"<t:CalendarItem><t:ItemId Id="item" ChangeKey="key"/><t:UID>meeting-uid</t:UID><t:Subject>R&amp;D &lt;Planning&gt; &quot;Équipe&quot; d&apos;été &amp;quot; &amp;amp;</t:Subject><t:Start>2026-10-19T10:00:00Z</t:Start><t:End>2026-10-19T11:00:00Z</t:End></t:CalendarItem>"#;
         let events = parse_calendar_events(xml).unwrap();
+        assert_eq!(events[0].uid.as_deref(), Some("meeting-uid"));
         assert_eq!(events[0].subject, "R&D <Planning> \"Équipe\" d'été &quot; &amp;");
         assert_eq!(xml_decode("R&D, café"), "R&D, café");
     }

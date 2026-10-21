@@ -34,7 +34,7 @@ it('discovers OpenTodo projects from /dav/ and reads due-only tasks using REPORT
   const result = await loadCalDavCalendar(cal);
   expect(result.readOnly).toBe(true);
   expect(result.events).toHaveLength(2);
-  expect(result.events[0]).toMatchObject({ title: 'Tâche : Préparer le dossier', start: '2026-10-22T00:00:00', end: '2026-10-23T00:00:00', isAllday: true, readOnly: true, isTask: true });
+  expect(result.events[0]).toMatchObject({ title: '📋 Préparer le dossier', start: '2026-10-22T00:00:00', end: '2026-10-23T00:00:00', isAllday: true, readOnly: true, isTask: true });
   expect(result.events[1]).toMatchObject({ start: '2026-10-23T14:30:00.000Z', end: '2026-10-23T15:00:00.000Z', readOnly: true });
   expect(new Set(result.events.map(event => event.id)).size).toBe(2);
   expect(result.events.every(event => !event.sourceId)).toBe(true);
@@ -90,7 +90,7 @@ it.each(['fr', 'en'])('parses dated tasks with localized titles, skips completed
   await i18n.changeLanguage(language);
   const tasks = parseCalDavTasks(taskIcs('DUE;VALUE=DATE:20261022', 'RRULE:FREQ=DAILY'), cal);
   expect(tasks).toHaveLength(1);
-  expect(tasks[0].title).toBe(`${language === 'fr' ? 'Tâche : ' : 'Task: '}Préparer le dossier`);
+  expect(tasks[0].title).toBe('📋 Préparer le dossier');
   expect(tasks[0].start).toBe('2026-10-22T00:00:00');
   expect(parseCalDavTasks(taskIcs('DTSTART:20261022T123000Z'), cal)[0].start).toBe('2026-10-22T12:30:00.000Z');
   for (const lines of [[], ['DUE:20261022T123000Z', 'STATUS:COMPLETED'], ['DUE:20261022T123000Z', 'STATUS:CANCELLED'], ['DUE:20261022T123000Z', 'COMPLETED:20261022T130000Z']]) {

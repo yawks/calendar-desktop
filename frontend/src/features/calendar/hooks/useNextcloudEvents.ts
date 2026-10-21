@@ -5,7 +5,7 @@ import { calDavLoadError, loadCalDavCalendar, type CalDavSnapshot } from '../uti
 import { cacheGetStale, cacheSet, cacheIsFresh, patchCachedEventRsvp } from '../utils/eventCache';
 
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 
 function cacheKey(calId: string) {
   return `nextcloud-events:${CACHE_VERSION}:${calId}`;

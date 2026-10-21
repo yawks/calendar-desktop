@@ -970,6 +970,7 @@ fn availability_windows(start: &str, end: &str) -> Result<Vec<(String, String)>,
 
 fn availability_event(slot: EwsFreeBusySlot) -> EwsEvent {
     EwsEvent {
+        uid: None,
         item_id: format!("availability:{}:{}:{}", slot.start, slot.end, slot.busy_type),
         change_key: String::new(), subject: slot.subject.unwrap_or_default(),
         start: slot.start, end: slot.end, is_all_day: false, location: slot.location,

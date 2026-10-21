@@ -26,6 +26,14 @@ cd frontend
 npm run desktop:build
 ```
 
+Sur macOS, pour créer un DMG à un emplacement précis (commande depuis la racine) :
+
+```sh
+./scripts/build_release_dmg.sh --output ./dist/Courrier.dmg
+```
+
+Sans `--output`, le DMG est créé dans `~/Desktop/Courrier.dmg`. Le script accepte également `--dmg-name` pour nommer le volume.
+
 Le build rapide réutilise les caches Cargo et évite l'étape de packaging. Les artefacts de release sont produits dans `desktop-native/target/release/bundle`. Tauri génère les formats propres au système de build : `.app`/DMG sur macOS, MSI/NSIS sur Windows et les bundles Linux configurés. Les builds Windows et Linux doivent être exécutés sur leurs runners respectifs.
 
 Le backend HTTP sous `backend/` reste disponible uniquement pour le mode Web/PWA et la transition. Il n'est pas embarqué dans l'application desktop.

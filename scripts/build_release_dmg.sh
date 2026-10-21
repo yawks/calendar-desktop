@@ -3,16 +3,16 @@ set -euo pipefail
 
 # build_release_dmg.sh
 # Build script for Tauri project. Compiles the app and creates a DMG for macOS distribution.
-# Run from the repo root (where this script lives).
+# Run from any working directory.
 # Usage examples:
-#  ./build_release_dmg.sh
-#  ./build_release_dmg.sh --output ./dist/MyApp.dmg
+#  ./scripts/build_release_dmg.sh
+#  ./scripts/build_release_dmg.sh --output ./dist/MyApp.dmg
 
-REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FRONTEND_DIR="$REPO_ROOT/frontend"
-TAURI_DIR="$FRONTEND_DIR/src-tauri"
+TAURI_DIR="$REPO_ROOT/desktop-native"
 DMG_NAME="${DMG_NAME:-Courrier}"
-DMG_OUTPUT="${DMG_OUTPUT:-$HOME/Desktop/${DMG_NAME}.dmg}"
+DMG_OUTPUT="${DMG_OUTPUT:-}"
 
 show_help() {
   cat <<EOF
@@ -31,12 +31,25 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dmg-name) DMG_NAME="$2"; DMG_OUTPUT="$HOME/Desktop/${DMG_NAME}.dmg"; shift 2 ;;
-    --output)   DMG_OUTPUT="$2"; shift 2 ;;
+    --dmg-name|--output)
+      if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+        echo "Missing value for $1" >&2
+        exit 2
+      fi
+      if [[ "$1" == --dmg-name ]]; then DMG_NAME="$2"; else DMG_OUTPUT="$2"; fi
+      shift 2
+      ;;
     --help)     show_help; exit 0 ;;
     *)          echo "Unknown option: $1"; show_help; exit 1 ;;
   esac
 done
+
+DMG_OUTPUT="${DMG_OUTPUT:-$HOME/Desktop/${DMG_NAME}.dmg}"
+[[ "$DMG_OUTPUT" == /* ]] || DMG_OUTPUT="$PWD/$DMG_OUTPUT"
+if [[ "$(uname -s)" != Darwin ]]; then
+  echo "This script requires macOS." >&2
+  exit 1
+fi
 
 echo "=== Tauri Build for macOS ==="
 echo "Frontend dir:  $FRONTEND_DIR"
@@ -49,18 +62,20 @@ cd "$FRONTEND_DIR"
 # Install dependencies if needed
 if [[ ! -d "node_modules" ]]; then
   echo "Installing frontend dependencies..."
-  npm install
+  npm ci
 fi
 
 # Build with Tauri (handles everything: frontend, Rust backend, codesigning, icons, etc.)
 echo "Building with Tauri..."
-npm run tauri -- build -- --verbose
+npm run desktop:build -- --bundles app --verbose
 
-# Find the generated DMG
+# Locate the generated app in Cargo’s configured target directory.
 echo
 echo "Finding generated app..."
-APP_PATH=$(find "$TAURI_DIR/target/release/bundle/macos" -name "*.app" -type d | head -1)
-if [[ -z "$APP_PATH" ]]; then
+TARGET_DIR=$(cargo metadata --manifest-path "$TAURI_DIR/Cargo.toml" --format-version 1 --no-deps | node -e 'let s=""; process.stdin.on("data", c => s += c); process.stdin.on("end", () => console.log(JSON.parse(s).target_directory))')
+APP_NAME=$(node -p 'require(process.argv[1]).productName' "$TAURI_DIR/tauri.conf.json")
+APP_PATH="$TARGET_DIR/release/bundle/macos/$APP_NAME.app"
+if [[ ! -d "$APP_PATH" ]]; then
   echo "Error: App bundle not found" >&2
   exit 1
 fi
@@ -69,10 +84,11 @@ echo "App found at: $APP_PATH"
 echo
 
 # Create DMG from the generated app
-STAGING_DIR="$REPO_ROOT/dist/staging"
+STAGING_DIR=$(mktemp -d "${TMPDIR:-/tmp}/courrier-dmg.XXXXXX")
+trap 'rm -rf "$STAGING_DIR"' EXIT
 echo "Creating DMG..."
-rm -rf "$STAGING_DIR"
-mkdir -p "$STAGING_DIR"
+mkdir -p "$(dirname "$DMG_OUTPUT")"
+ln -s /Applications "$STAGING_DIR/Applications"
 cp -R "$APP_PATH" "$STAGING_DIR/"
 
 # Create DMG with volume icon
@@ -83,6 +99,5 @@ if [[ -f "$DMG_ICON_PATH" ]]; then
 fi
 
 hdiutil create -volname "$DMG_NAME" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_OUTPUT"
-rm -rf "$STAGING_DIR"
 
 echo "Done! DMG created at: $DMG_OUTPUT"

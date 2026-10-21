@@ -1,3 +1,4 @@
+import { isEventOrganizer, isEventEditable as canEditEvent } from '../utils/eventPermissions';
 import { useAndroidCalendars } from '../store/AndroidCalendarProvider';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { CalendarConfig, CalendarEvent, CreateEventPayload, ViewType } from '../../../shared/types';
@@ -658,30 +659,13 @@ export function useCalendarLogic() {
   );
 
   const isExchangeOrganizer = useCallback((event: CalendarEvent) => {
-    const cal = calendars.find((c) => c.id === event.calendarId);
-    if (!cal || cal.type !== 'exchange' || !cal.exchangeAccountId) return false;
-    if (!event.attendees?.length) return true;
-    const account = exchangeAccounts.find((a) => a.id === cal.exchangeAccountId);
-    if (!account) return false;
-    return event.attendees.some((a) => {
-      if (!a.isOrganizer) return false;
-      if (a.email.toLowerCase() === account.email.toLowerCase()) return true;
-      return !!account.displayName && a.name.toLowerCase() === account.displayName.toLowerCase();
-    });
+    const cal = calendars.find(c => c.id === event.calendarId);
+    return !!cal && cal.type === 'exchange' && isEventOrganizer(event, cal, exchangeAccounts);
   }, [calendars, exchangeAccounts]);
 
-  const isEventEditable = useCallback((event: CalendarEvent) => {
-    if (event.readOnly || event.isTask) return false;
-    const cal = calendars.find((c) => c.id === event.calendarId);
-    if (!cal || !isCalendarWritable(cal)) return false;
-    if (cal.type === 'exchange') return isExchangeOrganizer(event);
-    if (cal.type !== 'google' && cal.type !== 'nextcloud') return false;
-    const attendees = event.attendees;
-    const ownerEmail = cal.ownerEmail?.toLowerCase();
-    return !attendees?.length || !!ownerEmail && attendees.some((a) =>
-      a.isOrganizer && a.email.toLowerCase() === ownerEmail
-    );
-  }, [calendars, isExchangeOrganizer]);
+  const isEventEditable = useCallback((event: CalendarEvent) =>
+    canEditEvent(event, calendars.find(c => c.id === event.calendarId), exchangeAccounts),
+  [calendars, exchangeAccounts]);
 
   const handleStartEdit = useCallback(async (event: CalendarEvent) => {
     if (event.readOnly || event.isTask) return;

@@ -8,6 +8,20 @@ vi.mock('../hooks/useContactSuggestions', () => ({ useProviderContactSearch: () 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (_key: string, fallback: string) => fallback }) }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+it('displays recipient names with decoded HTML entities as plain text', async () => {
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  await act(async () => root.render(<RecipientInput
+    value={[{ email: 'contact@example.test', name: 'Alice &amp;amp; Bob &#233; &lt;Support&gt;' }]}
+    contacts={[]}
+    onChange={vi.fn()}
+  />));
+  const label = host.querySelector('.recipient-chip__label')!;
+  expect(label.textContent).toBe('Alice & Bob é <Support>');
+  expect(label.children).toHaveLength(0);
+  await act(async () => root.unmount());
+});
+
 for (const source of ['to', 'cc', 'bcc']) {
   for (const target of ['to', 'cc', 'bcc'].filter(field => field !== source)) {
     it(`drags the recipient label from ${source} into the ${target} field`, async () => {

@@ -151,6 +151,8 @@ export interface Attendee {
 }
 
 export interface CalendarEvent {
+  /** Stable scheduling identity shared with invitation emails. */
+  icalUid?: string;
   readOnly?: boolean;
   isTask?: boolean;
   caldavTask?: {

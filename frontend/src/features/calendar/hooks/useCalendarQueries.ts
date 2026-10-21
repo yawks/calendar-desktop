@@ -12,6 +12,7 @@ export const CALENDAR_KEYS = {
 
 // --- EWS FETCH ---
 interface EwsEventRaw {
+  uid?: string;
   availability_only?: boolean;
   sensitivity?: string;
   availability?: string;
@@ -103,6 +104,7 @@ async function fetchEWSEvents(cal: CalendarConfig, accessToken: string): Promise
     const selfStatus = ewsResponseToRsvp(ev.my_response_type);
     return {
       id: `${cal.id}::${ev.item_id}`,
+      icalUid: ev.uid,
       sourceId: ev.availability_only ? undefined : `${ev.item_id}|${ev.change_key}`,
       seriesId: ev.recurring_master_id ?? ev.item_id,
       isRecurringInstance: !!ev.recurring_master_id,
